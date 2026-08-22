@@ -66,8 +66,8 @@ def test_return_and_end_equivalent(data_dir):
 def test_switch_case(data_dir):
     game = init_game(data_dir, hero=0)
     game.assets = _FakeAssets(script=_script(
-        26, -1, 2,     # SWITCH evalVar -> 2
-        27, 1, 1,      # CASE 1: no match, jump +1 word -> skips END, hits RET
+        25, -1, 2,     # SWITCH evalVar -> 2
+        26, 1, 1,      # CASE 1: no match, jump +1 word -> skips END, hits RET
         12,
         11,
     ))
@@ -108,9 +108,74 @@ def test_unknown_opcode_raises(data_dir):
         process_life(game, 0, 0)
 
 
-def test_dead_opcode_raises(data_dir):
+def test_var_ops(data_dir):
+    # LM_VAR/INC/DEC/ADD/SUB on game.vars (life.cpp:2194-2237)
     game = init_game(data_dir, hero=0)
-    game.assets = _FakeAssets(script=_script(70))  # LM_SPEED: no dispatch case in FITD
+    game.vars[0] = 0
+    game.assets = _FakeAssets(script=_script(
+        19, 0, -1, 5,     # LM_VAR vars[0] = 5
+        20, 0,            # LM_INC vars[0] -> 6
+        21, 0,            # LM_DEC vars[0] -> 5
+        22, 0, -1, 3,     # LM_ADD vars[0] += 3 -> 8
+        23, 0, -1, 2,     # LM_SUB vars[0] -= 2 -> 6
+        12,
+    ))
+    game.actors[0].life = 0
+    process_life(game, 0, 0)
+    assert game.vars[0] == 6
+
+
+def test_life_mode(data_dir):
+    game = init_game(data_dir, hero=0)
+    game.actors[0].life_mode = 0
+    game.assets = _FakeAssets(script=_script(24, 2, 24, 2, 12))
+    game.actors[0].life = 0
+    process_life(game, 0, 0)
+    assert game.actors[0].life_mode == 2
+
+
+def test_start_chrono(data_dir):
+    game = init_game(data_dir, hero=0)
+    game.timer = 7
+    game.assets = _FakeAssets(script=_script(28, 12))
+    game.actors[0].life = 0
+    process_life(game, 0, 0)
+    assert game.actors[0].chrono == 7
+
+
+def test_opcode_87_raises(data_dir):
+    game = init_game(data_dir, hero=0)
+    game.assets = _FakeAssets(script=_script(87))
+    game.actors[0].life = 0
+    with pytest.raises(ValueError):
+        process_life(game, 0, 0)
+
+
+def test_reduced_lm_type_unavailable(data_dir):
+    # LM_TYPE(40) with 0x8000 on out-of-floor object: allowed set, but the
+    # reduced dispatch module (maitd.life_reduced) lands in task 7 -> ValueError
+    game = init_game(data_dir, hero=0)
+    unspawned = next(i for i, o in enumerate(game.world_objects) if o.obj_index == -1)
+    game.assets = _FakeAssets(script=_script(0x8000 | 40, unspawned, 12))
+    game.actors[0].life = 0
+    with pytest.raises(ValueError):
+        process_life(game, 0, 0)
+
+
+def test_reduced_disallowed_raises(data_dir):
+    # LM_RETURN(11) with 0x8000 on out-of-floor object: not in reduced set
+    game = init_game(data_dir, hero=0)
+    unspawned = next(i for i, o in enumerate(game.world_objects) if o.obj_index == -1)
+    game.assets = _FakeAssets(script=_script(0x8000 | 11, unspawned, 12))
+    game.actors[0].life = 0
+    with pytest.raises(ValueError):
+        process_life(game, 0, 0)
+
+
+@pytest.mark.parametrize("op", [27, 57, 61, 69])  # LM_CAMERA, LM_STOP_BETA, LM_DO_NORMAL_ZV, LM_SPEED
+def test_dead_opcode_raises(data_dir, op):
+    game = init_game(data_dir, hero=0)
+    game.assets = _FakeAssets(script=_script(op))
     game.actors[0].life = 0
     with pytest.raises(ValueError):
         process_life(game, 0, 0)

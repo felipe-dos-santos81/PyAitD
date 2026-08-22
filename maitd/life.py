@@ -2,6 +2,8 @@
 """LIFE script VM — faithful port of FITD life.cpp processLife (AITD1)."""
 import struct
 
+from maitd.realvalue import start_chrono
+
 
 class VM:
     __slots__ = ("script", "pc", "game", "owner_idx", "cur_idx", "switch_val", "exit")
@@ -60,6 +62,48 @@ def _make_if(op):  # condition functions over (a, b)
     return handler
 
 
+def _op_message(vm):
+    # life.cpp:2164: makeMessage(evalVar()) — message UI lands in M4.
+    eval_var(vm)
+
+
+def _op_message_value(vm):
+    # life.cpp:2174: two raw words; message UI lands in M4.
+    read_s16(vm)
+    read_s16(vm)
+
+
+def _op_var(vm):
+    # life.cpp:2194: vars[raw idx] = evalVar()
+    idx = read_s16(vm)
+    vm.game.vars[idx] = eval_var(vm)
+
+
+def _op_inc(vm):
+    vm.game.vars[read_s16(vm)] += 1
+
+
+def _op_dec(vm):
+    vm.game.vars[read_s16(vm)] -= 1
+
+
+def _op_add(vm):
+    idx = read_s16(vm)
+    vm.game.vars[idx] += eval_var(vm)
+
+
+def _op_sub(vm):
+    idx = read_s16(vm)
+    vm.game.vars[idx] -= eval_var(vm)
+
+
+def _op_life_mode(vm):
+    # life.cpp:1341: set only when different (AITD1 compares full value)
+    mode = read_s16(vm)
+    if mode != vm.actor.life_mode:
+        vm.actor.life_mode = mode
+
+
 def _op_switch(vm):
     vm.switch_val = eval_var(vm)
 
@@ -71,6 +115,11 @@ def _op_case(vm):
         vm.pc += jump * 2
 
 
+def _op_start_chrono(vm):
+    # life.cpp:1447: startChrono(&actor->CHRONO)
+    start_chrono(vm.actor, "chrono", vm.game.timer)
+
+
 def _op_multi_case(vm):
     count = read_s16(vm)
     values = [read_s16(vm) for _ in range(count)]
@@ -79,8 +128,8 @@ def _op_multi_case(vm):
         vm.pc += jump * 2
 
 
-# Dead in AITD1: LM_STOP_BETA(58), LM_DO_NORMAL_ZV(62), LM_SPEED(70) — assert in FITD.
-# (LM_CAMERA is not part of the AITD1 88-entry table.)
+# Dead in AITD1: LM_CAMERA(27), LM_STOP_BETA(57), LM_DO_NORMAL_ZV(61), LM_SPEED(69)
+# — table entries exist but FITD's dispatch switch has no case for them (assert).
 def _op_dead(vm):
     raise ValueError(
         f"dead opcode {struct.unpack_from('<h', vm.script, vm.pc - 2)[0] & 0x7FFF} "
@@ -94,9 +143,8 @@ def _op_not_implemented(index):
     return handler
 
 
-# Reduced dispatch (world object not in floor, life.cpp:693-712): allowed set only.
-# FITD set incl LM_BODY_RESET(4) and LM_START_CHRONO(29, no-op).
-_REDUCED_ALLOWED = {1, 2, 3, 4, 13, 15, 25, 29, 32, 41, 48, 49, 50, 55, 56, 68, 75}
+# Reduced dispatch (world object not in floor, life.cpp:522-716): allowed set only.
+_REDUCED_ALLOWED = {1, 2, 3, 13, 15, 24, 28, 31, 40, 47, 48, 49, 54, 55, 67, 74}
 
 
 def process_life(game, actor_idx, life_num):
@@ -146,7 +194,8 @@ def life_gate(actor):
     return actor.life != -1 and actor.life_mode != -1
 
 
-LIFETABLE = [_op_not_implemented(i) for i in range(88)]
+# AITD1LifeMacroTable (AITD1.cpp:30-119, life.h:7-93): 87 entries, index == enum value.
+LIFETABLE = [_op_not_implemented(i) for i in range(87)]
 LIFETABLE[4] = _make_if(lambda a, b: a == b)   # LM_IF_EGAL
 LIFETABLE[5] = _make_if(lambda a, b: a != b)   # LM_IF_DIFFERENT
 LIFETABLE[6] = _make_if(lambda a, b: a >= b)   # LM_IF_SUP_EGAL
@@ -156,9 +205,19 @@ LIFETABLE[9] = _make_if(lambda a, b: a < b)    # LM_IF_INF
 LIFETABLE[10] = _op_goto                       # LM_GOTO
 LIFETABLE[11] = _op_end                        # LM_RETURN
 LIFETABLE[12] = _op_end                        # LM_END
-LIFETABLE[26] = _op_switch                     # LM_SWITCH
-LIFETABLE[27] = _op_case                       # LM_CASE
-LIFETABLE[30] = _op_multi_case                 # LM_MULTI_CASE
-LIFETABLE[58] = _op_dead                       # LM_STOP_BETA
-LIFETABLE[62] = _op_dead                       # LM_DO_NORMAL_ZV
-LIFETABLE[70] = _op_dead                       # LM_SPEED
+LIFETABLE[17] = _op_message                    # LM_MESSAGE
+LIFETABLE[18] = _op_message_value              # LM_MESSAGE_VALUE
+LIFETABLE[19] = _op_var                        # LM_VAR
+LIFETABLE[20] = _op_inc                        # LM_INC
+LIFETABLE[21] = _op_dec                        # LM_DEC
+LIFETABLE[22] = _op_add                        # LM_ADD
+LIFETABLE[23] = _op_sub                        # LM_SUB
+LIFETABLE[24] = _op_life_mode                  # LM_LIFE_MODE
+LIFETABLE[25] = _op_switch                     # LM_SWITCH
+LIFETABLE[26] = _op_case                       # LM_CASE
+LIFETABLE[27] = _op_dead                       # LM_CAMERA
+LIFETABLE[28] = _op_start_chrono               # LM_START_CHRONO
+LIFETABLE[29] = _op_multi_case                 # LM_MULTI_CASE
+LIFETABLE[57] = _op_dead                       # LM_STOP_BETA
+LIFETABLE[61] = _op_dead                       # LM_DO_NORMAL_ZV
+LIFETABLE[69] = _op_dead                       # LM_SPEED
