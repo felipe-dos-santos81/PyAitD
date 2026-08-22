@@ -1494,13 +1494,6 @@ def test_track_manual_forward(data_dir):
     assert a.speed == 3
 
 
-def test_track_manual_first_press_runs():
-    # FITD quirk: press within 10 ticks of lastTimeForward=0 (boot) -> run
-    game = Game.__new__(Game) if False else None
-    a = _actor()
-    init_deplacement(a, 1, 0)
-    a.speed = 0
-
 
 class _FakeAssets:
     def __init__(self, track=b""):
