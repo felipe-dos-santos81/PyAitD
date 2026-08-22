@@ -3,6 +3,8 @@
 import struct
 from dataclasses import dataclass, field
 
+import numpy as np
+
 
 @dataclass
 class Zone:
@@ -152,3 +154,17 @@ def parse_cameras(raw):
             p += 0x0C  # AITD1 stride
         cameras.append(cam)
     return cameras
+
+
+def decode_palette(raw):
+    if len(raw) != 768:
+        raise ValueError(f"palette must be 768 bytes, got {len(raw)}")
+    v = np.frombuffer(raw, dtype=np.uint8).astype(np.uint16)
+    return ((v << 2) | (v >> 4)).astype(np.uint8).reshape(256, 3)
+
+
+def decode_image(raw, palette):
+    if len(raw) != 64000:
+        raise ValueError(f"image must be 64000 bytes, got {len(raw)}")
+    indices = np.frombuffer(raw, dtype=np.uint8).reshape(200, 320)
+    return palette[indices]
