@@ -42,10 +42,7 @@ class CameraState:
         return self
 
     def project(self, x, y, z):
-        if y > 10000:
-            return (-10000.0, -10000.0, -10000.0)
-        y -= self.y
-        x, y, z = transform_point(x, y, z, self)
+        # projection only: caller owns camera-space transform and y handling
         depth = z + self.focal1
         if depth <= 50:
             return (-10000.0, -10000.0, -10000.0)
