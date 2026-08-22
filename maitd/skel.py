@@ -24,9 +24,14 @@ def _trunc_div(v, n):
     return int(v / n)
 
 
-def skin(body, group_states, position, camera):
+def skin(body, group_states, position, camera, actor_angles=None):
     pts = [list(v) for v in body.vertices]
     num_points = len(pts)
+
+    if actor_angles is not None:
+        # FITD AnimNuage: group 0 delta is the actor's own angles
+        group_states = list(group_states)
+        group_states[body.group_order[0]] = (0, actor_angles)
 
     for order_idx in body.group_order:
         group = body.groups[order_idx]
@@ -101,15 +106,15 @@ def _rotate_list(pts, start, count, dx, dy, dz):
     for i in range(start, start + count):
         x, y, z = pts[i]
         if rot_y:
-            s = COS_TABLE[rot_y]
-            c = COS_TABLE[(rot_y + 0x100) & 0x3FF]
+            s = COS_TABLE[(rot_y + 0x100) & 0x3FF]
+            c = COS_TABLE[rot_y & 0x3FF]
             x, z = ((x * s - z * c) >> 16) << 1, ((x * c + z * s) >> 16) << 1
         if rot_x:
-            s = COS_TABLE[rot_x]
-            c = COS_TABLE[(rot_x + 0x100) & 0x3FF]
+            s = COS_TABLE[(rot_x + 0x100) & 0x3FF]
+            c = COS_TABLE[rot_x & 0x3FF]
             y, z = ((y * s - z * c) >> 16) << 1, ((y * c + z * s) >> 16) << 1
         if rot_z:
-            s = COS_TABLE[rot_z]
-            c = COS_TABLE[(rot_z + 0x100) & 0x3FF]
+            s = COS_TABLE[(rot_z + 0x100) & 0x3FF]
+            c = COS_TABLE[rot_z & 0x3FF]
             x, y = ((x * s - y * c) >> 16) << 1, ((x * c + y * s) >> 16) << 1
         pts[i] = [x, y, z]

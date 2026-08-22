@@ -80,7 +80,8 @@ def main(argv=None):
         state = CameraState.from_camera(
             cam, room.world_x, room.world_y, room.world_z
         ).angles()
-        result = skin(body, player.group_states(), (actor.x, actor.y, actor.z), state)
+        result = skin(body, player.group_states(), (actor.x, actor.y, actor.z), state,
+                      actor_angles=(0, actor.beta, 0))
         masks = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[cam_idx])
         renderer.present_scene(floor.camera_image(cam_idx), [result], masks, floor.palette)
         pygame.display.set_caption(
@@ -106,7 +107,7 @@ def main(argv=None):
         room = floor.rooms[room_idx]
         cam_idx = room.camera_indices[cam_slot % len(room.camera_indices)]
         zv = actor_zv(actor, body)
-        x1, x2, z1, z2 = zv[0] // 10, zv[1] // 10, zv[4] // 10, zv[5] // 10
+        x1, x2, z1, z2 = int(zv[0] / 10), int(zv[1] / 10), int(zv[4] / 10), int(zv[5] / 10)
         cam = floor.cameras[cam_idx]
         viewed = [vr.viewed_room_idx for vr in cam.viewed_rooms]
         current_zones = []

@@ -78,12 +78,12 @@ def gere_collision(old_zv, animated_zv, fix_zv, step_x, step_z):
     if oldpos in (5, 9, 6, 10):
         oldtype = 2
     elif oldpos == 0:
-        return (step_x, step_z)  # actor was already inside: no adjustment
+        return (0, 0)  # actor already inside: FITD zeroes the whole step
     else:
         oldtype = 1
 
-    half_x = (animated_zv[0] + animated_zv[1]) // 2
-    half_z = (animated_zv[4] + animated_zv[5]) // 2
+    half_x = int((animated_zv[0] + animated_zv[1]) / 2)
+    half_z = int((animated_zv[4] + animated_zv[5]) / 2)
     pos = 4 if fix_zv[0] > half_x else (0 if fix_zv[1] < half_x else 8)
     pos |= 1 if fix_zv[4] > half_z else (0 if fix_zv[5] < half_z else 2)
 

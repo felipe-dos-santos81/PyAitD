@@ -266,9 +266,9 @@ def parse_body(raw):
                     base_vertices=_u16(raw, p + 4) // 6,
                     org_group=raw[p + 6],
                     num_group=raw[p + 7],
-                    delta_x=_s16(raw, p + 8),
-                    delta_y=_s16(raw, p + 10),
-                    delta_z=_s16(raw, p + 12),
+                    delta_x=_s16(raw, p + 10),
+                    delta_y=_s16(raw, p + 12),
+                    delta_z=_s16(raw, p + 14),
                 )
             )
             p += 0x10

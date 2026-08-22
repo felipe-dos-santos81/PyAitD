@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.world import CameraState, rotate_step, transform_point
+from maitd.world import CameraState, is_in_poly, rotate_step, transform_point
 
 
 def test_identity_camera_no_rotation():
@@ -36,3 +36,27 @@ def test_projection_center():
     # depth clip: Z + perspective <= 50 -> sentinel
     px2, py2, d2 = cam.project(0, 0, -290)
     assert (px2, py2, d2) == (-10000.0, -10000.0, -10000.0)
+
+
+def test_transform_point_camera2_angles():
+    cam = CameraState(109, 185, 0, 0, 0, 0, 300, 189, 158).angles()
+    assert transform_point(1000, 0, 0, cam) == (420, -560, 710)
+    assert transform_point(0, 0, 1000, cam) == (-906, -260, 328)
+
+
+def test_transform_point_beta_quarter_turn():
+    cam = CameraState(0, 0x100, 0, 0, 0, 0, 300, 189, 158).angles()
+    assert transform_point(1000, 0, 0, cam) == (0, 0, 998)
+    assert transform_point(0, 0, 1000, cam) == (-998, 0, 0)
+
+
+def test_is_in_poly_midpoint_inside():
+    square = [[(-10, -10), (10, -10), (10, 10), (-10, 10)]]
+    assert is_in_poly(-5, -3, -5, -3, square) is True
+
+
+def test_is_in_poly_negative_midpoint_truncates():
+    # C trunc: int((-7 + -6)/2) == -6 (on left edge, counted in);
+    # floor would give -7 (outside). FITD on-edge crossings count as inside.
+    strip = [[(-6, -6), (20, -6), (20, 6), (-6, 6)]]
+    assert is_in_poly(-7, -6, 0, 0, strip) is True

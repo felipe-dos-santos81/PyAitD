@@ -58,15 +58,15 @@ def _trunc_div(v):
 def transform_point(x, y, z, angles):
     ax, bx, cx = x, y, z
     if angles._use_y:
-        s = COS_TABLE[angles._use_y]
-        c = COS_TABLE[(angles._use_y + 0x100) & 0x3FF]
+        s = COS_TABLE[(angles._use_y + 0x100) & 0x3FF]
+        c = COS_TABLE[angles._use_y & 0x3FF]
         x = (_trunc_div(ax * s - cx * c)) << 1
         z = (_trunc_div(ax * c + cx * s)) << 1
     else:
         x, z = ax, cx
     if angles._use_x:
-        s = COS_TABLE[angles._use_x]
-        c = COS_TABLE[(angles._use_x + 0x100) & 0x3FF]
+        s = COS_TABLE[(angles._use_x + 0x100) & 0x3FF]
+        c = COS_TABLE[angles._use_x & 0x3FF]
         temp_y = bx
         temp_z = z
         y = (_trunc_div(temp_y * s - temp_z * c)) << 1
@@ -74,8 +74,8 @@ def transform_point(x, y, z, angles):
     else:
         y = bx
     if angles._use_z:
-        s = COS_TABLE[angles._use_z]
-        c = COS_TABLE[(angles._use_z + 0x100) & 0x3FF]
+        s = COS_TABLE[(angles._use_z + 0x100) & 0x3FF]
+        c = COS_TABLE[angles._use_z & 0x3FF]
         temp_x = x
         temp_y = y
         x = (_trunc_div(temp_x * s - temp_y * c)) << 1
@@ -119,8 +119,8 @@ def test_cross_product(x1, z1, x2, z2, x3, z3, x4, z4):
 
 
 def is_in_poly(x1, x2, z1, z2, zones):
-    x_mid = (x1 + x2) // 2
-    z_mid = (z1 + z2) // 2
+    x_mid = int((x1 + x2) / 2)
+    z_mid = int((z1 + z2) / 2)
     for poly in zones:
         flag = 0
         for j in range(len(poly)):
