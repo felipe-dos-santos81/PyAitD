@@ -287,3 +287,52 @@ def gere_anim(game, actor_idx):
             a.step_z = 0
             init_real_value(0, a.speed, 60, a.speed_change, game.timer)
         a.flag_end_anim = 0
+
+
+def _cdiv(a, b):
+    return a // b if a >= 0 else -((-a) // b)
+
+
+def _sort_compare(game, i1, i2, translate_x, translate_y, translate_z):
+    # FITD actorList.cpp sortCompareFunction port (AITD1 branch)
+    a1 = game.actors[i1]
+    a2 = game.actors[i2]
+    zv1 = list(a1.zv)
+    zv2 = list(a2.zv)
+    if a1.room != game.current_room:
+        from maitd.eval_var import _adjust_zv
+        _adjust_zv(game, zv1, a1.room, game.current_room)
+    if a2.room != game.current_room:
+        from maitd.eval_var import _adjust_zv
+        _adjust_zv(game, zv2, a2.room, game.current_room)
+    y1 = _cdiv((zv1[2] + zv1[3]) // 2 - 2000, 2000) * 2000
+    y2 = _cdiv((zv2[2] + zv2[3]) // 2 - 2000, 2000) * 2000
+    if y1 == y2:  # AITD1 branch
+        flag = 0
+        if ((zv1[0] > zv2[0] and zv1[0] < zv2[1]) or (zv1[1] > zv2[0] and zv1[1] < zv2[1])
+                or (zv2[0] > zv1[0] and zv2[0] < zv1[1]) or (zv2[1] > zv1[0] and zv2[1] < zv1[1])):
+            flag |= 1
+        if ((zv1[4] > zv2[4] and zv1[4] < zv2[5]) or (zv1[5] > zv2[4] and zv1[5] < zv2[5])
+                or (zv2[4] > zv1[4] and zv2[4] < zv1[5]) or (zv2[5] > zv1[4] and zv2[5] < zv1[5])):
+            flag |= 2
+        if flag == 0:
+            d1 = abs(translate_x - (zv1[0] + zv1[1]) // 2) + abs(translate_z - (zv1[4] + zv1[5]) // 2)
+            d2 = abs(translate_x - (zv2[0] + zv2[1]) // 2) + abs(translate_z - (zv2[4] + zv2[5]) // 2)
+        else:
+            d1 = d2 = 0
+            if flag & 2:
+                d1 = abs(translate_x - zv1[0]) if abs(translate_x - zv1[0]) < abs(translate_x - zv1[1]) else abs(translate_x - zv1[1])
+                d2 = abs(translate_x - zv2[0]) if abs(translate_x - zv2[0]) < abs(translate_x - zv2[1]) else abs(translate_x - zv2[1])
+            if flag & 1:
+                d1 += abs(translate_z - zv1[4]) if abs(translate_z - zv1[4]) < abs(translate_z - zv1[5]) else abs(translate_z - zv1[5])
+                d2 += abs(translate_z - zv2[4]) if abs(translate_z - zv2[4]) < abs(translate_z - zv2[5]) else abs(translate_z - zv2[5])
+        return d1 - d2
+    return abs(translate_y - 2000 - y1) - abs(translate_y - 2000 - y2)
+
+
+def sort_actor_indices(game, translate_x, translate_y, translate_z):
+    # FITD sortActorList port: ascending comparator = farthest first (qsort order)
+    from functools import cmp_to_key
+    live = [i for i, a in enumerate(game.actors) if a.index_in_world >= 0 and a.body_num != -1]
+    live.sort(key=cmp_to_key(lambda i1, i2: _sort_compare(game, i1, i2, translate_x, translate_y, translate_z)))
+    return live

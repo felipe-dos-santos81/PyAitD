@@ -2,12 +2,13 @@
 """AITD1 M3a play loop: PlayWorld port (mainLoop.cpp:41-281) — script-driven
 actors, hero-following camera, M2 render pipeline."""
 import argparse
+import os
 import pathlib
 import sys
 
 import pygame
 
-from maitd.actors import anim_player_for, gere_anim
+from maitd.actors import anim_player_for, gere_anim, sort_actor_indices
 from maitd.floor import Floor
 from maitd.formats import parse_cover_zones
 from maitd.game import (
@@ -117,9 +118,13 @@ def _draw(game, floor, renderer):
     state = CameraState.from_camera(cam, room.world_x, room.world_y, room.world_z).angles()
     results = []
     actor_rooms = []
-    for i, a in enumerate(game.actors):
-        if a.index_in_world < 0 or a.body_num == -1:
-            continue
+    cam_state = state
+    translate_x = (cam.x - room.world_x) * 10
+    translate_y = (room.world_y - cam.y) * 10
+    translate_z = (room.world_z - cam.z) * 10
+    draw_order = sort_actor_indices(game, translate_x, translate_y, translate_z)
+    for i in draw_order:
+        a = game.actors[i]
         body = game.assets.body(a.body_num)
         if a.anim == -1:
             states = [(0, (0, 0, 0))] * len(body.groups)  # static mesh: no anim
@@ -132,6 +137,8 @@ def _draw(game, floor, renderer):
         ))
         actor_rooms.append(a.room)
     masks = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[cam_idx])
+    if os.environ.get("MAITD_NOACTORS"):
+        results, actor_rooms = [], []
     renderer.present_scene(floor.camera_image(cam_idx), results, masks, floor.palette, actor_rooms)
     live = sum(1 for a in game.actors if a.index_in_world >= 0)
     pygame.display.set_caption(

@@ -97,3 +97,28 @@ def test_gere_anim_one_shot_rearm(data_dir):
     assert actor.anim_type == 1
     assert actor.anim_info == -1
     assert actor.new_anim == -1
+
+
+def test_depth_sort_far_first():
+    # FITD sortActorList: farther actors draw first (painter's algorithm)
+    from maitd.actors import sort_actor_indices
+    from maitd.game import Actor, Game
+    game = Game.__new__(Game)
+    game.actors = [Actor(index_in_world=-1) for _ in range(4)]
+    game.current_room = 0
+    game.actors[1] = Actor(index_in_world=1, body_num=1, zv=[100, 200, 0, 100, 100, 200])
+    game.actors[2] = Actor(index_in_world=2, body_num=1, zv=[150, 250, 0, 100, 300, 400])
+    assert sort_actor_indices(game, 0, 0, 0) == [1, 2]
+
+
+def test_depth_sort_y_bands():
+    # different y bands: compare translateY - 2000 - y (no XZ overlap logic)
+    from maitd.actors import sort_actor_indices
+    from maitd.game import Actor, Game
+    game = Game.__new__(Game)
+    game.actors = [Actor(index_in_world=-1) for _ in range(4)]
+    game.current_room = 0
+    game.actors[1] = Actor(index_in_world=1, body_num=1, zv=[0, 10, 0, 10, 0, 10])
+    game.actors[2] = Actor(index_in_world=2, body_num=1, zv=[0, 10, 5000, 5010, 0, 10])
+    order = sort_actor_indices(game, 0, 0, 0)
+    assert len(order) == 2
