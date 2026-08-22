@@ -168,9 +168,9 @@ def test_body12_player_default(data_dir):
     assert len(body.vertices) == 150
     assert len(body.groups) == 17
     assert len(body.primitives) == 222
-    # vertex indices stored *6 -> real index divides by 6
+    # parsed point lists are real vertex indices (stored values /6)
     for prim in body.primitives:
-        assert all(p % 6 == 0 for p in prim.points)
+        assert all(p < len(body.vertices) for p in prim.points)
 
 
 def test_anim_golden(data_dir):
