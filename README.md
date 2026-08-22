@@ -1,26 +1,35 @@
 # maitd
 
 Alone in the Dark 1 engine reimplementation in Python (pygame-ce + ModernGL),
-driven by the original game data files. Apple Silicon, windowed.
+driven by the original game data files. Apple Silicon, windowed. GPLv2
+(derived from [FITD](https://github.com/yaz0r/FITD)).
 
-License: GPLv2 (derived from FITD, https://github.com/yaz0r/FITD, GPLv2).
-You must own the original game; this repo never ships game data.
+You must own the original game — this repo never ships game data.
 
 ## Setup
 
-    python3 -m venv .venv
-    .venv/bin/pip install -e ".[dev]"
+```bash
+make install          # or: python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+```
 
 Data defaults to `Alone in the Dark 1.app/Contents/Resources/game/INDARK`;
 override with `--data DIR` or env `M_AITD_DATA`.
 
-## Run (M1: room viewer)
+## Run (M2: play viewer)
 
-    .venv/bin/python -m maitd --floor 0
+```bash
+make run              # or: .venv/bin/python -m maitd --floor 0
+```
 
-Keys: Left/Right cycle cameras, Up/Down cycle rooms, Esc quits.
+Keys: arrows walk (Up forward, Left/Right turn), Esc quits. Cameras
+switch by zone; actor occluded behind furniture via background masks.
 
 ## Tests / proof
 
-    .venv/bin/pytest -q
-    .venv/bin/python scripts/prove_m1.py
+```bash
+make test             # unit suite
+make prove            # walks every floor, decodes every camera image
+```
+
+`prove` prints one line per floor; a "room with no cameras (legit in
+original data)" line is informational, not a failure.
