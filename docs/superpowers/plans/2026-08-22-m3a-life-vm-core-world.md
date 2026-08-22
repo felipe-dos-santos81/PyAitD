@@ -303,7 +303,7 @@ git commit -m "feat: LISTLIFE/LISTTRAK asset registry"
     - globals: `.current_floor=0, .current_room=0, .current_stage=0, .num_camera=-1, .new_num_camera=0, .current_camera_target_actor=-1, .current_world_target=1` (CVars[WORLD_NUM_PERSO]), flags `.flag_change_etage=0, .new_num_etage=0, .flag_change_salle=0, .new_num_salle=0, .flag_init_view=2, .flag_game_over=0, .flag_genere_aff_list=1`
     - inventory stubs: `.in_hand_table=[-1]*..., .current_inventory=0, .status_screen_allowed=1`, audio stubs: `.current_music=-1, .next_music=-1, .light_off=0`
   - `def init_game(data_dir, hero=0) -> Game` — startGame order: LoadWorld → initVars → `currentWorldTarget = CVars[7]` → spawn stage actors (`GenereActiveList` port below) → `num_camera=-1` → `ChangeSalle(0)` → `new_num_camera=0`, `flag_init_view=2`
-  - `def spawn_stage_actors(game)` — GenereActiveList port (main.cpp:1990-2130): delete out-of-scope actors (DeleteObjet → actor.index_in_world=-1, world obj.obj_index=-1, found_flag clearing); for each world obj with `obj_index == -1` and `stage == current_floor` and lifeMode gate (life != -1: mode -1 skip, 0 pass, 1 require `room == current_room`, 2 require room in view list — M3a: accept room; else: pass), `obj_index = add_actor(...)` — port of `InitObjet` (main.cpp ~1930-1985): copy world fields into actor (body, type_zv, flags & ~AF_SPECIAL, x/y/z, stage, room, alpha/beta/gamma, anim, frame, anim_type, anim_info), set `dyn_flags = (flags & 0x20) / 0x20`, `life`, `life_mode`, `track_mode/track_number/position_in_track`, `zv = body.zv + (x,y,z)` via `GiveZVObjet` (M2 `actor_zv`), `worldX/Y/Z` set from room offsets (M1 room world coords ×10), `found_flag |= 0x4000`; if world obj index == `current_world_target`: `current_camera_target_actor = actor_idx`
+  - `def spawn_stage_actors(game)` — GenereActiveList port (main.cpp:1990-2130): delete out-of-scope actors (DeleteObjet → actor.index_in_world=-1, world obj.obj_index=-1, found_flag clearing); for each world obj with `obj_index == -1` and `stage == current_floor` and lifeMode gate (life != -1: mode -1 skip, 0 pass, 1 require `room == current_room`, 2 require room in view list — M3a: accept room; else: pass), `obj_index = add_actor(...)` — port of `InitObjet` (main.cpp ~1930-1985): copy world fields into actor (body, type_zv, flags & ~AF_SPECIAL, x/y/z, stage, room, alpha/beta/gamma, anim, frame, anim_type, anim_info), set `dyn_flags = (flags & 0x20) / 0x20`, `life`, `life_mode`, `track_mode/track_number/position_in_track`, `zv = body.zv + (x,y,z)` via `GiveZVObjet` (M2 `actor_zv`), `worldX/Y/Z` set from room offsets (M1 room world coords ×10); if world obj index == `current_world_target`: `current_camera_target_actor = actor_idx`. (No foundFlag writes here — FITD sets foundFlag |= 0x4000 in life opcodes, task 8.)
   - `def game_step_tick(game)` — `game.timer += 1`
 
 - [ ] **Step 1: Write failing tests** `tests/test_game.py`
@@ -488,7 +488,7 @@ def add_actor(game, world_idx):
     # Returns the actor slot idx or -1. Sets: body_num, object_type (flags & ~AF_SPECIAL),
     # room/world coords (room offsets x10 per M1), zv = body.zv + (x, y, z) (M2 actor_zv),
     # stage, room, alpha/beta/gamma, anim, frame, anim_type, anim_info, dyn_flags from flags,
-    # life, life_mode, track_mode/track_number/position_in_track, found_flag |= 0x4000.
+    # life, life_mode, track_mode/track_number/position_in_track.
     ...
 
 
