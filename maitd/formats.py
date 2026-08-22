@@ -116,7 +116,7 @@ def parse_rooms(raw):
     return rooms
 
 
-def parse_cameras(raw):
+def camera_offsets(raw):
     num_slots = _u32(raw, 0) // 4
     offsets = []
     highest = 0
@@ -128,8 +128,12 @@ def parse_cameras(raw):
             break
         highest = off
         offsets.append(off)
+    return offsets
+
+
+def parse_cameras(raw):
     cameras = []
-    for off in offsets:
+    for off in camera_offsets(raw):
         try:
             num_viewed = _u16(raw, off + 0x12)
             cam = Camera(
