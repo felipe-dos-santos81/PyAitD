@@ -580,21 +580,25 @@ def test_update_rotation_overshoot():
 
 
 def test_update_rotation_wrap():
-    # start 0x300 -> end 0x0: angleDif = -0x300 < -0x200 -> +0x400 wrap branch
+    # angleDif = 0x0C0 - 0x300 = -0x240 < -0x200 -> +0x400 wrap branch
     # (C check is inclusive: -0x200 goes through the normal branch, not here)
-    rv = init_real_value(0x300, 0, 2, RealValue(), timer=0)
-    assert update_actor_rotation(rv, timer=1) == 0x380
+    rv = init_real_value(0x300, 0x0C0, 2, RealValue(), timer=0)
+    assert update_actor_rotation(rv, timer=1) == 0x3E0
 
 
 def test_chrono():
-    slot = [0]
-    start_chrono(slot, timer=10)
-    assert eval_chrono(slot[0], timer=30) == 20
+    from maitd.game import Actor
+    actor = Actor()
+    start_chrono(actor, "chrono", timer=10)
+    assert eval_chrono(actor.chrono, timer=30) == 20
 
 
 def test_distance():
-    assert give_distance_2d(0, 0, 3, 4) == 5
+    # Manhattan: |3| + |4| = 7 (FITD GiveDistance2D is not euclidean)
+    assert give_distance_2d(0, 0, 3, 4) == 7
     assert give_distance_2d(0, 0, 0, 0) == 0
+    assert give_distance_2d(0, 0, -3, 4) == 7
+    assert give_distance_2d(0, 0, 40000, 40000) == 0x7D00  # saturation
 ```
 
 - [ ] **Step 2: Run tests, verify fail**
@@ -638,8 +642,9 @@ def update_actor_rotation(rotate_ptr, timer):
         return int((angle * time_dif) / rotate_ptr.num_steps) + (rotate_ptr.start_value & 0x3FF)
 
 
-def start_chrono(chrono_slot, timer):
-    chrono_slot[0] = timer
+def start_chrono(actor, field, timer):
+    # C startChrono(chronoPtr) mutates the pointee; Python: set the actor field
+    setattr(actor, field, timer)
 
 
 def eval_chrono(chrono_value, timer):
@@ -647,10 +652,19 @@ def eval_chrono(chrono_value, timer):
 
 
 def give_distance_2d(x1, z1, x2, z2):
-    return int(math.sqrt((x1 - x2) * (x1 - x2) + (z1 - z2) * (z1 - z2)))
+    # FITD GiveDistance2D (main.cpp:2252): MANHATTAN with 0x7D00 saturation, not euclidean
+    x1 -= x2
+    if (x1 & 0xFFFF) > 0x7FFF:
+        x1 = -(x1 & 0xFFFF)  # C: (s16)x1 < 0 -> negate truncated s16
+    z1 -= z2
+    if (z1 & 0xFFFF) > 0x7FFF:
+        z1 = -(z1 & 0xFFFF)
+    if x1 + z1 > 0xFFFF:
+        return 0x7D00
+    return x1 + z1
 ```
 
-Note: chrono slots are actor int fields, not lists — callers pass `game.actors[i].chrono` directly and `eval_chrono(actor.chrono, game.timer)`; the list-based signature above exists only for the test.
+Note: callers pass the actor and field name — `start_chrono(actor, "chrono", game.timer)`, and read with `eval_chrono(actor.chrono, game.timer)`.
 
 - [ ] **Step 4: Run tests, verify pass**
 
