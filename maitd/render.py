@@ -79,7 +79,7 @@ class Renderer:
         rgba = np.zeros((200, 320, 4), dtype=np.uint8)
         rgba[:, :, :3] = background
         rgba[:, :, 3] = 255
-        layer = np.frombuffer(self._actor_layer._tex.read(), dtype=np.uint8).reshape(200, 320, 4)
+        layer = np.frombuffer(self._actor_layer._tex.read(), dtype=np.uint8).reshape(200, 320, 4).copy()
         # mask: occlude actor pixels inside mask rects where the mask bit is set
         for mask in masks:
             x1, y1, x2, y2 = max(mask.x1, 0), max(mask.y1, 0), min(mask.x2, 319), min(mask.y2, 199)
