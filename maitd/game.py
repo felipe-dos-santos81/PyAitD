@@ -106,6 +106,7 @@ class Game:
         self.cvars[8] = hero  # CHOOSE_PERSO (startGame backs up and restores it)
         self.vars = parse_vars((data_dir / "VARS.ITD").read_bytes())
         self.timer = 0
+        self._last_time_forward = -10  # FITD lastTimeForward: first press walks, not runs
         # input snapshot
         self.local_joyd = 0
         self.local_key = 0
