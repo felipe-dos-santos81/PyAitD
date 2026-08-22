@@ -2,7 +2,6 @@
 """AITD1 M3a play loop: PlayWorld port (mainLoop.cpp:41-281) — script-driven
 actors, hero-following camera, M2 render pipeline."""
 import argparse
-import os
 import pathlib
 import sys
 
@@ -137,8 +136,6 @@ def _draw(game, floor, renderer):
         ))
         actor_rooms.append(a.room)
     masks = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[cam_idx])
-    if os.environ.get("MAITD_NOACTORS"):
-        results, actor_rooms = [], []
     renderer.present_scene(floor.camera_image(cam_idx), results, masks, floor.palette, actor_rooms)
     live = sum(1 for a in game.actors if a.index_in_world >= 0)
     pygame.display.set_caption(
