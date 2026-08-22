@@ -3,7 +3,7 @@
 import logging
 
 from maitd.actors import cube_intersect
-from maitd.effects import ReadText
+from maitd.effects import AddMessage, BeginTake, ReadText, ShowPicture
 from maitd.game import AF_ANIMATED, AF_MASK, _zv_cube, _zv_max, _zv_rot
 from maitd.life import eval_var, read_s16
 from maitd.realvalue import init_real_value, update_actor_rotation
@@ -153,20 +153,23 @@ def op_anim_move(vm):
 
 
 def op_message(vm):
-    # life.cpp:2164: makeMessage(raw) — message UI lands in M4
-    log.debug("LM_MESSAGE %d (M4 stub)", read_s16(vm))
+    # life.cpp:2164: makeMessage(raw)
+    vm.game.emit(AddMessage(read_s16(vm)))
 
 
 def op_message_value(vm):
     # life.cpp:2174
-    v = read_s16(vm)
+    message_id = read_s16(vm)
     read_s16(vm)  # unused param in FITD
-    log.debug("LM_MESSAGE_VALUE %d (M4 stub)", v)
+    vm.game.emit(AddMessage(message_id))
 
 
 def op_found(vm):
-    # life.cpp:1454: FoundObjet(id, 1) — M3b stub (needs inventory)
-    log.debug("LM_FOUND %d (M3b inventory stub)", read_s16(vm))
+    # life.cpp:1454: FoundObjet(id, 1)
+    from maitd.interaction import request_found
+    effect = request_found(vm.game, read_s16(vm), parameter=1)
+    if effect is not None:
+        vm.suspend(effect)
 
 
 def op_life(vm):
@@ -186,8 +189,8 @@ def op_delete(vm):
 
 
 def op_take(vm):
-    # life.cpp:1477: take(id) — M3b stub (needs inventory)
-    log.debug("LM_TAKE %d (M3b inventory stub)", read_s16(vm))
+    # life.cpp:1477: take(id)
+    vm.suspend(BeginTake(read_s16(vm)))
 
 
 def op_in_hand(vm):
@@ -363,10 +366,11 @@ def op_camera_target(vm):
 
 
 def op_drop(vm):
-    # life.cpp:1510: drop(worldIdx, worldSource) — M3b stub (needs inventory)
-    w = eval_var(vm)
-    src = read_s16(vm)
-    log.debug("LM_DROP %d %d (M3b inventory stub)", w, src)
+    # life.cpp:1510: drop(worldIdx, worldSource)
+    from maitd.interaction import drop_object
+    object_idx = eval_var(vm)
+    source_idx = read_s16(vm)
+    drop_object(vm.game, object_idx, source_idx)
 
 
 def op_fire(vm):
@@ -407,22 +411,12 @@ def op_do_max_zv(vm):
 
 def op_put(vm):
     # life.cpp:1521: put(x, y, z, room, stage, alpha, beta, gamma, idx)
-    game = vm.game
-    idx = read_s16(vm)
-    x = read_s16(vm)
-    y = read_s16(vm)
-    z = read_s16(vm)
-    room = read_s16(vm)
-    stage = read_s16(vm)
-    alpha = read_s16(vm)
-    beta = read_s16(vm)
-    gamma = read_s16(vm)
-    obj = game.world_objects[idx]
-    obj.x, obj.y, obj.z = x, y, z
-    obj.room, obj.stage = room, stage
-    obj.alpha, obj.beta, obj.gamma = alpha, beta, gamma
-    obj.found_flag |= 0x4000
-    # DeleteInventoryObjet: M3b inventory removal skipped
+    from maitd.interaction import put_object
+    object_idx = read_s16(vm)
+    x, y, z = read_s16(vm), read_s16(vm), read_s16(vm)
+    room, stage = read_s16(vm), read_s16(vm)
+    alpha, beta, gamma = read_s16(vm), read_s16(vm), read_s16(vm)
+    put_object(vm.game, object_idx, x, y, z, room, stage, alpha, beta, gamma)
 
 
 def op_c_var(vm):
@@ -472,8 +466,8 @@ def op_up_coor_y(vm):
 
 def op_put_at(vm):
     # life.cpp:1565: PutAtObjet(obj1, obj2)
-    from maitd.game import put_at_objet
-    put_at_objet(vm.game, read_s16(vm), read_s16(vm))
+    from maitd.interaction import drop_object
+    drop_object(vm.game, read_s16(vm), read_s16(vm))
 
 
 def op_def_zv(vm):
@@ -535,12 +529,11 @@ def op_water(vm):
 
 
 def op_picture(vm):
-    # life.cpp:2006: M3b — blocking wait skipped
+    # life.cpp:2006
     picture = read_s16(vm)
     delay = read_s16(vm)
     sample = read_s16(vm)
-    log.debug("LM_PICTURE %d delay %d sample %d (M3b stub)", picture, delay, sample)
-    vm.game.flag_init_view = 1
+    vm.suspend(ShowPicture(picture, delay, sample))
 
 
 def op_stop_sample(vm):
