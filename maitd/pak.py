@@ -33,11 +33,14 @@ class Pak:
         self._data = self.path.read_bytes()
         if len(self._data) < 8:
             raise PakError(f"PAK too small: {self.path}")
-        table_end = struct.unpack_from("<I", self._data, 4)[0]
-        self._offsets = [
-            struct.unpack_from("<I", self._data, (i + 1) * 4)[0]
-            for i in range(table_end // 4 - 1)
-        ]
+        try:
+            table_end = struct.unpack_from("<I", self._data, 4)[0]
+            self._offsets = [
+                struct.unpack_from("<I", self._data, (i + 1) * 4)[0]
+                for i in range(table_end // 4 - 1)
+            ]
+        except struct.error:
+            raise PakError(f"{self.path.name}: corrupt offset table")
 
     @property
     def count(self):
@@ -48,10 +51,13 @@ class Pak:
             raise PakError(f"{self.path.name}: entry {index} out of range (0..{self.count - 1})")
         off = self._offsets[index]
         data = self._data
-        add = struct.unpack_from("<I", data, off)[0]
-        p = off + 4 + (add - 4 if add else 0)
-        disc, uncomp = struct.unpack_from("<II", data, p)
-        flag, info5, name_len = struct.unpack_from("<BBH", data, p + 8)
+        try:
+            add = struct.unpack_from("<I", data, off)[0]
+            p = off + 4 + (add - 4 if add else 0)
+            disc, uncomp = struct.unpack_from("<II", data, p)
+            flag, info5, name_len = struct.unpack_from("<BBH", data, p + 8)
+        except struct.error:
+            raise PakError(f"{self.path.name}: entry {index} corrupt header")
         name = data[p + 12 : p + 12 + name_len]
         name = name[2:].decode("ascii", "replace") if name_len > 2 else ""
         payload = p + 12 + name_len
@@ -71,7 +77,10 @@ class Pak:
         elif info.flag == FLAG_EXPLODE:
             out = explode(raw, info.uncompressed_size, info.info5)
         elif info.flag == FLAG_DEFLATE:
-            out = zlib.decompressobj(-15).decompress(raw)
+            try:
+                out = zlib.decompressobj(-15).decompress(raw)
+            except zlib.error:
+                raise PakError(f"{self.path.name}: entry {index} invalid deflate data")
         else:
             raise PakError(f"{self.path.name}: entry {index} unknown flag {info.flag}")
         if len(out) != info.uncompressed_size:

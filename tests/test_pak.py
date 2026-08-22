@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
+import struct
+
 import pytest
 
 from maitd.pak import Pak, PakError, find_pak
@@ -39,3 +41,37 @@ def test_find_pak(data_dir):
     assert find_pak(data_dir, "ETAGE00").name == "ETAGE00.PAK"
     with pytest.raises(PakError):
         find_pak(data_dir, "NOPE")
+
+
+def test_truncated_offset_table_raises(tmp_path):
+    path = tmp_path / "BAD.PAK"
+    path.write_bytes(struct.pack("<II", 0, 12))
+    with pytest.raises(PakError, match="BAD\\.PAK"):
+        Pak(path)
+
+
+def test_entry_offset_past_eof_raises(tmp_path):
+    path = tmp_path / "BAD.PAK"
+    path.write_bytes(
+        struct.pack("<II", 0, 12)
+        + struct.pack("<I", 999999)
+        + struct.pack("<III", 4, 1, 1)
+        + struct.pack("<BBH", 0, 0, 0)
+        + b"A"
+    )
+    pak = Pak(path)
+    assert pak.read(0) == b"A"
+    with pytest.raises(PakError, match="entry 1"):
+        pak.read(1)
+
+
+def test_bad_deflate_payload_raises(tmp_path):
+    path = tmp_path / "BAD.PAK"
+    path.write_bytes(
+        struct.pack("<II", 0, 8)
+        + struct.pack("<III", 4, 4, 4)
+        + struct.pack("<BBH", 4, 0, 0)
+        + b"NOTZ"
+    )
+    with pytest.raises(PakError, match="entry 0"):
+        Pak(path).read(0)
