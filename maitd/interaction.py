@@ -259,6 +259,49 @@ def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z
     return attempted_zv, step_x, step_z
 
 
+def dismiss_modal(game):
+    game.close_modal()
+    return resume_life(game)
+
+
+def apply_found_result(game, result):
+    from maitd.effects import ShowFound
+    from maitd.ui import FoundResult
+    effect = game.active_modal
+    if not isinstance(effect, ShowFound):
+        raise RuntimeError(f"found result applied to {type(effect).__name__}")
+    game.close_modal()
+    if result is FoundResult.TAKE and not effect.forced_refuse:
+        completed = begin_take(game, effect.object_idx)
+        if not completed:
+            return False
+    else:
+        game.world_objects[effect.object_idx].track_number = game.timer
+    return resume_life(game)
+
+
+def apply_inventory_result(game, result):
+    from maitd.effects import OpenInventory
+    if not isinstance(game.active_modal, OpenInventory):
+        raise RuntimeError(f"inventory result applied to {type(game.active_modal).__name__}")
+    game.close_modal()
+    if not result.cancelled:
+        if not choose_inventory_action(game, result.object_idx, result.action_text_id):
+            return False
+    return resume_life(game)
+
+
+def apply_reading_result(game, result):
+    from maitd.effects import ReadText, ShowPicture
+    if not isinstance(game.active_modal, (ReadText, ShowPicture)):
+        raise RuntimeError(f"reading result applied to {type(game.active_modal).__name__}")
+    if not result.dismissed:
+        return False
+    game.close_modal()
+    game.flag_init_view = 1
+    return resume_life(game)
+
+
 def point_in_zone(x, y, z, zone):
     return zone.x1 <= x <= zone.x2 and zone.y1 <= y <= zone.y2 and zone.z1 <= z <= zone.z2
 

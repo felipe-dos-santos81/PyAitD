@@ -317,6 +317,25 @@ def hit_test_inventory(pos, presenter, object_ids, action_ids):
     return None
 
 
+@dataclass
+class ModalSession:
+    found: FoundPresenter = field(default_factory=FoundPresenter)
+    inventory: InventoryPresenter = field(default_factory=InventoryPresenter)
+    reading: ReadingPresenter = field(default_factory=ReadingPresenter)
+    effect_identity: int = 0
+
+    def reset_for(self, effect):
+        identity = id(effect)
+        if identity == self.effect_identity:
+            return
+        self.effect_identity = identity
+        self.found = FoundPresenter(
+            FoundResult.LEAVE if getattr(effect, "forced_refuse", False) else FoundResult.TAKE
+        )
+        self.inventory = InventoryPresenter()
+        self.reading = ReadingPresenter()
+
+
 def hit_test_reading(pos, page, page_count):
     if ModalLayout.READING_CLOSE.collidepoint(pos):
         return ReadingResult(True)
