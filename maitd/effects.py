@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: GPL-2.0-only
+from dataclasses import dataclass
+from enum import Enum, auto
+
+
+class GameMode(Enum):
+    PLAY = auto()
+    FOUND = auto()
+    INVENTORY = auto()
+    READING = auto()
+
+
+class AfterLife(Enum):
+    NONE = auto()
+    FINISH_TAKE = auto()
+
+
+@dataclass(frozen=True)
+class LifeFrame:
+    owner_idx: int
+    life_num: int
+    pc: int = 0
+    after: AfterLife = AfterLife.NONE
+    subject_idx: int = -1
+    release_actor_idx: int = -1
+
+
+@dataclass(frozen=True)
+class AddMessage:
+    message_id: int
+
+
+@dataclass(frozen=True)
+class BeginTake:
+    object_idx: int
+
+
+@dataclass(frozen=True)
+class ShowFound:
+    object_idx: int
+    forced_refuse: bool
+
+
+@dataclass(frozen=True)
+class OpenInventory:
+    pass
+
+
+@dataclass(frozen=True)
+class ReadText:
+    text_index: int
+    kind: int
+
+
+@dataclass(frozen=True)
+class ShowPicture:
+    resource_index: int
+    delay_units: int
+    sample_id: int
+
+
+ModalEffect = ShowFound | OpenInventory | ReadText | ShowPicture
+ImmediateEffect = AddMessage | BeginTake
+
+
+@dataclass
+class TimedMessage:
+    message_id: int
+    age: int = 0

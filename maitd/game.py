@@ -1,9 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Game state: CVars, script vars, world objects, actor table (FITD main.cpp ports)."""
+from collections import deque
 from dataclasses import dataclass, field
 from itertools import product
 
 from maitd.assets import Assets
+from maitd.effects import (
+    AddMessage, BeginTake, OpenInventory, ReadText, ShowFound, ShowPicture,
+    GameMode, TimedMessage,
+)
 from maitd.cos_table import COS_TABLE
 from maitd.floor import Floor
 from maitd.formats import parse_defines, parse_objets, parse_vars
@@ -135,10 +140,18 @@ class Game:
         self.flag_game_over = 0
         self.flag_genere_aff_list = 1
         self.hard_clip = [32000, -32000, 32000, -32000, 32000, -32000]
-        # M3b/M4 stubs (audio, inventory)
-        self.in_hand_table = [-1] * 256
+        # M3b effect / mode / inventory state
+        self.mode = GameMode.PLAY
+        self.active_modal = None
+        self.life_stack = []
+        self.immediate_effects = deque()
+        self.inventory_table = [[-1] * 30 for _ in range(2)]
+        self.inventory_count = [0, 0]
+        self.in_hand_table = [-1, -1]
         self.current_inventory = 0
+        self.messages = [None] * 5
         self.status_screen_allowed = 1
+        # M3b/M4 stubs (audio)
         self.current_music = -1
         self.next_music = -1
         self.light_off = 0
@@ -160,6 +173,30 @@ class Game:
         if slot == -1:
             return len(room.camera_indices)
         return room.camera_indices[slot]
+
+    def open_modal(self, effect):
+        if self.active_modal is not None:
+            raise RuntimeError(
+                f"cannot open {type(effect).__name__} while "
+                f"{type(self.active_modal).__name__} is active"
+            )
+        self.active_modal = effect
+        self.mode = {
+            ShowFound: GameMode.FOUND,
+            OpenInventory: GameMode.INVENTORY,
+            ReadText: GameMode.READING,
+            ShowPicture: GameMode.READING,
+        }[type(effect)]
+
+    def close_modal(self):
+        self.active_modal = None
+        self.mode = GameMode.PLAY
+
+    def emit(self, effect):
+        if isinstance(effect, (AddMessage, BeginTake)):
+            self.immediate_effects.append(effect)
+            return
+        self.open_modal(effect)
 
 
 def _cdiv(a, b):
