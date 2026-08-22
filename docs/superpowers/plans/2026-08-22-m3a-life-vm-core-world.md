@@ -1921,7 +1921,13 @@ git commit -m "feat: movement/state/object opcode handlers + reduced dispatch"
   - `def play_tick(game, floor, renderer)` — one 50Hz logic tick in PlayWorld order (mainLoop.cpp):
     1. `game_step_tick(game)`; `poll_input(game)`
     2. per actor with `index_in_world != -1`: clear `col_by/hit_by/hit/hard_dec/hard_col` to -1
-    3. per actor: if `object_type & AF_ANIMATED`: M2 anim advance; if `object_type & AF_TRIGGER`: skip (GereDec — M3b); if `anim_action_type`: skip (GereFrappe — M3c)
+    3. per actor with `index_in_world != -1` and `object_type & AF_ANIMATED`: GereAnim-equivalent (anim.cpp:283-560 port):
+       - anim advance: M2 AnimPlayer (SetInterAnimObjet equivalent); if `anim == -1` and `speed != 0` and speedChange numSteps == 0: `init_real_value(0, speed, 60, speed_change, timer)` (anim.cpp:677-688)
+       - step computation: `anim == -1` → `anim_step_z = update_actor_rotation(speed_change)`; else `anim_step = current frame step`; `walk_step(0, step_z, beta)` via M2 `rotate_step(beta, 0, step_z)`; `step_x = anim_move_x - old_step_x`, `step_z = anim_move_z - old_step_z`
+       - YHandler: if active → `step_y` from update_actor_rotation / end-value landing (anim.cpp:334-352)
+       - movement management: if any step component: zv += step; if `dyn_flags & 1`: per hard col (M2 check_hard_col on room cols; type 9 → `hard_col = parameter`, type 3 → 255): `gere_collision` (M2) → adjust step + `anim_neg_x/z`; else set `hard_col = 1 if check_hard_col else 0`
+       - commit: `room_x/z += step_x/z`, `room_y += step_y`, zv, world coords; animNeg reset per anim change
+       - if `object_type & AF_TRIGGER`: skip (GereDec — M3b); if `anim_action_type`: skip (GereFrappe — M3c)
     4. per actor: `if life_gate(actor): process_life(game, i, actor.life)`; `if game.flag_change_etage: break`
     5. if `game.flag_change_etage`: M3a: set `current_floor = new_num_etage`, reload stage actors (`spawn_stage_actors`), clear flag
     6. if `game.flag_change_salle`: `change_salle(game, game.new_num_salle)`; clear flag; skip camera pass this tick (`continue` semantics)
