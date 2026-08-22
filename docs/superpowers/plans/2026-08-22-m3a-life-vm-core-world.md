@@ -598,7 +598,8 @@ def test_distance():
     assert give_distance_2d(0, 0, 3, 4) == 7
     assert give_distance_2d(0, 0, 0, 0) == 0
     assert give_distance_2d(0, 0, -3, 4) == 7
-    assert give_distance_2d(0, 0, 40000, 40000) == 0x7D00  # saturation
+    assert give_distance_2d(80000, 0, 0, 80000) == 0x7D00  # saturation
+    # (40000-style inputs cannot saturate: (s16) cast keeps them positive)
 ```
 
 - [ ] **Step 2: Run tests, verify fail**
