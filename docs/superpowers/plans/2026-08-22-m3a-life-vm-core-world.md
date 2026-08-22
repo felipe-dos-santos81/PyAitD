@@ -1482,6 +1482,7 @@ def test_track_init_coor_warps(data_dir):
 
 def test_track_manual_forward(data_dir):
     game = init_game(data_dir, hero=0)
+    game.timer = 20  # past the 10-tick "rapid re-press -> run" window (FITD quirk)
     a = _actor()
     init_deplacement(a, 1, 0)
     game.local_joyd = 1
@@ -1491,6 +1492,14 @@ def test_track_manual_forward(data_dir):
     game.local_joyd = 0
     process_track(game, a)
     assert a.speed == 3
+
+
+def test_track_manual_first_press_runs():
+    # FITD quirk: press within 10 ticks of lastTimeForward=0 (boot) -> run
+    game = Game.__new__(Game) if False else None
+    a = _actor()
+    init_deplacement(a, 1, 0)
+    a.speed = 0
 
 
 class _FakeAssets:
@@ -1564,7 +1573,7 @@ def cap_objet(x1, z1, beta, x2, z2):
     result_max = compute_angle_modificator_to_position_sub1(beta + 4, angle_comp_x, angle_comp_z)
     if result_max == -1 and result_min == 1:
         return compute_angle_modificator_to_position_sub1(beta, angle_comp_x, angle_comp_z)
-    return int((result_max + result_min + 1) / 2)
+    return (result_max + result_min + 1) >> 1  # C >>1 (floors negatives, unlike int(/2))
 
 
 def gere_manual_rot(actor, param, joyd, timer):
