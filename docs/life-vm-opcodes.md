@@ -1,3 +1,8 @@
+# NOTE: Table indices below were corrected after review against AITD1.cpp:30-119.
+# The table has 87 entries (0..86); dead = 27 LM_CAMERA, 57 LM_STOP_BETA, 61 LM_DO_NORMAL_ZV, 69 LM_SPEED.
+# Control flow: SWITCH=25, CASE=26, MULTI_CASE=29. VAR/INC/DEC/ADD/SUB = 19-23 (real handlers).
+# GiveDistance2D is Manhattan with 0x7D00 saturation, not euclidean.
+# The plan doc (2026-08-22-m3a-life-vm-core-world.md) is authoritative where it disagrees with this doc.
 # FITD LIFE VM — Complete Opcode Semantics (AITD1)
 
 Sources (all line numbers from `/Users/felipe.dos.santos/code/theirs/FITD/FitdLib`):
