@@ -326,8 +326,9 @@ def _sort_compare(game, i1, i2, translate_x, translate_y, translate_z):
             if flag & 1:
                 d1 += abs(translate_z - zv1[4]) if abs(translate_z - zv1[4]) < abs(translate_z - zv1[5]) else abs(translate_z - zv1[5])
                 d2 += abs(translate_z - zv2[4]) if abs(translate_z - zv2[4]) < abs(translate_z - zv2[5]) else abs(translate_z - zv2[5])
-        return d1 - d2
-    return abs(translate_y - 2000 - y1) - abs(translate_y - 2000 - y2)
+        # C: distance1 > distance2 -> -1 (farthest sorts first)
+        return d2 - d1
+    return abs(translate_y - 2000 - y2) - abs(translate_y - 2000 - y1)
 
 
 def sort_actor_indices(game, translate_x, translate_y, translate_z):

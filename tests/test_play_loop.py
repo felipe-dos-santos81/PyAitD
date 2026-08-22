@@ -108,7 +108,8 @@ def test_depth_sort_far_first():
     game.current_room = 0
     game.actors[1] = Actor(index_in_world=1, body_num=1, zv=[100, 200, 0, 100, 100, 200])
     game.actors[2] = Actor(index_in_world=2, body_num=1, zv=[150, 250, 0, 100, 300, 400])
-    assert sort_actor_indices(game, 0, 0, 0) == [1, 2]
+    # actor 2 is farther from the camera -> must draw FIRST (painter's algorithm)
+    assert sort_actor_indices(game, 0, 0, 0) == [2, 1]
 
 
 def test_depth_sort_y_bands():
