@@ -35,6 +35,8 @@ class AnimPlayer:
         self.start_tick = start_tick
         self.prev_frame = None  # last committed keyframe (FITD startAnim)
         self._states = [(0, (0, 0, 0))] * len(body.groups)
+        self.anim_step = (0, 0, 0)  # FITD animStepX/Y/Z (interpolated per tick)
+        self.wrapped = False  # anim looped on the last keyframe commit
 
     def set_anim(self, anim, start_tick):
         # SetAnimObjet port (AITD1: keep current frame, apply keyframe 0 states)
@@ -42,6 +44,8 @@ class AnimPlayer:
         self.start_tick = start_tick
         self.prev_frame = None
         self.frame = 0
+        self.anim_step = (0, 0, 0)
+        self.wrapped = False
         keyframe = anim.frames[0]
         n = min(anim.num_groups, len(self.body.groups))
         self._states = list(
@@ -52,7 +56,8 @@ class AnimPlayer:
         return self._states
 
     def advance(self, tick):
-        # SetInterAnimObjet port (non-optimise branch)
+        # SetInterAnimObjet port (non-optimise branch): returns True when the
+        # keyframe commits (FITD END_FRAME)
         n = min(self.anim.num_groups, len(self.body.groups))
         frame = self.frame % self.anim.num_frames
         keyframe = self.anim.frames[frame]
@@ -80,6 +85,8 @@ class AnimPlayer:
                     )
                 states.append((gtype, delta))
             self._states = states + [(0, (0, 0, 0))] * (len(self.body.groups) - n)
+            self.anim_step = tuple(int(s * bp / bx) for s in keyframe.anim_step)
+            self.wrapped = False
             return False
         # keyframe complete: commit and advance
         self._states = list(
@@ -88,4 +95,6 @@ class AnimPlayer:
         self.prev_frame = keyframe
         self.start_tick = tick
         self.frame = (self.frame + 1) % self.anim.num_frames
-        return self.frame == 0
+        self.wrapped = self.frame == 0
+        self.anim_step = keyframe.anim_step
+        return True

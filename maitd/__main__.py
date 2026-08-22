@@ -7,7 +7,7 @@ import sys
 
 import pygame
 
-from maitd.anim import AnimPlayer
+from maitd.actors import anim_player_for, gere_anim
 from maitd.floor import Floor
 from maitd.formats import parse_cover_zones
 from maitd.game import (
@@ -62,24 +62,14 @@ def poll_input(game):
     game.action = 0x2000 if game.local_click else 0
 
 
-def _anim_player(game, i):
-    a = game.actors[i]
-    body = game.assets.body(a.body_num)
-    anim = game.assets.anim(a.anim)
-    player = game.anim_players.get(i)
-    if player is None or player.body is not body or player.anim is not anim:
-        player = AnimPlayer(body, anim, game.timer)
-        game.anim_players[i] = player
-    return player
-
-
 def _anim_pass(game):
-    # mainLoop.cpp:127-148: GereAnim per AF_ANIMATED actor (M2 AnimPlayer).
-    # GereDec (AF_TRIGGER, M3b) and GereFrappe (anim_action_type, M3c) skipped.
+    # mainLoop.cpp:127-148: GereAnim per AF_ANIMATED actor (FITD port in
+    # maitd.actors.gere_anim). GereDec (AF_TRIGGER, M3b) and GereFrappe
+    # (anim_action_type, M3c) skipped.
     for i, a in enumerate(game.actors):
-        if a.index_in_world < 0 or not (a.object_type & AF_ANIMATED) or a.anim == -1:
+        if a.index_in_world < 0 or not (a.object_type & AF_ANIMATED):
             continue
-        _anim_player(game, i).advance(game.timer)
+        gere_anim(game, i)
 
 
 def _camera_switch(game, floor):
@@ -133,7 +123,7 @@ def _draw(game, floor, renderer):
         if a.anim == -1:
             states = [(0, (0, 0, 0))] * len(body.groups)  # static mesh: no anim
         else:
-            states = _anim_player(game, i).group_states()
+            states = anim_player_for(game, i).group_states()
         results.append(skin(
             body, states,
             (a.world_x + a.step_x, a.world_y + a.step_y, a.world_z + a.step_z),

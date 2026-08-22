@@ -83,15 +83,28 @@ def transform_point(x, y, z, angles):
     return (x, y, z)
 
 
+def _s32(v):
+    # C s32 wrap (two's complement truncation)
+    v &= 0xFFFFFFFF
+    return v - 0x100000000 if v >= 0x80000000 else v
+
+
+def _s32_mask_high(v):
+    # C: (s32)v & 0xFFFF0000, sign-preserving
+    v &= 0xFFFFFFFF
+    v &= 0xFFFF0000
+    return v - 0x100000000 if v >= 0x80000000 else v
+
+
 def rotate_step(angle, x, z):
     # FITD Rotate() port: xOut/zOut are y/z in FITD terms; here (x, z) vector
     if angle:
         sinv = COS_TABLE[angle & 0x3FF]
         cosv = COS_TABLE[(angle + 0x100) & 0x3FF]
-        v1 = ((cosv * x) << 1) & 0xFFFF0000
-        v2 = ((sinv * x) << 1) & 0xFFFF0000
-        v1 -= (sinv * z) << 1 & 0xFFFF0000
-        v2 += (cosv * z) << 1 & 0xFFFF0000
+        v1 = _s32_mask_high((cosv * x) << 1)
+        v2 = _s32_mask_high((sinv * x) << 1)
+        v1 = _s32(v1 - _s32_mask_high((sinv * z) << 1))
+        v2 = _s32(v2 + _s32_mask_high((cosv * z) << 1))
         z_out = v1 >> 16
         x_out = v2 >> 16
     else:

@@ -76,6 +76,10 @@ class Actor:
     rotate: RealValue = field(default_factory=RealValue)
     direction: int = 0
     speed: int = 0
+    speed_change: RealValue = field(default_factory=RealValue)
+    anim_neg_x: int = 0
+    anim_neg_y: int = 0
+    anim_neg_z: int = 0
     col: list = field(default_factory=lambda: [-1, -1, -1])
     col_by: int = -1
     hard_dec: int = -1
@@ -318,6 +322,10 @@ def add_actor(game, world_idx):
     actor.step_x = 0
     actor.step_y = 0
     actor.step_z = 0
+    actor.anim_neg_x = 0
+    actor.anim_neg_y = 0
+    actor.anim_neg_z = 0
+    actor.speed_change = RealValue()
 
     actor.col = [-1, -1, -1]
     actor.col_by = -1

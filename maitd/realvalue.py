@@ -10,6 +10,18 @@ def init_real_value(start_value, end_value, time, real_value, timer):
     return real_value
 
 
+def evaluate_real(real_value, timer):
+    # FITD evaluateReal (anim.cpp): linear interpolation, no angle masking
+    if not real_value.num_steps:
+        return real_value.end_value
+    if timer - real_value.memo_ticks > real_value.num_steps:
+        real_value.num_steps = 0
+        return real_value.end_value
+    value_diff = real_value.end_value - real_value.start_value
+    current_time = timer - real_value.memo_ticks
+    return real_value.start_value + int((value_diff * current_time) / real_value.num_steps)
+
+
 def update_actor_rotation(rotate_ptr, timer):
     if not rotate_ptr.num_steps:
         return rotate_ptr.end_value
