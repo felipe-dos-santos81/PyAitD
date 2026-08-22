@@ -117,6 +117,32 @@ def gere_collision(old_zv, animated_zv, fix_zv, step_x, step_z):
     return (step_x, step_z)
 
 
+def adjust_zv_between_rooms(game, zv, start_room, dest_room):
+    rooms = game.rooms_of_floor(game.current_floor)
+    dx = 10 * (rooms[dest_room].world_x - rooms[start_room].world_x)
+    dy = 10 * (rooms[dest_room].world_y - rooms[start_room].world_y)
+    dz = 10 * (rooms[dest_room].world_z - rooms[start_room].world_z)
+    return [zv[0] - dx, zv[1] - dx, zv[2] + dy, zv[3] + dy, zv[4] + dz, zv[5] + dz]
+
+
+def check_object_col(game, actor_idx, zv):
+    actor = game.actors[actor_idx]
+    actor.col[:] = [-1, -1, -1]
+    found = []
+    for other_idx, other in enumerate(game.actors):
+        if other.index_in_world == -1 or other_idx == actor_idx:
+            continue
+        local = zv if other.room == actor.room else adjust_zv_between_rooms(
+            game, zv, actor.room, other.room,
+        )
+        if cube_intersect(local, other.zv):
+            found.append(other_idx)
+            if len(found) == 3:
+                break
+    actor.col[:len(found)] = found
+    return tuple(found)
+
+
 def anim_player_for(game, actor_idx):
     # per-actor AnimPlayer keyed on the cached body/anim identities
     a = game.actors[actor_idx]
@@ -130,10 +156,9 @@ def anim_player_for(game, actor_idx):
 
 
 def gere_anim(game, actor_idx):
-    # anim.cpp:205 GereAnim port, M3a subset: anim advance, movement, hard
-    # cols. ponytail: actor/actor collision (CheckObjectCol: AF_MOVABLE push,
-    # AF_FOUNDABLE pickup, COL_BY) and AF_FALLABLE fall management need the
-    # M3b inventory/object pass.
+    # anim.cpp:205 GereAnim port: anim advance, movement, hard cols,
+    # CheckObjectCol contacts. ponytail: AF_FALLABLE fall management
+    # (manageFall) needs the M3c pass.
     a = game.actors[actor_idx]
 
     new_anim = a.new_anim
@@ -178,7 +203,8 @@ def gere_anim(game, actor_idx):
     if a.anim == -1:
         a.end_frame = 0
         if a.speed == 0:
-            # CheckObjectCol COL_BY writes: M3b skip (ponytail)
+            for touched_idx in check_object_col(game, actor_idx, a.zv):
+                game.actors[touched_idx].col_by = actor_idx
             # anim.cpp:291-300 zeroes local step vars only; pending field
             # steps stay (FITD leaves them too)
             old_step_y = 0
@@ -242,7 +268,10 @@ def gere_anim(game, actor_idx):
                     step_z = hard_col_step_z
         else:
             a.hard_col = 1 if check_hard_col(zv_local, room.hard_cols) else 0
-        # ponytail: CheckObjectCol actor/actor collision skipped (M3b)
+        from maitd.interaction import resolve_actor_contacts
+        zv_local, step_x, step_z = resolve_actor_contacts(
+            game, actor_idx, list(a.zv), zv_local, step_x, step_z,
+        )
         a.step_x = step_x + old_step_x
         a.step_y = step_y + old_step_y
         a.step_z = step_z + old_step_z
