@@ -9,7 +9,6 @@ from maitd.floor import Floor
 from maitd.formats import parse_defines, parse_objets, parse_vars
 
 NUM_MAX_OBJECT = 128
-NUM_CVARS = 45
 
 AF_ANIMATED = 0x0001
 AF_DRAWABLE = 0x0004
@@ -25,6 +24,8 @@ AITD1_CVAR_NAMES = (
     "CHOOSE_PERSO", "SAMPLE_CHOC", "SAMPLE_PLOUF", "REVERSE_OBJECT",
     "KILLED_SORCERER", "LIGHT_OBJECT", "FOG_FLAG", "DEAD_PERSO",
 )
+
+FOG_FLAG = AITD1_CVAR_NAMES.index("FOG_FLAG")
 
 
 @dataclass
@@ -340,7 +341,7 @@ def _delete_objet(game, index):
     if actor.index_in_world == -2:  # flow
         actor.index_in_world = -1
         if actor.anim == 4:
-            game.cvars[14] = 0  # FOG_FLAG
+            game.cvars[FOG_FLAG] = 0
         return
     if actor.index_in_world >= 0:
         obj = game.world_objects[actor.index_in_world]
@@ -375,16 +376,21 @@ def spawn_stage_actors(game):
     for i, actor in enumerate(game.actors):
         if actor.index_in_world == -1:
             continue
-        if actor.stage != game.current_floor:
-            _delete_objet(game, i)
-        elif actor.life != -1 and (
-            actor.life_mode == 0
-            or (actor.life_mode == 1 and actor.room != game.current_room)
-            # ponytail: life_mode 2 keeps unconditionally (FITD: isInViewList
-            # with the selected camera) — needs camera state, M4+
-        ):
-            _delete_objet(game, i)
-        # ponytail: life == -1 keeps unconditionally (FITD: isInViewList), M4+
+        if actor.stage == game.current_floor:
+            if actor.life != -1:
+                if actor.life_mode == 0:
+                    continue  # STAGE: keep
+                if actor.life_mode == 1 and actor.room == game.current_room:
+                    continue  # ROOM: keep
+                # ponytail: life_mode 2 keeps (FITD: isInViewList with the
+                # selected camera) — needs camera state, M4+
+                if actor.life_mode == 2:
+                    continue
+                # default (incl life_mode == -1): delete
+            else:
+                # ponytail: life == -1 keeps (FITD: isInViewList), M4+
+                continue
+        _delete_objet(game, i)
 
     for i, obj in enumerate(game.world_objects):
         if obj.obj_index != -1:
