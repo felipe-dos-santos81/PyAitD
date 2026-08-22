@@ -766,12 +766,11 @@ def test_switch_case(data_dir):
 
 def test_actor_switch_flag(data_dir):
     game = init_game(data_dir, hero=0)
-    # find a spawned actor
+    # find a spawned actor (in floor -> full dispatch on the switched actor)
     spawned = next(i for i, a in enumerate(game.actors) if a.index_in_world != -1)
     world_idx = game.actors[spawned].index_in_world
     game.assets = _FakeAssets(script=_script(
-        0x8000 | 41, world_idx, 0,   # LM_TYPE with switch flag, arg 0 -> type &= ~AF_MASK
-        11,
+        0x8000 | 11, world_idx,   # LM_RETURN with switch flag: dispatch on switched actor
     ))
     game.actors[spawned].life = 0
     process_life(game, spawned, 0)
@@ -1296,256 +1295,7 @@ git commit -m "feat: evalVar encodings port (AITD1)"
 
 ---
 
-### Task 7: Movement, state, and world-opcode handlers
-
-**Files:**
-- Create: `maitd/life_ops.py` (full-dispatch handlers) and `maitd/life_reduced.py` (not-in-floor dispatch)
-- Modify: `maitd/life.py` (wire `LIFETABLE[op] = ...` for implemented opcodes)
-- Modify: `maitd/game.py` (add `camera_param`, `hard_clip` state)
-- Test: `tests/test_life_ops.py`
-
-**Interfaces:**
-- Consumes: tasks 3-6, `maitd.tracks` (task 8 — process_track is called by LM_DO_MOVE; implement task 8 first if ordered before; the wiring import is lazy).
-- Produces full-path handlers:
-  - LM_DO_MOVE (0): `process_track(vm)` on `vm.actor`
-  - LM_ANIM_ONCE (1) / LM_ANIM_ALL_ONCE (2) / LM_ANIM_REPEAT (13): M3a — consume args (1: anim, flags; 2: anim, flags; 13: anim), set `a.anim`/`a.new_anim=-2` per FITD InitAnim contract (anim==-1 → anim=-1, new_anim=-2), M2 AnimPlayer switch happens in the play loop (task 11). Log via trace.
-  - LM_BODY (3): evalVar; set `a.body_num = v`, world obj `.body = v` (M3a: mesh switch in draw path, task 11)
-  - LM_HIT (16): M3c stub — consume raw anim, startFrame, groupNumber, hitBoxSize, evalVar hitForce, raw nextAnim; set `a.anim_action_type = 0` placeholder
-  - LM_MOVE (15): raw trackMode, raw trackNumber → `init_deplacement(a, mode, num)` (track.cpp InitDeplacement port: mode 2/3 set track_number + MARK=-1; mode 3 position_in_track=0)
-  - LM_LIFE_MODE (25): raw → `a.life_mode = v`
-  - LM_LIFE (32): raw → `a.life = v` (effective next tick — main-loop gate)
-  - LM_ANIM_MOVE (14): 7 raw (stand, walk, run, stop, backward, turnRight, turnLeft) → store on actor for play loop to pick anim by speed/direction (M2 animMove port); consume + log
-  - LM_TYPE (41): raw → `a.object_type = (a.object_type & ~AF_MASK) + (v & AF_MASK)`
-  - LM_TEST_COL (55): raw → `a.dyn_flags = v` (set/clear bit 0)
-  - LM_ANGLE (75): 3 raw → `a.alpha/a.beta/a.gamma = v`
-  - LM_SET_BETA (46): raw beta, raw speed → `init_real_value(a.beta, beta, speed, a.rotate, game.timer)` (rotate to beta)
-  - LM_SET_ALPHA (57): raw alpha, raw speed → same on alpha via rotate RealValue
-  - LM_MANUAL_ROT (43): no args → `gere_manual_rot(a, 240, game.local_joyd)` (track.cpp:90 port)
-  - LM_UP_COOR_Y (69): no args → `init_real_value(0, -2000, -1, a.y_handler, game.timer)`
-  - LM_DO_REAL_ZV (39): recompute zv from body (M2 `actor_zv`) + room offsets
-  - LM_DO_MAX_ZV (59) / LM_DO_CARRE_ZV (63): M3a — recompute zv using body max/cube bounds (FITD getZvMax/getZvCube semantics; implementer ports from FITD `main.cpp`)
-  - LM_DEF_ZV (72): 6 raw → `a.zv = [room+step + arg...]` per research table (room/step offsets)
-  - LM_GET_HARD_CLIP (74): no args → set `game.hard_clip` from current room collision box (M1 room data)
-  - LM_STAGE (48): 5 raw (stage, room, x, y, z) → if camera target actor: `flag_change_etage`/`flag_change_salle` + new values; else adjust actor world coords (FITD setStage port, main.cpp)
-  - LM_CAMERA_TARGET (52): raw target → `game.current_world_target = target`; if its obj is in floor: `game.current_camera_target_actor = world.obj_index`; room-change flag handling AITD1-style
-  - LM_START_CHRONO (enum 95, not in AITD1 table — skip; AITD1 uses none)
-  - LM_FOUND_NAME (49) / LM_FOUND_BODY (56) / LM_FOUND_FLAG (50) / LM_FOUND_WEIGHT (68) / LM_FOUND_LIFE (51): raw → world obj field (`found_name`, `found_body`, `found_flag = (found_flag & 0xE000) | v`, `position_in_track` (weight), `found_life`)
-  - LM_FOUND (31): raw objectId → M3b stub: consume, log (FoundObjet needs inventory)
-  - LM_DELETE (33): raw objectId → `delete_object(game, id)` — actor slot reset, world obj.obj_index=-1, foundFlag &= ~0x8000 then |= 0x4000 (AITD1)
-  - LM_TAKE (34): raw objectId → M3b stub (consume, log)
-  - LM_DROP (53): evalVar worldIdx, raw source → M3b stub (consume, log)
-  - LM_PUT (60): 9 raw → set world obj (idx,x,y,z,room,stage,alpha,beta,gamma), foundFlag |= 0x4000 (M3b inventory removal skipped)
-  - LM_PUT_AT (71): raw obj1, raw obj2 → `put_at_objet(game, obj1, obj2)` — place obj1 at obj2's coords + foundFlag |= 0x4000
-  - LM_IN_HAND (35): raw → `game.in_hand_table[game.current_inventory] = v`
-  - LM_INVENTORY (67): raw → `game.status_screen_allowed = v`
-  - LM_C_VAR (61): raw idx, evalVar → `game.cvars[idx] = v`
-  - LM_LIGHT (65): raw → `game.light_off = 2 - (v << 1)` (skipped if cvars[KILLED_SORCERER])
-  - LM_GAME_OVER (42): no args → `game.flag_game_over = 1; vm.exit = True` (M3a: skip music + 120-tick spin)
-  - Stubs (consume args, log only): LM_RND_FREQ (44: 1 raw), LM_SHAKING (66: 1 raw), LM_WATER (78: 1 raw), LM_SAMPLE (40: evalVar), LM_ANIM_SAMPLE (37: evalVar + 2 raw), LM_SPECIAL (38: 1 raw), LM_MUSIC (45: 1 raw), LM_SAMPLE_THEN (64: 2 evalVar), LM_SAMPLE_THEN_REPEAT (86: 2 evalVar), LM_REP_SAMPLE (76: evalVar + 1 raw skipped), LM_STOP_SAMPLE (80: 0), LM_NEXT_MUSIC (81: 1 raw → set next_music if current != -1), LM_FADE_MUSIC (82: 1 raw), LM_PICTURE (79: 3 raw + blocking wait skipped, FlagInitView=1), LM_READ (36: 2 raw + 1 raw SKIPPED — AITD1 extra word, FlagInitView=2), LM_END_SEQUENCE (85: 0), LM_WAIT_GAME_OVER (87: wait for key/JoyD/Click transitions then flag_game_over=1, exit — port both waits bug-for-bug including FITD's non-negated Click in the second wait), LM_THROW (77: 7 raw, M3c stub), LM_FIRE (54: 6 raw, M3c stub), LM_HIT_OBJECT (73: 2 raw, M3c stub), LM_STOP_HIT_OBJECT (83: 0 → if anim_action_type == 8 clear), LM_COPY_ANGLE (84: raw obj → copy alpha/beta/gamma from world obj or its actor)
-- Reduced (not-in-floor) handlers on `world = game.world_objects[widx]`: LM_BODY (eval_var → `.body`), LM_TYPE (flags `TYPE_MASK`), LM_ANIM_ONCE/ALL_ONCE/REPEAT (consume, set `.anim`/`.anim_info`), LM_MOVE (set `.track_mode/.track_number/.position_in_track`), LM_ANGLE (3 raw → `.alpha/.beta/.gamma`), LM_STAGE (5 raw → `.stage/.room/.x/.y/.z`), LM_TEST_COL (1 raw → flags bit), LM_LIFE (raw → `.life`), LM_LIFE_MODE (raw → `.life_mode`), LM_FOUND_NAME/BODY/FLAG/WEIGHT (raw → field), LM_START_CHRONO (no-op).
-
-- [ ] **Step 1: Write failing tests** `tests/test_life_ops.py`
-
-```python
-# SPDX-License-Identifier: GPL-2.0-only
-import struct
-
-import pytest
-
-from maitd.game import init_game
-from maitd.life import process_life
-
-
-class _FakeAssets:
-    def __init__(self, script):
-        self._script = script
-
-    def life(self, index):
-        return self._script
-
-    def track(self, index):
-        return b"\x02\x00"  # TL_END
-
-
-def _run(game, *words, actor=None):
-    if actor is None:
-        actor = next(i for i, a in enumerate(game.actors) if a.index_in_world != -1)
-    game.assets = _FakeAssets(struct.pack(f"<{len(words)}h", *words))
-    game.actors[actor].life = 0
-    process_life(game, actor, 0)
-    return game.actors[actor]
-
-
-def test_angle_sets(data_dir):
-    game = init_game(data_dir, hero=0)
-    a = _run(game, 75, 0x10, 0x20, 0x30, 11)
-    assert (a.alpha, a.beta, a.gamma) == (0x10, 0x20, 0x30)
-
-
-def test_life_and_life_mode(data_dir):
-    game = init_game(data_dir, hero=0)
-    a = _run(game, 25, 1, 32, 5, 11)
-    assert a.life_mode == 1
-    assert a.life == 5
-
-
-def test_move_init_track(data_dir):
-    game = init_game(data_dir, hero=0)
-    a = _run(game, 15, 3, 7, 11)
-    assert a.track_mode == 3
-    assert a.track_number == 7
-    assert a.position_in_track == 0
-    assert a.mark == -1
-
-
-def test_c_var_write(data_dir):
-    game = init_game(data_dir, hero=0)
-    _run(game, 61, 0, -1, 99, 11)  # LM_C_VAR idx 0, evalVar literal 99
-    assert game.cvars[0] == 99
-
-
-def test_found_flag_masked(data_dir):
-    game = init_game(data_dir, hero=0)
-    actor = next(i for i, a in enumerate(game.actors) if a.index_in_world != -1)
-    widx = game.actors[actor].index_in_world
-    game.world_objects[widx].found_flag = 0xFFFF
-    _run(game, 50, 0x23, 11, actor=actor)  # LM_FOUND_FLAG 0x23
-    assert game.world_objects[widx].found_flag == (0xFFFF & 0xE000) | 0x23
-
-
-def test_delete_object(data_dir):
-    game = init_game(data_dir, hero=0)
-    actor = next(i for i, a in enumerate(game.actors) if a.index_in_world != -1)
-    widx = game.actors[actor].index_in_world
-    _run(game, 33, widx, 11, actor=actor)
-    assert game.world_objects[widx].obj_index == -1
-    assert game.actors[actor].index_in_world == -1
-
-
-def test_stub_consumes_args(data_dir):
-    game = init_game(data_dir, hero=0)
-    a = _run(game, 44, 123, 66, 456, 11)  # RND_FREQ + SHAKING stubs, args consumed
-    assert a.life == 0  # unchanged; no crash = args consumed correctly
-
-
-def test_type_mask(data_dir):
-    game = init_game(data_dir, hero=0)
-    a = _run(game, 41, 0x0020, 11)  # LM_TYPE AF_SPECIAL
-    assert a.object_type & 0x0020
-```
-
-- [ ] **Step 2: Run tests, verify fail**
-
-Run: `.venv/bin/pytest tests/test_life_ops.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.life_ops'` (or NotImplementedError from the placeholder table).
-
-- [ ] **Step 3: Implement** `maitd/life_ops.py`, `maitd/life_reduced.py`, wire `maitd/life.py`
-
-Implementer follows the Interfaces table above; every handler is small (`read_s16` + field write + trace line). Structure:
-
-```python
-# maitd/life_ops.py
-# SPDX-License-Identifier: GPL-2.0-only
-"""Full-dispatch opcode handlers (life.cpp switch bodies, AITD1)."""
-from maitd.life import read_s16, eval_var
-from maitd.realvalue import init_real_value
-
-
-def op_angle(vm):
-    vm.actor.alpha = read_s16(vm)
-    vm.actor.beta = read_s16(vm)
-    vm.actor.gamma = read_s16(vm)
-```
-
-and in `maitd/life.py`:
-
-```python
-def _install_handlers():
-    from maitd import life_ops as ops
-    LIFETABLE[0] = lambda vm: process_track(vm)          # LM_DO_MOVE
-    LIFETABLE[1] = ops.op_anim_once
-    LIFETABLE[2] = ops.op_anim_all_once
-    LIFETABLE[3] = ops.op_body
-    LIFETABLE[13] = ops.op_anim_repeat
-    LIFETABLE[14] = ops.op_anim_move
-    LIFETABLE[15] = ops.op_move
-    LIFETABLE[16] = ops.op_hit
-    LIFETABLE[25] = ops.op_life_mode
-    LIFETABLE[31] = ops.op_found
-    LIFETABLE[32] = ops.op_life
-    LIFETABLE[33] = ops.op_delete
-    LIFETABLE[34] = ops.op_take
-    LIFETABLE[35] = ops.op_in_hand
-    LIFETABLE[36] = ops.op_read
-    LIFETABLE[37] = ops.op_anim_sample
-    LIFETABLE[38] = ops.op_special
-    LIFETABLE[39] = ops.op_do_real_zv
-    LIFETABLE[40] = ops.op_sample
-    LIFETABLE[41] = ops.op_type
-    LIFETABLE[42] = ops.op_game_over
-    LIFETABLE[43] = ops.op_manual_rot
-    LIFETABLE[44] = ops.op_rnd_freq
-    LIFETABLE[45] = ops.op_music
-    LIFETABLE[46] = ops.op_set_beta
-    LIFETABLE[47] = ops.op_do_rot_zv
-    LIFETABLE[48] = ops.op_stage
-    LIFETABLE[49] = ops.op_found_name
-    LIFETABLE[50] = ops.op_found_flag
-    LIFETABLE[51] = ops.op_found_life
-    LIFETABLE[52] = ops.op_camera_target
-    LIFETABLE[53] = ops.op_drop
-    LIFETABLE[54] = ops.op_fire
-    LIFETABLE[55] = ops.op_test_col
-    LIFETABLE[56] = ops.op_found_body
-    LIFETABLE[57] = ops.op_set_alpha
-    LIFETABLE[59] = ops.op_do_max_zv
-    LIFETABLE[60] = ops.op_put
-    LIFETABLE[61] = ops.op_c_var
-    LIFETABLE[63] = ops.op_do_carre_zv
-    LIFETABLE[64] = ops.op_sample_then
-    LIFETABLE[65] = ops.op_light
-    LIFETABLE[66] = ops.op_shaking
-    LIFETABLE[67] = ops.op_inventory
-    LIFETABLE[68] = ops.op_found_weight
-    LIFETABLE[69] = ops.op_up_coor_y
-    LIFETABLE[71] = ops.op_put_at
-    LIFETABLE[72] = ops.op_def_zv
-    LIFETABLE[73] = ops.op_hit_object
-    LIFETABLE[74] = ops.op_get_hard_clip
-    LIFETABLE[75] = ops.op_angle
-    LIFETABLE[76] = ops.op_rep_sample
-    LIFETABLE[77] = ops.op_throw
-    LIFETABLE[78] = ops.op_water
-    LIFETABLE[79] = ops.op_picture
-    LIFETABLE[80] = ops.op_stop_sample
-    LIFETABLE[81] = ops.op_next_music
-    LIFETABLE[82] = ops.op_fade_music
-    LIFETABLE[83] = ops.op_stop_hit_object
-    LIFETABLE[84] = ops.op_copy_angle
-    LIFETABLE[85] = ops.op_end_sequence
-    LIFETABLE[86] = ops.op_sample_then_repeat
-    LIFETABLE[87] = ops.op_wait_game_over
-
-_install_handlers()
-```
-
-All remaining opcodes (17, 18, 19, 20, 21, 22, 23, 24, 28, 29, 88-87-adjacent) are either not in the AITD1 88-entry range or AITD2+-only — the 88 slots must be exactly covered: 0-16, 25-27, 30-57, 59-87, plus dead 58/62/70. Slots 17-24 and 28-29 map to macros that do exist (LM_STAGE etc. — verify against `life.h` enum during implementation; any AITD1-reachable slot left as `_op_not_implemented` raises loudly rather than silently misbehaving).
-
-- [ ] **Step 4: Run tests, verify pass**
-
-Run: `.venv/bin/pytest tests/test_life_ops.py -q`
-Expected: 9 passed. Then full suite: `.venv/bin/pytest -q` — all green.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add maitd/life_ops.py maitd/life_reduced.py maitd/life.py maitd/game.py tests/test_life_ops.py
-git commit -m "feat: movement/state/object opcode handlers + reduced dispatch"
-```
-
----
-
-### Task 8: Track runner
+### Task 7: Track runner
 
 **Files:**
 - Create: `maitd/tracks.py`
@@ -1804,6 +1554,255 @@ Expected: 5 passed.
 ```bash
 git add maitd/tracks.py maitd/game.py tests/test_tracks.py
 git commit -m "feat: track runner (manual/follow/scripted modes, TL_* macros)"
+```
+
+---
+
+### Task 8: Movement, state, and world-opcode handlers
+
+**Files:**
+- Create: `maitd/life_ops.py` (full-dispatch handlers) and `maitd/life_reduced.py` (not-in-floor dispatch)
+- Modify: `maitd/life.py` (wire `LIFETABLE[op] = ...` for implemented opcodes)
+- Modify: `maitd/game.py` (add `camera_param`, `hard_clip` state)
+- Test: `tests/test_life_ops.py`
+
+**Interfaces:**
+- Consumes: tasks 3-6, `maitd.tracks` (task 7 — process_track is called by LM_DO_MOVE; wiring import is lazy).
+- Produces full-path handlers:
+  - LM_DO_MOVE (0): `process_track(vm)` on `vm.actor`
+  - LM_ANIM_ONCE (1) / LM_ANIM_ALL_ONCE (2) / LM_ANIM_REPEAT (13): M3a — consume args (1: anim, flags; 2: anim, flags; 13: anim), set `a.anim`/`a.new_anim=-2` per FITD InitAnim contract (anim==-1 → anim=-1, new_anim=-2), M2 AnimPlayer switch happens in the play loop (task 11). Log via trace.
+  - LM_BODY (3): evalVar; set `a.body_num = v`, world obj `.body = v` (M3a: mesh switch in draw path, task 11)
+  - LM_HIT (16): M3c stub — consume raw anim, startFrame, groupNumber, hitBoxSize, evalVar hitForce, raw nextAnim; set `a.anim_action_type = 0` placeholder
+  - LM_MOVE (15): raw trackMode, raw trackNumber → `init_deplacement(a, mode, num)` (track.cpp InitDeplacement port: mode 2/3 set track_number + MARK=-1; mode 3 position_in_track=0)
+  - LM_LIFE_MODE (25): raw → `a.life_mode = v`
+  - LM_LIFE (32): raw → `a.life = v` (effective next tick — main-loop gate)
+  - LM_ANIM_MOVE (14): 7 raw (stand, walk, run, stop, backward, turnRight, turnLeft) → store on actor for play loop to pick anim by speed/direction (M2 animMove port); consume + log
+  - LM_TYPE (41): raw → `a.object_type = (a.object_type & ~AF_MASK) + (v & AF_MASK)`
+  - LM_TEST_COL (55): raw → `a.dyn_flags = v` (set/clear bit 0)
+  - LM_ANGLE (75): 3 raw → `a.alpha/a.beta/a.gamma = v`
+  - LM_SET_BETA (46): raw beta, raw speed → `init_real_value(a.beta, beta, speed, a.rotate, game.timer)` (rotate to beta)
+  - LM_SET_ALPHA (57): raw alpha, raw speed → same on alpha via rotate RealValue
+  - LM_MANUAL_ROT (43): no args → `gere_manual_rot(a, 240, game.local_joyd)` (track.cpp:90 port)
+  - LM_UP_COOR_Y (69): no args → `init_real_value(0, -2000, -1, a.y_handler, game.timer)`
+  - LM_DO_REAL_ZV (39): recompute zv from body (M2 `actor_zv`) + room offsets
+  - LM_DO_MAX_ZV (59) / LM_DO_CARRE_ZV (63): M3a — recompute zv using body max/cube bounds (FITD getZvMax/getZvCube semantics; implementer ports from FITD `main.cpp`)
+  - LM_DEF_ZV (72): 6 raw → `a.zv = [room+step + arg...]` per research table (room/step offsets)
+  - LM_GET_HARD_CLIP (74): no args → set `game.hard_clip` from current room collision box (M1 room data)
+  - LM_STAGE (48): 5 raw (stage, room, x, y, z) → if camera target actor: `flag_change_etage`/`flag_change_salle` + new values; else adjust actor world coords (FITD setStage port, main.cpp)
+  - LM_CAMERA_TARGET (52): raw target → `game.current_world_target = target`; if its obj is in floor: `game.current_camera_target_actor = world.obj_index`; room-change flag handling AITD1-style
+  - LM_START_CHRONO (enum 95, not in AITD1 table — skip; AITD1 uses none)
+  - LM_FOUND_NAME (49) / LM_FOUND_BODY (56) / LM_FOUND_FLAG (50) / LM_FOUND_WEIGHT (68) / LM_FOUND_LIFE (51): raw → world obj field (`found_name`, `found_body`, `found_flag = (found_flag & 0xE000) | v`, `position_in_track` (weight), `found_life`)
+  - LM_FOUND (31): raw objectId → M3b stub: consume, log (FoundObjet needs inventory)
+  - LM_DELETE (33): raw objectId → `delete_object(game, id)` — actor slot reset, world obj.obj_index=-1, foundFlag &= ~0x8000 then |= 0x4000 (AITD1)
+  - LM_TAKE (34): raw objectId → M3b stub (consume, log)
+  - LM_DROP (53): evalVar worldIdx, raw source → M3b stub (consume, log)
+  - LM_PUT (60): 9 raw → set world obj (idx,x,y,z,room,stage,alpha,beta,gamma), foundFlag |= 0x4000 (M3b inventory removal skipped)
+  - LM_PUT_AT (71): raw obj1, raw obj2 → `put_at_objet(game, obj1, obj2)` — place obj1 at obj2's coords + foundFlag |= 0x4000
+  - LM_IN_HAND (35): raw → `game.in_hand_table[game.current_inventory] = v`
+  - LM_INVENTORY (67): raw → `game.status_screen_allowed = v`
+  - LM_C_VAR (61): raw idx, evalVar → `game.cvars[idx] = v`
+  - LM_LIGHT (65): raw → `game.light_off = 2 - (v << 1)` (skipped if cvars[KILLED_SORCERER])
+  - LM_GAME_OVER (42): no args → `game.flag_game_over = 1; vm.exit = True` (M3a: skip music + 120-tick spin)
+  - Stubs (consume args, log only): LM_RND_FREQ (44: 1 raw), LM_SHAKING (66: 1 raw), LM_WATER (78: 1 raw), LM_SAMPLE (40: evalVar), LM_ANIM_SAMPLE (37: evalVar + 2 raw), LM_SPECIAL (38: 1 raw), LM_MUSIC (45: 1 raw), LM_SAMPLE_THEN (64: 2 evalVar), LM_SAMPLE_THEN_REPEAT (86: 2 evalVar), LM_REP_SAMPLE (76: evalVar + 1 raw skipped), LM_STOP_SAMPLE (80: 0), LM_NEXT_MUSIC (81: 1 raw → set next_music if current != -1), LM_FADE_MUSIC (82: 1 raw), LM_PICTURE (79: 3 raw + blocking wait skipped, FlagInitView=1), LM_READ (36: 2 raw + 1 raw SKIPPED — AITD1 extra word, FlagInitView=2), LM_END_SEQUENCE (85: 0), LM_WAIT_GAME_OVER (87: wait for key/JoyD/Click transitions then flag_game_over=1, exit — port both waits bug-for-bug including FITD's non-negated Click in the second wait), LM_THROW (77: 7 raw, M3c stub), LM_FIRE (54: 6 raw, M3c stub), LM_HIT_OBJECT (73: 2 raw, M3c stub), LM_STOP_HIT_OBJECT (83: 0 → if anim_action_type == 8 clear), LM_COPY_ANGLE (84: raw obj → copy alpha/beta/gamma from world obj or its actor)
+- Reduced (not-in-floor) handlers on `world = game.world_objects[widx]`: LM_BODY (eval_var → `.body`), LM_TYPE (flags `TYPE_MASK`), LM_ANIM_ONCE/ALL_ONCE/REPEAT (consume, set `.anim`/`.anim_info`), LM_MOVE (set `.track_mode/.track_number/.position_in_track`), LM_ANGLE (3 raw → `.alpha/.beta/.gamma`), LM_STAGE (5 raw → `.stage/.room/.x/.y/.z`), LM_TEST_COL (1 raw → flags bit), LM_LIFE (raw → `.life`), LM_LIFE_MODE (raw → `.life_mode`), LM_FOUND_NAME/BODY/FLAG/WEIGHT (raw → field), LM_START_CHRONO (no-op).
+
+- [ ] **Step 1: Write failing tests** `tests/test_life_ops.py`
+
+```python
+# SPDX-License-Identifier: GPL-2.0-only
+import struct
+
+import pytest
+
+from maitd.game import init_game
+from maitd.life import process_life
+
+
+class _FakeAssets:
+    def __init__(self, script):
+        self._script = script
+
+    def life(self, index):
+        return self._script
+
+    def track(self, index):
+        return b"\x02\x00"  # TL_END
+
+
+def _run(game, *words, actor=None):
+    if actor is None:
+        actor = next(i for i, a in enumerate(game.actors) if a.index_in_world != -1)
+    game.assets = _FakeAssets(struct.pack(f"<{len(words)}h", *words))
+    game.actors[actor].life = 0
+    process_life(game, actor, 0)
+    return game.actors[actor]
+
+
+def test_angle_sets(data_dir):
+    game = init_game(data_dir, hero=0)
+    a = _run(game, 75, 0x10, 0x20, 0x30, 11)
+    assert (a.alpha, a.beta, a.gamma) == (0x10, 0x20, 0x30)
+
+
+def test_life_and_life_mode(data_dir):
+    game = init_game(data_dir, hero=0)
+    a = _run(game, 25, 1, 32, 5, 11)
+    assert a.life_mode == 1
+    assert a.life == 5
+
+
+def test_move_init_track(data_dir):
+    game = init_game(data_dir, hero=0)
+    a = _run(game, 15, 3, 7, 11)
+    assert a.track_mode == 3
+    assert a.track_number == 7
+    assert a.position_in_track == 0
+    assert a.mark == -1
+
+
+def test_c_var_write(data_dir):
+    game = init_game(data_dir, hero=0)
+    _run(game, 61, 0, -1, 99, 11)  # LM_C_VAR idx 0, evalVar literal 99
+    assert game.cvars[0] == 99
+
+
+def test_found_flag_masked(data_dir):
+    game = init_game(data_dir, hero=0)
+    actor = next(i for i, a in enumerate(game.actors) if a.index_in_world != -1)
+    widx = game.actors[actor].index_in_world
+    game.world_objects[widx].found_flag = 0xFFFF
+    _run(game, 50, 0x23, 11, actor=actor)  # LM_FOUND_FLAG 0x23
+    assert game.world_objects[widx].found_flag == (0xFFFF & 0xE000) | 0x23
+
+
+def test_delete_object(data_dir):
+    game = init_game(data_dir, hero=0)
+    actor = next(i for i, a in enumerate(game.actors) if a.index_in_world != -1)
+    widx = game.actors[actor].index_in_world
+    _run(game, 33, widx, 11, actor=actor)
+    assert game.world_objects[widx].obj_index == -1
+    assert game.actors[actor].index_in_world == -1
+
+
+def test_stub_consumes_args(data_dir):
+    game = init_game(data_dir, hero=0)
+    a = _run(game, 44, 123, 66, 456, 11)  # RND_FREQ + SHAKING stubs, args consumed
+    assert a.life == 0  # unchanged; no crash = args consumed correctly
+
+
+def test_type_mask(data_dir):
+    game = init_game(data_dir, hero=0)
+    a = _run(game, 41, 0x0020, 11)  # LM_TYPE AF_SPECIAL
+    assert a.object_type & 0x0020
+```
+
+- [ ] **Step 2: Run tests, verify fail**
+
+Run: `.venv/bin/pytest tests/test_life_ops.py -q`
+Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.life_ops'` (or NotImplementedError from the placeholder table).
+
+- [ ] **Step 3: Implement** `maitd/life_ops.py`, `maitd/life_reduced.py`, wire `maitd/life.py`
+
+Implementer follows the Interfaces table above; every handler is small (`read_s16` + field write + trace line). Structure:
+
+```python
+# maitd/life_ops.py
+# SPDX-License-Identifier: GPL-2.0-only
+"""Full-dispatch opcode handlers (life.cpp switch bodies, AITD1)."""
+from maitd.life import read_s16, eval_var
+from maitd.realvalue import init_real_value
+
+
+def op_angle(vm):
+    vm.actor.alpha = read_s16(vm)
+    vm.actor.beta = read_s16(vm)
+    vm.actor.gamma = read_s16(vm)
+```
+
+and in `maitd/life.py`:
+
+```python
+def _install_handlers():
+    from maitd import life_ops as ops
+    LIFETABLE[0] = lambda vm: process_track(vm)          # LM_DO_MOVE
+    LIFETABLE[1] = ops.op_anim_once
+    LIFETABLE[2] = ops.op_anim_all_once
+    LIFETABLE[3] = ops.op_body
+    LIFETABLE[13] = ops.op_anim_repeat
+    LIFETABLE[14] = ops.op_anim_move
+    LIFETABLE[15] = ops.op_move
+    LIFETABLE[16] = ops.op_hit
+    LIFETABLE[25] = ops.op_life_mode
+    LIFETABLE[31] = ops.op_found
+    LIFETABLE[32] = ops.op_life
+    LIFETABLE[33] = ops.op_delete
+    LIFETABLE[34] = ops.op_take
+    LIFETABLE[35] = ops.op_in_hand
+    LIFETABLE[36] = ops.op_read
+    LIFETABLE[37] = ops.op_anim_sample
+    LIFETABLE[38] = ops.op_special
+    LIFETABLE[39] = ops.op_do_real_zv
+    LIFETABLE[40] = ops.op_sample
+    LIFETABLE[41] = ops.op_type
+    LIFETABLE[42] = ops.op_game_over
+    LIFETABLE[43] = ops.op_manual_rot
+    LIFETABLE[44] = ops.op_rnd_freq
+    LIFETABLE[45] = ops.op_music
+    LIFETABLE[46] = ops.op_set_beta
+    LIFETABLE[47] = ops.op_do_rot_zv
+    LIFETABLE[48] = ops.op_stage
+    LIFETABLE[49] = ops.op_found_name
+    LIFETABLE[50] = ops.op_found_flag
+    LIFETABLE[51] = ops.op_found_life
+    LIFETABLE[52] = ops.op_camera_target
+    LIFETABLE[53] = ops.op_drop
+    LIFETABLE[54] = ops.op_fire
+    LIFETABLE[55] = ops.op_test_col
+    LIFETABLE[56] = ops.op_found_body
+    LIFETABLE[57] = ops.op_set_alpha
+    LIFETABLE[59] = ops.op_do_max_zv
+    LIFETABLE[60] = ops.op_put
+    LIFETABLE[61] = ops.op_c_var
+    LIFETABLE[63] = ops.op_do_carre_zv
+    LIFETABLE[64] = ops.op_sample_then
+    LIFETABLE[65] = ops.op_light
+    LIFETABLE[66] = ops.op_shaking
+    LIFETABLE[67] = ops.op_inventory
+    LIFETABLE[68] = ops.op_found_weight
+    LIFETABLE[69] = ops.op_up_coor_y
+    LIFETABLE[71] = ops.op_put_at
+    LIFETABLE[72] = ops.op_def_zv
+    LIFETABLE[73] = ops.op_hit_object
+    LIFETABLE[74] = ops.op_get_hard_clip
+    LIFETABLE[75] = ops.op_angle
+    LIFETABLE[76] = ops.op_rep_sample
+    LIFETABLE[77] = ops.op_throw
+    LIFETABLE[78] = ops.op_water
+    LIFETABLE[79] = ops.op_picture
+    LIFETABLE[80] = ops.op_stop_sample
+    LIFETABLE[81] = ops.op_next_music
+    LIFETABLE[82] = ops.op_fade_music
+    LIFETABLE[83] = ops.op_stop_hit_object
+    LIFETABLE[84] = ops.op_copy_angle
+    LIFETABLE[85] = ops.op_end_sequence
+    LIFETABLE[86] = ops.op_sample_then_repeat
+    LIFETABLE[87] = ops.op_wait_game_over
+
+_install_handlers()
+```
+
+All remaining opcodes (17, 18, 19, 20, 21, 22, 23, 24, 28, 29, 88-87-adjacent) are either not in the AITD1 88-entry range or AITD2+-only — the 88 slots must be exactly covered: 0-16, 25-27, 30-57, 59-87, plus dead 58/62/70. Slots 17-24 and 28-29 map to macros that do exist (LM_STAGE etc. — verify against `life.h` enum during implementation; any AITD1-reachable slot left as `_op_not_implemented` raises loudly rather than silently misbehaving).
+
+- [ ] **Step 4: Run tests, verify pass**
+
+Run: `.venv/bin/pytest tests/test_life_ops.py -q`
+Expected: 9 passed. Then full suite: `.venv/bin/pytest -q` — all green.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add maitd/life_ops.py maitd/life_reduced.py maitd/life.py maitd/game.py tests/test_life_ops.py
+git commit -m "feat: movement/state/object opcode handlers + reduced dispatch"
 ```
 
 ---
