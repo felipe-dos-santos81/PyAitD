@@ -190,6 +190,11 @@ def test_dead_opcode_raises(data_dir, op):
         process_life(game, 0, 0)
 
 
+def test_completed_script_returns_no_continuation(data_dir):
+    game = init_game(data_dir)
+    assert process_life(game, 0, game.actors[0].life) is None
+
+
 class _FakeAssets:
     def __init__(self, script):
         self._script = script

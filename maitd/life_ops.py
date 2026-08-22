@@ -3,6 +3,7 @@
 import logging
 
 from maitd.actors import cube_intersect
+from maitd.effects import ReadText
 from maitd.game import AF_ANIMATED, AF_MASK, _zv_cube, _zv_max, _zv_rot
 from maitd.life import eval_var, read_s16
 from maitd.realvalue import init_real_value, update_actor_rotation
@@ -195,11 +196,13 @@ def op_in_hand(vm):
 
 
 def op_read(vm):
-    # life.cpp:1620: AITD1 skips one extra word (VOC files for the text)
-    read_s16(vm)
-    read_s16(vm)
+    # life.cpp:1620: readBook(entry + 1, kind); AITD1 skips one extra word
+    # (VOC files for the text)
+    kind = read_s16(vm)
+    entry = read_s16(vm)
     read_s16(vm)  # AITD1 extra digit
     vm.game.flag_init_view = 2
+    vm.suspend(ReadText(text_index=entry + 1, kind=kind))
 
 
 def op_anim_sample(vm):

@@ -2,20 +2,33 @@
 """LIFE script VM — faithful port of FITD life.cpp processLife (AITD1)."""
 import struct
 
+from maitd.effects import AfterLife, LifeFrame
 from maitd.realvalue import start_chrono
 
 
 class VM:
-    __slots__ = ("script", "pc", "game", "owner_idx", "cur_idx", "switch_val", "exit")
+    __slots__ = (
+        "script", "pc", "game", "owner_idx", "cur_idx", "switch_val",
+        "exit", "suspended", "after", "subject_idx", "release_actor_idx",
+    )
 
-    def __init__(self, script, game, owner_idx):
+    def __init__(self, script, game, owner_idx, *, pc=0, after=AfterLife.NONE,
+                 subject_idx=-1, release_actor_idx=-1):
         self.script = script
-        self.pc = 0
+        self.pc = pc
         self.game = game
         self.owner_idx = owner_idx
         self.cur_idx = owner_idx
         self.switch_val = 0
         self.exit = False
+        self.suspended = False
+        self.after = after
+        self.subject_idx = subject_idx
+        self.release_actor_idx = release_actor_idx
+
+    def suspend(self, effect):
+        self.game.emit(effect)
+        self.suspended = True
 
     @property
     def actor(self):
@@ -158,9 +171,13 @@ def _op_not_implemented(index):
 _REDUCED_ALLOWED = {1, 2, 3, 13, 15, 24, 28, 31, 40, 47, 48, 49, 54, 55, 67, 74}
 
 
-def process_life(game, actor_idx, life_num):
-    vm = VM(game.assets.life(life_num), game, actor_idx)
-    while not vm.exit:
+def process_life(game, actor_idx, life_num, *, pc=0, after=AfterLife.NONE,
+                 subject_idx=-1, release_actor_idx=-1):
+    vm = VM(
+        game.assets.life(life_num), game, actor_idx, pc=pc, after=after,
+        subject_idx=subject_idx, release_actor_idx=release_actor_idx,
+    )
+    while not vm.exit and not vm.suspended:
         op = read_s16(vm)
         if game.trace is not None:
             game.trace.log(game, actor_idx, life_num, op, vm.pc)
@@ -185,6 +202,12 @@ def process_life(game, actor_idx, life_num):
             vm.cur_idx = vm.owner_idx
         else:
             _dispatch(vm, op)
+    if vm.suspended:
+        return LifeFrame(
+            vm.owner_idx, life_num, vm.pc, vm.after, vm.subject_idx,
+            vm.release_actor_idx,
+        )
+    return None
 
 
 def _dispatch(vm, op):
