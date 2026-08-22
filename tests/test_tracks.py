@@ -59,6 +59,7 @@ def test_track_manual_forward(data_dir):
     a = _actor()
     init_deplacement(a, 1, 0)
     game.local_joyd = 1
+    game.timer = 20  # past FITD's 10-tick cold-start window (lastTimeForward == 0)
     game.assets = _FakeAssets(track=b"")
     process_track(game, a)
     assert a.speed == 4
