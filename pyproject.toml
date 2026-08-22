@@ -1,0 +1,23 @@
+[project]
+name = "maitd"
+version = "0.1.0"
+description = "Alone in the Dark 1 engine reimplementation (Python/pygame-ce/ModernGL)"
+requires-python = ">=3.12"
+dependencies = [
+    "pygame-ce>=2.5",
+    "moderngl>=5.10",
+    "numpy>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["maitd"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
