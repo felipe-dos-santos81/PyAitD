@@ -169,8 +169,9 @@ def parse_cameras(raw):
 def decode_palette(raw):
     if len(raw) != 768:
         raise ValueError(f"palette must be 768 bytes, got {len(raw)}")
-    v = np.frombuffer(raw, dtype=np.uint8).astype(np.uint16)
-    return ((v << 2) | (v >> 4)).astype(np.uint8).reshape(256, 3)
+    # game palettes are stored 8-bit (verified: 470/768 values above 63 in
+    # ITD_RESS entry 3); FITD copies them raw and divides by 255 in the shader
+    return np.frombuffer(raw, dtype=np.uint8).reshape(256, 3).copy()
 
 
 def decode_image(raw, palette):

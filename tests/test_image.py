@@ -15,12 +15,12 @@ def test_palette_golden_values(data_dir):
     assert tuple(pal[1]) == (255, 255, 255)
 
 
-def test_palette_vga_expansion():
+def test_palette_passthrough_8bit():
     raw = bytes([63, 0, 0] + [0] * (768 - 3))
     pal = decode_palette(raw)
-    assert tuple(pal[0]) == (255, 0, 0)
-    raw = bytes([1, 0, 0] + [0] * (768 - 3))
-    assert tuple(decode_palette(raw)[0]) == (4, 0, 0)  # (1<<2)|(1>>4)
+    assert tuple(pal[0]) == (63, 0, 0)  # stored 8-bit: no expansion
+    raw = bytes([200, 100, 50] + [0] * (768 - 3))
+    assert tuple(decode_palette(raw)[0]) == (200, 100, 50)
 
 
 def test_palette_rejects_bad_size():
