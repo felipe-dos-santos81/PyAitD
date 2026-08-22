@@ -1699,9 +1699,9 @@ class _ActorLayer:
                         verts += self._vertex((cx, cy), color)
                         verts += self._vertex((cx + r * math.cos(a0), cy + r * math.sin(a0)), color)
                         verts += self._vertex((cx + r * math.cos(a1), cy + r * math.sin(a1)), color)
-                else:  # point / big point / zixel: 1-2 px quads
+                else:  # point / big point / zixel: 1-2 px quads (point+zixel 1px, bigpoint 2px)
                     for p in prim.points:
-                        s = 1.0 if prim.type == 2 else 2.0
+                        s = 1.0 if prim.type in (2, 7) else 2.0
                         verts += self._point_quad(p, s, color)
                 if verts:
                     buf = self._ctx.buffer(np.array(verts, dtype="f4").tobytes())
@@ -1742,7 +1742,7 @@ class _ActorLayer:
             layer[y1 : y2 + 1, x1 : x2 + 1][region == 255] = 0
         alpha = layer[:, :, 3:4].astype("f4") / 255.0
         composite = (layer[:, :, :3].astype("f4") * alpha + rgba[:, :, :3].astype("f4") * (1.0 - alpha)).astype(np.uint8)
-        self.present(composite)
+        self.present(np.ascontiguousarray(composite[:, :, :3]))  # M1 texture is RGB (3 channels)
 ```
 
 - [ ] **Step 3: Run full suite to confirm no regression**
