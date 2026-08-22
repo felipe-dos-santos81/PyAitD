@@ -595,10 +595,8 @@ class CameraState:
         return self
 
     def project(self, x, y, z):
-        if y > 10000:
-            return (-10000.0, -10000.0, -10000.0)
-        y -= self.y
-        x, y, z = transform_point(x, y, z, self)
+        # x, y, z are CAMERA-SPACE coords (already rotated by transform_point;
+        # FITD AnimNuage calls transformPoint before the projection block)
         depth = z + self.focal1
         if depth <= 50:
             return (-10000.0, -10000.0, -10000.0)
@@ -684,7 +682,7 @@ git commit -m "feat: camera transform math (FITD fixed-point port)"
   - `@dataclass PrimEntry: type: int, color: int, points: list[tuple[float, float, float]], size: float = 0` — screen-space points (x, y, depth), culled if min depth <= 100. For spheres (type 3), `size` = screen-space radius `prim.size * camera.focal2 / depth` of its point.
   - `@dataclass RenderResult: points: list[tuple[float, float, float]], primitives: list[PrimEntry]`
   - `def skin(body: Body, group_states: list[tuple[int, tuple[int, int, int]]], position: tuple[int, int, int], camera: CameraState) -> RenderResult` — group_states = per-group (type, (dx, dy, dz)) from the anim player; AITD1 (non-optimise) path of FITD `AnimNuage` only.
-- Port semantics (FITD renderer.cpp AnimNuage): copy vertices; groups applied in `group_order` order — type 0 rotate (InitGroupeRot from state delta + recursive RotateGroupe over children), type 1 translate group verts, type 2 zoom (`v * (d + 256) / 256`, truncating); then every group's vertices += base vertex; add render offsets (x - cam.x, y, z - cam.z); height clamp; subtract cam.y; transform_point; project.
+- Port semantics (FITD renderer.cpp AnimNuage): copy vertices; groups applied in `group_order` order — type 0 rotate (InitGroupeRot from state delta + recursive RotateGroupe over children), type 1 translate group verts, type 2 zoom (`v * (d + 256) / 256`, truncating); then every group's vertices += base vertex UNCONDITIONALLY (FITD loops over all group verts including any vertex that coincides with the base — real bodies keep bases outside their own ranges; synthetic fixtures must too); add render offsets (x - cam.x, y, z - cam.z); height clamp; subtract cam.y; transform_point; then project (projection only — no second transform).
 
 - [ ] **Step 1: Write failing tests** `tests/test_skel.py`
 
@@ -727,20 +725,22 @@ def test_depth_cull():
 
 
 def test_translate_group():
+    # base vertex OUTSIDE the group (real-body layout: base is the parent's origin)
     body = Body(
         flags=2,
         zv=(0, 0, 0, 0, 0, 0),
         scratch=(0,),
-        vertices=[(0, 0, 0), (10, 0, 0)],
-        groups=[Group(0, 2, 0, 0, 0, 0, 0, 0)],
+        vertices=[(0, 0, 0), (10, 0, 0), (5, 0, 0)],
+        groups=[Group(0, 2, 2, 0, 0, 0, 0, 0)],
         group_order=[0],
         primitives=[Primitive(1, 0, 1, [0, 1])],
     )
     cam = CameraState(0, 0, 0, 0, 0, 0, 300, 100, 100).angles()
     states = [(1, (50, 0, 0))]
     result = skin(body, states, (0, 0, 300), cam)
+    # verts after translate: (50,0,0),(60,0,0); +base(5,0,0) -> (55,0,0),(65,0,0)
     x0 = result.points[0][0]
-    assert x0 == 160.0 + (50 * 100) / 600  # 168.33...
+    assert x0 == 160.0 + (55 * 100) / 600  # 169.166...
 ```
 
 - [ ] **Step 2: Run tests, verify fail**
