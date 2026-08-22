@@ -34,6 +34,9 @@ def main(argv=None):
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    if not floor.rooms or not any(r.camera_indices for r in floor.rooms):
+        print(f"error: floor {args.floor} has no rooms with cameras", file=sys.stderr)
+        return 2
 
     renderer = Renderer()
     clock = pygame.time.Clock()

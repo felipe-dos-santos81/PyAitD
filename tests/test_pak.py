@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
+import zlib
 
 import pytest
 
@@ -75,3 +76,18 @@ def test_bad_deflate_payload_raises(tmp_path):
     )
     with pytest.raises(PakError, match="entry 0"):
         Pak(path).read(0)
+
+
+def test_flag4_deflate_entry_reads(tmp_path):
+    payload = b"hello deflate " * 8
+    comp = zlib.compressobj(wbits=-15)
+    blob = comp.compress(payload) + comp.flush()
+    path = tmp_path / "OK4.PAK"
+    path.write_bytes(
+        struct.pack("<II", 0, 8)
+        + struct.pack("<I", 8)
+        + struct.pack("<III", 4, len(blob), len(payload))
+        + struct.pack("<BBH", 4, 0, 0)
+        + blob
+    )
+    assert Pak(path).read(0) == payload

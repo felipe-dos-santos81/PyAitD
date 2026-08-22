@@ -91,25 +91,28 @@ def parse_rooms(raw):
     num_slots = _u32(raw, 0) // 4
     rooms = []
     for i in range(num_slots):
-        off = _u32(raw, i * 4)
-        if off > len(raw):
-            break
-        offset_to_hard_col = _u16(raw, off)
-        offset_to_sce_zones = _u16(raw, off + 2)
-        num_cameras = _u16(raw, off + 0xA)
-        camera_indices = [_u16(raw, off + 0xC + 2 * j) for j in range(num_cameras)]
-        rooms.append(
-            Room(
-                world_x=_s16(raw, off + 4),
-                world_y=_s16(raw, off + 6),
-                world_z=_s16(raw, off + 8),
-                camera_indices=camera_indices,
-                hard_cols=_parse_zones(raw, off + offset_to_hard_col),
-                sce_zones=_parse_zones(raw, off + offset_to_sce_zones),
-                offset_to_hard_col=offset_to_hard_col,
-                offset_to_sce_zones=offset_to_sce_zones,
+        try:
+            off = _u32(raw, i * 4)
+            if off >= len(raw):
+                break
+            offset_to_hard_col = _u16(raw, off)
+            offset_to_sce_zones = _u16(raw, off + 2)
+            num_cameras = _u16(raw, off + 0xA)
+            camera_indices = [_u16(raw, off + 0xC + 2 * j) for j in range(num_cameras)]
+            rooms.append(
+                Room(
+                    world_x=_s16(raw, off + 4),
+                    world_y=_s16(raw, off + 6),
+                    world_z=_s16(raw, off + 8),
+                    camera_indices=camera_indices,
+                    hard_cols=_parse_zones(raw, off + offset_to_hard_col),
+                    sce_zones=_parse_zones(raw, off + offset_to_sce_zones),
+                    offset_to_hard_col=offset_to_hard_col,
+                    offset_to_sce_zones=offset_to_sce_zones,
+                )
             )
-        )
+        except struct.error:
+            raise ValueError(f"corrupt room data entry {i}")
     return rooms
 
 
@@ -127,32 +130,35 @@ def parse_cameras(raw):
         offsets.append(off)
     cameras = []
     for off in offsets:
-        num_viewed = _u16(raw, off + 0x12)
-        cam = Camera(
-            alpha=_u16(raw, off),
-            beta=_u16(raw, off + 2),
-            gamma=_u16(raw, off + 4),
-            x=_u16(raw, off + 6),
-            y=_u16(raw, off + 8),
-            z=_u16(raw, off + 10),
-            focal1=_u16(raw, off + 12),
-            focal2=_u16(raw, off + 14),
-            focal3=_u16(raw, off + 16),
-        )
-        p = off + 0x14
-        for _ in range(num_viewed):
-            cam.viewed_rooms.append(
-                ViewedRoom(
-                    viewed_room_idx=_u16(raw, p),
-                    offset_to_mask=_u16(raw, p + 2),
-                    offset_to_cover=_u16(raw, p + 4),
-                    light_x=_u16(raw, p + 6),
-                    light_y=_u16(raw, p + 8),
-                    light_z=_u16(raw, p + 10),
-                )
+        try:
+            num_viewed = _u16(raw, off + 0x12)
+            cam = Camera(
+                alpha=_u16(raw, off),
+                beta=_u16(raw, off + 2),
+                gamma=_u16(raw, off + 4),
+                x=_u16(raw, off + 6),
+                y=_u16(raw, off + 8),
+                z=_u16(raw, off + 10),
+                focal1=_u16(raw, off + 12),
+                focal2=_u16(raw, off + 14),
+                focal3=_u16(raw, off + 16),
             )
-            p += 0x0C  # AITD1 stride
-        cameras.append(cam)
+            p = off + 0x14
+            for _ in range(num_viewed):
+                cam.viewed_rooms.append(
+                    ViewedRoom(
+                        viewed_room_idx=_u16(raw, p),
+                        offset_to_mask=_u16(raw, p + 2),
+                        offset_to_cover=_u16(raw, p + 4),
+                        light_x=_u16(raw, p + 6),
+                        light_y=_u16(raw, p + 8),
+                        light_z=_u16(raw, p + 10),
+                    )
+                )
+                p += 0x0C  # AITD1 stride
+            cameras.append(cam)
+        except struct.error:
+            raise ValueError(f"corrupt camera data offset {off}")
     return cameras
 
 

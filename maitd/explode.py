@@ -191,6 +191,8 @@ def explode(src, uncompressed_size, flags):
         tb = None
         pos, lengths = _get_tree(src, 0, 64)
         tl, bl = _huft_build(lengths, 64, 0, _CPLEN2, _EXTRA, bl)
+    if tl is None:
+        raise ExplodeError("invalid literal/length tree")
     pos, lengths = _get_tree(src, pos, 64)
     if flags & 2:
         bdl = 7
@@ -198,6 +200,8 @@ def explode(src, uncompressed_size, flags):
     else:
         bdl = 6
         td, _ = _huft_build(lengths, 64, 0, _DIST4, _EXTRA, bd)
+    if td is None:
+        raise ExplodeError("invalid distance tree")
 
     bitbuf = 0
     nbits = 0
