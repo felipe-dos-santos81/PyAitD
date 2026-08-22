@@ -72,9 +72,114 @@ class Renderer:
         self._vao.render()
         pygame.display.flip()
 
+    def present_scene(self, background, actor_results, masks, palette):
+        if not hasattr(self, "_actor_layer"):
+            self._actor_layer = _ActorLayer(self._ctx, palette)
+        self._actor_layer.draw(actor_results)
+        rgba = np.zeros((200, 320, 4), dtype=np.uint8)
+        rgba[:, :, :3] = background
+        rgba[:, :, 3] = 255
+        layer = np.frombuffer(self._actor_layer._tex.read(), dtype=np.uint8).reshape(200, 320, 4)
+        # mask: occlude actor pixels inside mask rects where the mask bit is set
+        for mask in masks:
+            x1, y1, x2, y2 = max(mask.x1, 0), max(mask.y1, 0), min(mask.x2, 319), min(mask.y2, 199)
+            region = mask.bitmap[y1 : y2 + 1, x1 : x2 + 1]
+            layer[y1 : y2 + 1, x1 : x2 + 1][region == 255] = 0
+        alpha = layer[:, :, 3:4].astype("f4") / 255.0
+        composite = (layer[:, :, :3].astype("f4") * alpha + rgba[:, :, :3].astype("f4") * (1.0 - alpha)).astype(np.uint8)
+        self.present(composite)
+
     def close(self):
         self._vbo.release()
         self._tex.release()
         self._prog.release()
         self._ctx.release()
         pygame.quit()
+
+
+# ---- actor layer (M2) ----
+
+_ACTOR_VSH = """
+#version 330
+in vec2 in_pos;
+in vec3 in_color;
+out vec3 v_color;
+void main() {
+    gl_Position = vec4(in_pos, 0.0, 1.0);
+    v_color = in_color;
+}
+"""
+
+_ACTOR_FSH = """
+#version 330
+in vec3 v_color;
+out vec4 f_color;
+void main() {
+    f_color = vec4(v_color, 1.0);
+}
+"""
+
+
+def _ndc(x, y):
+    # 320x200 screen space -> NDC for the actor FBO (y flipped)
+    return (x / 320.0 * 2.0 - 1.0, 1.0 - y / 200.0 * 2.0)
+
+
+class _ActorLayer:
+    def __init__(self, ctx, palette):
+        self._ctx = ctx
+        self._prog = ctx.program(vertex_shader=_ACTOR_VSH, fragment_shader=_ACTOR_FSH)
+        self._tex = ctx.texture((320, 200), 4)
+        self._fbo = ctx.framebuffer(color_attachments=[self._tex])
+        self._palette = palette
+
+    def draw(self, results):
+        self._fbo.use()
+        self._fbo.clear(0.0, 0.0, 0.0, 0.0)
+        for result in results:
+            for prim in result.primitives:
+                color = self._palette[prim.color].astype("f4") / 255.0
+                verts = []
+                mode = moderngl.TRIANGLES
+                if prim.type == 1:  # poly -> triangle fan
+                    for i in range(1, len(prim.points) - 1):
+                        verts += self._vertex(prim.points[0], color)
+                        verts += self._vertex(prim.points[i], color)
+                        verts += self._vertex(prim.points[i + 1], color)
+                elif prim.type == 0:  # line
+                    mode = moderngl.LINES
+                    for p in prim.points:
+                        verts += self._vertex(p, color)
+                elif prim.type == 3:  # sphere: 8-gon fan around center, radius size
+                    cx, cy = prim.points[0][0], prim.points[0][1]
+                    r = prim.size
+                    import math
+                    for k in range(8):
+                        a0 = k * math.pi / 4
+                        a1 = (k + 1) * math.pi / 4
+                        verts += self._vertex((cx, cy), color)
+                        verts += self._vertex((cx + r * math.cos(a0), cy + r * math.sin(a0)), color)
+                        verts += self._vertex((cx + r * math.cos(a1), cy + r * math.sin(a1)), color)
+                else:  # point / big point / zixel: 1-2 px quads
+                    for p in prim.points:
+                        s = 1.0 if prim.type == 2 else 2.0
+                        verts += self._point_quad(p, s, color)
+                if verts:
+                    buf = self._ctx.buffer(np.array(verts, dtype="f4").tobytes())
+                    vao = self._ctx.vertex_array(self._prog, [(buf, "2f 3f", "in_pos", "in_color")])
+                    vao.render(mode)
+                    buf.release()
+                    vao.release()
+
+    @staticmethod
+    def _vertex(p, color):
+        x, y = _ndc(p[0], p[1])
+        return [x, y, color[0], color[1], color[2]]
+
+    def _point_quad(self, p, size, color):
+        x, y = p[0], p[1]
+        out = []
+        for dx, dy in ((0, 0), (size, 0), (size, size), (0, 0), (size, size), (0, size)):
+            nx, ny = _ndc(x + dx, y + dy)
+            out += [nx, ny, color[0], color[1], color[2]]
+        return out
