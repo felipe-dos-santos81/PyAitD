@@ -43,5 +43,5 @@ run: install ## Run the play viewer: walk the actor, cameras switch, masks occlu
 test: install ## Run the pytest unit test suite
 	$(PYTHON) -m pytest tests/ -q
 
-prove: install ## Walk every floor, decode every camera image, parse all bodies/anims
-	$(PYTHON) scripts/prove_m1.py
+prove: install ## M3a proof: parse-all LIFE/TRACK/tables + headless 60-tick boot
+	$(PYTHON) -m pytest tests/test_prove_m3a.py -q
