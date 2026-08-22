@@ -33,14 +33,9 @@ def read_s16(vm):
 
 
 def eval_var(vm):
-    # FITD evalVar vars.cpp:157-174 subset: tag -1 = constant, tag 0 = script var.
-    # Actor-field tags (>0) land in task 6 (maitd.eval_var) and take over here.
-    tag = read_s16(vm)
-    if tag == -1:
-        return read_s16(vm)
-    if tag == 0:
-        return vm.game.vars[read_s16(vm)]
-    raise NotImplementedError(f"evalVar tag {tag} not implemented yet (task 6)")
+    # Full encodings port (task 6, maitd.eval_var); lazy import avoids a cycle.
+    from maitd.eval_var import eval_var as _full_eval_var
+    return _full_eval_var(vm)
 
 
 def _op_end(vm):
