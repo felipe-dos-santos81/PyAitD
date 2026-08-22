@@ -322,13 +322,12 @@ class ModalSession:
     found: FoundPresenter = field(default_factory=FoundPresenter)
     inventory: InventoryPresenter = field(default_factory=InventoryPresenter)
     reading: ReadingPresenter = field(default_factory=ReadingPresenter)
-    effect_identity: int = 0
+    last_effect: object = field(default=None, repr=False)
 
     def reset_for(self, effect):
-        identity = id(effect)
-        if identity == self.effect_identity:
+        if effect is self.last_effect:
             return
-        self.effect_identity = identity
+        self.last_effect = effect
         self.found = FoundPresenter(
             FoundResult.LEAVE if getattr(effect, "forced_refuse", False) else FoundResult.TAKE
         )

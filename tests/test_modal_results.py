@@ -2,7 +2,7 @@
 from maitd.effects import GameMode, LifeFrame, OpenInventory, ReadText, ShowFound
 from maitd.game import init_game
 from maitd.interaction import apply_found_result, apply_inventory_result, apply_reading_result
-from maitd.ui import FoundResult, InventoryResult, ReadingResult
+from maitd.ui import FoundResult, InventoryResult, ModalSession, ReadingResult
 
 
 def test_leave_debounces_and_resumes_parent(data_dir, monkeypatch):
@@ -35,3 +35,24 @@ def test_inventory_cancel_and_read_dismiss_restore_play(data_dir, monkeypatch):
     assert apply_reading_result(game, ReadingResult(True)) is True
     assert game.flag_init_view == 1
     assert game.mode is GameMode.PLAY
+
+
+def test_session_keeps_presenters_for_same_effect():
+    session = ModalSession()
+    effect = OpenInventory()
+    session.reset_for(effect)
+    session.inventory.object_cursor = 3
+    session.reset_for(effect)
+    assert session.inventory.object_cursor == 3
+
+
+def test_session_resets_for_equal_valued_new_effect():
+    session = ModalSession()
+    session.reset_for(OpenInventory())
+    session.inventory.object_cursor = 3
+    session.reset_for(OpenInventory())
+    assert session.inventory.object_cursor == 0
+    session.reset_for(ShowFound(2, True))
+    assert session.found.choice is FoundResult.LEAVE
+    session.reset_for(ShowFound(3, False))
+    assert session.found.choice is FoundResult.TAKE
