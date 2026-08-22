@@ -395,19 +395,24 @@ def run(game, trace_path=None):
                 accumulator -= TICK_MS
                 if floor.number != game.current_floor:
                     floor = Floor(game._data_dir, game.current_floor)
-            scene_frame = _scene_frame(game, floor, renderer)
+            if game.num_camera != -1:
+                scene_frame = _scene_frame(game, floor, renderer)
         else:
             accumulator = 0
             session.reading.elapsed_ms += elapsed
             _auto_dismiss_picture(game, session)
         renderer.present(render_active_mode(game, session, scene_frame))
-        room = floor.rooms[game.current_room]
-        cam_idx = room.camera_indices[game.num_camera]
-        live = sum(1 for actor in game.actors if actor.index_in_world >= 0)
-        pygame.display.set_caption(
-            f"maitd — floor {floor.number} room {game.current_room} "
-            f"camera {cam_idx} actors {live}"
-        )
+        if game.num_camera != -1:
+            # M3a draw_ready gate: transition frames (change_salle/floor
+            # pending, num_camera == -1, current_room stale) reuse the
+            # previous frame instead of re-indexing rooms/cameras.
+            room = floor.rooms[game.current_room]
+            cam_idx = room.camera_indices[game.num_camera]
+            live = sum(1 for actor in game.actors if actor.index_in_world >= 0)
+            pygame.display.set_caption(
+                f"maitd — floor {floor.number} room {game.current_room} "
+                f"camera {cam_idx} actors {live}"
+            )
         clock.tick(60)
     if game.trace is not None:
         game.trace.close()

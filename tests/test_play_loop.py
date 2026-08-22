@@ -85,6 +85,57 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
     assert calls == ["tick"] * 5 + ["present", "present"]
 
 
+def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch, tmp_path):
+    # M3a draw_ready gate: a floor/room-change tick leaves num_camera == -1
+    # with current_room stale until the next tick's change_salle, so the loop
+    # must reuse the previous frame instead of recomputing the scene or
+    # indexing floor.rooms[current_room] (IndexError / wrong camera).
+    import maitd.__main__ as main
+    from maitd.effects import GameMode
+
+    scene_calls = []
+    presented = []
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+
+    def scene_frame(*args):
+        scene_calls.append(1)
+        return frame
+
+    def tick(game, floor, input_buffer):
+        game.num_camera = -1  # floor-change tick: change_salle pending
+        return False
+
+    event_batches = iter(
+        [[], [SimpleNamespace(type=main.pygame.QUIT)]]
+    )
+    times = iter([0, 100, 100])
+
+    monkeypatch.setattr(
+        main, "Floor", lambda *args: SimpleNamespace(number=0, rooms=[]),
+    )
+    monkeypatch.setattr(
+        main, "Renderer",
+        lambda: SimpleNamespace(present=presented.append, close=lambda: None),
+    )
+    monkeypatch.setattr(main, "play_tick", tick)
+    monkeypatch.setattr(main, "_scene_frame", scene_frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
+    )
+
+    game = SimpleNamespace(
+        _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,
+        num_camera=0, new_num_camera=0, flag_init_view=0, current_room=0,
+        actors=[],
+    )
+    assert main.run(game) == 0
+    assert len(scene_calls) == 1  # only the pre-loop frame, reused after
+    assert len(presented) == 2
+
+
 class _FakeAssets:
     def __init__(self, real_assets, anim):
         self._real = real_assets
