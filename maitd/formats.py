@@ -335,6 +335,76 @@ def parse_anim(raw):
     return Animation(num_frames, num_groups, frames)
 
 
+@dataclass
+class WorldObject:
+    obj_index: int
+    body: int
+    flags: int
+    type_zv: int
+    found_body: int
+    found_name: int
+    found_flag: int
+    found_life: int
+    x: int
+    y: int
+    z: int
+    alpha: int
+    beta: int
+    gamma: int
+    stage: int
+    room: int
+    life_mode: int
+    life: int
+    floor_life: int
+    anim: int
+    frame: int
+    anim_type: int
+    anim_info: int
+    track_mode: int
+    track_number: int
+    position_in_track: int
+
+
+_WORLD_OBJ_FIELDS = (
+    "obj_index", "body", "flags", "type_zv", "found_body", "found_name",
+    "found_flag", "found_life", "x", "y", "z", "alpha", "beta", "gamma",
+    "stage", "room", "life_mode", "life", "floor_life", "anim", "frame",
+    "anim_type", "anim_info", "track_mode", "track_number", "position_in_track",
+)
+
+
+def parse_objets(raw):
+    # FITD LoadWorld (main.cpp:1005): u16 count + fixed 26-s16 records, flags |= 0x20
+    count = _u16(raw, 0)
+    p = 2
+    out = []
+    for _ in range(count):
+        values = list(struct.unpack_from("<26h", raw, p))
+        p += 52
+        values[2] |= 0x20
+        out.append(WorldObject(*values))
+    return out
+
+
+def parse_vars(raw):
+    # VARS.ITD: raw s16 array read by evalVar tag 0 (read-only in AITD1)
+    n = len(raw) // 2
+    return list(struct.unpack_from(f"<{n}h", raw, 0))
+
+
+def parse_defines(raw):
+    # DEFINES.ITD: 45 CVars stored big-endian; LoadWorld byteswaps (main.cpp:1151)
+    n = len(raw) // 2
+    values = list(struct.unpack_from(f"<{n}H", raw, 0))
+    return [((v & 0xFF) << 8) | ((v & 0xFF00) >> 8) for v in values]
+
+
+def parse_priority(raw):
+    # PRIORITY.ITD: raw s16 array (odd trailing byte ignored); semantics M4
+    n = len(raw) // 2
+    return list(struct.unpack_from(f"<{n}h", raw, 0))
+
+
 def parse_cover_zones(camera_raw, camera_off, viewed_idx):
     vr_off = camera_off + 0x14 + viewed_idx * 0x0C
     cover_off = camera_off + _u16(camera_raw, vr_off + 4)
