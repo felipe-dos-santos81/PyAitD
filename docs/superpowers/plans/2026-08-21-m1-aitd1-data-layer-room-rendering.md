@@ -34,9 +34,9 @@ Verified golden values (floor 0):
 - `CAMERA00.PAK`: 5 entries, each 64000 bytes (320x200 indexed pixels, no palette tail).
 - `ITD_RESS.PAK`: 20 entries. Entry 3 = 768-byte VGA palette (6 bits per channel). Entry 0 = black `(0,0,0)`, entry 1 = white `(255,255,255)` after expansion.
 
-Room data (entry 0): u32 offset table; `num_slots = u32@0 // 4`; room `i` at `raw + u32(raw + i*4)`; stop scanning when an offset exceeds buffer size. Room def (all little-endian): `u16 offset_to_hard_col`, `u16 offset_to_sce_zones`, `s16 world_x`, `s16 world_y`, `s16 world_z`, `u16 num_cameras`, then `num_cameras × u16` camera indices. Hard col table at `offset_to_hard_col`: `u16 count` then `count × 16` bytes (`6 × s16` ZV + `u16 parameter` + `u16 type`). Sce zones same layout at `offset_to_sce_zones`. Floor 0: 1 room, world (0, 0, 1280), cameras [2], 33 hard cols, invariant `22 + 2 + 33*16 == 552 == offset_to_sce_zones`.
+Room data (entry 0): u32 offset table; `num_slots = u32@0 // 4`; room `i` at `raw + u32(raw + i*4)`; stop scanning when an offset exceeds buffer size. Room def (all little-endian): `u16 offset_to_hard_col`, `u16 offset_to_sce_zones`, `s16 world_x`, `s16 world_y`, `s16 world_z`, `u16 num_cameras`, then `num_cameras × u16` camera indices. Hard col table at `offset_to_hard_col`: `u16 count` then `count × 16` bytes (`6 × s16` ZV + `u16 parameter` + `u16 type`). Sce zones same layout at `offset_to_sce_zones`. Floor 0: 1 room, world (0, 0, 0), cameras [0, 1, 2, 3, 4], 33 hard cols, invariant `22 + 2 + 33*16 == 552 == offset_to_sce_zones`. Hard col 0: ZV (-7800, 7800, -2500, 0, -5300, -5000), type 1, parameter 0.
 
-Camera data (entry 1): u32 offset table; count = number of leading strictly-increasing offsets starting from slot 0 (values: 24, 858, 1300, 2240, 2834 for floor 0 → 5 cameras). Camera def at each offset: `alpha u16@0, beta u16@2, gamma u16@4, x u16@6, y u16@8, z u16@10, focal1 u16@12, focal2 u16@14, focal3 u16@16, num_viewed_rooms u16@18`, then AITD1 viewed-room entries of 12 bytes each: `viewed_room_idx u16, offset_to_mask u16, offset_to_cover u16, light_x u16, light_y u16, light_z u16`. Floor 0 camera 0: alpha 0, beta 256, gamma 57, x 954, y 0, z 455. Camera 2 must list room 0 in its viewed rooms.
+Camera data (entry 1): u32 offset table; camera `i` at `raw + u32(raw + i*4)`; stop scanning when an offset exceeds buffer size (table holds extra garbage slots beyond the valid ones — floor 0 has slot 65536 after 2834). Floor 0: 5 cameras at offsets 24, 858, 1300, 2240, 2834. Camera def at each offset: `alpha u16@0, beta u16@2, gamma u16@4, x u16@6, y u16@8, z u16@10, focal1 u16@12, focal2 u16@14, focal3 u16@16, num_viewed_rooms u16@18`, then AITD1 viewed-room entries of 12 bytes each: `viewed_room_idx u16, offset_to_mask u16, offset_to_cover u16, light_x u16, light_y u16, light_z u16`. Floor 0 camera 0: alpha 57, beta 954, gamma 0, x 455, y 149, z 423, focal1 1431, focal2 229, focal3 191. Camera 2: alpha 109, beta 185, gamma 0, x 64795, y 280, z 65420. All 5 cameras list room 0 in their viewed rooms.
 
 ---
 
@@ -732,8 +732,8 @@ def test_floor0_rooms(data_dir):
     rooms = parse_rooms(pak.read(0))
     assert len(rooms) == 1
     room = rooms[0]
-    assert (room.world_x, room.world_y, room.world_z) == (0, 0, 1280)
-    assert room.camera_indices == [2]
+    assert (room.world_x, room.world_y, room.world_z) == (0, 0, 0)
+    assert room.camera_indices == [0, 1, 2, 3, 4]
     assert len(room.hard_cols) == 33
     # layout invariant: hard col block ends exactly where sce zones start
     assert room.offset_to_hard_col + 2 + len(room.hard_cols) * 16 == room.offset_to_sce_zones
@@ -746,8 +746,8 @@ def test_floor0_cameras(data_dir):
     cameras = parse_cameras(pak.read(1))
     assert len(cameras) == 5
     cam0 = cameras[0]
-    assert (cam0.alpha, cam0.beta, cam0.gamma) == (0, 256, 57)
-    assert (cam0.x, cam0.y, cam0.z) == (954, 0, 455)
+    assert (cam0.alpha, cam0.beta, cam0.gamma) == (57, 954, 0)
+    assert (cam0.x, cam0.y, cam0.z) == (455, 149, 423)
     assert all(cam.viewed_rooms for cam in cameras)
 
 
@@ -891,7 +891,9 @@ def parse_cameras(raw):
     highest = 0
     for i in range(num_slots):
         off = _u32(raw, i * 4)
-        if off <= highest:
+        # stop at non-increasing offsets or offsets past the buffer (the table
+        # can hold junk slots beyond the valid cameras — floor 0 has one)
+        if off <= highest or off >= len(raw):
             break
         highest = off
         offsets.append(off)
