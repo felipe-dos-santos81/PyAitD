@@ -1789,8 +1789,9 @@ def test_stub_consumes_args(data_dir):
 
 def test_type_mask(data_dir):
     game = init_game(data_dir, hero=0)
-    a = _run(game, 40, 0x0020, 11)  # LM_TYPE AF_SPECIAL
-    assert a.object_type & 0x0020
+    # AF_MASK = ANIMATED|MOVABLE|TRIGGER|FOUNDABLE|FALLABLE|WATER — 0x20 (AF_SPECIAL) NOT maskable
+    a = _run(game, 40, 0x0010, 11)  # LM_TYPE AF_MOVABLE
+    assert a.object_type & 0x0010
 ```
 
 - [ ] **Step 2: Run tests, verify fail**
