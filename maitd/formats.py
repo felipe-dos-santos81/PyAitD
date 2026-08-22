@@ -60,10 +60,6 @@ def _s16(buf, off):
     return struct.unpack_from("<h", buf, off)[0]
 
 
-def _be16(buf, off):
-    return struct.unpack_from(">H", buf, off)[0]
-
-
 def _u32(buf, off):
     return struct.unpack_from("<I", buf, off)[0]
 
@@ -98,19 +94,14 @@ def parse_rooms(raw):
             break
         offset_to_hard_col = _u16(raw, off)
         offset_to_sce_zones = _u16(raw, off + 2)
-        # ponytail: world coords read big-endian here; matches the golden floor-0
-        # values (0, 0, 1280). FITD reads these little-endian at +4/+6/+8 and gets
-        # (0, 0, 0) with num_cameras at +0xA (5 cameras). Reconcile before
-        # trusting these fields beyond floor 0.
+        num_cameras = _u16(raw, off + 0xA)
+        camera_indices = [_u16(raw, off + 0xC + 2 * j) for j in range(num_cameras)]
         rooms.append(
             Room(
-                world_x=_be16(raw, off + 6),
-                world_y=_be16(raw, off + 8),
-                world_z=_be16(raw, off + 0xA),
-                camera_indices=[
-                    _u16(raw, off + 0x10 + 2 * j)
-                    for j in range(_u16(raw, off + 0xE))
-                ],
+                world_x=_s16(raw, off + 4),
+                world_y=_s16(raw, off + 6),
+                world_z=_s16(raw, off + 8),
+                camera_indices=camera_indices,
                 hard_cols=_parse_zones(raw, off + offset_to_hard_col),
                 sce_zones=_parse_zones(raw, off + offset_to_sce_zones),
                 offset_to_hard_col=offset_to_hard_col,
@@ -121,24 +112,23 @@ def parse_rooms(raw):
 
 
 def parse_cameras(raw):
-    size = _u32(raw, 0)
-    # ponytail: first camera record sits at size - 4 on floor 0 (right after the
-    # 4-entry offset table); other floors' first camera sits at the table end
-    # (== size). Floor 0 only is covered by tests today.
-    offsets = [size - 4]
-    for i in range(1, size // 4):
+    num_slots = _u32(raw, 0) // 4
+    offsets = []
+    highest = 0
+    for i in range(num_slots):
         off = _u32(raw, i * 4)
-        if off <= offsets[-1] or off > len(raw):
+        # stop at non-increasing offsets or offsets past the buffer (the table
+        # can hold junk slots beyond the valid cameras — floor 0 has one)
+        if off <= highest or off >= len(raw):
             break
+        highest = off
         offsets.append(off)
     cameras = []
     for off in offsets:
         num_viewed = _u16(raw, off + 0x12)
-        # ponytail: beta read big-endian to match the golden floor-0 camera 0
-        # value (256); file byte order is little-endian per FITD.
         cam = Camera(
             alpha=_u16(raw, off),
-            beta=_be16(raw, off + 2),
+            beta=_u16(raw, off + 2),
             gamma=_u16(raw, off + 4),
             x=_u16(raw, off + 6),
             y=_u16(raw, off + 8),

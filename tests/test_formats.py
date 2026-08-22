@@ -8,8 +8,8 @@ def test_floor0_rooms(data_dir):
     rooms = parse_rooms(pak.read(0))
     assert len(rooms) == 1
     room = rooms[0]
-    assert (room.world_x, room.world_y, room.world_z) == (0, 0, 1280)
-    assert room.camera_indices == [2]
+    assert (room.world_x, room.world_y, room.world_z) == (0, 0, 0)
+    assert room.camera_indices == [0, 1, 2, 3, 4]
     assert len(room.hard_cols) == 33
     # layout invariant: hard col block ends exactly where sce zones start
     assert room.offset_to_hard_col + 2 + len(room.hard_cols) * 16 == room.offset_to_sce_zones
@@ -22,8 +22,8 @@ def test_floor0_cameras(data_dir):
     cameras = parse_cameras(pak.read(1))
     assert len(cameras) == 5
     cam0 = cameras[0]
-    assert (cam0.alpha, cam0.beta, cam0.gamma) == (0, 256, 57)
-    assert (cam0.x, cam0.y, cam0.z) == (954, 0, 455)
+    assert (cam0.alpha, cam0.beta, cam0.gamma) == (57, 954, 0)
+    assert (cam0.x, cam0.y, cam0.z) == (455, 149, 423)
     assert all(cam.viewed_rooms for cam in cameras)
 
 
