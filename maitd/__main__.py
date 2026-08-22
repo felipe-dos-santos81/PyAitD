@@ -116,6 +116,7 @@ def _draw(game, floor, renderer):
     cam = floor.cameras[cam_idx]
     state = CameraState.from_camera(cam, room.world_x, room.world_y, room.world_z).angles()
     results = []
+    actor_rooms = []
     for i, a in enumerate(game.actors):
         if a.index_in_world < 0 or a.body_num == -1:
             continue
@@ -129,8 +130,9 @@ def _draw(game, floor, renderer):
             (a.world_x + a.step_x, a.world_y + a.step_y, a.world_z + a.step_z),
             state, actor_angles=(a.alpha, a.beta, a.gamma),
         ))
+        actor_rooms.append(a.room)
     masks = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[cam_idx])
-    renderer.present_scene(floor.camera_image(cam_idx), results, masks, floor.palette)
+    renderer.present_scene(floor.camera_image(cam_idx), results, masks, floor.palette, actor_rooms)
     live = sum(1 for a in game.actors if a.index_in_world >= 0)
     pygame.display.set_caption(
         f"maitd — floor {floor.number} room {game.current_room} camera {cam_idx} "

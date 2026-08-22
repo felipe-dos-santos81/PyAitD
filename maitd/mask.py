@@ -15,6 +15,7 @@ class Mask:
     x2: int
     y2: int
     bitmap: np.ndarray  # (200, 320) uint8, 255 = occluded
+    viewed_room: int = -1  # FITD: masks clip actors in OTHER rooms only
 
 
 def _putdot(dots, h, x, y):
@@ -89,6 +90,7 @@ def create_aitd1_mask(camera_raw, camera_off):
     num_viewed = struct.unpack_from("<H", camera_raw, camera_off + 0x12)[0]
     for viewed in range(num_viewed):
         vr_off = camera_off + 0x14 + viewed * 0x0C
+        vr_room = struct.unpack_from("<h", camera_raw, vr_off)[0]
         mask_off = struct.unpack_from("<H", camera_raw, vr_off + 2)[0]
         base = camera_off + mask_off
         data2 = camera_raw[base:]
@@ -115,7 +117,7 @@ def create_aitd1_mask(camera_raw, camera_off):
                 for px, py in points:
                     min_x, max_x = min(min_x, px), max(max_x, px)
                     min_y, max_y = min(min_y, py), max(max_y, py)
-            masks.append(Mask(min_x, min_y, max_x, max_y, bitmap))
+            masks.append(Mask(min_x, min_y, max_x, max_y, bitmap, viewed_room=vr_room))
             # advance to next mask zone header: skip overlay rects (unused in AITD1)
             data += 2 + ((num_zones * 4 + 1) * 2)
     return masks
