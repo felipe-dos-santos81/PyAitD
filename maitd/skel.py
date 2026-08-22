@@ -28,10 +28,14 @@ def skin(body, group_states, position, camera, actor_angles=None):
     pts = [list(v) for v in body.vertices]
     num_points = len(pts)
 
-    if actor_angles is not None and body.group_order:
-        # FITD AnimNuage: group 0 delta is the actor's own angles
-        group_states = list(group_states)
-        group_states[body.group_order[0]] = (0, actor_angles)
+    if actor_angles is not None:
+        if body.group_order:
+            # FITD AnimNuage: group 0 delta is the actor's own angles
+            group_states = list(group_states)
+            group_states[0] = (0, actor_angles)
+        else:
+            # FITD RotateNuage: non-animated bodies rotate as one model.
+            _rotate_list(pts, 0, num_points, *actor_angles)
 
     for order_idx in body.group_order:
         group = body.groups[order_idx]

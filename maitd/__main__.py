@@ -117,6 +117,7 @@ def _draw(game, floor, renderer):
     state = CameraState.from_camera(cam, room.world_x, room.world_y, room.world_z).angles()
     results = []
     actor_rooms = []
+    actor_zvs = []
     cam_state = state
     translate_x = (cam.x - room.world_x) * 10
     translate_y = (room.world_y - cam.y) * 10
@@ -135,8 +136,12 @@ def _draw(game, floor, renderer):
             state, actor_angles=(a.alpha, a.beta, a.gamma),
         ))
         actor_rooms.append(a.room)
+        actor_zvs.append(a.zv)
     masks = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[cam_idx])
-    renderer.present_scene(floor.camera_image(cam_idx), results, masks, floor.palette, actor_rooms)
+    renderer.present_scene(
+        floor.camera_image(cam_idx), results, masks, floor.palette,
+        actor_rooms, actor_zvs,
+    )
     live = sum(1 for a in game.actors if a.index_in_world >= 0)
     pygame.display.set_caption(
         f"maitd — floor {floor.number} room {game.current_room} camera {cam_idx} "
@@ -144,10 +149,11 @@ def _draw(game, floor, renderer):
     )
 
 
-def play_tick(game, floor, renderer):
+def play_tick(game, floor, renderer=None):
     # mainLoop.cpp:41-281 PlayWorld, one 50Hz iteration. Movement integration
     # and collision (GereAnim steps) land with the anim runner, M3a runs the
-    # LIFE scripts only.
+    # LIFE scripts only. Rendering is deliberately outside this fixed-step
+    # function so catch-up ticks cannot block input behind repeated GPU work.
     game_step_tick(game)
     poll_input(game)
 
@@ -174,13 +180,13 @@ def play_tick(game, floor, renderer):
         game.flag_change_etage = 0
         game.num_camera = -1
         game.flag_change_salle = 1
-        return
+        return False
 
     if game.flag_change_salle:
         # mainLoop.cpp:194-199: ChangeSalle + InitView + continue (no draw)
         change_salle(game, game.new_num_salle)
         game.flag_change_salle = 0
-        return
+        return False
 
     _camera_switch(game, floor)
     if game.flag_init_view:
@@ -190,7 +196,7 @@ def play_tick(game, floor, renderer):
     if game.flag_genere_aff_list:
         spawn_stage_actors(game)
         game.flag_genere_aff_list = 0
-    _draw(game, floor, renderer)
+    return True
 
 
 def run(game, trace_path=None):
@@ -215,11 +221,14 @@ def run(game, trace_path=None):
         now = pygame.time.get_ticks()
         acc += now - last
         last = now
+        draw_ready = False
         while acc >= TICK_MS:
-            play_tick(game, floor, renderer)
+            draw_ready = play_tick(game, floor)
             acc -= TICK_MS
             if floor.number != game.current_floor:
                 floor = Floor(game._data_dir, game.current_floor)
+        if draw_ready:
+            _draw(game, floor, renderer)
         clock.tick(60)
     if game.trace is not None:
         game.trace.close()

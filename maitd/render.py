@@ -110,11 +110,11 @@ class Renderer:
 
 _ACTOR_VSH = """
 #version 330
-in vec2 in_pos;
+in vec3 in_pos;
 in vec3 in_color;
 out vec3 v_color;
 void main() {
-    gl_Position = vec4(in_pos, 0.0, 1.0);
+    gl_Position = vec4(in_pos, 1.0);
     v_color = in_color;
 }
 """
@@ -139,72 +139,90 @@ class _ActorLayer:
         self._ctx = ctx
         self._prog = ctx.program(vertex_shader=_ACTOR_VSH, fragment_shader=_ACTOR_FSH)
         self._tex = ctx.texture((320, 200), 4)
-        self._fbo = ctx.framebuffer(color_attachments=[self._tex])
+        self._depth = ctx.depth_renderbuffer((320, 200))
+        self._fbo = ctx.framebuffer(
+            color_attachments=[self._tex], depth_attachment=self._depth
+        )
         self._palette = palette
 
-    def draw(self, results, actor_rooms, masks):
+    def draw(self, results, actor_rooms, masks, actor_zvs=None):
         self._fbo.use()
-        self._fbo.clear(0.0, 0.0, 0.0, 0.0)
-        groups = {}
-        for result, room in zip(results, actor_rooms):
-            groups.setdefault(room, []).append(result)
-        for room, room_results in groups.items():
-            for result in room_results:
-                for prim in result.primitives:
-                    color = self._palette[prim.color].astype("f4") / 255.0
-                    verts = []
-                    mode = moderngl.TRIANGLES
-                    if prim.type == 1:  # poly -> triangle fan
-                        for i in range(1, len(prim.points) - 1):
-                            verts += self._vertex(prim.points[0], color)
-                            verts += self._vertex(prim.points[i], color)
-                            verts += self._vertex(prim.points[i + 1], color)
-                    elif prim.type == 0:  # line
-                        mode = moderngl.LINES
-                        for p in prim.points:
-                            verts += self._vertex(p, color)
-                    elif prim.type == 3:  # sphere: 8-gon fan around center, radius size
-                        cx, cy = prim.points[0][0], prim.points[0][1]
-                        r = prim.size
-                        import math
-                        for k in range(8):
-                            a0 = k * math.pi / 4
-                            a1 = (k + 1) * math.pi / 4
-                            verts += self._vertex((cx, cy), color)
-                            verts += self._vertex((cx + r * math.cos(a0), cy + r * math.sin(a0)), color)
-                            verts += self._vertex((cx + r * math.cos(a1), cy + r * math.sin(a1)), color)
-                    else:  # point / big point / zixel: 1-2 px quads
-                        for p in prim.points:
-                            s = 1.0 if prim.type in (2, 7) else 2.0
-                            verts += self._point_quad(p, s, color)
-                    if verts:
-                        buf = self._ctx.buffer(np.array(verts, dtype="f4").tobytes())
-                        vao = self._ctx.vertex_array(self._prog, [(buf, "2f 3f", "in_pos", "in_color")])
-                        vao.render(mode)
-                        buf.release()
-                        vao.release()
-            # FITD: a viewed room's masks occlude actors in OTHER rooms only
-            # (ponytail: FBO-wide erase also clears earlier overlapping actors)
-            other_masks = [m for m in masks if m.viewed_room != room]
-            if other_masks:
-                data = np.frombuffer(self._tex.read(), dtype=np.uint8).reshape(200, 320, 4)
-                data = data[::-1]  # mask bitmaps are top-down; GL rows are bottom-up
-                for mask in other_masks:
-                    x1, y1 = max(mask.x1, 0), max(mask.y1, 0)
-                    x2, y2 = min(mask.x2, 319), min(mask.y2, 199)
-                    region = mask.bitmap[y1 : y2 + 1, x1 : x2 + 1]
-                    data[y1 : y2 + 1, x1 : x2 + 1][region == 255] = 0
-                self._tex.write(np.ascontiguousarray(data[::-1]))
+        self._ctx.enable(moderngl.DEPTH_TEST)
+        self._ctx.depth_func = "<="
+        # Isolate each actor before masking so an erase cannot punch through
+        # actors that were already drawn farther back in the scene.
+        composite = np.zeros((200, 320, 4), dtype=np.uint8)
+        if actor_zvs is None:
+            actor_zvs = [None] * len(results)
+        for result, room, zv in zip(results, actor_rooms, actor_zvs):
+            self._fbo.clear(0.0, 0.0, 0.0, 0.0)
+            for prim in result.primitives:
+                color = self._palette[prim.color].astype("f4") / 255.0
+                verts = []
+                mode = moderngl.TRIANGLES
+                if prim.type == 1:  # poly -> triangle fan
+                    for i in range(1, len(prim.points) - 1):
+                        verts += self._vertex(prim.points[0], color)
+                        verts += self._vertex(prim.points[i], color)
+                        verts += self._vertex(prim.points[i + 1], color)
+                elif prim.type == 0:  # line
+                    mode = moderngl.LINES
+                    for p in prim.points:
+                        verts += self._vertex(p, color)
+                elif prim.type == 3:  # sphere: 8-gon fan around center, radius size
+                    cx, cy, cz = prim.points[0]
+                    r = prim.size
+                    import math
+                    for k in range(8):
+                        a0 = k * math.pi / 4
+                        a1 = (k + 1) * math.pi / 4
+                        verts += self._vertex((cx, cy, cz), color)
+                        verts += self._vertex((cx + r * math.cos(a0), cy + r * math.sin(a0), cz), color)
+                        verts += self._vertex((cx + r * math.cos(a1), cy + r * math.sin(a1), cz), color)
+                else:  # point / big point / zixel: 1-2 px quads
+                    for p in prim.points:
+                        s = 1.0 if prim.type in (2, 7) else 2.0
+                        verts += self._point_quad(p, s, color)
+                if verts:
+                    buf = self._ctx.buffer(np.array(verts, dtype="f4").tobytes())
+                    vao = self._ctx.vertex_array(self._prog, [(buf, "3f 3f", "in_pos", "in_color")])
+                    vao.render(mode)
+                    buf.release()
+                    vao.release()
+            data = np.frombuffer(self._tex.read(), dtype=np.uint8).reshape(200, 320, 4).copy()
+            data = data[::-1]  # mask bitmaps are top-down; GL rows are bottom-up
+            active_masks = [m for m in masks if _mask_applies_to_actor(m, room, zv)]
+            for mask in active_masks:
+                x1, y1 = max(mask.x1, 0), max(mask.y1, 0)
+                x2, y2 = min(mask.x2, 319), min(mask.y2, 199)
+                region = mask.bitmap[y1 : y2 + 1, x1 : x2 + 1]
+                data[y1 : y2 + 1, x1 : x2 + 1][region == 255] = 0
+            visible = data[:, :, 3] != 0
+            composite[visible] = data[visible]
+        self._tex.write(np.ascontiguousarray(composite[::-1]))
+        self._ctx.disable(moderngl.DEPTH_TEST)
 
     @staticmethod
     def _vertex(p, color):
         x, y = _ndc(p[0], p[1])
-        return [x, y, color[0], color[1], color[2]]
+        z = p[2] / 40960.0
+        return [x, y, z, color[0], color[1], color[2]]
 
     def _point_quad(self, p, size, color):
-        x, y = p[0], p[1]
+        x, y, z = p
         out = []
         for dx, dy in ((0, 0), (size, 0), (size, size), (0, 0), (size, size), (0, size)):
             nx, ny = _ndc(x + dx, y + dy)
-            out += [nx, ny, color[0], color[1], color[2]]
+            out += [nx, ny, z / 40960.0, color[0], color[1], color[2]]
         return out
+
+
+def _mask_applies_to_actor(mask, actor_room, zv):
+    if zv is None or mask.viewed_room != actor_room:
+        return False
+    x1, x2 = int(zv[0] / 10), int(zv[1] / 10)
+    z1, z2 = int(zv[4] / 10), int(zv[5] / 10)
+    return any(
+        x1 >= zone_x1 and z1 >= zone_z1 and x2 <= zone_x2 and z2 <= zone_z2
+        for zone_x1, zone_z1, zone_x2, zone_z2 in mask.test_rects
+    )

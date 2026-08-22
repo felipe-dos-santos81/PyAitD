@@ -15,7 +15,8 @@ class Mask:
     x2: int
     y2: int
     bitmap: np.ndarray  # (200, 320) uint8, 255 = occluded
-    viewed_room: int = -1  # FITD: masks clip actors in OTHER rooms only
+    viewed_room: int = -1
+    test_rects: tuple = ()  # actor-space (x1, z1, x2, z2) activation boxes
 
 
 def _putdot(dots, h, x, y):
@@ -98,6 +99,10 @@ def create_aitd1_mask(camera_raw, camera_off):
         data = 2  # skip numMask
         for _ in range(num_mask):
             num_zones = struct.unpack_from("<H", data2, data)[0]
+            test_rects = tuple(
+                struct.unpack_from("<4h", data2, data + 4 + zone * 8)
+                for zone in range(num_zones)
+            )
             # FITD: src = data2 + u16(data+2) — the offset value is relative to data2
             poly_off = struct.unpack_from("<H", data2, data + 2)[0]
             src = camera_raw[base + poly_off :]
@@ -117,7 +122,10 @@ def create_aitd1_mask(camera_raw, camera_off):
                 for px, py in points:
                     min_x, max_x = min(min_x, px), max(max_x, px)
                     min_y, max_y = min(min_y, py), max(max_y, py)
-            masks.append(Mask(min_x, min_y, max_x, max_y, bitmap, viewed_room=vr_room))
-            # advance to next mask zone header: skip overlay rects (unused in AITD1)
+            masks.append(Mask(
+                min_x, min_y, max_x, max_y, bitmap,
+                viewed_room=vr_room, test_rects=test_rects,
+            ))
+            # advance to the next mask header after its actor trigger rectangles
             data += 2 + ((num_zones * 4 + 1) * 2)
     return masks

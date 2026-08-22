@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
+from types import SimpleNamespace
+
 from maitd.game import init_game
 from maitd.life import life_gate
 
@@ -25,6 +27,45 @@ def test_poll_input_mapping(data_dir):
     assert joyd_from_keys(right=True) == 8
     assert joyd_from_keys(up=True, left=True) == 5
     assert joyd_from_keys() == 0
+
+
+def test_play_tick_does_not_render_inside_the_simulation_tick(data_dir, monkeypatch):
+    import maitd.__main__ as main
+    from maitd.floor import Floor
+
+    class ForbiddenRenderer:
+        def present_scene(self, *args, **kwargs):
+            raise AssertionError("simulation tick attempted a render")
+
+    monkeypatch.setattr(main, "poll_input", lambda game: None)
+    game = init_game(data_dir, hero=0)
+    main.play_tick(game, Floor(data_dir, 0), ForbiddenRenderer())
+
+
+def test_run_coalesces_catch_up_ticks_into_one_render(monkeypatch, tmp_path):
+    import maitd.__main__ as main
+
+    calls = []
+    event_batches = iter(
+        [[], [SimpleNamespace(type=main.pygame.QUIT)]]
+    )
+    times = iter([0, 100, 100])
+
+    monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(number=0))
+    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(
+        main, "play_tick", lambda *args: calls.append("tick") or True
+    )
+    monkeypatch.setattr(main, "_draw", lambda *args: calls.append("draw"))
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
+    )
+
+    game = SimpleNamespace(_data_dir=tmp_path, current_floor=0, trace=None)
+    assert main.run(game) == 0
+    assert calls == ["tick"] * 5 + ["draw"]
 
 
 class _FakeAssets:

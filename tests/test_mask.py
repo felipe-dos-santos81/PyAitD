@@ -24,8 +24,6 @@ def test_fill_square_rows():
     assert target[5, 2] == 0
 
 def test_masks_tagged_with_viewed_room(data_dir):
-    # FITD: masks clip actors in OTHER viewed rooms only; player in room 0
-    # must not be occluded by camera 0's room-0 masks.
     from maitd.floor import Floor
     from maitd.mask import create_aitd1_mask
     import pathlib
@@ -34,3 +32,18 @@ def test_masks_tagged_with_viewed_room(data_dir):
     masks = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[0])
     assert masks
     assert all(m.viewed_room == 0 for m in masks)
+
+
+def test_masks_retain_actor_trigger_rectangles(data_dir):
+    from maitd.floor import Floor
+    from maitd.mask import create_aitd1_mask
+    import pathlib
+    d = pathlib.Path(data_dir)
+    floor = Floor(d, 0)
+
+    masks = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[0])
+
+    assert getattr(masks[4], "test_rects", ()) == (
+        (560, -518, 764, 517),
+        (-858, -291, 772, 557),
+    )

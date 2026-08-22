@@ -13,7 +13,7 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 
 ```bash
 make run                     # play (windowed); make run trace=/tmp/t.log writes per-opcode LIFE trace
-make test                    # pytest suite (179 passed, 1 skipped)
+make test                    # pytest suite (187 passed, 1 skipped)
 make prove                   # M3a proof: parse-all 563 scripts/45 tracks/tables + headless 60-tick boot
 make floor=N run             # start on another floor
 ```
@@ -64,28 +64,40 @@ against `AITD1.cpp` — the plan + code are the source of truth).
   `present_scene` flips the actor layer on read (`layer[::-1]`) and mask-erase coords.
 - **Painter's algorithm**: actors depth-sorted farthest-first (FITD comparator
   returns -1 when distance1 > distance2 — do not "fix" the direction).
-- **Masks**: a viewed room's masks occlude actors in *other* viewed rooms only.
+- **Masks**: FITD selects masks per actor: the mask's viewed room must match the
+  actor room, and the actor ZV / 10 must fit one of that mask's trigger rectangles.
 - **FITD quirks preserved**: GiveDistance2D is Manhattan with s16-cast saturation;
   `_last_time_forward = 0` cold-start run quirk; LM_READ skips an extra s16;
   LM_WAIT_GAME_OVER second wait has the non-negated Click bug; `walkStep` outputs
   crossed (xOut→animMoveZ).
-- Known simplifications (ponytail comments in code): per-actor mask erase order,
-  do_real_zv box zv instead of per-vertex bounds, ANIM_RESET skip, CheckObjectCol
-  push/pickup (M3b), fall management.
+- Known simplifications (ponytail comments in code): do_real_zv box zv instead
+  of per-vertex bounds, ANIM_RESET skip, CheckObjectCol push/pickup (M3b), fall
+  management.
 
-## Current open thread (rendering QA with user)
+## Current rendering QA findings
 
-M3a boots and plays; user-confirmed: player visible, head occlusion fixed by the
-depth-sort correction. Open complaint: *"horse on right is near the camera"*.
-Forensics so far:
-
-- The horse candidate is **wobj 21, body 24** at OBJETS position **(0, 0, 10000)**,
-  room 0 — projected by camera 0 to frame ~(186, 50), small (≈15×14 px) = far.
-  Headless 3000-tick runs: position stable; scripts don't move it without input.
-- Screenshot comparison (low-res averaged) matches the boot-state render closely;
-  no evidence of misprojection yet. **Awaiting user to circle the object they mean.**
-- Cameras 3/4 project boot-position actors off-screen — expected (player not in
-  their view there); zone-gated switching verified for cameras 0-2.
+- FITD `AnimNuage` always writes actor angles to skeleton **group 0**. The old
+  port incorrectly used `group_order[0]` (player body 12: group 5; rocking-horse
+  body 4: group 1), making visible facing disagree with movement. Static bodies
+  now also take the whole-model rotation used by FITD `RotateNuage`.
+- The prominent rocking horse at the right is **wobj 6, body 4** at OBJETS
+  position **(5740, 0, 569)**, beta 768. The previously investigated wobj 21 /
+  body 24 is a different, small distant object at (0, 0, 10000).
+- Camera 0 mask 4 contains the right support beam. Its second trigger rectangle
+  contains the horse ZV, so FITD redraws that background mask after the horse;
+  retaining and applying those rectangles places the horse behind the beam.
+- FITD renders each body's primitives with a depth buffer (`WRITE_Z` plus
+  `DEPTH_TEST_LEQUAL`). Without per-actor depth testing, body 2's later back
+  polygons covered its nearer door polygons, making the left wardrobe look
+  side-on. The actor FBO now carries and clears a depth attachment per actor.
+- Fixed-step simulation and rendering are decoupled in the pygame loop. GPU
+  rendering can exceed the 20 ms logic interval, so accumulated 50 Hz ticks
+  run without rendering and the resulting state is drawn once per outer frame;
+  this prevents repeated readbacks from making held controls stall.
+- Opening-room camera switching matches FITD's cover-zone algorithm. A full
+  play-tick trace turns right, walks forward, and switches local camera 0 -> 3
+  at player position (505, -1706); the wrong rendered facing had made navigation
+  toward that trigger appear inconsistent.
 
 M3b/M3c stubs in `life_ops.py` consume exact FITD arg counts and log under trace
 (audio, inventory, combat, text) — scripts stay desync-free until real semantics land.

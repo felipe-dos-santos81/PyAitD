@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
+import pytest
+
 from maitd.formats import Body, Group, Primitive
 from maitd.skel import skin
 from maitd.world import CameraState
@@ -35,6 +37,20 @@ def test_depth_cull():
     assert result.primitives == []
 
 
+def test_actor_rotation_rotates_static_body_as_one_model():
+    cam = CameraState(0, 0, 0, 0, 0, 0, 300, 100, 100).angles()
+
+    result = skin(
+        _cube_body(),
+        [],
+        (0, 0, 300),
+        cam,
+        actor_angles=(0, 0x100, 0),
+    )
+
+    assert result.points[1] == pytest.approx((160.0, 100.0, 698.0))
+
+
 def test_translate_group():
     # base vertex OUTSIDE the group (real-body layout: base is the parent's origin)
     body = Body(
@@ -52,3 +68,30 @@ def test_translate_group():
     # verts after translate: (50,0,0),(60,0,0); +base(5,0,0) -> (55,0,0),(65,0,0)
     x0 = result.points[0][0]
     assert x0 == 160.0 + (55 * 100) / 600  # 169.166...
+
+
+def test_actor_rotation_uses_group_zero_not_first_group_in_order():
+    body = Body(
+        flags=2,
+        zv=(0, 0, 0, 0, 0, 0),
+        scratch=(),
+        vertices=[(100, 0, 0), (0, 0, 100), (0, 0, 0), (0, 0, 0)],
+        groups=[
+            Group(0, 1, 2, 0xFF, 0, 0, 0, 0),
+            Group(1, 1, 3, 0xFF, 1, 0, 0, 0),
+        ],
+        group_order=[1, 0],
+        primitives=[Primitive(1, 0, 1, [0, 1])],
+    )
+    cam = CameraState(0, 0, 0, 0, 0, 0, 300, 100, 100).angles()
+
+    result = skin(
+        body,
+        [(0, (0, 0, 0)), (0, (0, 0, 0))],
+        (0, 0, 300),
+        cam,
+        actor_angles=(0, 0x100, 0),
+    )
+
+    assert result.points[0] == pytest.approx((160.0, 100.0, 698.0))
+    assert result.points[1] == pytest.approx((160.0, 100.0, 700.0))
