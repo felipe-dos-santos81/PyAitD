@@ -515,10 +515,10 @@ def test_identity_camera_no_rotation():
 
 def test_rotate_90_degrees():
     # angle 0x100 = 90 deg. FITD Rotate: z_out = cos*y - sin*z ; x_out = sin*y + cos*z
-    # (cos(90)=COS[0x200]=0-ish via quirk 4, sin(90)=32767 -> truncation gives -19, not -20)
-    assert rotate_step(0x100, 10, 20) == (10, -19)
-    assert rotate_step(0x100, 10, 0)[0] == 10
-    assert rotate_step(0x100, 0, 10)[1] == -10
+    # (sin(90)=32767: (32767*10)<<1 = 0x9FFEC, high word 9 -> truncation artifacts)
+    assert rotate_step(0x100, 10, 20) == (9, -19)
+    assert rotate_step(0x100, 10, 0)[0] == 9
+    assert rotate_step(0x100, 0, 10)[1] == -9
 
 
 def test_rotate_step_identity():
