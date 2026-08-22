@@ -135,6 +135,19 @@ def reduce_inventory(state, command, *, object_ids, action_ids):
     return None
 
 
+def reduce_reading(state, command, *, page_count):
+    if command is Command.CANCEL:
+        return ReadingResult(True)
+    if command in (Command.LEFT, Command.UP):
+        state.page = max(0, state.page - 1)
+    elif command in (Command.RIGHT, Command.DOWN, Command.ACCEPT):
+        if state.page + 1 < page_count:
+            state.page += 1
+        else:
+            return ReadingResult(True)
+    return None
+
+
 class ModalLayout:
     FOUND_LEAVE = pygame.Rect(28, 154, 120, 30)
     FOUND_TAKE = pygame.Rect(172, 154, 120, 30)

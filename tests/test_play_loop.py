@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from types import SimpleNamespace
 
+import numpy as np
+
 from maitd.game import init_game
 from maitd.life import life_gate
 
@@ -18,54 +20,69 @@ def test_life_gate(data_dir):
     assert not life_gate(a)
 
 
-def test_poll_input_mapping(data_dir):
-    # pygame not importable headless in all environments: test the pure mapping helper
-    from maitd.game import joyd_from_keys
-    assert joyd_from_keys(up=True) == 1
-    assert joyd_from_keys(down=True) == 2
-    assert joyd_from_keys(left=True) == 4
-    assert joyd_from_keys(right=True) == 8
-    assert joyd_from_keys(up=True, left=True) == 5
-    assert joyd_from_keys() == 0
+def test_apply_play_input_mapping(data_dir):
+    from maitd.__main__ import apply_play_input
+    from maitd.ui import InputBuffer
+    game = init_game(data_dir)
+    state = InputBuffer(held_joyd=9, action_held=True)
+    apply_play_input(game, state)
+    assert game.local_joyd == 9
+    assert game.local_click == 1
+    assert game.action == 0x2000
 
 
 def test_play_tick_does_not_render_inside_the_simulation_tick(data_dir, monkeypatch):
     import maitd.__main__ as main
     from maitd.floor import Floor
+    from maitd.ui import InputBuffer
 
-    class ForbiddenRenderer:
-        def present_scene(self, *args, **kwargs):
-            raise AssertionError("simulation tick attempted a render")
+    def forbidden(*args):
+        raise AssertionError("simulation tick attempted a render")
 
-    monkeypatch.setattr(main, "poll_input", lambda game: None)
+    monkeypatch.setattr(main, "_scene_frame", forbidden)
     game = init_game(data_dir, hero=0)
-    main.play_tick(game, Floor(data_dir, 0), ForbiddenRenderer())
+    main.play_tick(game, Floor(data_dir, 0), InputBuffer())
 
 
-def test_run_coalesces_catch_up_ticks_into_one_render(monkeypatch, tmp_path):
+def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tmp_path):
     import maitd.__main__ as main
+    from maitd.effects import GameMode
 
     calls = []
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
     event_batches = iter(
         [[], [SimpleNamespace(type=main.pygame.QUIT)]]
     )
     times = iter([0, 100, 100])
 
-    monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(number=0))
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(
+        main, "Floor",
+        lambda *args: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
+    )
+    monkeypatch.setattr(
+        main, "Renderer",
+        lambda: SimpleNamespace(
+            present=lambda image: calls.append("present"), close=lambda: None,
+        ),
+    )
     monkeypatch.setattr(
         main, "play_tick", lambda *args: calls.append("tick") or True
     )
-    monkeypatch.setattr(main, "_draw", lambda *args: calls.append("draw"))
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
     monkeypatch.setattr(
         main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
     )
 
-    game = SimpleNamespace(_data_dir=tmp_path, current_floor=0, trace=None)
+    game = SimpleNamespace(
+        _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,
+        num_camera=-1, new_num_camera=0, flag_init_view=0, current_room=0,
+        actors=[],
+    )
     assert main.run(game) == 0
-    assert calls == ["tick"] * 5 + ["draw"]
+    assert calls == ["tick"] * 5 + ["present", "present"]
 
 
 class _FakeAssets:

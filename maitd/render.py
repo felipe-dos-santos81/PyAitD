@@ -72,6 +72,18 @@ class Renderer:
         self._vao.render()
         pygame.display.flip()
 
+    def window_to_logical(self, pos):
+        win_w, win_h = pygame.display.get_window_size()
+        scale = min(win_w / 320, win_h / 200)
+        view_w = 320 * scale
+        view_h = 200 * scale
+        left = (win_w - view_w) / 2
+        top = (win_h - view_h) / 2
+        x, y = pos
+        if x < left or x >= left + view_w or y < top or y >= top + view_h:
+            return None
+        return int((x - left) / scale), int((y - top) / scale)
+
     def _compose_existing_scene(self, background, actor_results, masks, palette,
                                 actor_rooms, actor_zvs):
         if not hasattr(self, "_actor_layer"):

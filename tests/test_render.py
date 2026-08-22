@@ -3,6 +3,7 @@ import math
 
 import moderngl
 import numpy as np
+import pygame
 
 from maitd.render import Renderer, fit_quad
 from maitd.render import _ActorLayer
@@ -26,6 +27,14 @@ def test_fit_quad_letterbox_wide_window():
 def test_fit_quad_centered():
     x0, y0, x1, y1 = fit_quad(320, 200, 1000, 800)
     assert math.isclose(x0, -x1) and math.isclose(y0, -y1)
+
+
+def test_window_to_logical_rejects_letterbox_and_scales_view(monkeypatch):
+    renderer = object.__new__(Renderer)
+    monkeypatch.setattr(pygame.display, "get_window_size", lambda: (800, 400))
+    assert renderer.window_to_logical((79, 200)) is None
+    assert renderer.window_to_logical((80, 0)) == (0, 0)
+    assert renderer.window_to_logical((719, 399)) == (319, 199)
 
 
 def test_compose_scene_returns_rgb_without_presenting(monkeypatch):
