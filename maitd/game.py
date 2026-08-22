@@ -127,6 +127,7 @@ class Game:
         self.flag_init_view = 2
         self.flag_game_over = 0
         self.flag_genere_aff_list = 1
+        self.hard_clip = [32000, -32000, 32000, -32000, 32000, -32000]
         # M3b/M4 stubs (audio, inventory)
         self.in_hand_table = [-1] * 256
         self.current_inventory = 0
@@ -143,6 +144,15 @@ class Game:
         if floor_number not in self._rooms_by_floor:
             self._rooms_by_floor[floor_number] = Floor(self._data_dir, floor_number).rooms
         return self._rooms_by_floor[floor_number]
+
+    def camera_param(self, slot):
+        # evalVar 0x1B: *(u16*)(((NumCamera+6)*2)+cameraPtr) — the room def's
+        # u16 camera index table starts at byte 12 (roomDefStruct header is
+        # 6 u16s); slot -1 reads numCameraInRoom (byte 10).
+        room = self.rooms_of_floor(self.current_floor)[self.current_room]
+        if slot == -1:
+            return len(room.camera_indices)
+        return room.camera_indices[slot]
 
 
 def _cdiv(a, b):
@@ -370,6 +380,50 @@ def _delete_objet(game, index):
         obj.stage = actor.stage
         obj.room = actor.room
         game.flag_genere_aff_list = 1
+
+
+def delete_object(game, obj_idx):
+    # deleteObject port (main.cpp:2372): AITD1 delete opcode
+    obj = game.world_objects[obj_idx]
+    actor_idx = obj.obj_index
+    if actor_idx != -1:
+        actor = game.actors[actor_idx]
+        actor.room = -1
+        actor.stage = -1
+        actor.index_in_world = -1
+    obj.obj_index = -1
+    obj.room = -1
+    obj.stage = -1
+    # DeleteInventoryObjet: M3b inventory removal skipped
+
+
+def put_at_objet(game, obj_idx, obj_idx_to_put_at):
+    # PutAtObjet port (main.cpp:3948)
+    obj = game.world_objects[obj_idx]
+    put_at = game.world_objects[obj_idx_to_put_at]
+    if put_at.obj_index != -1:
+        src = game.actors[put_at.obj_index]
+        x, y, z = src.room_x, src.room_y, src.room_z
+        room, stage = src.room, src.stage
+        alpha, beta, gamma = src.alpha, src.beta, src.gamma
+    else:
+        x, y, z = put_at.x, put_at.y, put_at.z
+        room, stage = put_at.room, put_at.stage
+        alpha, beta, gamma = put_at.alpha, put_at.beta, put_at.gamma
+    if obj.obj_index == -1:
+        obj.x, obj.y, obj.z = x, y, z
+        obj.room, obj.stage = room, stage
+        obj.alpha, obj.beta, obj.gamma = alpha, beta, gamma
+        obj.found_flag |= 0x4000
+        obj.flags |= 0x80
+    else:
+        a = game.actors[obj.obj_index]
+        a.room_x, a.room_y, a.room_z = x, y, z
+        a.room, a.stage = room, stage
+        a.alpha, a.beta, a.gamma = alpha, beta, gamma
+        game.world_objects[a.index_in_world].found_flag |= 0x4000
+        game.world_objects[a.index_in_world].flags |= 0x80
+    # DeleteInventoryObjet: M3b inventory removal skipped
 
 
 def spawn_stage_actors(game):

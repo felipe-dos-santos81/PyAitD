@@ -57,17 +57,6 @@ def _make_if(op):  # condition functions over (a, b)
     return handler
 
 
-def _op_message(vm):
-    # life.cpp:2164: makeMessage(evalVar()) — message UI lands in M4.
-    eval_var(vm)
-
-
-def _op_message_value(vm):
-    # life.cpp:2174: two raw words; message UI lands in M4.
-    read_s16(vm)
-    read_s16(vm)
-
-
 def _op_var(vm):
     # life.cpp:2194: vars[raw idx] = evalVar()
     idx = read_s16(vm)
@@ -200,8 +189,6 @@ LIFETABLE[9] = _make_if(lambda a, b: a < b)    # LM_IF_INF
 LIFETABLE[10] = _op_goto                       # LM_GOTO
 LIFETABLE[11] = _op_end                        # LM_RETURN
 LIFETABLE[12] = _op_end                        # LM_END
-LIFETABLE[17] = _op_message                    # LM_MESSAGE
-LIFETABLE[18] = _op_message_value              # LM_MESSAGE_VALUE
 LIFETABLE[19] = _op_var                        # LM_VAR
 LIFETABLE[20] = _op_inc                        # LM_INC
 LIFETABLE[21] = _op_dec                        # LM_DEC
@@ -216,3 +203,80 @@ LIFETABLE[29] = _op_multi_case                 # LM_MULTI_CASE
 LIFETABLE[57] = _op_dead                       # LM_STOP_BETA
 LIFETABLE[61] = _op_dead                       # LM_DO_NORMAL_ZV
 LIFETABLE[69] = _op_dead                       # LM_SPEED
+
+
+def _install_handlers():
+    # Task 8 wiring (opcode numbers per AITD1LifeMacroTable, AITD1.cpp:30-119)
+    from maitd import life_ops as ops
+    from maitd.tracks import process_track
+    LIFETABLE[0] = lambda vm: process_track(vm.game, vm.actor)  # LM_DO_MOVE
+    LIFETABLE[1] = ops.op_anim_once
+    LIFETABLE[2] = ops.op_anim_all_once
+    LIFETABLE[3] = ops.op_body
+    LIFETABLE[13] = ops.op_anim_repeat
+    LIFETABLE[14] = ops.op_anim_move
+    LIFETABLE[15] = ops.op_move
+    LIFETABLE[16] = ops.op_hit
+    LIFETABLE[17] = ops.op_message
+    LIFETABLE[18] = ops.op_message_value
+    LIFETABLE[30] = ops.op_found
+    LIFETABLE[31] = ops.op_life
+    LIFETABLE[32] = ops.op_delete
+    LIFETABLE[33] = ops.op_take
+    LIFETABLE[34] = ops.op_in_hand
+    LIFETABLE[35] = ops.op_read
+    LIFETABLE[36] = ops.op_anim_sample
+    LIFETABLE[37] = ops.op_special
+    LIFETABLE[38] = ops.op_do_real_zv
+    LIFETABLE[39] = ops.op_sample
+    LIFETABLE[40] = ops.op_type
+    LIFETABLE[41] = ops.op_game_over
+    LIFETABLE[42] = ops.op_manual_rot
+    LIFETABLE[43] = ops.op_rnd_freq
+    LIFETABLE[44] = ops.op_music
+    LIFETABLE[45] = ops.op_set_beta
+    LIFETABLE[46] = ops.op_do_rot_zv
+    LIFETABLE[47] = ops.op_stage
+    LIFETABLE[48] = ops.op_found_name
+    LIFETABLE[49] = ops.op_found_flag
+    LIFETABLE[50] = ops.op_found_life
+    LIFETABLE[51] = ops.op_camera_target
+    LIFETABLE[52] = ops.op_drop
+    LIFETABLE[53] = ops.op_fire
+    LIFETABLE[54] = ops.op_test_col
+    LIFETABLE[55] = ops.op_found_body
+    LIFETABLE[56] = ops.op_set_alpha
+    LIFETABLE[58] = ops.op_do_max_zv
+    LIFETABLE[59] = ops.op_put
+    LIFETABLE[60] = ops.op_c_var
+    LIFETABLE[62] = ops.op_do_carre_zv
+    LIFETABLE[63] = ops.op_sample_then
+    LIFETABLE[64] = ops.op_light
+    LIFETABLE[65] = ops.op_shaking
+    LIFETABLE[66] = ops.op_inventory
+    LIFETABLE[67] = ops.op_found_weight
+    LIFETABLE[68] = ops.op_up_coor_y
+    LIFETABLE[70] = ops.op_put_at
+    LIFETABLE[71] = ops.op_def_zv
+    LIFETABLE[72] = ops.op_hit_object
+    LIFETABLE[73] = ops.op_get_hard_clip
+    LIFETABLE[74] = ops.op_angle
+    LIFETABLE[75] = ops.op_rep_sample
+    LIFETABLE[76] = ops.op_throw
+    LIFETABLE[77] = ops.op_water
+    LIFETABLE[78] = ops.op_picture
+    LIFETABLE[79] = ops.op_stop_sample
+    LIFETABLE[80] = ops.op_next_music
+    LIFETABLE[81] = ops.op_fade_music
+    LIFETABLE[82] = ops.op_stop_hit_object
+    LIFETABLE[83] = ops.op_copy_angle
+    LIFETABLE[84] = ops.op_end_sequence
+    LIFETABLE[85] = ops.op_sample_then_repeat
+    LIFETABLE[86] = ops.op_wait_game_over
+
+
+_install_handlers()
+
+for _i, _h in enumerate(LIFETABLE):
+    if _h.__qualname__.startswith("_op_not_implemented"):
+        raise RuntimeError(f"life LIFETABLE slot {_i} left unimplemented")

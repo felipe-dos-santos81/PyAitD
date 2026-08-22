@@ -151,15 +151,15 @@ def test_opcode_87_raises(data_dir):
         process_life(game, 0, 0)
 
 
-def test_reduced_lm_type_unavailable(data_dir):
-    # LM_TYPE(40) with 0x8000 on out-of-floor object: allowed set, but the
-    # reduced dispatch module (maitd.life_reduced) lands in task 7 -> ValueError
+def test_reduced_lm_type_sets_flags(data_dir):
+    # LM_TYPE(40) with 0x8000 on out-of-floor object: reduced dispatch
+    # (maitd.life_reduced, task 8) — world-obj flags TYPE_MASK update
     game = init_game(data_dir, hero=0)
     unspawned = next(i for i, o in enumerate(game.world_objects) if o.obj_index == -1)
-    game.assets = _FakeAssets(script=_script(0x8000 | 40, unspawned, 12))
+    game.assets = _FakeAssets(script=_script(0x8000 | 40, unspawned, 0x10, 12))
     game.actors[0].life = 0
-    with pytest.raises(ValueError):
-        process_life(game, 0, 0)
+    process_life(game, 0, 0)
+    assert game.world_objects[unspawned].flags & 0x10
 
 
 def test_reduced_disallowed_raises(data_dir):

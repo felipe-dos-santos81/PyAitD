@@ -144,9 +144,8 @@ def _prop(game, a, code, vm):
     if code == 0x1A:
         return a.hit_force
     if code == 0x1B:
-        # M2 camera table lands in task 8 (Game.camera_param); FITD reads
-        # *(u16*)(((NumCamera+6)*2)+cameraPtr).
-        raise NotImplementedError("evalVar 0x1B camera param (task 8, M2 room camera table)")
+        # FITD: *(u16*)(((NumCamera+6)*2)+cameraPtr) — cameraIdxTable[NumCamera]
+        return game.camera_param(game.num_camera)
     if code == 0x1C:
         n = read_s16(vm)
         return random.randrange(n)
