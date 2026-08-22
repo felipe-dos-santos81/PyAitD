@@ -69,9 +69,18 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["maitd"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 ```
+
+Note: `[tool.setuptools] packages` is explicit because `tests/` also carries an `__init__.py` — flat-layout autodiscovery would otherwise fail.
 
 - [ ] **Step 2: Create `maitd/__init__.py`**
 
