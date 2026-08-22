@@ -22,7 +22,7 @@ DEFAULT_DATA = (
 
 def parse_args(argv):
     p = argparse.ArgumentParser(prog="maitd", description="AITD1 room viewer (M1 debug)")
-    p.add_argument("--data", default=DEFAULT_DATA, help="game data dir")
+    p.add_argument("--data", type=pathlib.Path, default=DEFAULT_DATA, help="game data dir")
     p.add_argument("--floor", type=int, default=0, help="floor number (default 0)")
     return p.parse_args(argv)
 

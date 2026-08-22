@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
+import pathlib
+
 from maitd.__main__ import parse_args
 
 
@@ -11,4 +13,4 @@ def test_parse_args_defaults():
 def test_parse_args_overrides():
     args = parse_args(["--floor", "3", "--data", "/tmp/x"])
     assert args.floor == 3
-    assert args.data == "/tmp/x"
+    assert args.data == pathlib.Path("/tmp/x")
