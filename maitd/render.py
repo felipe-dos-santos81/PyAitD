@@ -80,6 +80,7 @@ class Renderer:
         rgba[:, :, :3] = background
         rgba[:, :, 3] = 255
         layer = np.frombuffer(self._actor_layer._tex.read(), dtype=np.uint8).reshape(200, 320, 4).copy()
+        layer = layer[::-1]  # GL rows are bottom-up; background is top-down
         alpha = layer[:, :, 3:4].astype("f4") / 255.0
         composite = (layer[:, :, :3].astype("f4") * alpha + rgba[:, :, :3].astype("f4") * (1.0 - alpha)).astype(np.uint8)
         self._ctx.screen.use()  # unbind the actor FBO: M1 quad renders to the window
@@ -175,12 +176,13 @@ class _ActorLayer:
             other_masks = [m for m in masks if m.viewed_room != room]
             if other_masks:
                 data = np.frombuffer(self._tex.read(), dtype=np.uint8).reshape(200, 320, 4)
+                data = data[::-1]  # mask bitmaps are top-down; GL rows are bottom-up
                 for mask in other_masks:
                     x1, y1 = max(mask.x1, 0), max(mask.y1, 0)
                     x2, y2 = min(mask.x2, 319), min(mask.y2, 199)
                     region = mask.bitmap[y1 : y2 + 1, x1 : x2 + 1]
                     data[y1 : y2 + 1, x1 : x2 + 1][region == 255] = 0
-                self._tex.write(np.ascontiguousarray(data))
+                self._tex.write(np.ascontiguousarray(data[::-1]))
 
     @staticmethod
     def _vertex(p, color):
