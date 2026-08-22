@@ -1052,11 +1052,11 @@ git commit -m "feat: LIFE VM core — fetch loop, actor switch, control flow"
 
 | code | value | extra payload |
 |---|---|---|
-| 0x00 | `a.col[0]` | — |
+| 0x00 | `game.actors[a.col[0]].index_in_world` if `a.col[0] != -1` else -1 (FITD maps actor slot → world index) | — |
 | 0x01 | `a.hard_dec` | — |
 | 0x02 | `a.hard_col` | — |
-| 0x03 | `a.hit` | — |
-| 0x04 | `a.hit_by` | — |
+| 0x03 | `game.actors[a.hit].index_in_world` if `a.hit != -1` else -1 | — |
+| 0x04 | `game.actors[a.hit_by].index_in_world` if `a.hit_by != -1` else -1 (verify case 0x4 against evalVar.cpp:258-268) | — |
 | 0x05 | `a.anim` | — |
 | 0x06 | `a.flag_end_anim` | — |
 | 0x07 | `a.frame` | — |
@@ -1066,14 +1066,14 @@ git commit -m "feat: LIFE VM core — fetch loop, actor switch, control flow"
 | 0x0B | `a.track_number` | — |
 | 0x0C | `eval_chrono(a.chrono, g.timer) // 60` (C: `evalChrono(...)/60`, trunc) | — |
 | 0x0D | `eval_chrono(a.room_chrono, g.timer) // 60` | — |
-| 0x0E | Manhattan `abs(a.room_x - w.x) + abs(a.room_z - w.z)` (FITD calcDist) or 32000 if not in floor | +1 s16 world idx |
-| 0x0F | `a.col_by` | — |
+| 0x0E | FITD `calcDist` — 3D Manhattan over worldX/worldY/worldZ: `abs(a.world_x - t.world_x) + abs(a.world_y - t.world_y) + abs(a.world_z - t.world_z)` (evalVar.cpp:97-104), 32000 if not in floor | +1 s16 world idx |
+| 0x0F | `game.actors[a.col_by].index_in_world` if `a.col_by != -1` else -1 | — |
 | 0x10 | `1 if g.world_objects[widx].found_flag & 0x8000 else 0` | +1 nested eval_var → world idx |
 | 0x11 | `g.action` | — |
-| 0x12 | `get_pos_rel(a, obj)` 8-direction: returns 1..8 by sign of (dx, dz) | +1 s16 world idx |
+| 0x12 | FITD `getPosRel` (evalVar.cpp:22-95): beta-quadrant counter (3/2/1/0), other actor's zv copied, AdjustZV when rooms differ, center tests on ZVZ/ZVX, lookup `getPosRelTable = {4,1,8,2,4,1,8,0}` | +1 s16 world idx |
 | 0x13 | `g.local_joyd` → first set of 4/8/1/2 else 0 | — |
 | 0x14 | `g.local_click` | — |
-| 0x15 | `a.col[0]` if != -1 else `a.col_by` | — |
+| 0x15 | `game.actors[t].index_in_world` where t = `a.col[0]` if != -1 else `a.col_by`, else -1 | — |
 | 0x16 | `a.alpha` | — |
 | 0x17 | `a.beta` | — |
 | 0x18 | `a.gamma` | — |
@@ -1197,15 +1197,15 @@ from maitd.realvalue import eval_chrono
 
 def _prop(game, a, code, vm):
     if code == 0x00:
-        return a.col[0]
+        return _world_idx(game, a.col[0])
     if code == 0x01:
         return a.hard_dec
     if code == 0x02:
         return a.hard_col
     if code == 0x03:
-        return a.hit
+        return _world_idx(game, a.hit)
     if code == 0x04:
-        return a.hit_by
+        return _world_idx(game, a.hit_by)
     if code == 0x05:
         return a.anim
     if code == 0x06:
@@ -1229,9 +1229,10 @@ def _prop(game, a, code, vm):
         w = game.world_objects[widx]
         if w.obj_index == -1:
             return 32000
-        return abs(a.room_x - w.x) + abs(a.room_z - w.z)  # FITD calcDist
+        b = game.actors[w.obj_index]
+        return calc_dist(a.world_x, a.world_y, a.world_z, b.world_x, b.world_y, b.world_z)
     if code == 0x0F:
-        return a.col_by
+        return _world_idx(game, a.col_by)
     if code == 0x10:
         widx = eval_var(vm)  # nested!
         return 1 if game.world_objects[widx].found_flag & 0x8000 else 0
@@ -1239,7 +1240,10 @@ def _prop(game, a, code, vm):
         return game.action
     if code == 0x12:
         widx = read_s16(vm)
-        return _get_pos_rel(game, a, widx)
+        w = game.world_objects[widx]
+        if w.obj_index == -1:
+            return 0
+        return get_pos_rel(game, a, game.actors[w.obj_index])
     if code == 0x13:
         j = game.local_joyd
         if j & 4:
@@ -1254,7 +1258,8 @@ def _prop(game, a, code, vm):
     if code == 0x14:
         return game.local_click
     if code == 0x15:
-        return a.col[0] if a.col[0] != -1 else a.col_by
+        t = a.col[0] if a.col[0] != -1 else a.col_by
+        return _world_idx(game, t) if t != -1 else -1
     if code == 0x16:
         return a.alpha
     if code == 0x17:
@@ -1297,22 +1302,54 @@ def _prop(game, a, code, vm):
     raise ValueError(f"evalVar: unknown property code {code} (FITD asserts here)")
 
 
-def _get_pos_rel(game, a, widx):
-    # FITD getPosRel: 8-direction table from sign of position delta
-    w = game.world_objects[widx]
-    if w.obj_index == -1:
-        return 0
-    dx = w.x - a.room_x
-    dz = w.z - a.room_z
-    if dx == 0 and dz == 0:
-        return 0
-    if dx >= 0 and dz >= 0:
-        return 1 if dx > dz else 2
-    if dx < 0 and dz >= 0:
-        return 3 if -dx < dz else 4
-    if dx < 0 and dz < 0:
-        return 5 if -dx > -dz else 6
-    return 7 if dx < -dz else 8
+def _world_idx(game, slot):
+    return -1 if slot == -1 else game.actors[slot].index_in_world
+
+
+def calc_dist(x1, y1, z1, x2, y2, z2):
+    return abs(x1 - x2) + abs(y1 - y2) + abs(z1 - z2)
+
+
+_GET_POS_REL_TABLE = (4, 1, 8, 2, 4, 1, 8, 0)
+
+
+def get_pos_rel(game, actor1, actor2):
+    # FITD evalVar.cpp:22-95 port
+    beta1 = actor1.beta
+    counter = 3
+    if 0x80 <= beta1 < 0x180:
+        counter = 2
+    if 0x180 <= beta1 < 0x280:
+        counter = 1
+    if 0x280 <= beta1 < 0x380:
+        counter = 0
+    zv = list(actor2.zv)
+    if actor1.room != actor2.room:
+        _adjust_zv(game, zv, actor2.room, actor1.room)  # room world-offset adjust
+    center_x = int((zv[0] + zv[1]) / 2)
+    center_z = int((zv[4] + zv[5]) / 2)
+    if actor1.zv[5] >= center_z and actor1.zv[4] <= center_z:
+        if actor1.zv[1] < center_x:
+            counter += 1
+        else:
+            if actor1.zv[0] <= center_x:
+                return 0
+            counter += 3
+    else:
+        if actor1.zv[1] >= center_x or actor1.zv[0] <= center_x:
+            if actor1.zv[5] < center_z:
+                counter += 2
+            else:
+                if actor1.zv[4] <= center_z:
+                    return 0
+        else:
+            return 0
+    return _GET_POS_REL_TABLE[counter]
+
+
+def _adjust_zv(game, zv, from_room, to_room):
+    # FITD AdjustZV: shift by (room world-coord delta) * 10 (M1 room offsets)
+    ...
 
 
 def eval_var(vm):
