@@ -681,7 +681,7 @@ git commit -m "feat: camera transform math (FITD fixed-point port)"
 **Interfaces:**
 - Consumes: `Body`, `Primitive` (task 2), `CameraState`, `transform_point` (task 4), `COS_TABLE` (task 1).
 - Produces:
-  - `@dataclass PrimEntry: type: int, color: int, points: list[tuple[float, float, float]], size: int = 0` — screen-space points (x, y, depth), culled if min depth <= 100
+  - `@dataclass PrimEntry: type: int, color: int, points: list[tuple[float, float, float]], size: float = 0` — screen-space points (x, y, depth), culled if min depth <= 100. For spheres (type 3), `size` = screen-space radius `prim.size * camera.focal2 / depth` of its point.
   - `@dataclass RenderResult: points: list[tuple[float, float, float]], primitives: list[PrimEntry]`
   - `def skin(body: Body, group_states: list[tuple[int, tuple[int, int, int]]], position: tuple[int, int, int], camera: CameraState) -> RenderResult` — group_states = per-group (type, (dx, dy, dz)) from the anim player; AITD1 (non-optimise) path of FITD `AnimNuage` only.
 - Port semantics (FITD renderer.cpp AnimNuage): copy vertices; groups applied in `group_order` order — type 0 rotate (InitGroupeRot from state delta + recursive RotateGroupe over children), type 1 translate group verts, type 2 zoom (`v * (d + 256) / 256`, truncating); then every group's vertices += base vertex; add render offsets (x - cam.x, y, z - cam.z); height clamp; subtract cam.y; transform_point; project.
@@ -764,7 +764,7 @@ class PrimEntry:
     type: int
     color: int
     points: list
-    size: int = 0
+    size: float = 0
 
 
 @dataclass
@@ -832,7 +832,10 @@ def skin(body, group_states, position, camera):
             if e[2] < depth_min:
                 depth_min = e[2]
         if depth_min > 100:
-            primitives.append(PrimEntry(prim.type, prim.color, entries, prim.size))
+            size = 0.0
+            if prim.type == 3:  # sphere: screen-space radius (FITD renderer.cpp)
+                size = (prim.size * camera.focal2) / depth_min
+            primitives.append(PrimEntry(prim.type, prim.color, entries, size))
     return RenderResult(projected, primitives)
 
 
@@ -1651,22 +1654,34 @@ class _ActorLayer:
             for prim in result.primitives:
                 color = self._palette[prim.color].astype("f4") / 255.0
                 verts = []
+                mode = moderngl.TRIANGLES
                 if prim.type == 1:  # poly -> triangle fan
                     for i in range(1, len(prim.points) - 1):
                         verts += self._vertex(prim.points[0], color)
                         verts += self._vertex(prim.points[i], color)
                         verts += self._vertex(prim.points[i + 1], color)
                 elif prim.type == 0:  # line
+                    mode = moderngl.LINES
                     for p in prim.points:
                         verts += self._vertex(p, color)
-                else:  # points handled by caller via point size; rasterize as 1-2 px quads
+                elif prim.type == 3:  # sphere: 8-gon fan around center, radius size
+                    cx, cy = prim.points[0][0], prim.points[0][1]
+                    r = prim.size
+                    import math
+                    for k in range(8):
+                        a0 = k * math.pi / 4
+                        a1 = (k + 1) * math.pi / 4
+                        verts += self._vertex((cx, cy), color)
+                        verts += self._vertex((cx + r * math.cos(a0), cy + r * math.sin(a0)), color)
+                        verts += self._vertex((cx + r * math.cos(a1), cy + r * math.sin(a1)), color)
+                else:  # point / big point / zixel: 1-2 px quads
                     for p in prim.points:
                         s = 1.0 if prim.type == 2 else 2.0
                         verts += self._point_quad(p, s, color)
                 if verts:
                     buf = self._ctx.buffer(np.array(verts, dtype="f4").tobytes())
                     vao = self._ctx.vertex_array(self._prog, [(buf, "2f 3f", "in_pos", "in_color")])
-                    vao.render(moderngl.TRIANGLES if prim.type == 1 else moderngl.LINES)
+                    vao.render(mode)
                     buf.release()
                     vao.release()
 
