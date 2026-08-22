@@ -30,7 +30,7 @@ Research (`docs/life-vm-opcodes.md` + fresh FITD extraction) found four deltas v
 
 ## Verified golden values (real game data — do not re-derive)
 
-- `OBJETS.ITD`: 15186 bytes; u16 count 292; 292 records × 52 bytes (26 s16 each, AITD1 has no `mark` field). Record order: objIndex, body, flags, typeZV, foundBody, foundName, foundFlag, foundLife, x, y, z, alpha, beta, gamma, stage, room, lifeMode, life, floorLife, anim, frame, animType, animInfo, trackMode, trackNumber, positionInTrack. Loader sets `flags |= 0x20` per record. Record 0: objIndex -1, body 0, flags 0, typeZV 3, foundBody -1, foundName -1, foundFlag 0, foundLife -1, x -5513, y 0, z 0, stage 0, room 0, lifeMode 1, life 0, anim -1, track (0, -1, 20).
+- `OBJETS.ITD`: 15186 bytes; u16 count 292; 292 records × 52 bytes (26 s16 each, AITD1 has no `mark` field). Record order: objIndex, body, flags, typeZV, foundBody, foundName, foundFlag, foundLife, x, y, z, alpha, beta, gamma, stage, room, lifeMode, life, floorLife, anim, frame, animType, animInfo, trackMode, trackNumber, positionInTrack. Loader sets `flags |= 0x20` per record. Record 0: objIndex -1, body 0, flags 0, typeZV 3, foundBody -1, foundName -1, foundFlag 0, foundLife -1, x -5513, y 0, z -395, alpha 0, beta 768, gamma 0, stage 0, room 0, lifeMode 1, life 0, anim -1, track (0, -1, 20).
 - `VARS.ITD`: 414 bytes = 207 s16 script vars.
 - `DEFINES.ITD`: 90 bytes = 45 CVars, stored big-endian. Byteswapped first 9: [49, 270, 700, 18, 6, 19, 20, 1, 0] — so CVars[7] (WORLD_NUM_PERSO) = 1, CVars[8] (CHOOSE_PERSO) = 0.
 - `PRIORITY.ITD`: 101 bytes (audio sample priority — M3a parses only, semantics M4).
@@ -73,7 +73,7 @@ def test_objets_golden(data_dir):
     o = objs[0]
     assert (o.obj_index, o.body, o.type_zv, o.found_body, o.found_name) == (-1, 0, 3, -1, -1)
     assert (o.found_flag, o.found_life) == (0, -1)
-    assert (o.x, o.y, o.z) == (-5513, 0, 0)
+    assert (o.x, o.y, o.z) == (-5513, 0, -395)
     assert (o.stage, o.room, o.life_mode, o.life, o.anim) == (0, 0, 1, 0, -1)
     assert (o.track_mode, o.track_number, o.position_in_track) == (0, -1, 20)
     assert o.flags & 0x20  # loader ORs 0x20 into every record
