@@ -456,7 +456,8 @@ def delete_object(game, obj_idx):
     obj.obj_index = -1
     obj.room = -1
     obj.stage = -1
-    # DeleteInventoryObjet: M3b inventory removal skipped
+    from maitd.interaction import remove_from_inventory
+    remove_from_inventory(game, obj_idx)
 
 
 def put_at_objet(game, obj_idx, obj_idx_to_put_at):
@@ -479,13 +480,14 @@ def put_at_objet(game, obj_idx, obj_idx_to_put_at):
         obj.found_flag |= 0x4000
         obj.flags |= 0x80
     else:
-        a = game.actors[obj.obj_index]
-        a.room_x, a.room_y, a.room_z = x, y, z
-        a.room, a.stage = room, stage
-        a.alpha, a.beta, a.gamma = alpha, beta, gamma
-        game.world_objects[a.index_in_world].found_flag |= 0x4000
-        game.world_objects[a.index_in_world].flags |= 0x80
-    # DeleteInventoryObjet: M3b inventory removal skipped
+        actor = game.actors[obj.obj_index]
+        actor.room_x, actor.room_y, actor.room_z = x, y, z
+        actor.room, actor.stage = room, stage
+        actor.alpha, actor.beta, actor.gamma = alpha, beta, gamma
+        game.world_objects[actor.index_in_world].found_flag |= 0x4000
+        game.world_objects[actor.index_in_world].flags |= 0x80
+    from maitd.interaction import remove_from_inventory
+    remove_from_inventory(game, obj_idx)
 
 
 def spawn_stage_actors(game):
