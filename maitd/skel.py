@@ -28,7 +28,7 @@ def skin(body, group_states, position, camera, actor_angles=None):
     pts = [list(v) for v in body.vertices]
     num_points = len(pts)
 
-    if actor_angles is not None:
+    if actor_angles is not None and body.group_order:
         # FITD AnimNuage: group 0 delta is the actor's own angles
         group_states = list(group_states)
         group_states[body.group_order[0]] = (0, actor_angles)

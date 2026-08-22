@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
-"""Actor state, tank movement, and hard-col collision (FITD ports)."""
+"""Actor state, hard-col collision helpers (FITD ports)."""
 from dataclasses import dataclass
-
-from maitd.world import rotate_step
 
 PLAYER_BODY = 12
 PLAYER_ANIM = 2
@@ -112,33 +110,3 @@ def gere_collision(old_zv, animated_zv, fix_zv, step_x, step_z):
         else:
             step_x, step_z = _glisser(oldpos & pos, step_x, step_z)
     return (step_x, step_z)
-
-
-def player_step(actor, body, joyd, hard_cols, speed=60):
-    old = actor_zv(actor, body)
-    if joyd & 4:
-        actor.beta = (actor.beta - 0x80) & 0x3FF
-    if joyd & 8:
-        actor.beta = (actor.beta + 0x80) & 0x3FF
-    step_z = 0
-    if joyd & 1:
-        step_z = -speed  # forward = negative Z (anim step convention)
-    elif joyd & 2:
-        step_z = speed
-    if step_z:
-        # walkStep(0, step_z, beta): dx = cos(beta)*step_z, dz = -sin(beta)*step_z
-        step_x, step_z = rotate_step(actor.beta, 0, step_z)
-        animated = (
-            old[0] + step_x, old[1] + step_x, old[2], old[3],
-            old[4] + step_z, old[5] + step_z,
-        )
-        for col in check_hard_col(animated, hard_cols):
-            fix = (col.x1, col.x2, col.y1, col.y2, col.z1, col.z2)
-            step_x, step_z = gere_collision(old, animated, fix, step_x, step_z)
-            animated = (
-                old[0] + step_x, old[1] + step_x, old[2], old[3],
-                old[4] + step_z, old[5] + step_z,
-            )
-        actor.x += step_x
-        actor.z += step_z
-    actor.tick += 1

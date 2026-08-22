@@ -32,6 +32,33 @@ def read_s16(vm):
     return value
 
 
+class Trace:
+    """--trace FILE: best-effort per-opcode log. IO errors never propagate."""
+
+    def __init__(self, path):
+        self._file = None
+        try:
+            self._file = open(path, "w")
+        except OSError:
+            pass
+
+    def log(self, game, actor_idx, life_num, op, pc):
+        if self._file is None:
+            return
+        try:
+            self._file.write(f"{game.timer} {actor_idx} {life_num} {op & 0x7FFF} {pc}\n")
+        except OSError:
+            pass
+
+    def close(self):
+        if self._file is not None:
+            try:
+                self._file.close()
+            except OSError:
+                pass
+            self._file = None
+
+
 def eval_var(vm):
     # Full encodings port (task 6, maitd.eval_var); lazy import avoids a cycle.
     from maitd.eval_var import eval_var as _full_eval_var
@@ -135,6 +162,8 @@ def process_life(game, actor_idx, life_num):
     vm = VM(game.assets.life(life_num), game, actor_idx)
     while not vm.exit:
         op = read_s16(vm)
+        if game.trace is not None:
+            game.trace.log(game, actor_idx, life_num, op, vm.pc)
         if op & 0x8000:
             world_idx = read_s16(vm)
             world = game.world_objects[world_idx]

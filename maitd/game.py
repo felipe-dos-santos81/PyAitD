@@ -112,6 +112,9 @@ class Game:
         self.local_key = 0
         self.local_click = 0
         self.action = 0
+        # play loop state (M3a): LIFE trace sink + per-actor anim players
+        self.trace = None
+        self.anim_players = {}
         # world / camera state
         self.current_floor = 0
         self.current_room = 0
@@ -158,6 +161,20 @@ class Game:
 def _cdiv(a, b):
     # C integer division: truncation toward zero
     return a // b if a >= 0 else -((-a) // b)
+
+
+def joyd_from_keys(up=False, down=False, left=False, right=False):
+    # FITD JoyD bit mapping: UP=1, DOWN=2, LEFT=4, RIGHT=8
+    joyd = 0
+    if up:
+        joyd |= 1
+    if down:
+        joyd |= 2
+    if left:
+        joyd |= 4
+    if right:
+        joyd |= 8
+    return joyd
 
 
 def _zv_default():
