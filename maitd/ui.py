@@ -140,9 +140,9 @@ class ModalLayout:
     FOUND_TAKE = pygame.Rect(172, 154, 120, 30)
     INVENTORY_ROWS = tuple(pygame.Rect(24, 30 + i * 24, 272, 22) for i in range(5))
     INVENTORY_ACTIONS = tuple(pygame.Rect(24, 30 + i * 24, 272, 22) for i in range(5))
-    READING_PREV = pygame.Rect(12, 164, 92, 28)
-    READING_CLOSE = pygame.Rect(114, 164, 92, 28)
-    READING_NEXT = pygame.Rect(216, 164, 92, 28)
+    READING_PREV = pygame.Rect(12, 164, 96, 28)
+    READING_CLOSE = pygame.Rect(114, 164, 96, 28)
+    READING_NEXT = pygame.Rect(216, 164, 96, 28)
 
 
 def _font(size=16):
