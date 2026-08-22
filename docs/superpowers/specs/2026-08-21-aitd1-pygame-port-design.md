@@ -116,13 +116,15 @@ __main__ (fixed 50 Hz loop: input -> life/world tick -> render)
 Each milestone gets its own implementation plan; M1 is the scope committed now.
 
 - **M1 — data layer + static room rendering.** `pak.py` (all 3 compression modes),
-  `formats.py` for room/camera/image+palette (body/anim parsers included for the
-  golden tests but not rendered yet), `cache.py`, ModernGL renderer drawing each
-  camera's background image upscaled (linear filtering) in a window; `--floor N`
-  debug entry; debug keys cycle room/camera.
-  Proof: every room of floor 0 renders its correct background for all its cameras.
-- **M2 — actors.** Body meshes + anim skinning in GL, actor spawning from room data,
-  zone-driven camera switching, walking + hard collision.
+  `formats.py` for room/camera/image+palette, LRU cache, ModernGL renderer drawing
+  each camera's background image upscaled (linear filtering) in a window; `--floor N`
+  debug entry; debug keys cycle room/camera. Body/anim parsing deferred to M2 where
+  it has a consumer (revised during plan writing).
+  Proof: every floor's rooms/cameras parse and every camera background decodes
+  non-blank (automated harness) + visual check of floor 0.
+- **M2 — actors.** Body/anim format parsers + golden tests, body meshes + anim
+  skinning in GL, actor spawning from room data, zone-driven camera switching,
+  walking + hard collision.
 - **M3 — LIFE VM + gameplay.** Full AITD1 opcode set, VARS, inventory, combat,
   death/game-over, floor transitions -> playable start to end.
 - **M4 — shell & polish.** Menus, text/dialogs, save/load, samples + music, CRI
