@@ -1,13 +1,17 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Parsed body/animation asset registry (parse-once caches over the M1 LRU)."""
 from maitd.floor import load_entry
-from maitd.formats import parse_anim, parse_body
+from maitd.formats import decode_image, decode_palette, parse_anim, parse_body
 from maitd.pak import Pak, find_pak
+from maitd.text import parse_book_tokens, parse_system_texts
 
 BODIES_PAK = "LISTBODY"
 ANIMS_PAK = "LISTANIM"
 LIFES_PAK = "LISTLIFE"
 TRACKS_PAK = "LISTTRAK"
+TEXT_PAK = "ENGLISH"
+RESOURCE_PAK = "ITD_RESS"
+GAME_PALETTE_ENTRY = 3
 
 
 class Assets:
@@ -22,6 +26,12 @@ class Assets:
         self.num_tracks = Pak(self._tracks_pak).count
         self._bodies = {}
         self._anims = {}
+        self._text_pak = str(find_pak(data_dir, TEXT_PAK))
+        self._resource_pak = str(find_pak(data_dir, RESOURCE_PAK))
+        self._system_texts = parse_system_texts(load_entry(self._text_pak, 0))
+        self._book_tokens = {}
+        self._resource_screens = {}
+        self._game_palette = decode_palette(load_entry(self._resource_pak, GAME_PALETTE_ENTRY))
 
     def body(self, index):
         if not 0 <= index < self.num_bodies:
@@ -47,6 +57,27 @@ class Assets:
             raise KeyError(f"track {index} out of range (0..{self.num_tracks - 1})")
         return load_entry(self._tracks_pak, index)
 
+    def system_text(self, message_id):
+        try:
+            return self._system_texts[message_id]
+        except KeyError:
+            raise KeyError(f"ENGLISH.PAK: text {message_id} not found") from None
+
+    def book_tokens(self, entry):
+        if entry not in self._book_tokens:
+            self._book_tokens[entry] = parse_book_tokens(load_entry(self._text_pak, entry))
+        return self._book_tokens[entry]
+
+    def resource_screen(self, entry):
+        if entry not in self._resource_screens:
+            raw = load_entry(self._resource_pak, entry)
+            if len(raw) < 64000:
+                raise ValueError(f"ITD_RESS.PAK: entry {entry} is {len(raw)} bytes; expected 64000")
+            self._resource_screens[entry] = decode_image(raw[:64000], self._game_palette)
+        return self._resource_screens[entry]
+
     def clear(self):
         self._bodies.clear()
         self._anims.clear()
+        self._book_tokens.clear()
+        self._resource_screens.clear()
