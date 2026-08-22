@@ -72,10 +72,11 @@ class Renderer:
         self._vao.render()
         pygame.display.flip()
 
-    def present_scene(self, background, actor_results, masks, palette, actor_rooms):
+    def _compose_existing_scene(self, background, actor_results, masks, palette,
+                                actor_rooms, actor_zvs):
         if not hasattr(self, "_actor_layer"):
             self._actor_layer = _ActorLayer(self._ctx, palette)
-        self._actor_layer.draw(actor_results, actor_rooms, masks)
+        self._actor_layer.draw(actor_results, actor_rooms, masks, actor_zvs=actor_zvs)
         rgba = np.zeros((200, 320, 4), dtype=np.uint8)
         rgba[:, :, :3] = background
         rgba[:, :, 3] = 255
@@ -84,7 +85,18 @@ class Renderer:
         alpha = layer[:, :, 3:4].astype("f4") / 255.0
         composite = (layer[:, :, :3].astype("f4") * alpha + rgba[:, :, :3].astype("f4") * (1.0 - alpha)).astype(np.uint8)
         self._ctx.screen.use()  # unbind the actor FBO: M1 quad renders to the window
-        self.present(np.ascontiguousarray(composite[:, :, :3]))  # M1 texture is RGB (3 channels)
+        return np.ascontiguousarray(composite[:, :, :3])  # M1 texture is RGB (3 channels)
+
+    def compose_scene(self, background, actor_results, masks, palette, actor_rooms,
+                      actor_zvs):
+        return self._compose_existing_scene(
+            background, actor_results, masks, palette, actor_rooms, actor_zvs,
+        )
+
+    def present_scene(self, background, actor_results, masks, palette, actor_rooms, actor_zvs):
+        self.present(self.compose_scene(
+            background, actor_results, masks, palette, actor_rooms, actor_zvs,
+        ))
 
     def close(self):
         self._vbo.release()

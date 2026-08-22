@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import math
 
-from maitd.render import fit_quad
+import numpy as np
+
+from maitd.render import Renderer, fit_quad
 
 
 def test_fit_quad_exact_multiple():
@@ -20,3 +22,10 @@ def test_fit_quad_letterbox_wide_window():
 def test_fit_quad_centered():
     x0, y0, x1, y1 = fit_quad(320, 200, 1000, 800)
     assert math.isclose(x0, -x1) and math.isclose(y0, -y1)
+
+
+def test_compose_scene_returns_rgb_without_presenting(monkeypatch):
+    renderer = object.__new__(Renderer)
+    expected = np.zeros((200, 320, 3), dtype=np.uint8)
+    monkeypatch.setattr(renderer, "_compose_existing_scene", lambda *args: expected)
+    assert renderer.compose_scene(None, [], [], None, [], []) is expected

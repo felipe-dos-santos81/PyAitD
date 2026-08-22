@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.effects import AfterLife, LifeFrame
+from maitd.effects import AddMessage, AfterLife, BeginTake, LifeFrame, TimedMessage
 from maitd.life import process_life
 
 INVENTORY_SIZE = 30
@@ -35,6 +35,43 @@ def resume_life(game):
         if not run_life(game, frame):
             return False
     return game.active_modal is None
+
+
+def _add_message(game, message_id):
+    for message in game.messages:
+        if message is not None and message.message_id == message_id:
+            message.age = 0
+            return
+    for slot, message in enumerate(game.messages):
+        if message is None:
+            game.messages[slot] = TimedMessage(message_id)
+            return
+
+
+def drain_immediate_effects(game):
+    completed = True
+    while game.immediate_effects:
+        effect = game.immediate_effects.popleft()
+        if isinstance(effect, AddMessage):
+            _add_message(game, effect.message_id)
+        elif isinstance(effect, BeginTake):
+            completed = begin_take(game, effect.object_idx)
+            if completed and game.active_modal is None:
+                completed = resume_life(game)
+            if not completed:
+                break
+        else:
+            raise RuntimeError(f"unknown immediate effect {type(effect).__name__}")
+    return completed
+
+
+def advance_messages(game):
+    for slot, message in enumerate(game.messages):
+        if message is None:
+            continue
+        message.age += 1
+        if message.age > 55:
+            game.messages[slot] = None
 
 
 def execute_found_life(game, object_idx, *, after=AfterLife.NONE):
