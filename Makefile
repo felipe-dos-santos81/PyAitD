@@ -35,8 +35,8 @@ clean: ## Remove venv and all temporary/generated files
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
-run: install ## Run the play viewer: walk the actor, cameras switch, masks occlude (usage: make run floor=3 data="path/to/INDARK")
-	$(PYTHON) -m maitd --floor "$(floor)" --data $(data)
+run: install ## Run the play viewer: walk the actor, cameras switch, masks occlude (usage: make run floor=3 data="path/to/INDARK" trace=/tmp/t.log)
+	$(PYTHON) -m maitd --floor "$(floor)" --data $(data) $(if $(trace),--trace $(trace))
 
 # ── Development ──────────────────────────────────────────────────────────────
 
