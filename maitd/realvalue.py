@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """RealValue interpolation + chrono ports (FITD main.cpp:2277-2321, evalChrono)."""
-import math
 
 
 def init_real_value(start_value, end_value, time, real_value, timer):
@@ -31,13 +30,28 @@ def update_actor_rotation(rotate_ptr, timer):
         return int((angle * time_dif) / rotate_ptr.num_steps) + (rotate_ptr.start_value & 0x3FF)
 
 
-def start_chrono(chrono_slot, timer):
-    chrono_slot[0] = timer
+def start_chrono(actor, field, timer):
+    setattr(actor, field, timer)
 
 
 def eval_chrono(chrono_value, timer):
     return timer - chrono_value
 
 
+def _s16(v):
+    # C (s16) cast: truncate to 16 bits, sign-extend
+    v %= 0x10000
+    return v - 0x10000 if v > 0x7FFF else v
+
+
 def give_distance_2d(x1, z1, x2, z2):
-    return int(math.sqrt((x1 - x2) * (x1 - x2) + (z1 - z2) * (z1 - z2)))
+    # C: if (s16)x1 < 0, x1 = -(s16)x1 — magnitude of the truncated s16 value
+    x1 -= x2
+    if _s16(x1) < 0:
+        x1 = -_s16(x1)
+    z1 -= z2
+    if _s16(z1) < 0:
+        z1 = -_s16(z1)
+    if x1 + z1 > 0xFFFF:
+        return 0x7D00
+    return x1 + z1

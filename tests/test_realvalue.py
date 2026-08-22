@@ -2,7 +2,7 @@
 from maitd.realvalue import (
     eval_chrono, give_distance_2d, init_real_value, start_chrono, update_actor_rotation,
 )
-from maitd.game import RealValue
+from maitd.game import Actor, RealValue
 
 
 def test_update_rotation_identity():
@@ -29,11 +29,14 @@ def test_update_rotation_wrap():
 
 
 def test_chrono():
-    slot = [0]
-    start_chrono(slot, timer=10)
-    assert eval_chrono(slot[0], timer=30) == 20
+    actor = Actor()
+    start_chrono(actor, "chrono", timer=10)
+    assert eval_chrono(actor.chrono, timer=30) == 20
 
 
 def test_distance():
-    assert give_distance_2d(0, 0, 3, 4) == 5
+    assert give_distance_2d(0, 0, 3, 4) == 7
     assert give_distance_2d(0, 0, 0, 0) == 0
+    assert give_distance_2d(-3, 0, 0, 4) == 7
+    # C: (s16)80000 == 14464 (>=0, kept) -> sum 160000 > 0xFFFF -> saturate
+    assert give_distance_2d(80000, 0, 0, 80000) == 0x7D00
