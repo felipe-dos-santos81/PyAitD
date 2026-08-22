@@ -580,8 +580,9 @@ def test_update_rotation_overshoot():
 
 
 def test_update_rotation_wrap():
-    # start 0x300 -> end 0x100 wraps: angleDif = 0x100 - 0x300 = -0x200 -> +0x400 branch
-    rv = init_real_value(0x300, 0x100, 2, RealValue(), timer=0)
+    # start 0x300 -> end 0x0: angleDif = -0x300 < -0x200 -> +0x400 wrap branch
+    # (C check is inclusive: -0x200 goes through the normal branch, not here)
+    rv = init_real_value(0x300, 0, 2, RealValue(), timer=0)
     assert update_actor_rotation(rv, timer=1) == 0x380
 
 
