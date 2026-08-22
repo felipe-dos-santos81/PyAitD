@@ -148,6 +148,9 @@ def gere_anim(game, actor_idx):
             a.flag_end_anim = 1
             return
         if a.end_frame == 0:
+            # ponytail: FITD skips this commit + ResetStartAnim when
+            # newAnimType & ANIM_RESET (4) (anim.cpp:228-244) — no
+            # ANIM_RESET users in AITD1 floor 0 data yet
             a.world_x += a.step_x
             a.room_x += a.step_x
             a.world_z += a.step_z
@@ -176,11 +179,16 @@ def gere_anim(game, actor_idx):
         a.end_frame = 0
         if a.speed == 0:
             # CheckObjectCol COL_BY writes: M3b skip (ponytail)
+            # anim.cpp:291-300 zeroes local step vars only; pending field
+            # steps stay (FITD leaves them too)
             old_step_y = 0
             old_step_z = 0
         else:
             anim_step_z = evaluate_real(a.speed_change, game.timer)
-            anim_move_x, anim_move_z = rotate_step(a.beta, 0, anim_step_z)
+            # walkStep(0, animStepZ, beta): Rotate(beta, 0, animStepZ,
+            # &animMoveZ, &animMoveX) — outputs crossed (main.cpp:3186),
+            # so rotate_step (FITD xOut, yOut) unpacks z, x
+            anim_move_z, anim_move_x = rotate_step(a.beta, 0, anim_step_z)
             step_x = anim_move_x - old_step_x
             step_z = anim_move_z - old_step_z
             step_y = 0
@@ -189,7 +197,7 @@ def gere_anim(game, actor_idx):
             return  # ponytail: body -1 cannot be skinned, FITD would fault
         player = anim_player_for(game, actor_idx)
         a.end_frame = player.advance(game.timer)
-        anim_move_x, anim_move_z = rotate_step(a.beta, player.anim_step[0], player.anim_step[2])
+        anim_move_z, anim_move_x = rotate_step(a.beta, player.anim_step[0], player.anim_step[2])
         step_x = anim_move_x + a.anim_neg_x - old_step_x
         step_z = anim_move_z + a.anim_neg_z - old_step_z
 

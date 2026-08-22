@@ -47,7 +47,8 @@ class _FakeAssets:
 
 def test_gere_anim_walk_step(data_dir):
     # GereAnim movement port: walk anim with a 20-tick keyframe stepping
-    # (0, 0, 4); each keyframe commit moves the actor +4 in Z (beta 0x300).
+    # (0, 0, 4); each keyframe commit moves the actor +4 in X (beta 0x300:
+    # walkStep outputs crossed, animMoveZ = cos*step, animMoveX = -sin*step).
     # First tick is bp=0 (inter), so the first commit lands on tick 21.
     from maitd.actors import gere_anim
     from maitd.formats import Animation, Frame
@@ -64,8 +65,10 @@ def test_gere_anim_walk_step(data_dir):
     )
     for speed in (1, 2, 3, 4, 5, -1, 0):
         actor.speed = speed
+        actor.room_x = 0
         actor.room_z = 0
         for _ in range(21):
             game.timer += 1
             gere_anim(game, game.current_camera_target_actor)
-        assert actor.room_z == 4
+        assert actor.room_x == 4
+        assert actor.room_z == 0

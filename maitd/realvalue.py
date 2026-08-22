@@ -11,7 +11,10 @@ def init_real_value(start_value, end_value, time, real_value, timer):
 
 
 def evaluate_real(real_value, timer):
-    # FITD evaluateReal (anim.cpp): linear interpolation, no angle masking
+    # FITD evaluateReal (anim.cpp): linear interpolation, no angle masking.
+    # ponytail: num_steps == -1 diverges (C compares vs (unsigned)-1 and
+    # interpolates with /-1; Python early-outs to end_value) — GereAnim
+    # guards != -1, unreachable in M3a.
     if not real_value.num_steps:
         return real_value.end_value
     if timer - real_value.memo_ticks > real_value.num_steps:
