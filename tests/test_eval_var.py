@@ -44,6 +44,13 @@ def test_other_object_property(data_dir):
     assert eval_var(vm) == 42
 
 
+def test_world_idx_out_of_range_raises(data_dir):
+    game = init_game(data_dir, hero=0)
+    vm = _vm(game, 0x8000 | (0x1F + 1), 9999)
+    with pytest.raises(ValueError):
+        eval_var(vm)
+
+
 def test_other_object_not_in_floor(data_dir):
     game = init_game(data_dir, hero=0)
     widx = next(i for i, w in enumerate(game.world_objects) if w.obj_index == -1)

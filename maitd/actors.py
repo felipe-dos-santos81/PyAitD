@@ -258,9 +258,16 @@ def gere_anim(game, actor_idx):
             a.falling = 1
 
     if a.end_frame:
-        a.frame = game.anim_players[actor_idx].frame if a.anim != -1 else a.frame
-        if a.anim != -1 and game.anim_players[actor_idx].wrapped:
+        player = game.anim_players[actor_idx] if a.anim != -1 else None
+        a.frame = player.frame if player is not None else a.frame
+        if player is not None and player.wrapped:
             a.flag_end_anim = 1
+            if not (a.anim_type & 1) and a.new_anim == -1:
+                # anim.cpp:654-660: one-shot anim wrapped with no pending anim:
+                # clear ANIM_UNINTERRUPTABLE, restart same anim as ANIM_REPEAT
+                a.anim_type &= ~2
+                from maitd.life_ops import init_anim
+                init_anim(a, a.anim_info, 1, -1)
         a.world_x += a.step_x
         a.room_x += a.step_x
         a.world_z += a.step_z

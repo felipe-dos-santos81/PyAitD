@@ -185,6 +185,11 @@ def eval_var(vm):
         return game.vars[read_s16(vm)]
     if tag & 0x8000:
         widx = read_s16(vm)
+        if not 0 <= widx < len(game.world_objects):
+            raise ValueError(
+                f"evalVar: world object index {widx} out of range 0..{len(game.world_objects) - 1} "
+                f"(life owner actor {vm.owner_idx}, byte {vm.pc - 4})"
+            )
         w = game.world_objects[widx]
         code = (tag & 0x7FFF) - 1
         if w.obj_index != -1:

@@ -166,6 +166,11 @@ def process_life(game, actor_idx, life_num):
             game.trace.log(game, actor_idx, life_num, op, vm.pc)
         if op & 0x8000:
             world_idx = read_s16(vm)
+            if not 0 <= world_idx < len(game.world_objects):
+                raise ValueError(
+                    f"world object index {world_idx} out of range 0..{len(game.world_objects) - 1} "
+                    f"(life {life_num} of actor {vm.owner_idx}, byte {vm.pc - 4})"
+                )
             world = game.world_objects[world_idx]
             if world.obj_index != -1:
                 vm.cur_idx = world.obj_index
@@ -196,7 +201,7 @@ def _dispatch_reduced(vm, op, world_idx):
     # world-object-field ops on game.world_objects[world_idx]; implemented in task 7.
     try:
         from maitd.life_reduced import reduced_dispatch
-    except ImportError:
+    except ModuleNotFoundError:
         raise ValueError(
             f"opcode {op & 0x7FFF} reduced dispatch unavailable (maitd.life_reduced, task 7)"
         ) from None

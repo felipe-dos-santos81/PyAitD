@@ -87,6 +87,15 @@ def test_actor_switch_flag(data_dir):
     process_life(game, spawned, 0)
 
 
+def test_switch_flag_negative_world_idx_raises(data_dir):
+    # FITD life.cpp:492-496 asserts on world idx -1; Python must not wrap
+    game = init_game(data_dir, hero=0)
+    game.assets = _FakeAssets(script=_script(0x8000 | 11, -1))
+    game.actors[0].life = 0
+    with pytest.raises(ValueError):
+        process_life(game, 0, 0)
+
+
 def test_eval_var_script_var(data_dir):
     # evalVar tag 0: read game.vars[idx]; true branch skips jump onto END
     game = init_game(data_dir, hero=0)

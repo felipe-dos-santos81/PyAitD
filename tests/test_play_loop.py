@@ -72,3 +72,28 @@ def test_gere_anim_walk_step(data_dir):
             gere_anim(game, game.current_camera_target_actor)
         assert actor.room_x == 4
         assert actor.room_z == 0
+
+
+def test_gere_anim_one_shot_rearm(data_dir):
+    # FITD anim.cpp:654-660: one-shot (non-repeat) anim wrap with no pending
+    # anim clears ANIM_UNINTERRUPTABLE and restarts the anim as ANIM_REPEAT
+    from maitd.actors import gere_anim
+    from maitd.formats import Animation, Frame
+
+    game = init_game(data_dir, hero=0)
+    actor = game.actors[game.current_camera_target_actor]
+    actor.anim = 0
+    actor.anim_type = 2  # not repeat (bit 0 clear) + uninterruptable
+    actor.anim_info = 0  # same anim
+    actor.new_anim = -1
+    actor.num_of_frames = 1
+    game.assets = _FakeAssets(
+        game.assets, Animation(num_frames=1, num_groups=0, frames=[Frame(20, (0, 0, 0), [], [])])
+    )
+    for _ in range(21):
+        game.timer += 1
+        gere_anim(game, game.current_camera_target_actor)
+    assert actor.flag_end_anim == 1
+    assert actor.anim_type == 1
+    assert actor.anim_info == -1
+    assert actor.new_anim == -1
