@@ -167,3 +167,48 @@ def choose_inventory_action(game, object_idx, action_text_id):
     game.in_hand_table[game.current_inventory] = object_idx
     game.action = 1 << (action_text_id - 23)
     return execute_found_life(game, object_idx)
+
+
+def point_in_zone(x, y, z, zone):
+    return zone.x1 <= x <= zone.x2 and zone.y1 <= y <= zone.y2 and zone.z1 <= z <= zone.z2
+
+
+def gere_dec(game, actor_idx):
+    actor = game.actors[actor_idx]
+    rooms = game.rooms_of_floor(game.current_floor)
+    room = rooms[actor.room]
+    x = actor.room_x + actor.step_x
+    y = actor.room_y + actor.step_y
+    z = actor.room_z + actor.step_z
+    for zone in room.sce_zones:
+        if not point_in_zone(x, y, z, zone):
+            continue
+        if zone.type == 0:
+            old_room = actor.room
+            actor.room = zone.parameter
+            dx = (rooms[actor.room].world_x - rooms[old_room].world_x) * 10
+            dy = (rooms[actor.room].world_y - rooms[old_room].world_y) * 10
+            dz = (rooms[actor.room].world_z - rooms[old_room].world_z) * 10
+            actor.room_x -= dx
+            actor.room_y += dy
+            actor.room_z += dz
+            actor.zv[0] -= dx
+            actor.zv[1] -= dx
+            actor.zv[2] += dy
+            actor.zv[3] += dy
+            actor.zv[4] += dz
+            actor.zv[5] += dz
+            if actor_idx == game.current_camera_target_actor:
+                game.flag_change_salle = 1
+                game.new_num_salle = actor.room
+            else:
+                game.flag_genere_aff_list = 1
+        elif zone.type == 9:
+            actor.hard_dec = zone.parameter
+        elif zone.type == 10:
+            world = game.world_objects[actor.index_in_world]
+            if world.floor_life == -1:
+                return
+            actor.life = world.floor_life
+            actor.hard_dec = zone.parameter
+        return
