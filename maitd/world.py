@@ -98,3 +98,52 @@ def rotate_step(angle, x, z):
         x_out = z
         z_out = x
     return (x_out, z_out)
+
+def test_cross_product(x1, z1, x2, z2, x3, z3, x4, z4):
+    x_ab = x1 - x2
+    z_ab = z1 - z2
+    x_cd = x3 - x4
+    z_cd = z3 - z4
+    x_ac = x1 - x3
+    z_ac = z1 - z3
+    dot = (x_ab * z_cd) - (x_cd * z_ac)
+    if dot == 0:
+        return False
+    dda = x_ac * z_cd - x_cd * z_ac
+    dmu = -x_ab * z_ac + x_ac * z_ab
+    if dot < 0:
+        dot = -dot
+        dda = -dda
+        dmu = -dmu
+    return dda >= 0 and dmu >= 0 and dot >= dda and dot >= dmu
+
+
+def is_in_poly(x1, x2, z1, z2, zones):
+    x_mid = (x1 + x2) // 2
+    z_mid = (z1 + z2) // 2
+    for poly in zones:
+        flag = 0
+        for j in range(len(poly)):
+            zx1, zz1 = poly[j]
+            zx2, zz2 = poly[(j + 1) % len(poly)]
+            if test_cross_product(x_mid, z_mid, x_mid - 10000, z_mid, zx1, zz1, zx2, zz2):
+                flag |= 1
+            if test_cross_product(x_mid, z_mid, x_mid + 10000, z_mid, zx1, zz1, zx2, zz2):
+                flag |= 2
+        if flag == 3:
+            return True
+    return False
+
+
+def find_best_camera(actor_x1, actor_x2, actor_z1, actor_z2, actor_beta, room_cameras, zones_by_camera):
+    found_angle = 32000
+    found_camera = -1
+    for i, cam in enumerate(room_cameras):
+        if is_in_poly(actor_x1, actor_x2, actor_z1, actor_z2, zones_by_camera[i]):
+            new_angle = actor_beta + ((cam.beta + 0x200) & 0x3FF)
+            if new_angle < 0:
+                new_angle = -new_angle
+            if new_angle < found_angle:
+                found_angle = new_angle
+                found_camera = i
+    return found_camera

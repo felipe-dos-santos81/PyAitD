@@ -328,3 +328,18 @@ def parse_anim(raw):
             p += 8
         frames.append(Frame(timestamp, step, types, deltas))
     return Animation(num_frames, num_groups, frames)
+
+
+def parse_cover_zones(camera_raw, camera_off, viewed_idx):
+    vr_off = camera_off + 0x14 + viewed_idx * 0x0C
+    cover_off = camera_off + _u16(camera_raw, vr_off + 4)
+    num_zones = _u16(camera_raw, cover_off)
+    p = cover_off + 2
+    zones = []
+    for _ in range(num_zones):
+        num_points = _u16(camera_raw, p)
+        p += 2
+        points = [(_s16(camera_raw, p + 4 * k), _s16(camera_raw, p + 4 * k + 2)) for k in range(num_points)]
+        p += num_points * 4
+        zones.append(points)
+    return zones
