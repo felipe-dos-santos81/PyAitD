@@ -149,11 +149,17 @@ construction.
   rotation-invariant extent gives one mesh per room instead of one per facing.
 - `GRID_STEP = 100` room units (~5 cells across the hero), a tunable constant
   with a floor-0 golden.
-- Containment uses `world.py:160 is_in_poly` in cover units, exactly as
-  `playworld.py:53` does. The union is rasterized with a vectorized NumPy
-  fill for speed, pinned by a test asserting cell-for-cell agreement with
-  `is_in_poly` over the whole floor-0 grid. Blocking is O(boxes) NumPy
-  slicing; only the union fill touches every cell.
+- Containment uses FITD's own predicate. The union is rasterized by
+  **vectorizing `world.py:141 test_cross_product` itself** — the two-ray
+  test `is_in_poly` is built from — not by a generic even-odd polygon fill.
+  This is not a performance detail: a generic fill was measured against
+  `is_in_poly` on the floor-0 grid and disagreed on 64 of 21291 cells,
+  in both directions, all on boundary cells, because FITD's `flag == 3`
+  two-ray test has its own degenerate-case behaviour. Vectorizing the real
+  predicate makes agreement exact by construction; measured 0 mismatches on
+  floors 0, 2 and 6, with a 51 ms build for the largest room in the game
+  (floor 6 room 6, 281x243 cells). Blocking is O(boxes) NumPy masking;
+  only the union fill touches every cell.
 - `find_path(mesh, start, goal) -> [waypoints]` — A* then string-pull, so
   the follower receives a handful of waypoints rather than a staircase.
 - Meshes cached per `(floor, room)`, built on room entry.
