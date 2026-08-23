@@ -743,6 +743,80 @@ def test_in_flight_reflects_from_reverse_object(monkeypatch, data_dir):
     assert game.world_objects[game.actors[actor_idx].index_in_world].alpha == reverse_world
 
 
+def test_in_flight_reflection_reverts_xz_but_keeps_actual_y(monkeypatch, data_dir):
+    # animAction.cpp:361-401: xtemp/ztemp are reassigned to x3/z3
+    # (old_x/old_z) right before the final commit, but ytemp is never
+    # touched in this branch — so the committed world position mixes the
+    # REVERTED x/z with the tick's ACTUAL (stepped) y. Also pins that
+    # stepX/stepZ are zeroed here while stepY is left untouched. Distinct,
+    # non-zero values on every axis so a dropped revert, an axis swap, or
+    # a "helpful" revert of y too would move the result away from these
+    # hand-computed expectations.
+    game, actor_idx = _thrown_game(data_dir)
+    thrown = game.actors[actor_idx]
+    world = game.world_objects[thrown.index_in_world]
+
+    world.x, world.y, world.z = 1000, 2000, 3000  # old_x / old_y / old_z
+    thrown.room_x, thrown.room_y, thrown.room_z = 5000, 6000, 7000
+    thrown.step_x, thrown.step_y, thrown.step_z = 11, 22, 33
+    # actual_x = 5011, actual_y = 6022, actual_z = 7033 -- distinct from old_*
+
+    reverse_world = game.cvars[11]
+    reverse_world_actor = next(
+        i for i, a in enumerate(game.actors)
+        if a.index_in_world >= 0
+        and i not in (actor_idx, game.current_camera_target_actor)
+    )
+    game.world_objects[reverse_world].obj_index = reverse_world_actor
+    game.actors[reverse_world_actor].index_in_world = reverse_world
+    monkeypatch.setattr(
+        "PyAitD.anim_action.check_object_col", lambda *args: (reverse_world_actor,),
+    )
+
+    gere_frappe(game, actor_idx)
+
+    assert (world.x, world.y, world.z) == (1000, 6022, 3000)
+    assert thrown.step_x == 0
+    assert thrown.step_z == 0
+    assert thrown.step_y == 22  # untouched, unlike step_x/step_z
+
+
+def test_in_flight_hot_point_cleared_on_ordinary_hit(monkeypatch, data_dir):
+    # animAction.cpp:339-341: hotPoint is cleared for ANY object collision,
+    # not only the trailing hard-collision branch. Non-zero hot_point
+    # beforehand so the assertion is real.
+    game, actor_idx = _thrown_game(data_dir)
+    thrown = game.actors[actor_idx]
+    thrown.hot_point[:] = [7, 8, 9]
+    world = game.world_objects[thrown.index_in_world]
+    victim_idx = next(
+        i for i, a in enumerate(game.actors)
+        if a.index_in_world >= 0
+        and i != actor_idx
+        and a.index_in_world not in (world.alpha, game.cvars[11])
+    )
+    monkeypatch.setattr("PyAitD.anim_action.check_object_col", lambda *args: (victim_idx,))
+
+    gere_frappe(game, actor_idx)
+
+    assert list(thrown.hot_point) == [0, 0, 0]
+
+
+def test_in_flight_hot_point_cleared_when_thrower_ignored(monkeypatch, data_dir):
+    # Same clearing rule, exercised through the original-thrower
+    # short-circuit rather than an ordinary hit.
+    game, actor_idx = _thrown_game(data_dir)
+    thrown = game.actors[actor_idx]
+    thrown.hot_point[:] = [4, 5, 6]
+    original_world = game.world_objects[thrown.index_in_world].alpha
+    original_actor = game.world_objects[original_world].obj_index
+    monkeypatch.setattr("PyAitD.anim_action.check_object_col", lambda *args: (original_actor,))
+
+    gere_frappe(game, actor_idx)
+
+    assert list(thrown.hot_point) == [0, 0, 0]
+
+
 def test_in_flight_publishes_hit_and_stops_when_ordinary_victim(monkeypatch, data_dir):
     game, actor_idx = _thrown_game(data_dir)
     thrown = game.actors[actor_idx]

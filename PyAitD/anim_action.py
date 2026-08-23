@@ -176,6 +176,11 @@ def _check_throw_step(
     # or stopped); False to keep sweeping.
     collisions = check_object_col(game, actor_idx, cube)
     effective = len(collisions)
+    if collisions:
+        # animAction.cpp:339-341: hotPoint is cleared as soon as ANY object
+        # collision is found this tick, before the per-actor loop below —
+        # not only on the trailing hard-collision branch further down.
+        actor.hot_point[:] = [0, 0, 0]
     for touched_idx in collisions:
         touched_world = game.actors[touched_idx].index_in_world
         if touched_world == world.alpha:
@@ -190,7 +195,14 @@ def _check_throw_step(
             world.alpha = game.cvars[11]
             actor.beta += 0x200
             _place_thrown_actor(game, actor_idx, old_x, old_y, old_z, raw_zv)
-            world.x, world.y, world.z = actual_x, actual_y, actual_z
+            # animAction.cpp:378-379: FITD zeroes stepX/stepZ here but
+            # leaves stepY untouched — preserve that asymmetry exactly.
+            actor.step_x = actor.step_z = 0
+            # animAction.cpp:389,399-401: xtemp/ztemp are reassigned to
+            # x3/z3 (old_x/old_z) right before commit, but ytemp is never
+            # reassigned in this branch — so the committed world position
+            # mixes the reverted x/z with the tick's actual (stepped) y.
+            world.x, world.y, world.z = old_x, actual_y, old_z
             return True
         _publish_hit(game, actor_idx, touched_idx)
     if effective:
