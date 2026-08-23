@@ -111,3 +111,30 @@ def test_actor_bbox_padding_enlarges_the_target():
     x0, y0, x1, y1 = actor_bbox(result)
     assert (x0, y0, x1, y1) == (100 - ACTOR_PICK_PAD, 50 - ACTOR_PICK_PAD,
                                 120 + ACTOR_PICK_PAD, 80 + ACTOR_PICK_PAD)
+
+
+def test_actor_bbox_excludes_non_sentinel_negative_extremes():
+    # near-clip projection (depth just above 50) can divide out to a huge
+    # negative value that is not the exact (-10000,...) sentinel; it must
+    # still be treated as unusable, or the box balloons toward -infinity
+    result = _FakeResult([(100.0, 60.0, 900.0), (-9500.0, 40.0, 3000.0)])
+    assert actor_bbox(result, pad=0) == (100, 60, 100, 60)
+
+
+def test_actor_bbox_excludes_positive_extremes_and_stays_on_surface():
+    # the same near-clip division can overflow positive, with no sentinel at
+    # all to filter on; previously this ballooned the box past the screen
+    result = _FakeResult([(100.0, 60.0, 900.0), (50000.0, 70.0, 3000.0)])
+    box = actor_bbox(result, pad=0)
+    assert box == (100, 60, 100, 60)
+    x0, y0, x1, y1 = box
+    assert 0 <= x0 <= 320 and 0 <= x1 <= 320
+    assert 0 <= y0 <= 200 and 0 <= y1 <= 200
+
+
+def test_actor_bbox_clamps_rather_than_drops_a_straddling_actor():
+    # a legitimately off-screen vertex (an actor straddling the edge of the
+    # 320x200 logical surface) is not a near-clip artifact and must not be
+    # filtered out -- the box is clamped to the surface, not dropped
+    result = _FakeResult([(-100.0, 90.0, 900.0), (350.0, 110.0, 900.0)])
+    assert actor_bbox(result, pad=0) == (0, 90, 320, 110)

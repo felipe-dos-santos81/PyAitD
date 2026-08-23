@@ -137,19 +137,46 @@ def _point_in_world_poly(x, z, world_poly):
     return inside
 
 
-ACTOR_PICK_PAD = 3  # logical pixels of slack; the accessibility contract
-                    # forbids requiring precise pointing
-_CULLED = -9000     # skel.skin writes -10000 for culled vertices
+ACTOR_PICK_PAD = 3       # logical pixels of slack; the accessibility contract
+                         # forbids requiring precise pointing
+_CULL_MAGNITUDE = 9000   # skel.skin writes -10000 for culled vertices, but
+                         # CameraState.project can also emit legitimately huge
+                         # values of EITHER sign near depth <= 50 (it divides
+                         # by depth), so the test must be symmetric, not a
+                         # one-sided floor
+_LOGICAL_W = 320         # the logical surface pick_floor/render also target
+_LOGICAL_H = 200
+
+
+def _clamp(value, lo, hi):
+    return max(lo, min(value, hi))
 
 
 def actor_bbox(result, pad=ACTOR_PICK_PAD):
-    """Screen-space bounding box of a skinned actor, or None if fully culled."""
-    xs = [p[0] for p in result.points if p[0] > _CULLED and p[1] > _CULLED]
-    ys = [p[1] for p in result.points if p[0] > _CULLED and p[1] > _CULLED]
-    if not xs:
+    """Screen-space bounding box of a skinned actor, or None if fully culled.
+
+    A vertex is unusable when either coordinate is extreme in magnitude on
+    either axis: skel.skin's cull sentinel (-10000, -10000, -10000) is one
+    such case, but a near-clip projection (depth just above 50) can also
+    divide out to a huge value of either sign, so the test can't just be a
+    negative floor. Padding is applied before the box is clamped to the
+    320x200 logical surface, so the pad can't push it back off-surface, and
+    the clamp also backstops any near-clip vertex that slips past the
+    magnitude test.
+    """
+    usable = [
+        p for p in result.points
+        if abs(p[0]) < _CULL_MAGNITUDE and abs(p[1]) < _CULL_MAGNITUDE
+    ]
+    if not usable:
         return None
-    return (int(min(xs)) - pad, int(min(ys)) - pad,
-            int(max(xs)) + pad, int(max(ys)) + pad)
+    xs = [p[0] for p in usable]
+    ys = [p[1] for p in usable]
+    x0 = _clamp(int(min(xs)) - pad, 0, _LOGICAL_W)
+    y0 = _clamp(int(min(ys)) - pad, 0, _LOGICAL_H)
+    x1 = _clamp(int(max(xs)) + pad, 0, _LOGICAL_W)
+    y1 = _clamp(int(max(ys)) + pad, 0, _LOGICAL_H)
+    return (x0, y0, x1, y1)
 
 
 def pick_actor(logical_pos, draw_list):
