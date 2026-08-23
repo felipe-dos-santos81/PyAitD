@@ -655,9 +655,19 @@ def test_throw_stopped_at_raises_y_band_until_reachable(monkeypatch, data_dir):
     # not reachable the search retries 2000 units higher at the *same*
     # backward step, only stepping backward again once the base cube
     # itself collides.
+    #
+    # main.cpp:4051 computes y2 with C integer division, which truncates
+    # toward zero (int(room_y / 2000) * 2000) -- NOT Python's floor `//`.
+    # room_y = -3000 gives, by hand, int(-3000 / 2000) * 2000 ==
+    # int(-1.5) * 2000 == -1 * 2000 == -2000, which is below -500 and so
+    # genuinely exercises the reachability retry below. (Python's `//`
+    # would floor -3000 // 2000 to -2, i.e. -4000 -- a different, wrong
+    # cube -- so this value is *not* interchangeable with `//`'s result;
+    # it is derived from the C truncation rule, independent of whichever
+    # division operator the implementation happens to use.)
     game, actor_idx = _thrown_game(data_dir)
     actor = game.actors[actor_idx]
-    actor.room_y = -1000  # y2 = (room_y // 2000) * 2000 == -2000, below -500
+    actor.room_y = -3000  # y2 == -2000 under C truncation, below -500
 
     captured = []
     responses = iter([[], [], []])
@@ -671,7 +681,7 @@ def test_throw_stopped_at_raises_y_band_until_reachable(monkeypatch, data_dir):
     throw_stopped_at(game, actor_idx, 1000, 2000)
 
     assert len(captured) == 3  # base check, reachability check, base recheck at y+2000
-    assert actor.room_y == 0
+    assert actor.room_y == 0  # -2000 + 2000 (the one 2000-unit reachability raise)
     assert actor.world_y == 0
 
 

@@ -12,7 +12,7 @@ from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_SPECIAL, put_at_objet
 from PyAitD.interaction import point_in_zone, remove_from_inventory
 from PyAitD.realvalue import init_real_value
 from PyAitD.skel import hot_point
-from PyAitD.world import adjust_zv_between_rooms, rotate_step
+from PyAitD.world import adjust_zv_between_rooms, cdiv, rotate_step
 
 WAIT_FRAPPE_ANIM = 1
 FRAPPE_OK = 2
@@ -139,7 +139,11 @@ def throw_stopped_at(game, actor_idx, x, z):
     # then hunt upward in 2000-unit bands for one Carnby can actually reach.
     actor = game.actors[actor_idx]
     raw = _raw_body_zv(game, actor.index_in_world)
-    x2, y2, z2 = x, (actor.room_y // 2000) * 2000, z
+    # main.cpp:4051: C integer division truncates toward zero, unlike
+    # Python's floor `//` — they diverge for negative room_y that isn't
+    # an exact multiple of 2000 (e.g. the pinned combat venue's own hero
+    # Y, -4010). Use cdiv, not `//`, to preserve that truncation.
+    x2, y2, z2 = x, cdiv(actor.room_y, 2000) * 2000, z
     step = 0
     room = game.rooms_of_floor(game.current_floor)[actor.room]
     while True:
