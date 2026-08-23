@@ -363,13 +363,24 @@ Not coverable by tests: mode-4 feel (turn-while-walking vs tank pivot) needs
 
 ## Risks
 
-- **Climbable-wall floors.** On floors 5 and 6, type-3 slabs tile most of the
-  cover area (194 boxes, 193 overlapping the hero Y band), so a mesh built
-  with the engine's blocking rule comes out near-empty. Floor 5 room 3 is
-  0% walkable with all types blocking and 71% with type 1 only. Traversing
-  those rooms depends on climbable-wall semantics nothing consumes yet.
-  Mitigation: degraded direct-steering mode; real fix belongs with the
-  `hard_col == 255` work in a later milestone.
+- **Climbable-wall floors.** ~~On floors 5 and 6, type-3 slabs tile most of
+  the cover area, so a mesh built with the engine's blocking rule comes out
+  near-empty on both.~~ **Corrected after implementation, from `make
+  prove-mouse` over real data.** The prediction above extrapolated from a
+  global box count (194 type-3 boxes, 193 overlapping the hero Y band) and
+  was pessimistic. Measured reality: exactly **one** room in the whole game
+  builds an empty mesh — floor 5 room 3. Type-3 boxes are genuinely blocked
+  on both floors (floor 5: 116 boxes, 115 in the hero Y band; floor 6: 78,
+  all 78), verified by independent re-measurement; the difference is
+  geometric, not a code defect. Type-3 removes 55-100% of floor 5's cover
+  area per room but only 32-65% of floor 6's, so floor 6 stays navigable
+  throughout. The degraded direct-steering mitigation still covers the one
+  empty room, and climbable-wall traversal remains later `hard_col == 255`
+  work.
+
+  The earlier estimate came from a probe that ignored the Y axis and sampled
+  at a finer grid step than the shipped `GRID_STEP = 100`; both differences
+  pushed it pessimistic.
 - **Homography divergence** from the fixed-point path on cameras with
   extreme angles. Bounded by the round-trip test on floor 0; other floors
   are unverified until their rooms boot.
