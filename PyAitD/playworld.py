@@ -7,7 +7,7 @@ freeing that needs InputBuffer moved out of the presentation layer.
 """
 from PyAitD.actors import gere_anim
 from PyAitD.anim_action import gere_frappe, refresh_hot_point
-from PyAitD.effects import GameMode, InputMode, LifeFrame
+from PyAitD.effects import GameMode, GameOver, InputMode, LifeFrame
 from PyAitD.formats import parse_cover_zones
 from PyAitD.game import (
     AF_ANIMATED, AF_TRIGGER, change_salle, game_step_tick, spawn_stage_actors,
@@ -123,6 +123,17 @@ def _camera_switch(game, floor):
         game.flag_init_view = 1
 
 
+def _handoff_game_over(game):
+    # mainLoop.cpp:185,233: FlagGameOver is checked only after the complete
+    # LIFE actor loop, never mid-loop, and precedes floor/room/camera/spawn
+    # handling. No LIFE continuation is retained: restart is a fresh session.
+    if not game.flag_game_over:
+        return True
+    game.flag_game_over = 0
+    game.open_modal(GameOver())
+    return False
+
+
 def play_tick(game, floor, input_buffer):
     # mainLoop.cpp:41-281 PlayWorld, one 50Hz iteration, PLAY mode only.
     # Rendering stays outside this fixed-step function so catch-up ticks
@@ -155,6 +166,8 @@ def play_tick(game, floor, input_buffer):
                 return False
         if game.flag_change_etage:
             break
+    if not _handoff_game_over(game):
+        return False
     if game.flag_change_etage:
         # LoadEtage M3a subset (floor.cpp:7): floor data swap happens in run();
         # FITD LoadEtage sets FlagChangeSalle so the view re-rooms next tick.
