@@ -25,7 +25,7 @@ make floor=N run             # start on another floor
 | M1 | Data layer + room rendering: PAK, ETAGE floors, camera images, masks, ITD parsing | done |
 | M2 | Actors: body/anim parsing, skinning (AnimNuage), tank movement + collision, zone-driven camera switching, mask compositing over backgrounds | done |
 | M3a | LIFE script VM core + world: the game boots from its **real scripts** — intro scene, actors spawn, scripts drive everything; script-driven player input | done (merged) |
-| M3b | Interaction: inventory (TAKE/FOUND/IN_HAND), action button, text MESSAGE rendering | **next** |
+| M3b | Interaction: inventory (TAKE/FOUND/IN_HAND), action button, text MESSAGE rendering | done |
 | M3c | Combat: HIT/FIRE/THROW animActions, game over → completable | later |
 | M4 | Menus, audio, save/load | later |
 
@@ -111,6 +111,12 @@ M3b/M3c stubs in `life_ops.py` consume exact FITD arg counts and log under trace
 - Focused proof: `make prove-m3b`.
 - Full regression: `.venv/bin/pytest -q && make prove`.
 - Manual evidence: `docs/m3b-interaction-proof.md`.
+- Deferred (review rulings): `choose_inventory_action` sets in-hand + action
+  directly where FITD sets in-hand only via LM_IN_HAND — revisit when M3c
+  combat items land; `gere_dec` stops at the first containing zone where FITD
+  re-scans the new room's zones in the same call (one-tick delay on chained
+  crossings); modal result records live in `ui.py` though locked ownership
+  puts them in `effects.py`; `op_special` still carries an M3b stub label.
 
 ## Testing conventions
 
