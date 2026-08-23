@@ -35,20 +35,22 @@ def test_all_tables_parse(data_dir):
 
 
 def test_headless_boot_ticks(data_dir):
-    # Headless 60-tick LIFE boot with opcode trace. play_tick (task 9) needs an
-    # OpenGL window (Renderer), which CI lacks — raw process_life loop instead.
-    # Fails (not skips) if boot breaks or the intro produces no trace lines.
+    # Headless 60-tick PlayWorld boot with opcode trace, through the same
+    # play_tick the game runs — playworld is pygame/GL-free, so CI needs no
+    # window. Fails (not skips) if boot breaks or the intro produces no trace.
+    from maitd.floor import Floor
     from maitd.game import init_game
-    from maitd.life import Trace, life_gate, process_life
+    from maitd.life import Trace
+    from maitd.playworld import play_tick
+    from maitd.ui import InputBuffer
 
     trace_path = "/tmp/m3a_trace.log"
     game = init_game(data_dir, hero=0)
     game.trace = Trace(trace_path)
+    floor = Floor(data_dir, game.current_floor)
+    buf = InputBuffer()
     for tick in range(60):
-        game.timer += 1
-        for i, a in enumerate(game.actors):
-            if life_gate(a):
-                process_life(game, i, a.life)
+        play_tick(game, floor, buf)
     game.trace.close()
     assert game.flag_game_over == 0
     assert pathlib.Path(trace_path).stat().st_size > 0

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.__main__ import play_tick
+from maitd.playworld import play_tick
 from maitd.effects import OpenInventory
 from maitd.floor import Floor
 from maitd.game import init_game
