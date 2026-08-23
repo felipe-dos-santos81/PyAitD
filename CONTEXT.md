@@ -14,7 +14,7 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 ```bash
 make run                     # play (windowed); make run trace=/tmp/t.log writes per-opcode LIFE trace
 make run-combat              # play the supported floor-5 combat venue (the only non-attic start)
-make test                    # pytest suite (404 passed, 1 xfailed, 1 skipped)
+make test                    # pytest suite (405 passed, 1 xfailed, 1 skipped)
 make prove                   # M3a proof: parse-all 563 scripts/45 tracks/tables + headless 60-tick play_tick boot
 make prove-combat            # M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
 ```
@@ -27,7 +27,7 @@ make prove-combat            # M3c proof: venue, real enemy damage, player arms,
 | M2 | Actors: body/anim parsing, skinning (AnimNuage), tank movement + collision, zone-driven camera switching, mask compositing over backgrounds | done |
 | M3a | LIFE script VM core + world: the game boots from its **real scripts** — intro scene, actors spawn, scripts drive everything; script-driven player input | done (merged) |
 | M3b | Interaction: inventory (TAKE/FOUND/IN_HAND), action button, text MESSAGE rendering | done |
-| M3c | Combat: HIT/FIRE/THROW animActions, floor-5 combat venue, multi-floor `FloorStart`, GAME_OVER → restart | landed; one gap (`docs/m3c-combat-proof.md`) |
+| M3c | Combat: HIT/FIRE/THROW animActions, floor-5 combat venue, multi-floor `FloorStart`, the real death script → GAME_OVER → restart | done (one open ruling: the restart boundary after the death cinematic, `docs/m3c-combat-proof.md`) |
 | M3d | Mouse-only point-and-click input | done |
 | M4 | Menus, audio, save/load, ending/completability | later |
 
@@ -133,8 +133,14 @@ action runner.
 - `scenario.COMBAT_VENUE` = `FloorStart(5, 4, -7800, -4010, -1000, 0)`, the only
   supported non-attic debug start (`--combat-venue`; a non-zero `--floor` exits 2).
 - `LM_GAME_OVER` raises `flag_game_over`; `playworld` turns it into a
-  `GameOver(120)` modal only after the complete LIFE pass, `__main__.restart_session`
+  `GameOver(120)` modal only after the complete LIFE pass — including a flag the
+  real death script raises from a LIFE continuation resumed between ticks, which
+  the next tick consumes before re-running that LIFE. `__main__.restart_session`
   rebuilds a fresh `Game` at the same `FloorStart`.
+- A cross-floor `LM_STAGE` consumes its room change in the same tick (FITD
+  mainLoop.cpp:189-199) and regenerates the active list through the existing
+  `flag_genere_aff_list` gate: FITD's stale anim pass is an out-of-range
+  `roomDataTable` read C++ tolerates and Python cannot.
 - Focused proof: `make prove-combat`; evidence and the open gap:
   `docs/m3c-combat-proof.md`.
 - Deferred (review rulings): `choose_inventory_action` sets in-hand + action

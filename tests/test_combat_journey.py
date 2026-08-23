@@ -12,7 +12,7 @@ import struct
 import numpy as np
 import pytest
 
-from PyAitD.__main__ import restart_session, route_mouse
+from PyAitD.__main__ import _auto_dismiss_picture, restart_session, route_mouse
 from PyAitD.anim_action import (
     DO_TIR, FRAPPE_OK, THROW_OBJECT, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, gere_frappe,
 )
@@ -20,7 +20,7 @@ from PyAitD.effects import GameMode, GameOver
 from PyAitD.floor import Floor
 from PyAitD.game import AF_ANIMATED, init_game, relocate_actor, spawn_stage_actors
 from PyAitD.life import process_life
-from PyAitD.playworld import play_tick
+from PyAitD.playworld import TICK_MS, play_tick
 from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.ui import InputBuffer, ModalSession, render_game_over
 
@@ -76,23 +76,30 @@ def test_real_enemy_damage_empties_health_and_selects_the_death_life(data_dir):
     assert saw_death_life
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the real death sequence LM_STAGEs to floor 6 and the port's next "
-           "tick indexes floor-6 rooms with the old floor's actors; even past "
-           "that, LM_GAME_OVER is reached by a LIFE continuation resumed "
-           "outside play_tick, whose flag_game_over nothing consumes. See "
-           "docs/m3c-combat-proof.md.",
-)
-def test_real_enemy_damage_reaches_game_over_and_fresh_restart(data_dir):
-    game, floor, saw_death_life = _fight_to_death(data_dir, 12000)
-    for _ in range(12000):
+def _journey_to_game_over(data_dir, budget=12000):
+    """The whole real death path: 20 published hits, LIFE 39, LIFE 555's
+    LM_STAGE onto floor 6, LIFE 554's LM_PICTURE, then LM_GAME_OVER."""
+    game, floor, saw_death_life = _fight_to_death(data_dir, budget)
+    loop_session = ModalSession()
+    for _ in range(budget):
+        if game.mode is GameMode.GAME_OVER:
+            break
+        if game.active_modal is not None:
+            # a non-PLAY frame of __main__.run: no tick, the modal clock runs,
+            # and the death sequence's LM_PICTURE auto-dismisses on its delay
+            loop_session.reset_for(game.active_modal)
+            loop_session.elapsed_ms += TICK_MS
+            _auto_dismiss_picture(game, loop_session)
+            continue
         play_tick(game, floor, InputBuffer())
         if floor.number != game.current_floor:
             # the outer loop owns Floor I/O (__main__.run does exactly this)
             floor = Floor(data_dir, game.current_floor)
-        if game.mode is GameMode.GAME_OVER:
-            break
+    return game, saw_death_life
+
+
+def test_real_enemy_damage_reaches_game_over_and_fresh_restart(data_dir):
+    game, saw_death_life = _journey_to_game_over(data_dir)
 
     assert game.vars[21] == 0
     assert saw_death_life
@@ -110,9 +117,23 @@ def test_real_enemy_damage_reaches_game_over_and_fresh_restart(data_dir):
     assert game.restart_requested is True
 
     restarted = restart_session(game)
-    assert restarted.floor_start == COMBAT_VENUE
     assert restarted.vars[21] == 20
     assert restarted.active_modal is None
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="the death cinematic's own LM_STAGE onto floor 6 (LISTLIFE 555) "
+           "overwrites the restart boundary through op_stage, so restart "
+           "rebuilds the session in the death stage instead of the venue the "
+           "player was fighting in. See docs/m3c-combat-proof.md.",
+)
+def test_restart_after_death_returns_to_the_venue_that_was_played(data_dir):
+    game, _saw_death_life = _journey_to_game_over(data_dir)
+    # precondition, so a broken journey fails this test instead of turning the
+    # expected failure below into an XPASS for the wrong reason
+    assert game.active_modal == GameOver(120)
+    assert restart_session(game).floor_start == COMBAT_VENUE
 
 
 class _OneLife:

@@ -533,10 +533,31 @@ which is why the harness fix is in scope.
 - A natural `LM_STAGE` entry uses camera slot 0 because the opcode carries no
   camera operand. The natural-transition acceptance test must replace this
   assumption with observed data if FITD selects another entry slot.
+  **Resolved (task 11), slot 0 confirmed**: `LoadEtage` sets `NumCamera = -1`
+  (`floor.cpp:39`), so a floor change gives `ChangeSalle` no camera continuity
+  and its `int newNumCamera = 0` (`room.cpp:112`) is what reaches `NewNumCamera`
+  (`room.cpp:193`). Observed on the hero's own death transition,
+  `LM_STAGE(6, 6, -5000, -4000, 11500)` from LISTLIFE 555
+  (`tests/test_floor_start.py::test_natural_lm_stage_records_a_reenterable_floor_start`).
+  Note the port's *settled* camera differs: `change_salle` does not port that
+  `NewNumCamera` assignment, so after a natural transition the ordinary
+  camera-switch pass picks the slot (9 for that floor 6 / room 6 entry). Only
+  `enter_floor_start` selects the recorded slot.
 - Real-data probing with injected pre-LIFE hit publication confirms the hero
   script consumes `HIT_BY`/`hitForce` and changes its script-owned health state;
   reaching the complete death/game-over path remains an explicit acceptance
   test, not an assumption.
+  **Correction (task 11) — which number came from where.** The pinned damage
+  step `var 21: 20 -> 10` came from that *injected* probe, which published
+  `hitForce 10`; it is not what the venue's own enemy does. Measured from the
+  real venue with no injection: obj222's real `LM_HIT` carries **force 1**, the
+  hero script subtracts the published force, so the real step is `20 -> 19` and
+  the real fight is 20 landed hits from 20 to 0 (with hero LIFE `549 -> 553 ->
+  549` per hit and transient var 24 `0 -> 1`). Both numbers describe the same
+  subtraction; only the injected one reaches 10 in a single hit. Real-data
+  anchor: `tests/test_combat_journey.py`, venue `FloorStart(5, 4, -7800, -4010,
+  -1000, 0)`; death LIFE 39 at play tick 1983, `GameOver(120)` at play tick
+  3958.
 - Body 234 (obj222) has flags `3`, confirming hot-point availability for the
   reported enemy. Player firearm/throw bodies remain covered by the arm-specific
   real-data tests rather than assumed globally.
@@ -549,6 +570,9 @@ which is why the harness fix is in scope.
 - **Floors 2 and 6 are of unknown status.** An earlier probe appeared to show them
   crashing; that was an artifact of the probe placing an invalid room index before
   the floor swap, and the claim was retracted. They are simply untested.
+  **Update (task 11)**: floor 6 is now exercised end to end by the real death
+  sequence (`LM_STAGE(6, 6, ...)` from LISTLIFE 555 through `LM_GAME_OVER`).
+  Floor 2 remains untested.
 - **Combined scope.** ①+② is roughly the size of the mouse-input branch, whose
   whole-branch review found three Criticals invisible to per-task review. The
   phase boundary above is the mitigation; if the branch grows past it, the halves
