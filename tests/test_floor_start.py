@@ -1,5 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0-only
+import struct
+
+from PyAitD.floor import Floor
 from PyAitD.game import FloorStart, enter_floor_start, init_game, relocate_actor
+from PyAitD.life import process_life
+from PyAitD.playworld import play_tick
+from PyAitD.scenario import enter_combat_venue
+from PyAitD.ui import InputBuffer
 
 
 def test_relocate_actor_rebases_zv_and_zeroes_steps(data_dir):
@@ -51,3 +58,53 @@ def test_init_game_records_the_real_hero_start(data_dir):
         hero.stage, hero.room, hero.room_x, hero.room_y, hero.room_z, 0,
     )
     assert game.restart_requested is False
+
+
+def test_natural_lm_stage_records_a_reenterable_floor_start(data_dir, monkeypatch):
+    # The real transition this fixture replays: the hero's own death sequence
+    # (LISTLIFE 555) runs LM_STAGE(6, 6, -5000, -4000, 11500) after LIFE 39.
+    # FITD gives a floor change no camera continuity -- LoadEtage sets
+    # NumCamera = -1 (floor.cpp:39), so ChangeSalle's oldCameraIdx is -1, no
+    # slot matches, and its `int newNumCamera = 0` (room.cpp:112) is what
+    # reaches NewNumCamera (room.cpp:193). Slot 0 is therefore the observed
+    # entry camera, not an assumption.
+    game = init_game(data_dir)
+    enter_combat_venue(game)
+    floor = Floor(data_dir, 5)
+    game.current_floor_data = floor
+    game.num_camera = game.new_num_camera
+    game.flag_init_view = 0
+    for _ in range(3):
+        play_tick(game, floor, InputBuffer())
+    assert game.num_camera not in (-1, 0), (
+        "precondition: the venue's camera switch must have left slot 0, so the "
+        "entry slot below cannot be leftover state"
+    )
+
+    hero_idx = game.current_camera_target_actor
+    hero = game.actors[hero_idx]
+    monkeypatch.setattr(
+        game.assets, "life",
+        lambda index: struct.pack("<7h", 47, 6, 6, -5000, -4000, 11500, 11),
+    )
+    process_life(game, hero_idx, hero.life)
+
+    assert (hero.stage, hero.room) == (6, 6)
+    assert (hero.room_x, hero.room_y, hero.room_z) == (-5000, -4000, 11500)
+    assert game.flag_change_etage == 1
+    assert (game.new_num_etage, game.new_num_salle) == (6, 6)
+    assert game.floor_start == FloorStart(6, 6, -5000, -4000, 11500, 0)
+
+    # finish the handoff the outer loop performs: swap the Floor, enter the
+    # recorded boundary, then InitView.
+    floor = Floor(data_dir, 6)
+    game.current_floor_data = floor
+    assert len(floor.rooms[6].camera_indices) > game.floor_start.camera_slot
+    enter_floor_start(game, game.floor_start)
+    game.num_camera = game.new_num_camera
+    game.flag_init_view = 0
+
+    assert game.floor_start.camera_slot == game.num_camera
+    assert game.current_floor == 6 and game.current_room == 6
+    assert game.actors[game.current_camera_target_actor] is hero
+    assert game.world_objects[40].obj_index != -1  # floor 6's own actors spawned

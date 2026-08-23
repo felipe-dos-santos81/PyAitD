@@ -62,5 +62,5 @@ prove-m3b: install ## M3b proof: focused interaction suite headless (continuatio
 prove-mouse: install ## M3d proof: build the navmesh for every camera-visible room, every floor (usage: make prove-mouse data="path/to/INDARK")
 	$(PYTHON) tools/prove_mouse.py $(data)
 
-prove-combat: install ## M3c proof: shared floor-5 venue and combat journeys
-	SDL_VIDEODRIVER=dummy $(PYTHON) tools/prove_combat.py $(data)
+prove-combat: install ## M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
+	$(PYTHON) tools/prove_combat.py $(data)
