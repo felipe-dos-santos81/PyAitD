@@ -6,13 +6,17 @@ import numpy as np
 
 from PyAitD.__main__ import route_command, route_mouse
 from PyAitD.playworld import apply_play_input
-from PyAitD.effects import GameMode, OpenInventory, ReadText, ShowPicture
+from PyAitD.effects import GameMode, InputMode, OpenInventory, ReadText, ShowPicture
 from PyAitD.game import init_game
 from PyAitD.ui import Command, InputBuffer, ModalLayout, ModalSession
 
 
 def test_play_input_reads_held_state_without_consuming_edges(data_dir):
     game = init_game(data_dir)
+    # this asserts the keyboard mapping specifically; mouse is the default
+    # input_mode (task 9: playworld — wire the follower into the input
+    # snapshot), so it must be selected explicitly to exercise this path.
+    game.input_mode = InputMode.KEYBOARD
     state = InputBuffer(held_joyd=5, action_held=True, commands=deque([Command.OPEN_INVENTORY]))
     apply_play_input(game, state)
     assert (game.local_joyd, game.local_click, game.action) == (5, 1, 0x2000)

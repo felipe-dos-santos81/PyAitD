@@ -157,6 +157,7 @@ class Game:
         self.nav_decision = None
         self.nav_arrived_target = -1
         self.nav_meshes = MeshCache()
+        self.current_floor_data = None
         # M3b/M4 stubs (audio)
         self.current_music = -1
         self.next_music = -1

@@ -21,9 +21,14 @@ def test_life_gate(data_dir):
 
 
 def test_apply_play_input_mapping(data_dir):
+    from PyAitD.effects import InputMode
     from PyAitD.playworld import apply_play_input
     from PyAitD.ui import InputBuffer
     game = init_game(data_dir)
+    # this asserts the keyboard mapping specifically; mouse is the default
+    # input_mode (task 9: playworld — wire the follower into the input
+    # snapshot), so it must be selected explicitly to exercise this path.
+    game.input_mode = InputMode.KEYBOARD
     state = InputBuffer(held_joyd=9, action_held=True)
     apply_play_input(game, state)
     assert game.local_joyd == 9

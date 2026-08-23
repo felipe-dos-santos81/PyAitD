@@ -40,3 +40,76 @@ def test_play_tick_advances_the_world_without_a_display(data_dir):
         play_tick(game, floor, buf)
     assert game.timer > start
     assert game.flag_game_over == 0
+
+
+from PyAitD.effects import GameMode, InputMode, NavIntent
+from PyAitD.navmesh import agent_extent
+from PyAitD.playworld import apply_play_input
+
+
+def test_keyboard_mode_still_reads_the_input_buffer(data_dir):
+    game = init_game(data_dir, hero=0)
+    game.input_mode = InputMode.KEYBOARD
+    buf = InputBuffer()
+    buf.held_joyd = 5
+    buf.action_held = True
+    apply_play_input(game, buf)
+    assert game.local_joyd == 5
+    assert game.action == 0x2000
+    assert game.nav_decision is None
+
+
+def test_mouse_mode_ignores_the_keyboard_buffer(data_dir):
+    game = init_game(data_dir, hero=0)
+    buf = InputBuffer()
+    buf.held_joyd = 5
+    apply_play_input(game, buf)
+    assert game.local_joyd == 0, "mouse mode must not read held keys"
+
+
+def test_mouse_mode_mirrors_the_follower_joystick(data_dir):
+    game = init_game(data_dir, hero=0)
+    # apply_play_input is called directly here (not through play_tick), so the
+    # Floor that _apply_mouse_input's mesh build needs must be stashed by hand
+    # — play_tick normally does this at the top of every tick.
+    game.current_floor_data = Floor(data_dir, game.current_floor)
+    hero = game.actors[game.current_camera_target_actor]
+    game.nav_intent = NavIntent(
+        dest_x=hero.room_x, dest_z=hero.room_z + 9000, room=hero.room,
+        waypoints=[(hero.room_x, hero.room_z + 9000)],
+    )
+    apply_play_input(game, InputBuffer())
+    assert game.nav_decision is not None
+    assert game.local_joyd & 1, "scripts reading evalVar 0x13 must see movement"
+
+
+def test_hero_walks_toward_a_destination_over_real_ticks(data_dir):
+    game = init_game(data_dir, hero=0)
+    game.input_mode = InputMode.MOUSE
+    floor = Floor(data_dir, game.current_floor)
+    hero = game.actors[game.current_camera_target_actor]
+    hero.track_mode = 4
+    mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
+    goal = mesh.center_of(145, 78)          # the type-10 sce zone, component 0
+    start = (hero.room_x, hero.room_z)
+    game.nav_intent = NavIntent(goal[0], goal[1], hero.room)
+    buf = InputBuffer()
+    for _ in range(400):
+        # play_tick returns False whenever a LIFE script suspends mid-tick
+        # (e.g. a background actor's own message op) — that is a normal
+        # "the tick did not finish, call me again" signal, not game-over;
+        # test_play_tick_advances_the_world_without_a_display already relies
+        # on this by ignoring the return value outright. Treating a bare
+        # False as a hard stop aborted this loop after tick 0, before the
+        # hero had moved at all — game.mode is the real stop signal.
+        play_tick(game, floor, buf)
+        if game.mode is not GameMode.PLAY:
+            break
+        # hero.track_mode is owned by the hero's LIFE script (LM_DO_MOVE ->
+        # process_track dispatches on it); re-assert every tick so this test
+        # genuinely covers the mode-4 mouse path rather than only seeding it.
+        assert hero.track_mode == 4, "the LIFE script reset track_mode away from mouse-follow"
+        if game.nav_intent is None:
+            break
+    moved = abs(hero.room_x - start[0]) + abs(hero.room_z - start[1])
+    assert moved > 500, f"the hero barely moved ({moved} units)"
