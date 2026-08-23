@@ -375,7 +375,7 @@ def _restart_branch(game, renderer):
     # successful restart hands back every loop local that referenced the old
     # game, so a single tuple assignment plus `continue` is enough to resume
     # the loop on the new session without a stray tick or a stale present.
-    if not getattr(game, "restart_requested", False):
+    if not game.restart_requested:
         return None
     try:
         new_game = restart_session(game)

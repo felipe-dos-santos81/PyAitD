@@ -75,6 +75,7 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
         _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,
         num_camera=-1, new_num_camera=0, flag_init_view=0, current_room=0,
         actors=[], active_modal=None, input_mode=InputMode.MOUSE,
+        restart_requested=False,
     )
     assert main.run(game) == 0
     assert calls == ["tick"] * 5 + ["present", "present"]
@@ -125,6 +126,7 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch,
         _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,
         num_camera=0, new_num_camera=0, flag_init_view=0, current_room=0,
         actors=[], active_modal=None, input_mode=InputMode.MOUSE,
+        restart_requested=False,
     )
     assert main.run(game) == 0
     assert len(scene_calls) == 1  # only the pre-loop frame, reused after
