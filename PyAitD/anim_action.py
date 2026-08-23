@@ -9,7 +9,7 @@ are the only fields this module writes.
 """
 from PyAitD.actors import anim_player_for, check_hard_col, check_object_col, cube_intersect
 from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_SPECIAL, put_at_objet
-from PyAitD.interaction import remove_from_inventory
+from PyAitD.interaction import point_in_zone, remove_from_inventory
 from PyAitD.realvalue import init_real_value
 from PyAitD.skel import hot_point
 from PyAitD.world import adjust_zv_between_rooms, rotate_step
@@ -133,6 +133,125 @@ def _launch_throw(game, thrower_idx):
     init_real_value(0, thrown.speed, 60, thrown.speed_change, game.timer)
 
 
+def throw_stopped_at(game, actor_idx, x, z):
+    # main.cpp:4036-4132 throwStoppedAt: search backward (away from the
+    # thrower, beta+0x200) in 100-unit steps for a hard-collision-free spot,
+    # then hunt upward in 2000-unit bands for one Carnby can actually reach.
+    actor = game.actors[actor_idx]
+    raw = _raw_body_zv(game, actor.index_in_world)
+    x2, y2, z2 = x, (actor.room_y // 2000) * 2000, z
+    step = 0
+    room = game.rooms_of_floor(game.current_floor)[actor.room]
+    while True:
+        move_z, move_x = rotate_step(actor.beta + 0x200, 0, -step)
+        x2, z2 = x + move_x, z + move_z
+        cube = [raw[0]+x2, raw[1]+x2, raw[2]+y2, raw[3]+y2, raw[4]+z2, raw[5]+z2]
+        if check_hard_col(cube, room.hard_cols):
+            step += 100
+            continue
+        if y2 < -500:
+            reachable = list(cube)
+            reachable[2] += 100; reachable[3] += 100
+            if not check_hard_col(reachable, room.hard_cols):
+                y2 += 2000
+                continue
+        break
+    actor.world_x = actor.room_x = x2
+    actor.world_y = actor.room_y = y2
+    actor.world_z = actor.room_z = z2
+    actor.step_x = actor.step_z = 0
+    actor.anim_action_type = actor.speed = actor.gamma = 0
+    actor.zv = [raw[0]+x2, raw[1]+x2, raw[2]+y2, raw[3]+y2, raw[4]+z2, raw[5]+z2]
+    world = game.world_objects[actor.index_in_world]
+    world.found_flag |= 0x4000
+    world.found_flag &= ~0x1000
+
+
+def _check_throw_step(
+    game, actor_idx, actor, world, room, cube, x2, y2, z2,
+    actual_x, actual_y, actual_z, old_x, old_y, old_z, raw_zv,
+):
+    # animAction.cpp:335-425, one swept cube of case 9. Returns True once
+    # the in-flight object has been resolved for this tick (hit, reflected,
+    # or stopped); False to keep sweeping.
+    collisions = check_object_col(game, actor_idx, cube)
+    effective = len(collisions)
+    for touched_idx in collisions:
+        touched_world = game.actors[touched_idx].index_in_world
+        if touched_world == world.alpha:
+            # animAction.cpp:349-356: the original thrower doesn't count as
+            # a hit and returns immediately (skipping the `if(collision2)`
+            # check below) even if an earlier COL[] entry this same tick
+            # already published a hit on someone else.
+            effective -= 1
+            world.x, world.y, world.z = actual_x, actual_y, actual_z
+            return True
+        if touched_world == game.cvars[11]:
+            world.alpha = game.cvars[11]
+            actor.beta += 0x200
+            _place_thrown_actor(game, actor_idx, old_x, old_y, old_z, raw_zv)
+            world.x, world.y, world.z = actual_x, actual_y, actual_z
+            return True
+        _publish_hit(game, actor_idx, touched_idx)
+    if effective:
+        throw_stopped_at(game, actor_idx, old_x, old_z)
+        return True
+    zone = next(
+        (item for item in room.sce_zones if point_in_zone(x2, y2, z2, item)),
+        None,
+    )
+    if zone is not None and zone.type in (0, 10):
+        throw_stopped_at(game, actor_idx, old_x, old_z)
+        return True
+    if check_hard_col(cube, room.hard_cols):
+        actor.hot_point[:] = [0, 0, 0]
+        throw_stopped_at(game, actor_idx, old_x, old_z)
+        return True
+    return False
+
+
+def _throw_in_flight(game, actor_idx):
+    # animAction.cpp:271-441 case 9 (during throw): sweep the thrown
+    # object's world position 100 units at a time, away from its last
+    # committed spot along beta, checking actor/zone/hard collisions at
+    # each cube. Stops sweeping once the swept X/Z lands back inside the
+    # actor's own ZV (expanded by 100 on each side) — at that point the
+    # object's normal per-tick movement has caught up with the sweep, so
+    # the tick commits the actor's actual (stepped) position.
+    actor = game.actors[actor_idx]
+    world = game.world_objects[actor.index_in_world]
+    room = game.rooms_of_floor(game.current_floor)[actor.room]
+
+    actual_x = actor.room_x + actor.step_x
+    actual_y = actor.room_y + actor.step_y
+    actual_z = actor.room_z + actor.step_z
+    raw_zv = [
+        actor.zv[0] - actual_x, actor.zv[1] - actual_x,
+        actor.zv[2] - actual_y, actor.zv[3] - actual_y,
+        actor.zv[4] - actual_z, actor.zv[5] - actual_z,
+    ]
+    old_x, old_y, old_z = world.x, world.y, world.z
+
+    step = 0
+    while True:
+        move_z, move_x = rotate_step(actor.beta, 0, -step)
+        step += 100
+        x2, z2 = old_x + move_x, old_z + move_z
+        y2 = old_y
+        cube = [x2-200, x2+200, y2-200, y2+200, z2-200, z2+200]
+        if _check_throw_step(
+            game, actor_idx, actor, world, room, cube, x2, y2, z2,
+            actual_x, actual_y, actual_z, old_x, old_y, old_z, raw_zv,
+        ):
+            return
+        if not (
+            actor.zv[0] - 100 > x2 or actor.zv[1] + 100 < x2
+            or actor.zv[4] - 100 > z2 or actor.zv[5] + 100 < z2
+        ):
+            break
+    world.x, world.y, world.z = actual_x, actual_y, actual_z
+
+
 def check_line_projection_with_actors(game, actor_idx, x, y, z, beta, room, param):
     # animAction.cpp:3863-3946 checkLineProjectionWithActors: an 84-line
     # integer stepped-volume sweep, not a screen-space raycast. The cube
@@ -240,4 +359,7 @@ def gere_frappe(game, actor_idx):
         return
     if action == WAIT_FRAME_THROW:
         _launch_throw(game, actor_idx)
+        return
+    if action == THROW_OBJECT:
+        _throw_in_flight(game, actor_idx)
         return

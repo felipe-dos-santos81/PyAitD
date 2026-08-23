@@ -6,8 +6,9 @@ from PyAitD.actors import anim_player_for
 from PyAitD.anim_action import (
     DO_TIR, FRAPPE_OK, HIT_OBJECT, THROW_OBJECT, WAIT_ANIM_THROW, WAIT_FRAME_THROW,
     WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, WAIT_TIR_ANIM, check_line_projection_with_actors,
-    gere_frappe, refresh_hot_point,
+    gere_frappe, refresh_hot_point, throw_stopped_at,
 )
+from PyAitD.formats import Zone
 from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_MOVABLE, AF_SPECIAL, init_game, spawn_stage_actors
 from PyAitD.skel import hot_point as skel_hot_point
 
@@ -618,3 +619,270 @@ def test_do_tir_miss_resets_without_publishing_hit(monkeypatch, data_dir):
     assert list(actor.hot_point) == [10, 20, 30]
     assert actor.hit == -1
     assert actor.anim_action_type == 0
+
+
+# --- Task 8: in-flight throw and stopped placement ---
+
+
+def _thrown_game(data_dir):
+    game = init_game(data_dir)
+    actor_idx = next(
+        i for i, actor in enumerate(game.actors)
+        if actor.index_in_world >= 0 and i != game.current_camera_target_actor
+    )
+    actor = game.actors[actor_idx]
+    actor.anim_action_type = THROW_OBJECT
+    game.world_objects[actor.index_in_world].alpha = game.current_world_target
+    return game, actor_idx
+
+
+def test_throw_stopped_at_searches_back_and_commits_found_state(monkeypatch, data_dir):
+    game, actor_idx = _thrown_game(data_dir)
+    checks = iter(([object()], [object()], []))
+    monkeypatch.setattr("PyAitD.anim_action.check_hard_col", lambda *args: next(checks))
+    throw_stopped_at(game, actor_idx, 1000, 2000)
+    actor = game.actors[actor_idx]
+    world = game.world_objects[actor.index_in_world]
+    assert actor.anim_action_type == 0
+    assert (actor.speed, actor.gamma, actor.step_x, actor.step_z) == (0, 0, 0, 0)
+    assert world.found_flag & 0x4000
+    assert not world.found_flag & 0x1000
+
+
+def test_throw_stopped_at_raises_y_band_until_reachable(monkeypatch, data_dir):
+    # main.cpp:4076-4090: a spot below Y == -500 only counts as "found" if
+    # Carnby could physically reach it (no hard col 100 units higher); when
+    # not reachable the search retries 2000 units higher at the *same*
+    # backward step, only stepping backward again once the base cube
+    # itself collides.
+    game, actor_idx = _thrown_game(data_dir)
+    actor = game.actors[actor_idx]
+    actor.room_y = -1000  # y2 = (room_y // 2000) * 2000 == -2000, below -500
+
+    captured = []
+    responses = iter([[], [], []])
+
+    def fake_check_hard_col(zv, hard_cols):
+        captured.append(list(zv))
+        return next(responses)
+
+    monkeypatch.setattr("PyAitD.anim_action.check_hard_col", fake_check_hard_col)
+
+    throw_stopped_at(game, actor_idx, 1000, 2000)
+
+    assert len(captured) == 3  # base check, reachability check, base recheck at y+2000
+    assert actor.room_y == 0
+    assert actor.world_y == 0
+
+
+def test_in_flight_ignores_original_thrower(monkeypatch, data_dir):
+    game, actor_idx = _thrown_game(data_dir)
+    thrown = game.actors[actor_idx]
+    original_world = game.world_objects[thrown.index_in_world].alpha
+    original_actor = game.world_objects[original_world].obj_index
+    monkeypatch.setattr("PyAitD.anim_action.check_object_col", lambda *args: (original_actor,))
+    gere_frappe(game, actor_idx)
+    assert thrown.hit == -1
+
+
+def test_in_flight_thrower_branch_short_circuits_after_publishing_earlier_hit(monkeypatch, data_dir):
+    # _check_throw_step decrements `effective` in the original-thrower
+    # branch and then returns immediately, so a hit published earlier in
+    # the SAME COL[] list is never followed by throw_stopped_at, even
+    # though `effective` is still nonzero at that point. This pins that
+    # exact (surprising) FITD-observable control flow, not just "the
+    # thrower is excluded".
+    game, actor_idx = _thrown_game(data_dir)
+    thrown = game.actors[actor_idx]
+    thrown.hit_force = 42
+    world = game.world_objects[thrown.index_in_world]
+    original_world = world.alpha
+    original_actor = game.world_objects[original_world].obj_index
+    victim_idx = next(
+        i for i, a in enumerate(game.actors)
+        if a.index_in_world >= 0
+        and i not in (actor_idx, original_actor)
+        and a.index_in_world not in (original_world, game.cvars[11])
+    )
+    monkeypatch.setattr(
+        "PyAitD.anim_action.check_object_col",
+        lambda *args: (victim_idx, original_actor),
+    )
+    calls = []
+    monkeypatch.setattr("PyAitD.anim_action.throw_stopped_at", lambda *a: calls.append(a))
+
+    gere_frappe(game, actor_idx)
+
+    assert game.actors[victim_idx].hit_by == actor_idx
+    assert game.actors[victim_idx].hit_force == 42
+    assert calls == []
+    assert thrown.anim_action_type == THROW_OBJECT
+
+
+def test_in_flight_reflects_from_reverse_object(monkeypatch, data_dir):
+    game, actor_idx = _thrown_game(data_dir)
+    # The fixture's default floor/room never spawns the REVERSE_OBJECT
+    # cvar's world object (its record's stage is a different floor), so
+    # wire a stand-in live actor to it the same way a real spawn would —
+    # bidirectional obj_index/index_in_world linkage — rather than
+    # asserting against an object that was never actually placed.
+    reverse_world = game.cvars[11]
+    reverse_world_actor = next(
+        i for i, a in enumerate(game.actors)
+        if a.index_in_world >= 0
+        and i not in (actor_idx, game.current_camera_target_actor)
+    )
+    game.world_objects[reverse_world].obj_index = reverse_world_actor
+    game.actors[reverse_world_actor].index_in_world = reverse_world
+
+    reverse_actor = game.world_objects[reverse_world].obj_index
+    monkeypatch.setattr("PyAitD.anim_action.check_object_col", lambda *args: (reverse_actor,))
+    beta = game.actors[actor_idx].beta
+    gere_frappe(game, actor_idx)
+    assert game.actors[actor_idx].beta == beta + 0x200
+    assert game.world_objects[game.actors[actor_idx].index_in_world].alpha == reverse_world
+
+
+def test_in_flight_publishes_hit_and_stops_when_ordinary_victim(monkeypatch, data_dir):
+    game, actor_idx = _thrown_game(data_dir)
+    thrown = game.actors[actor_idx]
+    thrown.hit_force = 55
+    world = game.world_objects[thrown.index_in_world]
+    old_x, old_z = world.x, world.z
+    victim_idx = next(
+        i for i, a in enumerate(game.actors)
+        if a.index_in_world >= 0
+        and i != actor_idx
+        and a.index_in_world not in (world.alpha, game.cvars[11])
+    )
+    monkeypatch.setattr("PyAitD.anim_action.check_object_col", lambda *args: (victim_idx,))
+    calls = []
+    monkeypatch.setattr("PyAitD.anim_action.throw_stopped_at", lambda *a: calls.append(a))
+
+    gere_frappe(game, actor_idx)
+
+    assert thrown.hit == victim_idx
+    assert game.actors[victim_idx].hit_by == actor_idx
+    assert game.actors[victim_idx].hit_force == 55
+    assert calls == [(game, actor_idx, old_x, old_z)]
+
+
+@pytest.mark.parametrize("zone_type", [0, 10])
+def test_in_flight_stops_at_first_containing_zone_type_0_or_10(zone_type, monkeypatch, data_dir):
+    game, actor_idx = _thrown_game(data_dir)
+    thrown = game.actors[actor_idx]
+    world = game.world_objects[thrown.index_in_world]
+    old_x, old_y, old_z = world.x, world.y, world.z
+    room = game.rooms_of_floor(game.current_floor)[thrown.room]
+    # The first swept cube (step == 0) is centred exactly on the object's
+    # last committed position regardless of beta, so a zone covering that
+    # exact point is guaranteed to be the first containing zone found.
+    zone = Zone(old_x - 10, old_x + 10, old_y - 10, old_y + 10, old_z - 10, old_z + 10, zone_type, 0)
+    room.sce_zones.insert(0, zone)
+    monkeypatch.setattr("PyAitD.anim_action.check_object_col", lambda *args: ())
+    calls = []
+    monkeypatch.setattr("PyAitD.anim_action.throw_stopped_at", lambda *a: calls.append(a))
+    try:
+        gere_frappe(game, actor_idx)
+    finally:
+        room.sce_zones.remove(zone)
+    assert calls == [(game, actor_idx, old_x, old_z)]
+
+
+def test_in_flight_zone_type_gate_is_load_bearing(monkeypatch, data_dir):
+    # Adversarial counterpart to the type-0/10 test above: a zone covering
+    # the exact same point but with a type outside {0, 10} must NOT stop
+    # the throw, proving the branch checks zone.type and not merely "any
+    # containing zone".
+    game, actor_idx = _thrown_game(data_dir)
+    thrown = game.actors[actor_idx]
+    world = game.world_objects[thrown.index_in_world]
+    old_x, old_y, old_z = world.x, world.y, world.z
+    room = game.rooms_of_floor(game.current_floor)[thrown.room]
+    non_stopping_zone = Zone(
+        old_x - 10, old_x + 10, old_y - 10, old_y + 10, old_z - 10, old_z + 10, 9, 0,
+    )
+    room.sce_zones.insert(0, non_stopping_zone)
+    # Loose actor ZV so the sweep's natural exit fires on the very first
+    # iteration once the zone/hard-col branches decline to stop it.
+    thrown.zv = [old_x - 50, old_x + 50, old_y - 50, old_y + 50, old_z - 50, old_z + 50]
+    monkeypatch.setattr("PyAitD.anim_action.check_object_col", lambda *args: ())
+    monkeypatch.setattr("PyAitD.anim_action.check_hard_col", lambda *args: [])
+    calls = []
+    monkeypatch.setattr("PyAitD.anim_action.throw_stopped_at", lambda *a: calls.append(a))
+    try:
+        gere_frappe(game, actor_idx)
+    finally:
+        room.sce_zones.remove(non_stopping_zone)
+    assert calls == []
+    assert (world.x, world.y, world.z) == (
+        thrown.room_x + thrown.step_x, thrown.room_y + thrown.step_y, thrown.room_z + thrown.step_z,
+    )
+
+
+def test_in_flight_hard_collision_stops_and_clears_hot_point(monkeypatch, data_dir):
+    game, actor_idx = _thrown_game(data_dir)
+    thrown = game.actors[actor_idx]
+    thrown.hot_point[:] = [7, 8, 9]
+    world = game.world_objects[thrown.index_in_world]
+    old_x, old_z = world.x, world.z
+    monkeypatch.setattr("PyAitD.anim_action.check_object_col", lambda *args: ())
+    monkeypatch.setattr("PyAitD.anim_action.point_in_zone", lambda *args: False)
+    monkeypatch.setattr("PyAitD.anim_action.check_hard_col", lambda *args: [object()])
+    calls = []
+    monkeypatch.setattr("PyAitD.anim_action.throw_stopped_at", lambda *a: calls.append(a))
+
+    gere_frappe(game, actor_idx)
+
+    assert list(thrown.hot_point) == [0, 0, 0]
+    assert calls == [(game, actor_idx, old_x, old_z)]
+
+
+def test_in_flight_commits_actual_position_when_sweep_rejoins_actor_zv(monkeypatch, data_dir):
+    game, actor_idx = _thrown_game(data_dir)
+    thrown = game.actors[actor_idx]
+    thrown.room_x, thrown.room_y, thrown.room_z = 100, 200, 300
+    thrown.step_x, thrown.step_y, thrown.step_z = 11, 22, 33
+    world = game.world_objects[thrown.index_in_world]
+    old_x, old_y, old_z = world.x, world.y, world.z
+    # actor.zv (expanded by 100) already encloses the first swept cube's
+    # centre (the object's own last committed position), so the sweep
+    # exits on iteration 1 and must commit the *actual* (stepped) position.
+    thrown.zv = [old_x - 50, old_x + 50, old_y - 50, old_y + 50, old_z - 50, old_z + 50]
+    monkeypatch.setattr("PyAitD.anim_action.check_object_col", lambda *args: ())
+    monkeypatch.setattr("PyAitD.anim_action.point_in_zone", lambda *args: False)
+    monkeypatch.setattr("PyAitD.anim_action.check_hard_col", lambda *args: [])
+
+    gere_frappe(game, actor_idx)
+
+    assert (world.x, world.y, world.z) == (111, 222, 333)
+
+
+def test_in_flight_sweep_continues_until_it_rejoins_actor_zv(monkeypatch, data_dir):
+    # Proves the loop actually iterates (not just "exits trivially"): the
+    # actor's own zv is placed several 100-unit steps away in Z, so the
+    # sweep must run multiple times, moving -100/iteration (beta == 0's
+    # rotate_step identity swap), before the exit condition is satisfied.
+    game, actor_idx = _thrown_game(data_dir)
+    thrown = game.actors[actor_idx]
+    thrown.beta = 0
+    thrown.room_x, thrown.room_y, thrown.room_z = 100, 200, 300
+    thrown.step_x = thrown.step_y = thrown.step_z = 0
+    world = game.world_objects[thrown.index_in_world]
+    old_x, old_y, old_z = world.x, world.y, world.z
+    thrown.zv = [old_x - 1000, old_x + 1000, old_y - 50, old_y + 50, old_z - 350, old_z - 320]
+
+    calls = []
+    monkeypatch.setattr(
+        "PyAitD.anim_action.check_object_col",
+        lambda *args: calls.append(args) or (),
+    )
+    monkeypatch.setattr("PyAitD.anim_action.point_in_zone", lambda *args: False)
+    monkeypatch.setattr("PyAitD.anim_action.check_hard_col", lambda *args: [])
+
+    gere_frappe(game, actor_idx)
+
+    # iteration Z offsets from old_z: 0, -100, -200, -300 — only -300 falls
+    # inside [zv_z1 - 100, zv_z2 + 100] == [old_z - 450, old_z - 220].
+    assert len(calls) == 4
+    assert (world.x, world.y, world.z) == (100, 200, 300)
