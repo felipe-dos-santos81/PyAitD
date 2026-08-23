@@ -7,8 +7,10 @@ pass) to build a strike cube and publish hits through `check_object_col`.
 Never touches actor.life: health lives in script vars, hit/hit_by/hit_force
 are the only fields this module writes.
 """
-from PyAitD.actors import anim_player_for, check_object_col
-from PyAitD.game import AF_ANIMATED
+from PyAitD.actors import anim_player_for, check_hard_col, check_object_col
+from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_SPECIAL, put_at_objet
+from PyAitD.interaction import remove_from_inventory
+from PyAitD.realvalue import init_real_value
 from PyAitD.skel import hot_point
 
 WAIT_FRAPPE_ANIM = 1
@@ -42,6 +44,84 @@ def _publish_hit(game, attacker_idx, victim_idx):
     attacker.hit = victim_idx
     victim.hit_by = attacker_idx
     victim.hit_force = attacker.hit_force
+
+
+def _raw_body_zv(game, object_idx):
+    # GiveZVObjet(HQR_Get(HQ_Bodys, objPtr->body), ...) (animAction.cpp:159):
+    # the thrown *world object's* body, never the thrower's (life_ops's
+    # VM-bound _body_zv would silently return the wrong actor's body here).
+    world = game.world_objects[object_idx]
+    if world.body == -1:
+        raise ValueError(f"thrown object {object_idx} has no body")
+    return list(game.assets.body(world.body).zv)
+
+
+def _place_thrown_actor(game, actor_idx, x, y, z, raw):
+    actor = game.actors[actor_idx]
+    actor.room_x = actor.world_x = x
+    actor.room_y = actor.world_y = y
+    actor.room_z = actor.world_z = z
+    actor.zv = [raw[0] + x, raw[1] + x, raw[2] + y, raw[3] + y, raw[4] + z, raw[5] + z]
+
+
+def _prepare_throw(game, thrower_idx):
+    # animAction.cpp:161 case WAIT_ANIM_THROW: build the obstruction cube
+    # around the object's landing spot; on collision, drop it back at the
+    # thrower instead of arming the throw.
+    thrower = game.actors[thrower_idx]
+    object_idx = thrower.anim_action_param
+    world = game.world_objects[object_idx]
+    raw = _raw_body_zv(game, object_idx)
+    x = thrower.room_x + thrower.hot_point[0] + thrower.step_x
+    y = thrower.room_y + thrower.hot_point[1] + thrower.step_y
+    z = thrower.room_z + thrower.hot_point[2] + thrower.step_z
+    cube = [raw[0] + x, raw[1] + x, raw[2] + y, raw[3] + y, raw[4] + z, raw[5] + z]
+    room = game.rooms_of_floor(game.current_floor)[thrower.room]
+    if check_hard_col(cube, room.hard_cols):
+        thrower.anim_action_type = 0
+        put_at_objet(game, object_idx, thrower.index_in_world)
+        return
+    if thrower.frame != thrower.anim_action_frame:
+        return
+    thrower.anim_action_type = WAIT_FRAME_THROW
+    remove_from_inventory(game, object_idx)
+    world.x, world.y, world.z = x, y, z
+    world.room, world.stage = thrower.room, thrower.stage
+    world.alpha, world.beta = thrower.alpha, thrower.beta + 0x200
+    world.found_flag &= ~0x4000
+    world.flags |= 0x85
+    world.flags &= ~AF_SPECIAL
+    # FITD leaves FlagGenereActiveList commented out here (main.cpp path
+    # spawns unconditionally at mainLoop.cpp:247-250); this port gates the
+    # spawn behind the flag instead, so state 6 must raise it explicitly.
+    game.flag_genere_aff_list = 1
+
+
+def _launch_throw(game, thrower_idx):
+    # animAction.cpp:214 case 7 (THROW): place the object's actor at the
+    # release point and hand it off to in-flight state 9 (Task 8).
+    thrower = game.actors[thrower_idx]
+    thrower.anim_action_type = 0
+    object_idx = thrower.anim_action_param
+    world = game.world_objects[object_idx]
+    if world.obj_index == -1:
+        return
+    x = thrower.room_x + thrower.hot_point[0] + thrower.step_x
+    y = thrower.room_y + thrower.hot_point[1] + thrower.step_y
+    z = thrower.room_z + thrower.hot_point[2] + thrower.step_z
+    thrown = game.actors[world.obj_index]
+    _place_thrown_actor(game, world.obj_index, x, y, z, _raw_body_zv(game, object_idx))
+    thrown.object_type |= AF_ANIMATED
+    thrown.object_type &= ~AF_BOXIFY
+    world.x, world.y, world.z = x, y, z
+    world.alpha = thrower.index_in_world
+    thrown.dyn_flags = 0
+    thrown.anim_action_type = THROW_OBJECT
+    thrown.anim_action_param = 100
+    thrown.hit_force = thrower.hit_force
+    thrown.hot_point_id = -1
+    thrown.speed = 3000
+    init_real_value(0, thrown.speed, 60, thrown.speed_change, game.timer)
 
 
 def gere_frappe(game, actor_idx):
@@ -80,4 +160,11 @@ def gere_frappe(game, actor_idx):
                 return
         return
     if action == HIT_OBJECT:
+        return
+    if action == WAIT_ANIM_THROW:
+        if actor.anim == actor.anim_action_anim:
+            _prepare_throw(game, actor_idx)
+        return
+    if action == WAIT_FRAME_THROW:
+        _launch_throw(game, actor_idx)
         return

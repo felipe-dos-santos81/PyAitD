@@ -100,14 +100,21 @@ def op_body(vm):
 
 
 def op_hit(vm):
-    # life.cpp:1049 — M3c stub: consume, action runner lands in M3c
-    read_s16(vm)  # anim
-    read_s16(vm)  # startFrame
-    read_s16(vm)  # groupNumber
-    read_s16(vm)  # hitBoxSize
-    eval_var(vm)  # hitForce
-    read_s16(vm)  # nextAnim
-    vm.actor.anim_action_type = 0
+    # main.cpp:4375 hit(): arm melee only when InitAnim accepts the anim;
+    # a rejection still consumes every operand but leaves prior state alone.
+    anim = read_s16(vm)  # anim
+    frame = read_s16(vm)  # startFrame
+    group = read_s16(vm)  # groupNumber
+    radius = read_s16(vm)  # hitBoxSize
+    force = eval_var(vm)  # hitForce
+    next_anim = read_s16(vm)  # nextAnim
+    if init_anim(vm.actor, anim, 0, next_anim):
+        vm.actor.anim_action_anim = anim
+        vm.actor.anim_action_frame = frame
+        vm.actor.anim_action_type = 1
+        vm.actor.anim_action_param = radius
+        vm.actor.hot_point_id = group
+        vm.actor.hit_force = force
 
 
 def op_move(vm):
@@ -351,10 +358,16 @@ def op_drop(vm):
 
 
 def op_fire(vm):
-    # life.cpp:1064, AITD1: 6 raw — M3c stub (action runner lands in M3c)
-    for _ in range(6):
-        read_s16(vm)
-    log.debug("LM_FIRE (M3c stub)")
+    # life.cpp:1064 fire(): arm ranged attack only when InitAnim accepts;
+    # a rejection still consumes every operand but leaves prior state alone.
+    anim, frame, group, radius, force, next_anim = (read_s16(vm) for _ in range(6))
+    if init_anim(vm.actor, anim, 2, next_anim):
+        vm.actor.anim_action_anim = anim
+        vm.actor.anim_action_frame = frame
+        vm.actor.anim_action_type = 4
+        vm.actor.anim_action_param = radius
+        vm.actor.hot_point_id = group
+        vm.actor.hit_force = force
 
 
 def op_test_col(vm):
@@ -494,10 +507,21 @@ def op_rep_sample(vm):
 
 
 def op_throw(vm):
-    # life.cpp:1143: 7 raw — M3c stub (throw runner lands in M3c)
-    for _ in range(7):
-        read_s16(vm)
-    log.debug("LM_THROW (M3c stub)")
+    # life.cpp:1143 throwObj(): arm the throw only when InitAnim accepts;
+    # a rejection still consumes every operand but leaves prior state alone.
+    anim, frame, group, object_idx, rotated, force, next_anim = (
+        read_s16(vm) for _ in range(7)
+    )
+    if init_anim(vm.actor, anim, 2, next_anim):
+        vm.actor.anim_action_anim = anim
+        vm.actor.anim_action_frame = frame
+        vm.actor.anim_action_type = 6
+        vm.actor.anim_action_param = object_idx
+        vm.actor.hot_point_id = group
+        vm.actor.hit_force = force
+        if rotated == 0:
+            vm.game.world_objects[object_idx].gamma -= 0x100
+        vm.game.world_objects[object_idx].found_flag |= 0x1000
 
 
 def op_water(vm):
