@@ -426,3 +426,89 @@ def test_a_walk_click_always_lands_on_a_walkable_cell(data_dir):
             walks += 1
             assert mesh.is_walkable(args[0], args[1]), f"click at {(x, y)} is not walkable"
     assert walks > 20, "the sweep must actually produce walk clicks"
+
+
+def _cross_room_target_setup(data_dir):
+    """Hero in floor 1 room 0, an interactable actor in room 7 (a 12000-unit
+    origin delta), plus a draw list that makes the actor the click target."""
+    from PyAitD.game import AF_FOUNDABLE
+    game = init_game(data_dir)
+    game.current_floor = 1
+    floor = Floor(data_dir, 1)
+    game.num_camera = 0
+    hero_idx = game.current_camera_target_actor
+    hero = game.actors[hero_idx]
+    hero.room, hero.room_x, hero.room_z = 0, 400, -200
+    target_idx = next(
+        i for i, a in enumerate(game.actors)
+        if a.index_in_world >= 0 and i != hero_idx
+    )
+    target = game.actors[target_idx]
+    target.room, target.room_x, target.room_z = 7, 300, 500
+    target.object_type |= AF_FOUNDABLE
+    return game, floor, hero, target, [(target_idx, (100, 60, 200, 160))]
+
+
+def test_the_approach_bias_is_converted_into_the_target_room_s_frame(data_dir):
+    # approach_cell rings outward from the object and picks the ring cell
+    # closest to where the hero is coming from -- but the mesh belongs to the
+    # TARGET's room, so a hero standing in another room must be expressed in
+    # that room's coordinate frame first. Floor 1 room 0 -> room 7 is a
+    # 12000-unit delta on x, 120 grid cells, so an unconverted bias picks the
+    # approach side essentially at random.
+    import PyAitD.navmesh as navmesh_module
+    from PyAitD.__main__ import resolve_play_click
+    from PyAitD.world import room_delta
+
+    game, floor, hero, target, draw_list = _cross_room_target_setup(data_dir)
+
+    seen = {}
+    original = navmesh_module.approach_cell
+
+    def spy(mesh, x, z, from_x, from_z, **kwargs):
+        seen["from"] = (from_x, from_z)
+        return original(mesh, x, z, from_x, from_z, **kwargs)
+
+    navmesh_module.approach_cell = spy
+    try:
+        kind, _args = resolve_play_click(game, floor, (150, 100), draw_list)
+    finally:
+        navmesh_module.approach_cell = original
+
+    assert kind == "target"
+    assert "from" in seen, "approach_cell was never reached"
+
+    # Expectation derived from the ENGINE's own conversion, not from the code
+    # under test: gere_dec re-frames a moving actor with room_delta and FITD's
+    # asymmetric signs (x minus, z plus).
+    dx, _dy, dz = room_delta(game, hero.room, target.room)
+    assert seen["from"] == (hero.room_x - dx, hero.room_z + dz)
+    assert seen["from"] != (hero.room_x, hero.room_z), (
+        "fixture is not exercising a cross-room conversion"
+    )
+
+
+def test_a_same_room_target_passes_the_hero_position_unchanged(data_dir):
+    # control: the conversion must be a no-op within one room, or every
+    # single-room click would be biased by a spurious offset.
+    import PyAitD.navmesh as navmesh_module
+    from PyAitD.__main__ import resolve_play_click
+
+    game, floor, hero, target, draw_list = _cross_room_target_setup(data_dir)
+    target.room = hero.room  # same room now
+    target.room_x, target.room_z = hero.room_x + 900, hero.room_z + 900
+
+    seen = {}
+    original = navmesh_module.approach_cell
+
+    def spy(mesh, x, z, from_x, from_z, **kwargs):
+        seen["from"] = (from_x, from_z)
+        return original(mesh, x, z, from_x, from_z, **kwargs)
+
+    navmesh_module.approach_cell = spy
+    try:
+        resolve_play_click(game, floor, (150, 100), draw_list)
+    finally:
+        navmesh_module.approach_cell = original
+
+    assert seen.get("from") == (hero.room_x, hero.room_z)

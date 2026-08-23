@@ -100,6 +100,7 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
     """
     from PyAitD.navmesh import agent_extent, approach_cell, nearest_walkable
     from PyAitD.picking import pick_actor, pick_floor_any_room
+    from PyAitD.world import room_delta
     if (logical_pos is None or game.active_modal is not None
             or game.input_mode is not InputMode.MOUSE or game.num_camera == -1):
         return ("blocked", None)
@@ -121,7 +122,15 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
         # forever. Stand next to it instead, on the side we are coming from.
         mesh = game.nav_meshes.mesh_for(floor, target.room, agent)
         if mesh is not None:
-            spot = approach_cell(mesh, dest_x, dest_z, hero.room_x, hero.room_z)
+            # The mesh is in the TARGET's room frame, so the approach bias has
+            # to be too -- each room has its own origin. Re-frame the hero the
+            # way gere_dec re-frames a moving actor: room_delta with FITD's
+            # asymmetric signs (x minus, z plus).
+            from_x, from_z = hero.room_x, hero.room_z
+            if hero.room != target.room:
+                dx, _dy, dz = room_delta(game, hero.room, target.room)
+                from_x, from_z = from_x - dx, from_z + dz
+            spot = approach_cell(mesh, dest_x, dest_z, from_x, from_z)
             if spot is not None:
                 dest_x, dest_z = spot
         return ("target", (dest_x, dest_z, target.room, target.index_in_world))
