@@ -7,7 +7,7 @@ from PyAitD.game import init_game
 from PyAitD.text import BookToken
 from PyAitD.ui import (
     FoundPresenter, ReadingPresenter, layout_book,
-    overlay_messages, render_found, render_picture, render_reading,
+    overlay_messages, render_cursor, render_found, render_picture, render_reading,
 )
 
 
@@ -44,3 +44,23 @@ def test_message_overlay_does_not_mutate_source_frame(data_dir):
     result = overlay_messages(source, [TimedMessage(100), None, None, None, None], game.assets)
     assert np.count_nonzero(source) == 0
     assert np.count_nonzero(result) > 0
+
+
+def test_cursor_marks_the_frame_without_mutating_the_input():
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    out = render_cursor(frame, (160, 100), "walk")
+    assert out is not frame, "presentation must not mutate the scene frame"
+    assert int(out.sum()) > 0, "the cursor drew nothing"
+    assert int(frame.sum()) == 0
+
+
+def test_cursor_kinds_differ():
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    walk = render_cursor(frame, (160, 100), "walk")
+    blocked = render_cursor(frame, (160, 100), "blocked")
+    assert not np.array_equal(walk, blocked)
+
+
+def test_cursor_outside_the_surface_is_a_no_op():
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    assert np.array_equal(render_cursor(frame, None, "walk"), frame)

@@ -9,7 +9,7 @@ PIP = $(VENV_DIR)/bin/pip
 floor ?= 0
 data ?= "Alone in the Dark 1.app/Contents/Resources/game/INDARK"
 
-.PHONY: help install run test prove prove-m3b clean
+.PHONY: help install run test prove prove-m3b prove-mouse clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -55,3 +55,6 @@ prove-m3b: install ## M3b proof: focused interaction suite headless (continuatio
 		tests/test_life_interaction_ops.py \
 		tests/test_runtime_modes.py \
 		tests/test_m3b_attic.py -q
+
+prove-mouse: install ## M3d proof: build the navmesh for every camera-visible room, every floor (usage: make prove-mouse data="path/to/INDARK")
+	$(PYTHON) tools/prove_mouse.py $(data)

@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: GPL-2.0-only
+"""Build the navmesh for every camera-visible room on every floor.
+
+Reports walkable counts. Near-empty cave rooms are a KNOWN boundary (type-3
+climbable walls tile their cover area and nothing consumes hard_col == 255
+yet), so they are reported, not failed on.
+"""
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+from PyAitD.floor import Floor
+from PyAitD.game import init_game
+from PyAitD.navmesh import agent_extent, build_room_mesh
+
+DEFAULT_DATA = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "Alone in the Dark 1.app" / "Contents" / "Resources" / "game" / "INDARK"
+)
+
+
+def main(argv):
+    data = pathlib.Path(argv[0]) if argv else DEFAULT_DATA
+    game = init_game(data)
+    agent = agent_extent(game.actors[game.current_camera_target_actor])
+    built = skipped = empty = 0
+    for number in range(8):
+        floor = Floor(data, number)
+        for room_idx, room in enumerate(floor.rooms):
+            mesh = build_room_mesh(floor, room_idx, agent)
+            if mesh is None:
+                skipped += 1
+                print(f"floor {number} room {room_idx:2d}: no camera views it — skipped")
+                continue
+            built += 1
+            count = int(mesh.walkable.sum())
+            note = ""
+            if count == 0:
+                empty += 1
+                note = "  <- EMPTY (known: climbable-wall floor)"
+            print(f"floor {number} room {room_idx:2d}: {mesh.shape} "
+                  f"walkable {count}{note}")
+    print(f"\nbuilt {built} meshes, {skipped} rooms without cameras, {empty} empty")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

@@ -3,6 +3,7 @@ import struct
 
 import pytest
 
+from PyAitD.effects import NavDecision
 from PyAitD.formats import Zone
 from PyAitD.game import AF_TRIGGER, Actor, Game, init_game
 from PyAitD.tracks import cap_objet, get_room_link, init_deplacement, process_track
@@ -211,3 +212,53 @@ class _FakeAssets:
 
     def track(self, index):
         return self._track
+
+
+class _NavGame:
+    def __init__(self, decision):
+        self.nav_decision = decision
+        self.timer = 0
+
+
+def test_mouse_mode_walks_toward_the_decision_target():
+    actor = Actor()
+    actor.track_mode = 4
+    actor.room_x = actor.room_z = 0
+    actor.beta = 0
+    game = _NavGame(NavDecision(joyd=1, target_x=0, target_z=9000,
+                                advance=True, arrived=False))
+    process_track(game, actor)
+    assert actor.speed == 4, "an advancing follower walks"
+
+
+def test_mouse_mode_decelerates_when_there_is_no_decision():
+    actor = Actor()
+    actor.track_mode = 4
+    actor.speed = 4
+    process_track(_NavGame(None), actor)
+    assert actor.speed == 3, "speed ramps down exactly as manual mode does"
+
+
+def test_mouse_mode_stops_dead_on_arrival():
+    actor = Actor()
+    actor.track_mode = 4
+    actor.speed = 1
+    game = _NavGame(NavDecision(joyd=0, target_x=0, target_z=0,
+                                advance=False, arrived=True))
+    process_track(game, actor)
+    assert actor.speed == 0
+    assert actor.direction == 0
+    assert actor.rotate.num_steps == 0
+
+
+def test_manual_mode_is_untouched_by_the_new_branch():
+    # mode 1 must remain byte-for-byte the tank behaviour it has always been
+    actor = Actor()
+    actor.track_mode = 1
+    actor.speed = 0
+    game = _NavGame(None)
+    game.local_joyd = 1
+    game.timer = 100
+    game._last_time_forward = 0
+    process_track(game, actor)
+    assert actor.speed == 4

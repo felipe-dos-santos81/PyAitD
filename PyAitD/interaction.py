@@ -1,10 +1,44 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.effects import AddMessage, AfterLife, BeginTake, LifeFrame, TimedMessage
+from PyAitD.effects import (
+    AddMessage, AfterLife, BeginTake, InputMode, LifeFrame, TimedMessage,
+)
 from PyAitD.life import process_life
 from PyAitD.world import adjust_zv_between_rooms, room_delta, shifted_zv
 
 INVENTORY_SIZE = 30
 MAX_VISIBLE_ACTIONS = 5
+# FITD gates found-contact on trackMode == 1, meaning "manually controlled".
+# Mode 4 (mouse follower) is equally player-controlled, so it belongs here too.
+PLAYER_TRACK_MODES = (1, 4)
+
+
+def player_track_mode(input_mode):
+    """The track mode that means 'the player drives this actor', per input mode."""
+    return 4 if input_mode is InputMode.MOUSE else 1
+
+
+def sync_player_track_mode(game):
+    """Keep the hero's manual-control mode in step with the input mode.
+
+    Mouse mode is useless unless the hero is actually in mode 4: mode 1 would
+    consume the follower's mirrored joyd as if it were the keyboard, which is
+    the autopilot-driving-a-tank approach the spec rejected. Object data spawns
+    the hero in mode 1 (game.spawn_stage_actors -> tracks.init_deplacement), so
+    init_game and every input snapshot re-assert this.
+
+    The translation is deliberately conditional, 1 <-> 4 only: a script that
+    parks the hero on a scripted track (mode 2/3) or freezes it (mode 0) keeps
+    what it asked for, so cutscenes are unaffected. It is re-asserted rather
+    than set once because LM_INIT_DEPLACEMENT can put the hero back in mode 1
+    at any time, and a one-shot at init would silently lose the mouse there.
+    """
+    hero_idx = game.current_camera_target_actor
+    if hero_idx == -1:
+        return
+    hero = game.actors[hero_idx]
+    wanted = player_track_mode(game.input_mode)
+    if hero.track_mode in PLAYER_TRACK_MODES and hero.track_mode != wanted:
+        hero.track_mode = wanted
 
 
 def _release_temporary_actor(game, actor_idx):
@@ -217,7 +251,7 @@ def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z
         touched = game.actors[touched_idx]
         touched.col_by = actor_idx
         if touched.object_type & AF_FOUNDABLE:
-            if actor.track_mode == 1 and game.active_modal is None:
+            if actor.track_mode in PLAYER_TRACK_MODES and game.active_modal is None:
                 effect = request_found(game, touched.index_in_world, parameter=0)
                 if effect is not None:
                     game.open_modal(effect)
@@ -297,6 +331,50 @@ def apply_reading_result(game, result):
 
 def point_in_zone(x, y, z, zone):
     return zone.x1 <= x <= zone.x2 and zone.y1 <= y <= zone.y2 and zone.z1 <= z <= zone.z2
+
+
+def apply_click_intent(game, dest_x, dest_z, room, target_object_idx=-1):
+    """Record where the player clicked. A new click replaces any previous one."""
+    from PyAitD.effects import NavIntent
+    game.nav_intent = NavIntent(dest_x, dest_z, room, target_object_idx)
+    game.nav_decision = None
+
+
+def cancel_nav_intent(game):
+    """Drop the current intent. Used on modal entry and on a stop click."""
+    game.nav_intent = None
+    game.nav_decision = None
+
+
+def dispatch_nav_arrival(game):
+    """Act on a follower arrival. False when a modal was opened (tick suspends).
+
+    Only a *clicked target* dispatches. A bare floor walk ends silently: the
+    action bit is global (scripts poll it through evalVar 0x11), and the
+    keyboard presses it only when the player presses Space, so pressing it at
+    the end of every walk would fire unrequested actions all over the map.
+    Mouse-only players still reach Action by clicking the object itself, which
+    routes through the target branch below.
+    """
+    from PyAitD.game import AF_FOUNDABLE
+    target = game.nav_arrived_target
+    game.nav_arrived_target = -1
+    if game.active_modal is not None:
+        return True
+    if target == -1:
+        return True
+    world = game.world_objects[target]
+    if world.obj_index == -1:
+        return True  # taken or despawned while we walked
+    actor = game.actors[world.obj_index]
+    if actor.object_type & AF_FOUNDABLE:
+        effect = request_found(game, target, parameter=0)
+        if effect is not None:
+            game.open_modal(effect)
+            return False
+        return True
+    game.action = 0x2000
+    return True
 
 
 def gere_dec(game, actor_idx):

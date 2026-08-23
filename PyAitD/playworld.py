@@ -6,25 +6,61 @@ advanced without a window. Callers still reach `ui.py` for an InputBuffer;
 freeing that needs InputBuffer moved out of the presentation layer.
 """
 from PyAitD.actors import gere_anim
-from PyAitD.effects import GameMode, LifeFrame
+from PyAitD.effects import GameMode, InputMode, LifeFrame
 from PyAitD.formats import parse_cover_zones
 from PyAitD.game import (
     AF_ANIMATED, AF_TRIGGER, change_salle, game_step_tick, spawn_stage_actors,
 )
 from PyAitD.interaction import (
-    advance_messages, drain_immediate_effects, execute_found_life, gere_dec, run_life,
+    advance_messages, dispatch_nav_arrival, drain_immediate_effects, execute_found_life,
+    gere_dec, run_life, sync_player_track_mode,
 )
 from PyAitD.life import life_gate
+from PyAitD.navigate import decide
+from PyAitD.navmesh import agent_extent
 from PyAitD.world import find_best_camera, is_in_poly
 
 TICK_MS = 20  # 50 Hz logic tick
 
 
 def apply_play_input(game, input_buffer):
+    # The hero's manual-control track mode belongs to the input mode, and a
+    # script can hand it back to tank mode at any time (LM_INIT_DEPLACEMENT),
+    # so it is re-asserted here rather than only at init and on the Tab toggle.
+    sync_player_track_mode(game)
+    if game.input_mode is InputMode.MOUSE:
+        _apply_mouse_input(game)
+        return
+    game.nav_decision = None
     game.local_joyd = input_buffer.held_joyd if input_buffer.focused else 0
     game.local_click = 1 if input_buffer.focused and input_buffer.action_held else 0
     game.local_key = 0
     game.action = 0x2000 if game.local_click else 0
+
+
+def _apply_mouse_input(game):
+    # The follower decision is made here, in the input snapshot, so the tick
+    # order stays exactly FITD's mainLoop order and the mouse is a peer of the
+    # keyboard rather than a bolt-on.
+    game.local_key = 0
+    game.local_click = 0
+    game.action = 0
+    hero_idx = game.current_camera_target_actor
+    if hero_idx == -1 or game.nav_intent is None:
+        game.nav_decision = None
+        game.local_joyd = 0
+        return
+    hero = game.actors[hero_idx]
+    mesh = game.nav_meshes.mesh_for(game.current_floor_data, hero.room, agent_extent(hero))
+    decision = decide(game, hero, mesh)
+    game.nav_decision = decision
+    game.local_joyd = decision.joyd if decision is not None else 0
+    if decision is not None and (decision.arrived or decision.abandoned):
+        if decision.arrived:
+            game.nav_arrived_target = game.nav_intent.target_object_idx
+        game.nav_intent = None
+        game.nav_decision = None
+        game.local_joyd = 0
 
 
 def _anim_pass(game):
@@ -80,7 +116,10 @@ def play_tick(game, floor, input_buffer):
     # cannot block input behind repeated GPU work.
     if game.mode is not GameMode.PLAY:
         return False
+    game.current_floor_data = floor   # the mesh cache needs the loaded Floor
     apply_play_input(game, input_buffer)
+    if not dispatch_nav_arrival(game):
+        return False
     game_step_tick(game)
     in_hand = game.in_hand_table[game.current_inventory]
     if in_hand != -1 and not execute_found_life(game, in_hand):

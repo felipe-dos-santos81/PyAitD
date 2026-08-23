@@ -2,6 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status: executed, and partly superseded.** This plan was implemented across
+> 14 tasks; a whole-branch review then found three Critical seam defects that no
+> per-task review could see, and the fix wave changed some of the code below.
+> Most notably: `nav_arrived_plain` and `_hover_kind` no longer exist, the
+> mirrored joyd turn bits are the opposite polarity to what Task 7 shows here,
+> and actor-target clicks snap through `navmesh.approach_cell` rather than using
+> the object's own centre. **The spec is the binding authority and is accurate;
+> this plan is a historical record of the argument, not of the shipped code.**
+> Read `git log` on `PyAitD/navigate.py`, `PyAitD/interaction.py` and
+> `PyAitD/__main__.py` for what actually landed.
+
 **Goal:** Make the game fully playable with a mouse alone — click the floor to walk there, click an object to approach and interact with it — without removing the keyboard route.
 
 **Architecture:** Three new pygame-free modules (`navmesh`, `picking`, `navigate`) plus a new `track_mode == 4` in the existing FITD track runner. The navmesh is a grid rasterized from the game's own camera cover zones using FITD's own containment predicate; picking inverts the floor plane with a homography fitted from the engine's real forward projection; the follower drives the hero through `_turn_toward` and mirrors tank joystick bits so LIFE scripts still see coherent input.
@@ -412,8 +423,10 @@ def test_path_between_two_walkable_points_is_walkable_throughout(data_dir):
     path = find_path(mesh, start, goal)
     assert path is not None and len(path) >= 1
     assert path[-1] == goal
-    for x, z in path:
-        assert mesh.is_walkable(x, z), f"waypoint {(x, z)} is not walkable"
+    # walk every pulled EDGE, not just the nodes: node-only assertions pass
+    # straight through a cut corner, which is the invariant that matters here
+    for a, b in zip([start] + list(path), path):
+        assert _segment_is_walkable(mesh, a, b), f"segment {a}->{b} is not clear"
 
 
 def test_path_is_string_pulled_not_a_cell_staircase(data_dir):
@@ -497,14 +510,27 @@ def nearest_walkable(mesh, x, z, max_cells=6):
 
 
 def _line_clear(mesh, a, b):
+    # Sampling cell centres alone is NOT enough: it would let string-pull
+    # collapse a path back through a corner find_path deliberately routed
+    # around. Mirror find_path's flanking-cell guard on every diagonal
+    # transition. (This bit real floor-0 data: the unguarded version clipped
+    # a blocked corner at cell transition (134,76)->(135,77).)
+    walkable = mesh.walkable
     steps = max(abs(b[0] - a[0]), abs(b[1] - a[1]))
     if steps == 0:
         return True
-    for k in range(steps + 1):
+    if not walkable[a[0], a[1]]:
+        return False
+    prev_i, prev_j = a
+    for k in range(1, steps + 1):
         i = round(a[0] + (b[0] - a[0]) * k / steps)
         j = round(a[1] + (b[1] - a[1]) * k / steps)
-        if not mesh.walkable[i, j]:
+        if not walkable[i, j]:
             return False
+        di, dj = i - prev_i, j - prev_j
+        if di and dj and not (walkable[i, prev_j] and walkable[prev_i, j]):
+            return False  # never cut a blocked corner
+        prev_i, prev_j = i, j
     return True
 
 
@@ -589,6 +615,13 @@ class MeshCache:
 
 Run: `.venv/bin/pytest tests/test_navmesh.py -q`
 Expected: 13 passed
+
+Write a `_segment_is_walkable(mesh, a, b)` test helper that re-derives the
+DDA-plus-corner-guard check from the public API (`mesh.cell_of`,
+`mesh.walkable`) rather than calling `_line_clear`, and add a focused test
+that builds a synthetic `RoomMesh` with a diagonal chokepoint (a 5x5
+all-walkable array with `walkable[2,1] = walkable[1,2] = False`) and asserts
+the smoothed path does not cut it.
 
 - [ ] **Step 5: Commit**
 
@@ -1093,6 +1126,7 @@ import sys
 from PyAitD.effects import NavIntent
 from PyAitD.game import Actor
 from PyAitD.navigate import ARRIVE_DISTANCE, decide
+from PyAitD.tracks import cap_objet
 
 _PURITY_PROBE = """
 import sys, PyAitD.navigate
@@ -1152,13 +1186,38 @@ def test_intermediate_waypoints_are_consumed_in_order():
 
 
 def test_turn_bits_mirror_the_engine_turn_direction():
-    # cap_objet returns +1 to turn left (joyd bit 4) and -1 to turn right (bit 8),
-    # matching gere_manual_rot's bit->direction mapping
-    left = decide(_Game(NavIntent(0, 9000, 0, waypoints=[(0, 9000)])), _actor(0, 0, beta=0), None)
-    right = decide(_Game(NavIntent(0, -9000, 0, waypoints=[(0, -9000)])), _actor(0, 0, beta=0), None)
-    assert (left.joyd & 0xC) in (4, 8)
-    assert (right.joyd & 0xC) in (4, 8)
-    assert (left.joyd & 0xC) != (right.joyd & 0xC), "opposite targets must turn opposite ways"
+    # Targets must sit OFF the beta=0 facing axis. An on-axis target (0, +/-9000) makes
+    # cap_objet legitimately return 0 — see the dead-ahead test below — so a test using
+    # one asks for no turn at all and can never pass.
+    # Pin the real contract, not "the two differ", which would still pass under an
+    # end-to-end polarity inversion: cap_objet +1 -> direction +1 -> bit 4; -1 -> bit 8.
+    actor_a = _actor(0, 0, beta=0)
+    target_a = (9000, 0)
+    sign_a = cap_objet(actor_a.room_x, actor_a.room_z, actor_a.beta, *target_a)
+    decision_a = decide(_Game(NavIntent(*target_a, 0, waypoints=[target_a])), actor_a, None)
+
+    actor_b = _actor(0, 0, beta=0)
+    target_b = (-9000, 0)
+    sign_b = cap_objet(actor_b.room_x, actor_b.room_z, actor_b.beta, *target_b)
+    decision_b = decide(_Game(NavIntent(*target_b, 0, waypoints=[target_b])), actor_b, None)
+
+    assert (sign_a, sign_b) == (-1, 1)  # fixture sanity: opposite turns are required
+    assert decision_a.joyd & 0xC == 8, "cap_objet -1 must set bit 8, and only bit 8"
+    assert decision_b.joyd & 0xC == 4, "cap_objet +1 must set bit 4, and only bit 4"
+    assert decision_a.joyd == 0b1001, "forward (bit 1) + turn-right (bit 8)"
+    assert decision_b.joyd == 0b0101, "forward (bit 1) + turn-left (bit 4)"
+
+
+def test_dead_ahead_and_dead_behind_targets_need_no_turn():
+    # cap_objet brackets the decision at beta-4 and beta+4. On-axis, that bracket cannot
+    # favour a side: dead-ahead resolves through the exact-beta recompute branch to 0, and
+    # dead-behind is a genuine 180-degree tie, (1 + -1 + 1) >> 1 == 0. Walking straight at
+    # (or away from) your own facing must keep walking straight, not hunt for a turn.
+    ahead = decide(_Game(NavIntent(0, 9000, 0, waypoints=[(0, 9000)])), _actor(0, 0, beta=0), None)
+    behind = decide(_Game(NavIntent(0, -9000, 0, waypoints=[(0, -9000)])), _actor(0, 0, beta=0), None)
+    for decision in (ahead, behind):
+        assert decision.joyd & 1, "must still advance"
+        assert decision.joyd & 0xC == 0, "on-axis target must not set a turn bit"
 
 
 def test_arrival_threshold_is_the_engine_track_threshold():
@@ -1656,16 +1715,61 @@ def test_arrival_at_a_foundable_target_opens_that_object_s_prompt(data_dir):
     # the accessibility win: the prompt is for the object that was CLICKED,
     # not for whatever ZV the hero happened to overlap on the way
     game = init_game(data_dir)
-    target = next(
-        i for i, w in enumerate(game.world_objects)
-        if w.obj_index != -1 and game.actors[w.obj_index].object_type & AF_FOUNDABLE
-    )
+    # No actor in this floor's initial spawn is naturally AF_FOUNDABLE, so mark
+    # one. game.timer = 300 crosses the preserved FoundObjet track_number == -1
+    # post-load debounce quirk -- do NOT mutate object data to dodge it.
+    game.timer = 300
+    target = next(i for i, w in enumerate(game.world_objects) if w.obj_index != -1)
+    game.actors[game.world_objects[target].obj_index].object_type |= AF_FOUNDABLE
     game.nav_arrived_target = target
     completed = dispatch_nav_arrival(game)
     assert completed is False, "opening a modal suspends the tick"
     assert isinstance(game.active_modal, ShowFound)
     assert game.active_modal.object_idx == target
     assert game.nav_arrived_target == -1, "arrival is consumed exactly once"
+
+
+def test_arrival_dispatches_the_clicked_target_not_a_proximity_neighbor(data_dir):
+    # Regression for the accessibility win itself. The single-candidate test
+    # above passes identically whether dispatch uses the clicked index or falls
+    # back to whatever the hero's box touches -- it cannot tell them apart.
+    # Here TWO foundable objects both overlap the hero's zv, and we deliberately
+    # click the one a proximity/collision scan would NOT pick first.
+    game = init_game(data_dir)
+    game.timer = 300
+    hero_idx = game.current_camera_target_actor
+    hero = game.actors[hero_idx]
+    candidates = [
+        i for i, w in enumerate(game.world_objects)
+        if w.obj_index != -1 and w.obj_index != hero_idx
+    ][:2]
+    assert len(candidates) == 2, "fixture data needs two other spawned objects"
+    for world_idx in candidates:
+        actor = game.actors[game.world_objects[world_idx].obj_index]
+        actor.object_type |= AF_FOUNDABLE
+        actor.room = hero.room
+        actor.zv = list(hero.zv)  # identical box: both fully overlap the hero
+
+    # mirror how resolve_actor_contacts finds a touched object -- ascending
+    # index order via check_object_col -- and click the OTHER one
+    candidate_actor_idxs = {game.world_objects[w].obj_index for w in candidates}
+    touched = check_object_col(game, hero_idx, hero.zv)
+    naive_pick_actor_idx = next(a for a in touched if a in candidate_actor_idxs)
+    naive_pick_world_idx = next(
+        w for w in candidates
+        if game.world_objects[w].obj_index == naive_pick_actor_idx
+    )
+    clicked_world_idx = next(w for w in candidates if w != naive_pick_world_idx)
+
+    game.nav_arrived_target = clicked_world_idx
+    assert dispatch_nav_arrival(game) is False
+    assert game.active_modal.object_idx == clicked_world_idx, (
+        "the prompt must be for the CLICKED object"
+    )
+    assert game.active_modal.object_idx != naive_pick_world_idx, (
+        "a proximity scan would have picked the other object -- "
+        "if this fails, dispatch regressed to proximity"
+    )
 
 
 def test_arrival_without_a_target_sets_the_action_bit(data_dir):

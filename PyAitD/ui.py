@@ -11,6 +11,7 @@ import pygame
 class Command(Enum):
     UP = auto(); DOWN = auto(); LEFT = auto(); RIGHT = auto()
     ACCEPT = auto(); CANCEL = auto(); OPEN_INVENTORY = auto()
+    TOGGLE_INPUT_MODE = auto()
 
 
 @dataclass
@@ -54,6 +55,8 @@ def event_to_input(event, state):
             state.commands.append(Command.OPEN_INVENTORY)
         elif not repeated and event.key == pygame.K_ESCAPE:
             state.commands.append(Command.CANCEL)
+        elif not repeated and event.key == pygame.K_TAB:
+            state.commands.append(Command.TOGGLE_INPUT_MODE)
     elif event.type == pygame.KEYUP:
         if event.key in _DIRECTION:
             state.held_joyd &= ~_DIRECTION[event.key][1]
@@ -365,3 +368,27 @@ def hit_test_reading(pos, page, page_count):
     if page + 1 < page_count and ModalLayout.READING_NEXT.collidepoint(pos):
         return ReadingResult(False, 1)
     return None
+
+
+_CURSOR_COLORS = {
+    "walk": (200, 230, 170),
+    "target": (255, 220, 130),
+    "blocked": (190, 90, 80),
+}
+
+
+def render_cursor(frame, logical_pos, kind):
+    """Draw the pick cursor. Pure presentation: never touches world state."""
+    if logical_pos is None:
+        return frame
+    surface = _to_surface(frame.copy())
+    color = _CURSOR_COLORS.get(kind, _CURSOR_COLORS["walk"])
+    x, y = int(logical_pos[0]), int(logical_pos[1])
+    if kind == "target":
+        pygame.draw.rect(surface, color, pygame.Rect(x - 5, y - 5, 11, 11), width=1)
+    elif kind == "blocked":
+        pygame.draw.line(surface, color, (x - 4, y - 4), (x + 4, y + 4))
+        pygame.draw.line(surface, color, (x - 4, y + 4), (x + 4, y - 4))
+    else:
+        pygame.draw.circle(surface, color, (x, y), 4, width=1)
+    return _to_frame(surface)
