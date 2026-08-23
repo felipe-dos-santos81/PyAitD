@@ -105,3 +105,61 @@ def test_room_links_never_block(data_dir):
                 if y0 < col.y2 and col.y1 < y1:
                     blocking += 1
     assert (total, blocking) == (95, 0)
+
+
+from PyAitD.navmesh import MeshCache, find_path, nearest_walkable
+
+
+def test_path_between_two_walkable_points_is_walkable_throughout(data_dir):
+    _game, hero = _hero_agent(data_dir)
+    floor = Floor(data_dir, 0)
+    mesh = build_room_mesh(floor, 0, agent_extent(hero))
+    start = mesh.center_of(108, 34)              # the hero's own cell
+    goal = mesh.center_of(145, 78)               # the type-10 sce zone, component 0
+    path = find_path(mesh, start, goal)
+    assert path is not None and len(path) >= 1
+    assert path[-1] == goal
+    for x, z in path:
+        assert mesh.is_walkable(x, z), f"waypoint {(x, z)} is not walkable"
+
+
+def test_path_is_string_pulled_not_a_cell_staircase(data_dir):
+    _game, hero = _hero_agent(data_dir)
+    mesh = build_room_mesh(Floor(data_dir, 0), 0, agent_extent(hero))
+    path = find_path(mesh, mesh.center_of(108, 34), mesh.center_of(145, 78))
+    # 37 cells of X travel alone; an unsmoothed path would return dozens of hops
+    assert len(path) <= 8
+
+
+def test_path_to_an_unreachable_cell_is_none(data_dir):
+    _game, hero = _hero_agent(data_dir)
+    mesh = build_room_mesh(Floor(data_dir, 0), 0, agent_extent(hero))
+    blocked = next(
+        mesh.center_of(i, j)
+        for i in range(mesh.shape[0]) for j in range(mesh.shape[1])
+        if not mesh.walkable[i, j]
+    )
+    assert find_path(mesh, mesh.center_of(108, 34), blocked) is None
+
+
+def test_nearest_walkable_snaps_a_blocked_click(data_dir):
+    _game, hero = _hero_agent(data_dir)
+    mesh = build_room_mesh(Floor(data_dir, 0), 0, agent_extent(hero))
+    blocked = next(
+        mesh.center_of(i, j)
+        for i in range(mesh.shape[0]) for j in range(mesh.shape[1])
+        if not mesh.walkable[i, j] and 20 < i < 130 and 20 < j < 120
+    )
+    snapped = nearest_walkable(mesh, *blocked)
+    assert snapped is not None and mesh.is_walkable(*snapped)
+
+
+def test_mesh_cache_returns_the_same_object_for_the_same_room(data_dir):
+    _game, hero = _hero_agent(data_dir)
+    floor = Floor(data_dir, 0)
+    cache = MeshCache()
+    agent = agent_extent(hero)
+    first = cache.mesh_for(floor, 0, agent)
+    assert cache.mesh_for(floor, 0, agent) is first
+    cache.clear()
+    assert cache.mesh_for(floor, 0, agent) is not first

@@ -10,6 +10,7 @@ rather than a generic even-odd fill: the generic fill disagrees with
 world.is_in_poly on boundary cells in both directions, and the mesh must not
 drift from the predicate the engine uses for camera switching.
 """
+import heapq
 from dataclasses import dataclass
 
 import numpy as np
@@ -153,3 +154,120 @@ def build_room_mesh(floor, room_idx, agent, step=GRID_STEP):
         floor.rooms[room_idx].hard_cols, agent,
     )
     return mesh
+
+
+_NEIGHBOURS = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
+
+
+def nearest_walkable(mesh, x, z, max_cells=6):
+    """Closest walkable cell centre to (x, z), searching outward in rings."""
+    if mesh.is_walkable(x, z):
+        return (x, z)
+    origin = mesh.cell_of(x, z)
+    if origin is None:
+        return None
+    nx, nz = mesh.shape
+    for radius in range(1, max_cells + 1):
+        best = None
+        for di in range(-radius, radius + 1):
+            for dj in range(-radius, radius + 1):
+                if max(abs(di), abs(dj)) != radius:
+                    continue
+                i, j = origin[0] + di, origin[1] + dj
+                if not (0 <= i < nx and 0 <= j < nz) or not mesh.walkable[i, j]:
+                    continue
+                dist = di * di + dj * dj
+                if best is None or dist < best[0]:
+                    best = (dist, (i, j))
+        if best is not None:
+            return mesh.center_of(*best[1])
+    return None
+
+
+def _line_clear(mesh, a, b):
+    steps = max(abs(b[0] - a[0]), abs(b[1] - a[1]))
+    if steps == 0:
+        return True
+    for k in range(steps + 1):
+        i = round(a[0] + (b[0] - a[0]) * k / steps)
+        j = round(a[1] + (b[1] - a[1]) * k / steps)
+        if not mesh.walkable[i, j]:
+            return False
+    return True
+
+
+def _string_pull(mesh, cells, goal):
+    # keep only the farthest cell still in line of sight, so the follower gets
+    # a handful of waypoints instead of one per grid cell
+    pulled = []
+    index = 0
+    while index < len(cells) - 1:
+        far = len(cells) - 1
+        while far > index + 1 and not _line_clear(mesh, cells[index], cells[far]):
+            far -= 1
+        pulled.append(cells[far])
+        index = far
+    points = [mesh.center_of(*cell) for cell in pulled]
+    if not points:
+        return [goal]
+    points[-1] = goal
+    return points
+
+
+def find_path(mesh, start, goal):
+    """A* over walkable cells, string-pulled. Room-scale in, room-scale out."""
+    start_cell = mesh.cell_of(*start)
+    goal_cell = mesh.cell_of(*goal)
+    if start_cell is None or goal_cell is None:
+        return None
+    if not mesh.walkable[start_cell] or not mesh.walkable[goal_cell]:
+        return None
+    if start_cell == goal_cell:
+        return [goal]
+    walkable = mesh.walkable
+    nx, nz = walkable.shape
+    came_from = {start_cell: None}
+    best_cost = {start_cell: 0}
+    frontier = [(0, start_cell)]
+    while frontier:
+        _priority, cell = heapq.heappop(frontier)
+        if cell == goal_cell:
+            break
+        for di, dj in _NEIGHBOURS:
+            i, j = cell[0] + di, cell[1] + dj
+            if not (0 <= i < nx and 0 <= j < nz) or not walkable[i, j]:
+                continue
+            if di and dj and not (walkable[cell[0] + di, cell[1]]
+                                  and walkable[cell[0], cell[1] + dj]):
+                continue  # never cut a blocked corner
+            cost = best_cost[cell] + (14 if di and dj else 10)
+            if cost < best_cost.get((i, j), 1 << 30):
+                best_cost[(i, j)] = cost
+                came_from[(i, j)] = cell
+                estimate = max(abs(i - goal_cell[0]), abs(j - goal_cell[1])) * 10
+                heapq.heappush(frontier, (cost + estimate, (i, j)))
+    if goal_cell not in came_from:
+        return None
+    cells = []
+    cursor = goal_cell
+    while cursor is not None:
+        cells.append(cursor)
+        cursor = came_from[cursor]
+    cells.reverse()
+    return _string_pull(mesh, cells, goal)
+
+
+class MeshCache:
+    """Per-(floor, room) mesh cache. Meshes are static for a given agent."""
+
+    def __init__(self):
+        self._meshes = {}
+
+    def mesh_for(self, floor, room_idx, agent):
+        key = (floor.number, room_idx, agent)
+        if key not in self._meshes:
+            self._meshes[key] = build_room_mesh(floor, room_idx, agent)
+        return self._meshes[key]
+
+    def clear(self):
+        self._meshes.clear()
