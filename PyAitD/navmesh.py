@@ -185,14 +185,22 @@ def nearest_walkable(mesh, x, z, max_cells=6):
 
 
 def _line_clear(mesh, a, b):
+    walkable = mesh.walkable
     steps = max(abs(b[0] - a[0]), abs(b[1] - a[1]))
     if steps == 0:
         return True
-    for k in range(steps + 1):
+    if not walkable[a[0], a[1]]:
+        return False
+    prev_i, prev_j = a
+    for k in range(1, steps + 1):
         i = round(a[0] + (b[0] - a[0]) * k / steps)
         j = round(a[1] + (b[1] - a[1]) * k / steps)
-        if not mesh.walkable[i, j]:
+        if not walkable[i, j]:
             return False
+        di, dj = i - prev_i, j - prev_j
+        if di and dj and not (walkable[i, prev_j] and walkable[prev_i, j]):
+            return False  # never cut a blocked corner — mirrors find_path's neighbour guard
+        prev_i, prev_j = i, j
     return True
 
 

@@ -107,7 +107,35 @@ def test_room_links_never_block(data_dir):
     assert (total, blocking) == (95, 0)
 
 
-from PyAitD.navmesh import MeshCache, find_path, nearest_walkable
+import numpy as np
+
+from PyAitD.navmesh import MeshCache, RoomMesh, find_path, nearest_walkable
+
+
+def _segment_is_walkable(mesh, p, q):
+    """Sample the straight segment between two room-scale points at grid
+    resolution and refuse a diagonal step that cuts a blocked corner —
+    independent of _line_clear's own implementation, so this genuinely
+    exercises "walkable throughout" rather than restating the production
+    code under test.
+    """
+    a, b = mesh.cell_of(*p), mesh.cell_of(*q)
+    if a is None or b is None:
+        return False
+    steps = max(abs(b[0] - a[0]), abs(b[1] - a[1]))
+    if not mesh.walkable[a]:
+        return False
+    prev = a
+    for k in range(1, steps + 1):
+        i = round(a[0] + (b[0] - a[0]) * k / steps)
+        j = round(a[1] + (b[1] - a[1]) * k / steps)
+        if not mesh.walkable[i, j]:
+            return False
+        di, dj = i - prev[0], j - prev[1]
+        if di and dj and not (mesh.walkable[i, prev[1]] and mesh.walkable[prev[0], j]):
+            return False  # a follower tracing this edge would clip the corner
+        prev = (i, j)
+    return True
 
 
 def test_path_between_two_walkable_points_is_walkable_throughout(data_dir):
@@ -121,6 +149,33 @@ def test_path_between_two_walkable_points_is_walkable_throughout(data_dir):
     assert path[-1] == goal
     for x, z in path:
         assert mesh.is_walkable(x, z), f"waypoint {(x, z)} is not walkable"
+    waypoints = [start, *path]
+    for p, q in zip(waypoints, waypoints[1:]):
+        assert _segment_is_walkable(mesh, p, q), f"edge {p} -> {q} is not walkable throughout"
+
+
+def test_string_pull_never_cuts_a_blocked_diagonal_corner():
+    # Synthetic chokepoint: cells (1, 1) and (2, 2) are walkable, but the two
+    # cells that flank that diagonal — (2, 1) and (1, 2) — are blocked. A
+    # straight line between (1, 1) and (2, 2) only ever samples those two
+    # walkable endpoints (steps == 1), so a _line_clear that checks nothing
+    # but sampled cell centres would wrongly call it clear and let the
+    # string-pull cut the corner. find_path's own A* neighbour guard already
+    # refuses that diagonal move, so a route around exists (orthogonal-only,
+    # through row 0 and column 3); the pulled path must respect the same
+    # guard and keep the detour instead of collapsing back through the corner.
+    walkable = np.ones((5, 5), dtype=bool)
+    walkable[2, 1] = False
+    walkable[1, 2] = False
+    mesh = RoomMesh(x0=0, z0=0, step=100, walkable=walkable)
+    start = mesh.center_of(1, 1)
+    goal = mesh.center_of(2, 2)
+    path = find_path(mesh, start, goal)
+    assert path is not None
+    assert len(path) >= 2, "string-pull collapsed straight through the blocked corner"
+    waypoints = [start, *path]
+    for p, q in zip(waypoints, waypoints[1:]):
+        assert _segment_is_walkable(mesh, p, q), f"edge {p} -> {q} cuts the blocked corner"
 
 
 def test_path_is_string_pulled_not_a_cell_staircase(data_dir):
