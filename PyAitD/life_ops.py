@@ -4,7 +4,7 @@ import logging
 
 from PyAitD.actors import cube_intersect
 from PyAitD.effects import AddMessage, BeginTake, ReadText, ShowPicture
-from PyAitD.game import AF_ANIMATED, AF_MASK, _zv_cube, _zv_max, _zv_rot
+from PyAitD.game import AF_ANIMATED, AF_MASK, FloorStart, _zv_cube, _zv_max, _zv_rot, relocate_actor
 from PyAitD.life import eval_var, read_s16
 from PyAitD.realvalue import init_real_value, update_actor_rotation
 from PyAitD.tracks import gere_manual_rot, init_deplacement, process_track
@@ -275,50 +275,30 @@ def op_do_rot_zv(vm):
 
 def op_stage(vm):
     # life.cpp:1293 + setStage (life.cpp:306)
-    a = vm.actor
     game = vm.game
     new_stage = read_s16(vm)
     new_room = read_s16(vm)
     x = read_s16(vm)
     y = read_s16(vm)
     z = read_s16(vm)
-    a.stage = new_stage
-    a.room = new_room
 
-    anim_x = a.room_x + a.step_x
-    anim_y = a.room_y + a.step_y
-    anim_z = a.room_z + a.step_z
-    a.zv[0] += x - anim_x
-    a.zv[1] += x - anim_x
-    a.zv[2] += y - anim_y
-    a.zv[3] += y - anim_y
-    a.zv[4] += z - anim_z
-    a.zv[5] += z - anim_z
-    a.room_x = x
-    a.room_y = y
-    a.room_z = z
-    a.world_x = x
-    a.world_y = y
-    a.world_z = z
-    a.step_x = 0
-    a.step_y = 0
-    a.step_z = 0
+    relocate_actor(game, vm.cur_idx, new_stage, new_room, x, y, z)
 
     if game.current_camera_target_actor == vm.cur_idx:
         if new_stage != game.current_floor:
+            game.floor_start = FloorStart(new_stage, new_room, x, y, z, 0)
             game.flag_change_etage = 1
             game.new_num_etage = new_stage
             game.new_num_salle = new_room
-        else:
-            if game.current_room != new_room:
-                game.flag_change_salle = 1
-                game.new_num_salle = new_room
-    else:
-        if game.current_room != new_room:
-            dx, dy, dz = room_delta(game, new_room, game.current_room)
-            a.world_x -= dx
-            a.world_y += dy
-            a.world_z += dz
+        elif game.current_room != new_room:
+            game.flag_change_salle = 1
+            game.new_num_salle = new_room
+    elif game.current_room != new_room:
+        actor = game.actors[vm.cur_idx]
+        dx, dy, dz = room_delta(game, new_room, game.current_room)
+        actor.world_x -= dx
+        actor.world_y += dy
+        actor.world_z += dz
 
 
 def op_found_name(vm):

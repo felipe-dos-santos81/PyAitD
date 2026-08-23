@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from PyAitD.game import init_game
+from PyAitD.game import FloorStart, init_game
 from PyAitD.life import process_life
 
 
@@ -88,3 +88,13 @@ def test_camera_param_via_cvar(data_dir):
     game.num_camera = 0
     _run(game, 60, 0, 0x1C, 11)  # LM_C_VAR idx 0, evalVar property 0x1B
     assert game.cvars[0] == game.camera_param(0)
+
+
+def test_hero_stage_opcode_records_destination(data_dir):
+    game = init_game(data_dir)
+    hero_idx = game.current_camera_target_actor
+    actor = _run(game, 47, 5, 4, -7800, -4010, -1000, 11, actor=hero_idx)
+    assert game.floor_start == FloorStart(5, 4, -7800, -4010, -1000, 0)
+    assert game.flag_change_etage == 1
+    assert game.new_num_etage == 5
+    assert (actor.stage, actor.room) == (5, 4)
