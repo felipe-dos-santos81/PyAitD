@@ -1704,16 +1704,61 @@ def test_arrival_at_a_foundable_target_opens_that_object_s_prompt(data_dir):
     # the accessibility win: the prompt is for the object that was CLICKED,
     # not for whatever ZV the hero happened to overlap on the way
     game = init_game(data_dir)
-    target = next(
-        i for i, w in enumerate(game.world_objects)
-        if w.obj_index != -1 and game.actors[w.obj_index].object_type & AF_FOUNDABLE
-    )
+    # No actor in this floor's initial spawn is naturally AF_FOUNDABLE, so mark
+    # one. game.timer = 300 crosses the preserved FoundObjet track_number == -1
+    # post-load debounce quirk -- do NOT mutate object data to dodge it.
+    game.timer = 300
+    target = next(i for i, w in enumerate(game.world_objects) if w.obj_index != -1)
+    game.actors[game.world_objects[target].obj_index].object_type |= AF_FOUNDABLE
     game.nav_arrived_target = target
     completed = dispatch_nav_arrival(game)
     assert completed is False, "opening a modal suspends the tick"
     assert isinstance(game.active_modal, ShowFound)
     assert game.active_modal.object_idx == target
     assert game.nav_arrived_target == -1, "arrival is consumed exactly once"
+
+
+def test_arrival_dispatches_the_clicked_target_not_a_proximity_neighbor(data_dir):
+    # Regression for the accessibility win itself. The single-candidate test
+    # above passes identically whether dispatch uses the clicked index or falls
+    # back to whatever the hero's box touches -- it cannot tell them apart.
+    # Here TWO foundable objects both overlap the hero's zv, and we deliberately
+    # click the one a proximity/collision scan would NOT pick first.
+    game = init_game(data_dir)
+    game.timer = 300
+    hero_idx = game.current_camera_target_actor
+    hero = game.actors[hero_idx]
+    candidates = [
+        i for i, w in enumerate(game.world_objects)
+        if w.obj_index != -1 and w.obj_index != hero_idx
+    ][:2]
+    assert len(candidates) == 2, "fixture data needs two other spawned objects"
+    for world_idx in candidates:
+        actor = game.actors[game.world_objects[world_idx].obj_index]
+        actor.object_type |= AF_FOUNDABLE
+        actor.room = hero.room
+        actor.zv = list(hero.zv)  # identical box: both fully overlap the hero
+
+    # mirror how resolve_actor_contacts finds a touched object -- ascending
+    # index order via check_object_col -- and click the OTHER one
+    candidate_actor_idxs = {game.world_objects[w].obj_index for w in candidates}
+    touched = check_object_col(game, hero_idx, hero.zv)
+    naive_pick_actor_idx = next(a for a in touched if a in candidate_actor_idxs)
+    naive_pick_world_idx = next(
+        w for w in candidates
+        if game.world_objects[w].obj_index == naive_pick_actor_idx
+    )
+    clicked_world_idx = next(w for w in candidates if w != naive_pick_world_idx)
+
+    game.nav_arrived_target = clicked_world_idx
+    assert dispatch_nav_arrival(game) is False
+    assert game.active_modal.object_idx == clicked_world_idx, (
+        "the prompt must be for the CLICKED object"
+    )
+    assert game.active_modal.object_idx != naive_pick_world_idx, (
+        "a proximity scan would have picked the other object -- "
+        "if this fails, dispatch regressed to proximity"
+    )
 
 
 def test_arrival_without_a_target_sets_the_action_bit(data_dir):
