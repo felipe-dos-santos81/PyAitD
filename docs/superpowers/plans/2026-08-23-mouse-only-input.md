@@ -1115,6 +1115,7 @@ import sys
 from PyAitD.effects import NavIntent
 from PyAitD.game import Actor
 from PyAitD.navigate import ARRIVE_DISTANCE, decide
+from PyAitD.tracks import cap_objet
 
 _PURITY_PROBE = """
 import sys, PyAitD.navigate
@@ -1174,13 +1175,38 @@ def test_intermediate_waypoints_are_consumed_in_order():
 
 
 def test_turn_bits_mirror_the_engine_turn_direction():
-    # cap_objet returns +1 to turn left (joyd bit 4) and -1 to turn right (bit 8),
-    # matching gere_manual_rot's bit->direction mapping
-    left = decide(_Game(NavIntent(0, 9000, 0, waypoints=[(0, 9000)])), _actor(0, 0, beta=0), None)
-    right = decide(_Game(NavIntent(0, -9000, 0, waypoints=[(0, -9000)])), _actor(0, 0, beta=0), None)
-    assert (left.joyd & 0xC) in (4, 8)
-    assert (right.joyd & 0xC) in (4, 8)
-    assert (left.joyd & 0xC) != (right.joyd & 0xC), "opposite targets must turn opposite ways"
+    # Targets must sit OFF the beta=0 facing axis. An on-axis target (0, +/-9000) makes
+    # cap_objet legitimately return 0 — see the dead-ahead test below — so a test using
+    # one asks for no turn at all and can never pass.
+    # Pin the real contract, not "the two differ", which would still pass under an
+    # end-to-end polarity inversion: cap_objet +1 -> direction +1 -> bit 4; -1 -> bit 8.
+    actor_a = _actor(0, 0, beta=0)
+    target_a = (9000, 0)
+    sign_a = cap_objet(actor_a.room_x, actor_a.room_z, actor_a.beta, *target_a)
+    decision_a = decide(_Game(NavIntent(*target_a, 0, waypoints=[target_a])), actor_a, None)
+
+    actor_b = _actor(0, 0, beta=0)
+    target_b = (-9000, 0)
+    sign_b = cap_objet(actor_b.room_x, actor_b.room_z, actor_b.beta, *target_b)
+    decision_b = decide(_Game(NavIntent(*target_b, 0, waypoints=[target_b])), actor_b, None)
+
+    assert (sign_a, sign_b) == (-1, 1)  # fixture sanity: opposite turns are required
+    assert decision_a.joyd & 0xC == 8, "cap_objet -1 must set bit 8, and only bit 8"
+    assert decision_b.joyd & 0xC == 4, "cap_objet +1 must set bit 4, and only bit 4"
+    assert decision_a.joyd == 0b1001, "forward (bit 1) + turn-right (bit 8)"
+    assert decision_b.joyd == 0b0101, "forward (bit 1) + turn-left (bit 4)"
+
+
+def test_dead_ahead_and_dead_behind_targets_need_no_turn():
+    # cap_objet brackets the decision at beta-4 and beta+4. On-axis, that bracket cannot
+    # favour a side: dead-ahead resolves through the exact-beta recompute branch to 0, and
+    # dead-behind is a genuine 180-degree tie, (1 + -1 + 1) >> 1 == 0. Walking straight at
+    # (or away from) your own facing must keep walking straight, not hunt for a turn.
+    ahead = decide(_Game(NavIntent(0, 9000, 0, waypoints=[(0, 9000)])), _actor(0, 0, beta=0), None)
+    behind = decide(_Game(NavIntent(0, -9000, 0, waypoints=[(0, -9000)])), _actor(0, 0, beta=0), None)
+    for decision in (ahead, behind):
+        assert decision.joyd & 1, "must still advance"
+        assert decision.joyd & 0xC == 0, "on-axis target must not set a turn bit"
 
 
 def test_arrival_threshold_is_the_engine_track_threshold():
