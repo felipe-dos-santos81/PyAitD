@@ -91,6 +91,7 @@ class NavIntent:
     room: int
     target_object_idx: int = -1
     waypoints: list = None
+    path_room: int = -1
 
 
 @dataclass

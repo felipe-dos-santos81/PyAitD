@@ -83,22 +83,24 @@ def _apply(matrix, x, y):
     return (vec[0] / vec[2], vec[1] / vec[2])
 
 
-def _camera_state(floor, room_idx, cam_slot):
+def _camera_state_global(floor, room_idx, global_cam_idx):
+    # the camera is addressed globally, but the transform is built from the
+    # ORIGIN OF THE ROOM BEING PICKED — each room has its own coordinate space
     room = floor.rooms[room_idx]
-    camera = floor.cameras[room.camera_indices[cam_slot]]
+    camera = floor.cameras[global_cam_idx]
     return CameraState.from_camera(
         camera, room.world_x, room.world_y, room.world_z,
     ).angles()
 
 
-def pick_floor(logical_pos, floor, room_idx, cam_slot, floor_y):
-    """Logical 320x200 click -> room-scale (x, z) on the floor, or None.
+def pick_floor_in_room(logical_pos, floor, room_idx, global_cam_idx, floor_y):
+    """Logical click -> room-scale (x, z) in room_idx's own coordinate space.
 
     Only the current camera's polygons are on screen. When a click falls inside
     more than one, the recovered point is tested against the polygon it came
     from, and self-consistency picks the right one at no extra cost.
     """
-    state = _camera_state(floor, room_idx, cam_slot)
+    state = _camera_state_global(floor, room_idx, global_cam_idx)
     for poly in cover_polys(floor, room_idx):
         world = [(x * COVER_SCALE, z * COVER_SCALE) for x, z in poly]
         matrix = floor_homography(state, world, floor_y)
@@ -119,6 +121,30 @@ def pick_floor(logical_pos, floor, room_idx, cam_slot, floor_y):
             continue  # the fit does not explain this pixel
         if _point_in_world_poly(wx, wz, world):
             return (wx, wz)
+    return None
+
+
+def pick_floor(logical_pos, floor, room_idx, cam_slot, floor_y):
+    """Room-slot form. Kept for callers that already know the room."""
+    global_cam_idx = floor.rooms[room_idx].camera_indices[cam_slot]
+    return pick_floor_in_room(logical_pos, floor, room_idx, global_cam_idx, floor_y)
+
+
+def pick_floor_any_room(logical_pos, floor, hero_room, cam_slot, floor_y):
+    """Pick across every room this camera views. Returns (x, z, room) or None.
+
+    The hero's own room is tried first: walking inside the current room never
+    needs a transition, so it wins any overlap.
+    """
+    global_cam_idx = floor.rooms[hero_room].camera_indices[cam_slot]
+    viewed = [vr.viewed_room_idx for vr in floor.cameras[global_cam_idx].viewed_rooms]
+    ordered = [hero_room] + [r for r in viewed if r != hero_room]
+    for room_idx in ordered:
+        if room_idx >= len(floor.rooms):
+            continue
+        hit = pick_floor_in_room(logical_pos, floor, room_idx, global_cam_idx, floor_y)
+        if hit is not None:
+            return (hit[0], hit[1], room_idx)
     return None
 
 

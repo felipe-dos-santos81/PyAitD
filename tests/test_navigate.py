@@ -111,3 +111,44 @@ def test_dead_ahead_and_dead_behind_targets_need_no_turn():
 
 def test_arrival_threshold_is_the_engine_track_threshold():
     assert ARRIVE_DISTANCE == 400
+
+
+def test_a_destination_in_another_room_steers_to_the_room_link():
+    # the follower must not path straight at coordinates that belong to a
+    # different room's origin; it aims for the link zone first
+    class _LinkGame(_Game):
+        def __init__(self, intent):
+            super().__init__(intent)
+            self.link_asked = None
+
+    intent = NavIntent(dest_x=500, dest_z=500, room=3, waypoints=None)
+    game = _LinkGame(intent)
+    actor = _actor(0, 0, room=0)
+
+    import PyAitD.navigate as navigate_module
+
+    class _Zone:
+        x1, x2, y1, y2, z1, z2, type, parameter = 100, 300, 0, 0, 700, 900, 4, 3
+
+    original = navigate_module.get_room_link
+    navigate_module.get_room_link = lambda g, a, b: (
+        setattr(g, "link_asked", (a, b)) or _Zone()
+    )
+    try:
+        decision = navigate_module.decide(game, actor, None)
+    finally:
+        navigate_module.get_room_link = original
+
+    assert game.link_asked == (0, 3)
+    assert (decision.target_x, decision.target_z) == (200, 800)  # zone centre
+    assert intent.path_room == 0, "waypoints belong to the room we started in"
+
+
+def test_entering_the_target_room_repaths_to_the_real_destination():
+    intent = NavIntent(dest_x=500, dest_z=500, room=3, waypoints=[(9, 9)])
+    intent.path_room = 0
+    game = _Game(intent)
+    actor = _actor(0, 0, room=3)          # gere_dec moved us into room 3
+    decision = decide(game, actor, None)
+    assert intent.path_room == 3
+    assert (decision.target_x, decision.target_z) == (500, 500)

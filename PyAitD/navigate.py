@@ -10,7 +10,7 @@ the same _turn_toward the engine's follow mode uses.
 from PyAitD.effects import NavDecision
 from PyAitD.navmesh import find_path
 from PyAitD.realvalue import give_distance_2d
-from PyAitD.tracks import cap_objet
+from PyAitD.tracks import cap_objet, get_room_link
 
 ARRIVE_DISTANCE = 400    # tracks.DISTANCE_TO_POINT_TRESSHOLD [sic], same units
 WAYPOINT_DISTANCE = 400  # how close counts as reaching an intermediate hop
@@ -18,7 +18,19 @@ WAYPOINT_DISTANCE = 400  # how close counts as reaching an intermediate hop
 
 def _repath(game, actor, mesh):
     intent = game.nav_intent
+    intent.path_room = actor.room
     start = (actor.room_x + actor.step_x, actor.room_z + actor.step_z)
+    if intent.room != actor.room:
+        # One hop: aim for the centre of the zone linking us to the target room,
+        # exactly as _process_track_follow does for a followed actor in another
+        # room. gere_dec performs the actual transition when we cross it; the
+        # room change then re-paths us to the real destination below.
+        link = get_room_link(game, actor.room, intent.room)
+        intent.waypoints = [(
+            link.x1 + (link.x2 - link.x1) // 2,
+            link.z1 + (link.z2 - link.z1) // 2,
+        )]
+        return
     goal = (intent.dest_x, intent.dest_z)
     if mesh is not None:
         path = find_path(mesh, start, goal)
@@ -35,7 +47,7 @@ def decide(game, actor, mesh):
     intent = game.nav_intent
     if intent is None:
         return None
-    if intent.waypoints is None:
+    if intent.waypoints is None or getattr(intent, "path_room", None) != actor.room:
         _repath(game, actor, mesh)
     here_x = actor.room_x + actor.step_x
     here_z = actor.room_z + actor.step_z

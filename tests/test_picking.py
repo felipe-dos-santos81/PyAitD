@@ -5,7 +5,7 @@ import sys
 from PyAitD.floor import Floor
 from PyAitD.game import init_game
 from PyAitD.navmesh import COVER_SCALE, cover_polys
-from PyAitD.picking import pick_floor, project_floor_point
+from PyAitD.picking import pick_floor, pick_floor_any_room, pick_floor_in_room, project_floor_point
 from PyAitD.world import CameraState
 
 _PURITY_PROBE = """
@@ -138,3 +138,56 @@ def test_actor_bbox_clamps_rather_than_drops_a_straddling_actor():
     # filtered out -- the box is clamped to the surface, not dropped
     result = _FakeResult([(-100.0, 90.0, 900.0), (350.0, 110.0, 900.0)])
     assert actor_bbox(result, pad=0) == (0, 90, 320, 110)
+
+
+def test_pick_floor_in_room_uses_that_room_s_own_origin(data_dir):
+    # room 0 of floor 0 is the only room, so the global-camera form must agree
+    # exactly with the slot form it generalises
+    floor = Floor(data_dir, 0)
+    game = init_game(data_dir)
+    floor_y = game.actors[game.current_camera_target_actor].world_y
+    global_cam = floor.rooms[0].camera_indices[0]
+    state = _state(floor, 0, 0)
+    poly = cover_polys(floor, 0)[0]
+    xs = [p[0] * COVER_SCALE for p in poly]
+    zs = [p[1] * COVER_SCALE for p in poly]
+    centre = (sum(xs) // len(xs), sum(zs) // len(zs))
+    screen = project_floor_point(state, centre[0], floor_y, centre[1])
+    assert pick_floor_in_room(screen, floor, 0, global_cam, floor_y) == \
+        pick_floor(screen, floor, 0, 0, floor_y)
+
+
+def test_pick_floor_any_room_reports_which_room_it_hit(data_dir):
+    floor = Floor(data_dir, 0)
+    game = init_game(data_dir)
+    floor_y = game.actors[game.current_camera_target_actor].world_y
+    state = _state(floor, 0, 0)
+    poly = cover_polys(floor, 0)[0]
+    xs = [p[0] * COVER_SCALE for p in poly]
+    zs = [p[1] * COVER_SCALE for p in poly]
+    screen = project_floor_point(state, sum(xs) // len(xs), floor_y, sum(zs) // len(zs))
+    hit = pick_floor_any_room(screen, floor, 0, 0, floor_y)
+    assert hit is not None and hit[2] == 0
+
+
+def test_pick_floor_any_room_prefers_the_hero_s_own_room(data_dir):
+    # a multi-room floor: whichever room the hero is in must win a tie, because
+    # walking within the current room never needs a transition
+    floor = Floor(data_dir, 1)
+    game = init_game(data_dir)
+    floor_y = 0
+    for slot in range(len(floor.rooms[0].camera_indices)):
+        state = _state(floor, 0, slot)
+        polys = cover_polys(floor, 0)
+        if not polys:
+            continue
+        xs = [p[0] * COVER_SCALE for p in polys[0]]
+        zs = [p[1] * COVER_SCALE for p in polys[0]]
+        screen = project_floor_point(state, sum(xs) // len(xs), floor_y, sum(zs) // len(zs))
+        if screen is None:
+            continue
+        hit = pick_floor_any_room(screen, floor, 0, slot, floor_y)
+        if hit is not None:
+            assert hit[2] == 0
+            return
+    raise AssertionError("no camera of floor 1 room 0 produced a pick")

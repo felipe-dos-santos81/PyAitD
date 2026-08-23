@@ -86,7 +86,7 @@ def route_play_click(game, floor, logical_pos, draw_list):
     """A left click during PLAY: pick an object, else a floor point, else nothing."""
     from PyAitD.interaction import apply_click_intent
     from PyAitD.navmesh import agent_extent, nearest_walkable
-    from PyAitD.picking import pick_actor, pick_floor
+    from PyAitD.picking import pick_actor, pick_floor_any_room
     if logical_pos is None or game.active_modal is not None:
         return
     hero_idx = game.current_camera_target_actor
@@ -106,15 +106,19 @@ def route_play_click(game, floor, logical_pos, draw_list):
         )
         return
 
-    picked = pick_floor(logical_pos, floor, hero.room, game.num_camera, hero.world_y)
+    picked = pick_floor_any_room(
+        logical_pos, floor, hero.room, game.num_camera, hero.world_y,
+    )
     if picked is None:
         return
-    mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
-    if mesh is not None:
-        snapped = nearest_walkable(mesh, picked[0], picked[1])
-        if snapped is not None:
-            picked = snapped
-    apply_click_intent(game, picked[0], picked[1], hero.room)
+    dest_x, dest_z, dest_room = picked
+    if dest_room == hero.room:
+        mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
+        if mesh is not None:
+            snapped = nearest_walkable(mesh, dest_x, dest_z)
+            if snapped is not None:
+                dest_x, dest_z = snapped
+    apply_click_intent(game, dest_x, dest_z, dest_room)
 
 
 def _is_interactable(game, actor_idx):
