@@ -5,10 +5,11 @@ from dataclasses import dataclass, field
 from itertools import product
 
 from PyAitD.assets import Assets
-from PyAitD.effects import GameMode, ImmediateEffect, MODAL_MODE, TimedMessage
+from PyAitD.effects import GameMode, ImmediateEffect, InputMode, MODAL_MODE, TimedMessage
 from PyAitD.cos_table import COS_TABLE
 from PyAitD.floor import Floor
 from PyAitD.formats import parse_defines, parse_objets, parse_vars
+from PyAitD.navmesh import MeshCache
 from PyAitD.world import cdiv as _cdiv, room_delta
 
 NUM_MAX_OBJECT = 128
@@ -150,6 +151,12 @@ class Game:
         self.current_inventory = 0
         self.messages = [None] * 5
         self.status_screen_allowed = 1
+        # mouse navigation state (see docs/superpowers/specs/2026-08-23-...)
+        self.input_mode = InputMode.MOUSE
+        self.nav_intent = None
+        self.nav_decision = None
+        self.nav_arrived_target = -1
+        self.nav_meshes = MeshCache()
         # M3b/M4 stubs (audio)
         self.current_music = -1
         self.next_music = -1

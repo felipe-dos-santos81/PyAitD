@@ -96,3 +96,26 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     assert isinstance(game.active_modal, OpenInventory)
     assert session.inventory.choosing_action is False
     assert list(buffer.commands) == []
+
+
+from PyAitD.effects import InputMode, NavDecision, NavIntent
+from PyAitD.game import init_game
+
+
+def test_game_starts_in_mouse_mode_with_no_intent(data_dir):
+    game = init_game(data_dir)
+    assert game.input_mode is InputMode.MOUSE
+    assert game.nav_intent is None
+    assert game.nav_decision is None
+    assert game.nav_arrived_target == -1
+
+
+def test_nav_intent_defaults_to_a_bare_destination():
+    intent = NavIntent(dest_x=100, dest_z=200, room=0)
+    assert intent.target_object_idx == -1
+    assert intent.waypoints is None
+
+
+def test_nav_decision_carries_the_mirrored_joystick_bits():
+    decision = NavDecision(joyd=5, target_x=1, target_z=2, advance=True, arrived=False)
+    assert decision.joyd == 5 and decision.advance is True

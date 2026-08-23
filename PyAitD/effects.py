@@ -75,3 +75,29 @@ MODAL_MODE = {
 class TimedMessage:
     message_id: int
     age: int = 0
+
+
+class InputMode(Enum):
+    """Mouse is the default route; the keyboard route is retained, not replaced."""
+    MOUSE = auto()
+    KEYBOARD = auto()
+
+
+@dataclass
+class NavIntent:
+    """Where the player clicked, and what they meant by it."""
+    dest_x: int
+    dest_z: int
+    room: int
+    target_object_idx: int = -1
+    waypoints: list = None
+
+
+@dataclass
+class NavDecision:
+    """One tick of follower output: mirrored joyd plus the steering target."""
+    joyd: int
+    target_x: int
+    target_z: int
+    advance: bool
+    arrived: bool
