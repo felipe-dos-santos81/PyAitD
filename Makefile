@@ -9,7 +9,7 @@ PIP = $(VENV_DIR)/bin/pip
 floor ?= 0
 data ?= "Alone in the Dark 1.app/Contents/Resources/game/INDARK"
 
-.PHONY: help install run test prove prove-m3b prove-mouse clean
+.PHONY: help install run run-combat test prove prove-m3b prove-mouse prove-combat clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -38,6 +38,9 @@ clean: ## Remove venv and all temporary/generated files
 run: install ## Run the game: walk the attic, find/take/use/drop objects, read texts (usage: make run floor=3 data="path/to/INDARK" trace=/tmp/t.log)
 	$(PYTHON) -m PyAitD --floor "$(floor)" --data $(data) $(if $(trace),--trace $(trace))
 
+run-combat: install ## Run the supported floor-5 combat venue
+	$(PYTHON) -m PyAitD --combat-venue --data $(data) $(if $(trace),--trace $(trace))
+
 # ── Development ──────────────────────────────────────────────────────────────
 
 test: install ## Run the pytest unit test suite
@@ -58,3 +61,6 @@ prove-m3b: install ## M3b proof: focused interaction suite headless (continuatio
 
 prove-mouse: install ## M3d proof: build the navmesh for every camera-visible room, every floor (usage: make prove-mouse data="path/to/INDARK")
 	$(PYTHON) tools/prove_mouse.py $(data)
+
+prove-combat: install ## M3c proof: shared floor-5 venue and combat journeys
+	SDL_VIDEODRIVER=dummy $(PYTHON) tools/prove_combat.py $(data)

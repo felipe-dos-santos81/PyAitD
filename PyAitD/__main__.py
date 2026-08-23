@@ -11,7 +11,7 @@ import pygame
 from PyAitD.actors import anim_player_for, sort_actor_indices
 from PyAitD.effects import GameMode, InputMode
 from PyAitD.floor import Floor
-from PyAitD.game import init_game, spawn_stage_actors
+from PyAitD.game import init_game
 from PyAitD.life import Trace
 from PyAitD.pak import PakError
 from PyAitD.picking import actor_bbox
@@ -19,6 +19,7 @@ from PyAitD.picking import actor_bbox
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.playworld import TICK_MS, play_tick
 from PyAitD.render import Renderer
+from PyAitD.scenario import enter_combat_venue
 from PyAitD.skel import skin
 from PyAitD.ui import Command, InputBuffer, ModalSession, event_to_input, render_cursor
 from PyAitD.world import CameraState
@@ -38,6 +39,10 @@ def parse_args(argv):
     p.add_argument("--data", type=pathlib.Path, default=DEFAULT_DATA, help="game data dir")
     p.add_argument("--floor", type=int, default=0, help="floor number (default 0)")
     p.add_argument("--trace", type=pathlib.Path, default=None, help="write per-opcode LIFE trace to FILE")
+    p.add_argument(
+        "--combat-venue", action="store_true",
+        help="start at the supported floor-5 combat venue",
+    )
     return p.parse_args(argv)
 
 
@@ -418,11 +423,15 @@ def main(argv=None):
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    if args.floor != game.current_floor:
-        game.current_floor = args.floor
-        spawn_stage_actors(game)
-        game.num_camera = -1
-        game.flag_init_view = 2
+    if args.floor != 0:
+        print(
+            "error: non-zero --floor has no safe room/coordinate mapping; "
+            "use --combat-venue",
+            file=sys.stderr,
+        )
+        return 2
+    if args.combat_venue:
+        enter_combat_venue(game)
     return run(game, args.trace)
 
 
