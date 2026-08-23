@@ -1,35 +1,44 @@
 # maitd
 
-Alone in the Dark 1 engine reimplementation in Python (pygame-ce + ModernGL),
-driven by the original game data files. Apple Silicon, windowed. GPLv2
-(derived from [FITD](https://github.com/yaz0r/FITD)).
+Python engine reimplementation of **Alone in the Dark 1** (DOS, 1992),
+test-driven from the [FITD](https://github.com/yaz0r/FITD) decompilation.
+pygame-ce + ModernGL, Apple Silicon, windowed. GPLv2.
 
-You must own the original game — this repo never ships game data.
+**You must own the original game** — this repo never ships game data.
 
 ## Setup
 
 ```bash
-make install          # or: python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+make install            # .venv + editable install with dev deps
 ```
 
-Data defaults to `Alone in the Dark 1.app/Contents/Resources/game/INDARK`;
-override with `--data DIR` or env `M_AITD_DATA`.
+Game data defaults to `Alone in the Dark 1.app/Contents/Resources/game/INDARK`
+at the repo root; override with `data=` on any make target or `--data DIR`.
+Tests honor env `M_AITD_DATA` and skip when data is absent.
 
-## Run (M2: play viewer)
+## Run
 
 ```bash
-make run              # or: .venv/bin/python -m maitd --floor 0
+make run                # make run floor=3 data="path/to/INDARK" trace=/tmp/t.log
 ```
 
-Keys: arrows walk (Up forward, Left/Right turn), Esc quits. Cameras
-switch by zone; actor occluded behind furniture via background masks.
+Keyboard: arrows/WASD walk, Space acts, Enter or I opens inventory,
+Esc cancels (quits while playing). In menus: arrows move, Enter/Space
+accepts, Esc cancels. Mouse: single left click on any large button.
+Found objects open a Take/Leave prompt; inventory exposes the object's
+own actions; letters and books are readable; pictures play full-screen.
 
-## Tests / proof
+## Tests
 
 ```bash
-make test             # unit suite
-make prove            # walks every floor, decodes every camera image
+make test               # unit suite (real game data where available)
+make prove              # parse-all + headless real-script boot
+make prove-m3b          # focused interaction proof, headless
 ```
 
-`prove` prints one line per floor; a "room with no cameras (legit in
-original data)" line is informational, not a failure.
+## Status
+
+M1 data layer, M2 actors, M3a LIFE script VM, M3b interaction are done:
+the attic boots from original scripts and is fully interactive. Combat
+(M3c) and menus/audio/save (M4) are next. See `CONTEXT.md` for the
+architecture map and `docs/superpowers/` for specs and plans.

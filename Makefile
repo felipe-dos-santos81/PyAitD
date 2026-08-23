@@ -1,5 +1,5 @@
 # Makefile for maitd — Alone in the Dark 1 engine reimplementation
-# Targets: env → run → test → prove → clean
+# Targets: env → run → test → prove → prove-m3b → clean
 SERVICE = maitd
 
 # Variables
@@ -9,7 +9,7 @@ PIP = $(VENV_DIR)/bin/pip
 floor ?= 0
 data ?= "Alone in the Dark 1.app/Contents/Resources/game/INDARK"
 
-.PHONY: help install run test prove clean
+.PHONY: help install run test prove prove-m3b clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -35,7 +35,7 @@ clean: ## Remove venv and all temporary/generated files
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
-run: install ## Run the play viewer: walk the actor, cameras switch, masks occlude (usage: make run floor=3 data="path/to/INDARK" trace=/tmp/t.log)
+run: install ## Run the game: walk the attic, find/take/use/drop objects, read texts (usage: make run floor=3 data="path/to/INDARK" trace=/tmp/t.log)
 	$(PYTHON) -m maitd --floor "$(floor)" --data $(data) $(if $(trace),--trace $(trace))
 
 # ── Development ──────────────────────────────────────────────────────────────
@@ -46,9 +46,8 @@ test: install ## Run the pytest unit test suite
 prove: install ## M3a proof: parse-all LIFE/TRACK/tables + headless 60-tick boot
 	$(PYTHON) -m pytest tests/test_prove_m3a.py -q
 
-.PHONY: prove-m3b
-prove-m3b:
-	SDL_VIDEODRIVER=dummy .venv/bin/pytest \
+prove-m3b: install ## M3b proof: focused interaction suite headless (continuation, inventory, contacts, zones, opcodes, modes, attic)
+	SDL_VIDEODRIVER=dummy $(PYTHON) -m pytest \
 		tests/test_life_continuation.py \
 		tests/test_interaction.py \
 		tests/test_actor_contacts.py \
