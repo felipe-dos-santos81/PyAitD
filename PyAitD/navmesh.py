@@ -108,3 +108,48 @@ def build_cover_grid(floor, room_idx, step=GRID_STEP):
     zs = (z0 + np.arange(nz, dtype=np.int64) * step) // COVER_SCALE
     x_grid, z_grid = np.meshgrid(xs, zs, indexing="ij")
     return RoomMesh(x0, z0, step, _fill_union(polys, x_grid, z_grid))
+
+
+def agent_extent(actor):
+    """Rotation-invariant footprint of an actor: (half_extent, y0, y1).
+
+    The ZV is beta-dependent (life_ops.op_do_real_zv rebuilds it via _zv_rot),
+    so the mesh uses the larger horizontal half-extent and stays valid for
+    every facing — one mesh per room instead of one per angle.
+    """
+    zv = actor.zv
+    half = max((zv[1] - zv[0]) // 2, (zv[5] - zv[4]) // 2)
+    return (int(half), int(zv[2]), int(zv[3]))
+
+
+def _subtract_hard_cols(grid, x0, z0, step, hard_cols, agent):
+    # cube_intersect with the agent box centred on each cell. Hero ZV and hard
+    # col are both AABBs, so expanding the box by the half-extent is exact, not
+    # conservative. No type filtering: type 4 room links fall out on the Y test.
+    half, y0, y1 = agent
+    nx, nz = grid.shape
+    xs = x0 + np.arange(nx, dtype=np.int64) * step
+    zs = z0 + np.arange(nz, dtype=np.int64) * step
+    x_grid, z_grid = np.meshgrid(xs, zs, indexing="ij")
+    walkable = grid.copy()
+    for col in hard_cols:
+        if not (y0 < col.y2 and col.y1 < y1):
+            continue  # outside the agent's Y band — cube_intersect would miss
+        hit = (
+            ((x_grid - half) < col.x2) & (col.x1 < (x_grid + half))
+            & ((z_grid - half) < col.z2) & (col.z1 < (z_grid + half))
+        )
+        walkable &= ~hit
+    return walkable
+
+
+def build_room_mesh(floor, room_idx, agent, step=GRID_STEP):
+    """Walkable mesh for one room: cover-zone union minus the room's hard cols."""
+    mesh = build_cover_grid(floor, room_idx, step)
+    if mesh is None:
+        return None
+    mesh.walkable = _subtract_hard_cols(
+        mesh.walkable, mesh.x0, mesh.z0, mesh.step,
+        floor.rooms[room_idx].hard_cols, agent,
+    )
+    return mesh
