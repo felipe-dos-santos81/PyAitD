@@ -453,7 +453,15 @@ def test_fire_sweep_returns_first_live_non_special_slot(monkeypatch, data_dir):
             other.index_in_world = -1
     monkeypatch.setattr("PyAitD.anim_action.check_hard_col", lambda *args: [object()])
     game.actors[first_idx].object_type |= AF_SPECIAL
-    game.actors[second_idx].zv = [-100, 100, -100, 100, -100, 100]
+    # Adversarial setup: give the shooter and the AF_SPECIAL actor the same
+    # overlapping zv as second_idx, so each of them WOULD be returned if its
+    # own exclusion rule (self-skip / AF_SPECIAL-skip) were missing. Only
+    # then does `hit == second_idx` genuinely prove both `continue`s fire,
+    # rather than the fixture simply never testing them.
+    overlap_zv = [-100, 100, -100, 100, -100, 100]
+    game.actors[shooter_idx].zv = list(overlap_zv)
+    game.actors[first_idx].zv = list(overlap_zv)
+    game.actors[second_idx].zv = list(overlap_zv)
     hit, x, y, z = check_line_projection_with_actors(
         game, shooter_idx, 0, 0, -100, 0, game.actors[shooter_idx].room, 50,
     )
