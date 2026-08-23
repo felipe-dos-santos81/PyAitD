@@ -56,6 +56,12 @@ def test_reaching_the_final_waypoint_reports_arrival():
 
 def test_intermediate_waypoints_are_consumed_in_order():
     intent = NavIntent(dest_x=9000, dest_z=0, room=0, waypoints=[(10, 0), (9000, 0)])
+    # Simulates a tick after the initial repath already ran (path_room already
+    # matches the actor's room), so decide() must NOT re-path here -- if it
+    # did, the hand-set two-waypoint list below would be silently replaced by
+    # a fresh single-waypoint fallback and the pop loop this test targets
+    # would never run.
+    intent.path_room = 0
     game = _Game(intent)
     decision = decide(game, _actor(0, 0), None)
     # first waypoint is already within reach, so it pops and we steer to the next
