@@ -341,6 +341,24 @@ def _process_track_scripted(game, actor):
         raise ValueError(f"unknown track macro {macro:#x}")
 
 
+def _process_track_mouse(game, actor):
+    # Mouse follower mode. Not a FITD track mode: it generalises
+    # _process_track_follow (steer toward a point, speed 4) to a waypoint list,
+    # so the player turns *while* walking instead of pivoting in place the way
+    # tank controls do. The decision itself is made in playworld.apply_play_input.
+    decision = getattr(game, "nav_decision", None)
+    if decision is None or not decision.advance:
+        if 0 < actor.speed <= 4:
+            actor.speed -= 1
+        else:
+            actor.speed = 0
+        actor.direction = 0
+        actor.rotate.num_steps = 0
+        return
+    _turn_toward(game, actor, decision.target_x, decision.target_z)
+    actor.speed = 4
+
+
 def process_track(game, actor):
     if actor.track_mode == 1:
         _process_track_manual(game, actor)
@@ -348,4 +366,6 @@ def process_track(game, actor):
         _process_track_follow(game, actor)
     elif actor.track_mode == 3:
         _process_track_scripted(game, actor)
+    elif actor.track_mode == 4:
+        _process_track_mouse(game, actor)
     actor.beta &= 0x3FF
