@@ -8,6 +8,7 @@ class GameMode(Enum):
     FOUND = auto()
     INVENTORY = auto()
     READING = auto()
+    GAME_OVER = auto()
 
 
 class AfterLife(Enum):
@@ -59,7 +60,15 @@ class ShowPicture:
     sample_id: int
 
 
-ModalEffect = ShowFound | OpenInventory | ReadText | ShowPicture
+@dataclass(frozen=True)
+class GameOver:
+    # LM_GAME_OVER (life.cpp:2438-2450) fades music and spins 120 chrono units
+    # inside the opcode; the wall-clock wait moves here so the tick that sets
+    # flag_game_over does not block the event pump (see task-9 brief).
+    delay_units: int = 120
+
+
+ModalEffect = ShowFound | OpenInventory | ReadText | ShowPicture | GameOver
 ImmediateEffect = AddMessage | BeginTake
 
 # the one place a modal effect type is mapped to the mode it puts the loop in
@@ -69,6 +78,7 @@ MODAL_MODE = {
     ReadText: GameMode.READING,
     ShowPicture: GameMode.READING,
 }
+MODAL_MODE[GameOver] = GameMode.GAME_OVER
 
 
 @dataclass

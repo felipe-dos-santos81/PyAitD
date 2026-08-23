@@ -13,9 +13,10 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 
 ```bash
 make run                     # play (windowed); make run trace=/tmp/t.log writes per-opcode LIFE trace
-make test                    # pytest suite (238 passed, 1 skipped)
+make run-combat              # play the supported floor-5 combat venue (the only non-attic start)
+make test                    # pytest suite (405 passed, 1 xfailed, 1 skipped)
 make prove                   # M3a proof: parse-all 563 scripts/45 tracks/tables + headless 60-tick play_tick boot
-make floor=N run             # start on another floor
+make prove-combat            # M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
 ```
 
 ## Where we are
@@ -26,9 +27,9 @@ make floor=N run             # start on another floor
 | M2 | Actors: body/anim parsing, skinning (AnimNuage), tank movement + collision, zone-driven camera switching, mask compositing over backgrounds | done |
 | M3a | LIFE script VM core + world: the game boots from its **real scripts** — intro scene, actors spawn, scripts drive everything; script-driven player input | done (merged) |
 | M3b | Interaction: inventory (TAKE/FOUND/IN_HAND), action button, text MESSAGE rendering | done |
-| M3c | Combat: HIT/FIRE/THROW animActions, game over → completable | later |
+| M3c | Combat: HIT/FIRE/THROW animActions, floor-5 combat venue, multi-floor `FloorStart`, the real death script → GAME_OVER → restart | done (one open ruling: the restart boundary after the death cinematic, `docs/m3c-combat-proof.md`) |
 | M3d | Mouse-only point-and-click input | done |
-| M4 | Menus, audio, save/load | later |
+| M4 | Menus, audio, save/load, ending/completability | later |
 
 Design docs live in `docs/superpowers/specs/` and `docs/superpowers/plans/`
 (one spec + one task-level TDD plan per milestone). `docs/life-vm-opcodes.md`
@@ -52,6 +53,8 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `anim.py` | AnimPlayer: SetAnimObjet/SetInterAnimObjet keyframe interpolation |
 | `world.py`, `cos_table.py` | Fixed-point rotations, camera transform/projection (M2-verified goldens) |
 | `skel.py`, `mask.py`, `render.py` | Skinning/projection, mask rasterization, ModernGL pipeline (actor FBO → composite → window quad) |
+| `anim_action.py` | GereFrappe action runner: melee (1→10→2), hit-object, firearm volume sweep (4→5), throw setup/launch/flight (6→7→9). Publishes `hit`/`hit_by`/`hit_force` only — never actor `life` |
+| `scenario.py` | `COMBAT_VENUE`/`enter_combat_venue`: the one pinned floor-5 debug venue shared by play, tests and the proof tool |
 | `playworld.py` | PlayWorld tick (mainLoop.cpp:41-281 order): input snapshot → anim/dec pass → LIFE pass → floor/room/camera flags → messages. Free of pygame/GL: `play_tick` runs headless |
 | `navmesh.py` | Walkable grid from cover zones (FITD `is_in_poly` vectorised) + A* |
 | `picking.py` | Screen->world: floor homography fitted from the real projection, actor bbox hit-test |
@@ -104,8 +107,10 @@ against `AITD1.cpp` — the plan + code are the source of truth).
   at player position (505, -1706); the wrong rendered facing had made navigation
   toward that trigger appear inconsistent.
 
-M3b/M3c stubs in `life_ops.py` consume exact FITD arg counts and log under trace
-(audio, inventory, combat, text) — scripts stay desync-free until real semantics land.
+Remaining stubs in `life_ops.py` consume exact FITD arg counts and log under trace
+(audio, text) — scripts stay desync-free until real semantics land. The combat
+opcodes are no longer stubs: `LM_HIT`, `LM_FIRE` and `LM_THROW` arm the real
+action runner.
 
 ## M3b interaction boundary
 
@@ -118,6 +123,26 @@ M3b/M3c stubs in `life_ops.py` consume exact FITD arg counts and log under trace
 - Full regression: `.venv/bin/pytest -q && make prove`.
 - Manual evidence: `docs/m3b-interaction-proof.md`.
 - M3d mouse-input proof (navmesh coverage per floor): `make prove-mouse`; manual evidence `docs/m3d-mouse-input-proof.md`.
+
+## M3c combat boundary
+
+- `game.FloorStart` is the restart boundary `(stage, room, x, y, z, camera_slot)`;
+  `enter_floor_start` is the one "immediately be on a floor" implementation and
+  performs no Floor I/O — `__main__.run` owns loading the Floor, before and after
+  a restart.
+- `scenario.COMBAT_VENUE` = `FloorStart(5, 4, -7800, -4010, -1000, 0)`, the only
+  supported non-attic debug start (`--combat-venue`; a non-zero `--floor` exits 2).
+- `LM_GAME_OVER` raises `flag_game_over`; `playworld` turns it into a
+  `GameOver(120)` modal only after the complete LIFE pass — including a flag the
+  real death script raises from a LIFE continuation resumed between ticks, which
+  the next tick consumes before re-running that LIFE. `__main__.restart_session`
+  rebuilds a fresh `Game` at the same `FloorStart`.
+- A cross-floor `LM_STAGE` consumes its room change in the same tick (FITD
+  mainLoop.cpp:189-199) and regenerates the active list through the existing
+  `flag_genere_aff_list` gate: FITD's stale anim pass is an out-of-range
+  `roomDataTable` read C++ tolerates and Python cannot.
+- Focused proof: `make prove-combat`; evidence and the open gap:
+  `docs/m3c-combat-proof.md`.
 - Deferred (review rulings): `choose_inventory_action` sets in-hand + action
   directly where FITD sets in-hand only via LM_IN_HAND — revisit when M3c
   combat items land; `gere_dec` stops at the first containing zone where FITD

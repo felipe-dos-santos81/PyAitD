@@ -92,7 +92,6 @@ class InventoryResult:
 @dataclass
 class ReadingPresenter:
     page: int = 0
-    elapsed_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -313,6 +312,23 @@ def render_inventory(presenter, assets, scene_frame, object_names, action_names)
     return _to_frame(surface)
 
 
+def render_game_over(scene_frame, ready):
+    # LM_GAME_OVER's wall-clock wait (life.cpp:2438-2450) freezes the last PLAY
+    # frame -- locked, this returns the caller's frame untouched, byte-identical,
+    # not recomposed, so the modal appears to hold the moment of death still.
+    if not ready:
+        return scene_frame
+    surface = _to_surface(scene_frame.copy())
+    shade = pygame.Surface((320, 200), flags=pygame.SRCALPHA)
+    shade.fill((0, 0, 0, 170))
+    surface.blit(shade, (0, 0))
+    title = _font(40).render("Game Over", True, (255, 238, 198))
+    prompt = _font(18).render("Click to restart", True, (255, 255, 255))
+    surface.blit(title, title.get_rect(center=(160, 82)))
+    surface.blit(prompt, prompt.get_rect(center=(160, 126)))
+    return _to_frame(surface)
+
+
 def visible_start(cursor, total):
     return min(max(0, cursor - 4), max(0, total - 5))
 
@@ -347,12 +363,14 @@ class ModalSession:
     found: FoundPresenter = field(default_factory=FoundPresenter)
     inventory: InventoryPresenter = field(default_factory=InventoryPresenter)
     reading: ReadingPresenter = field(default_factory=ReadingPresenter)
+    elapsed_ms: int = 0
     last_effect: object = field(default=None, repr=False)
 
     def reset_for(self, effect):
         if effect is self.last_effect:
             return
         self.last_effect = effect
+        self.elapsed_ms = 0
         self.found = FoundPresenter(
             FoundResult.LEAVE if getattr(effect, "forced_refuse", False) else FoundResult.TAKE
         )

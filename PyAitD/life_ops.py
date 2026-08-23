@@ -4,7 +4,7 @@ import logging
 
 from PyAitD.actors import cube_intersect
 from PyAitD.effects import AddMessage, BeginTake, ReadText, ShowPicture
-from PyAitD.game import AF_ANIMATED, AF_MASK, _zv_cube, _zv_max, _zv_rot
+from PyAitD.game import AF_ANIMATED, AF_MASK, FloorStart, _zv_cube, _zv_max, _zv_rot, relocate_actor
 from PyAitD.life import eval_var, read_s16
 from PyAitD.realvalue import init_real_value, update_actor_rotation
 from PyAitD.tracks import gere_manual_rot, init_deplacement, process_track
@@ -100,14 +100,21 @@ def op_body(vm):
 
 
 def op_hit(vm):
-    # life.cpp:1049 — M3c stub: consume, action runner lands in M3c
-    read_s16(vm)  # anim
-    read_s16(vm)  # startFrame
-    read_s16(vm)  # groupNumber
-    read_s16(vm)  # hitBoxSize
-    eval_var(vm)  # hitForce
-    read_s16(vm)  # nextAnim
-    vm.actor.anim_action_type = 0
+    # main.cpp:4375 hit(): arm melee only when InitAnim accepts the anim;
+    # a rejection still consumes every operand but leaves prior state alone.
+    anim = read_s16(vm)  # anim
+    frame = read_s16(vm)  # startFrame
+    group = read_s16(vm)  # groupNumber
+    radius = read_s16(vm)  # hitBoxSize
+    force = eval_var(vm)  # hitForce
+    next_anim = read_s16(vm)  # nextAnim
+    if init_anim(vm.actor, anim, 0, next_anim):
+        vm.actor.anim_action_anim = anim
+        vm.actor.anim_action_frame = frame
+        vm.actor.anim_action_type = 1
+        vm.actor.anim_action_param = radius
+        vm.actor.hot_point_id = group
+        vm.actor.hit_force = force
 
 
 def op_move(vm):
@@ -275,50 +282,30 @@ def op_do_rot_zv(vm):
 
 def op_stage(vm):
     # life.cpp:1293 + setStage (life.cpp:306)
-    a = vm.actor
     game = vm.game
     new_stage = read_s16(vm)
     new_room = read_s16(vm)
     x = read_s16(vm)
     y = read_s16(vm)
     z = read_s16(vm)
-    a.stage = new_stage
-    a.room = new_room
 
-    anim_x = a.room_x + a.step_x
-    anim_y = a.room_y + a.step_y
-    anim_z = a.room_z + a.step_z
-    a.zv[0] += x - anim_x
-    a.zv[1] += x - anim_x
-    a.zv[2] += y - anim_y
-    a.zv[3] += y - anim_y
-    a.zv[4] += z - anim_z
-    a.zv[5] += z - anim_z
-    a.room_x = x
-    a.room_y = y
-    a.room_z = z
-    a.world_x = x
-    a.world_y = y
-    a.world_z = z
-    a.step_x = 0
-    a.step_y = 0
-    a.step_z = 0
+    relocate_actor(game, vm.cur_idx, new_stage, new_room, x, y, z)
 
     if game.current_camera_target_actor == vm.cur_idx:
         if new_stage != game.current_floor:
+            game.floor_start = FloorStart(new_stage, new_room, x, y, z, 0)
             game.flag_change_etage = 1
             game.new_num_etage = new_stage
             game.new_num_salle = new_room
-        else:
-            if game.current_room != new_room:
-                game.flag_change_salle = 1
-                game.new_num_salle = new_room
-    else:
-        if game.current_room != new_room:
-            dx, dy, dz = room_delta(game, new_room, game.current_room)
-            a.world_x -= dx
-            a.world_y += dy
-            a.world_z += dz
+        elif game.current_room != new_room:
+            game.flag_change_salle = 1
+            game.new_num_salle = new_room
+    elif game.current_room != new_room:
+        actor = game.actors[vm.cur_idx]
+        dx, dy, dz = room_delta(game, new_room, game.current_room)
+        actor.world_x -= dx
+        actor.world_y += dy
+        actor.world_z += dz
 
 
 def op_found_name(vm):
@@ -371,10 +358,16 @@ def op_drop(vm):
 
 
 def op_fire(vm):
-    # life.cpp:1064, AITD1: 6 raw — M3c stub (action runner lands in M3c)
-    for _ in range(6):
-        read_s16(vm)
-    log.debug("LM_FIRE (M3c stub)")
+    # life.cpp:1064 fire(): arm ranged attack only when InitAnim accepts;
+    # a rejection still consumes every operand but leaves prior state alone.
+    anim, frame, group, radius, force, next_anim = (read_s16(vm) for _ in range(6))
+    if init_anim(vm.actor, anim, 2, next_anim):
+        vm.actor.anim_action_anim = anim
+        vm.actor.anim_action_frame = frame
+        vm.actor.anim_action_type = 4
+        vm.actor.anim_action_param = radius
+        vm.actor.hot_point_id = group
+        vm.actor.hit_force = force
 
 
 def op_test_col(vm):
@@ -514,10 +507,21 @@ def op_rep_sample(vm):
 
 
 def op_throw(vm):
-    # life.cpp:1143: 7 raw — M3c stub (throw runner lands in M3c)
-    for _ in range(7):
-        read_s16(vm)
-    log.debug("LM_THROW (M3c stub)")
+    # life.cpp:1143 throwObj(): arm the throw only when InitAnim accepts;
+    # a rejection still consumes every operand but leaves prior state alone.
+    anim, frame, group, object_idx, rotated, force, next_anim = (
+        read_s16(vm) for _ in range(7)
+    )
+    if init_anim(vm.actor, anim, 2, next_anim):
+        vm.actor.anim_action_anim = anim
+        vm.actor.anim_action_frame = frame
+        vm.actor.anim_action_type = 6
+        vm.actor.anim_action_param = object_idx
+        vm.actor.hot_point_id = group
+        vm.actor.hit_force = force
+        if rotated == 0:
+            vm.game.world_objects[object_idx].gamma -= 0x100
+        vm.game.world_objects[object_idx].found_flag |= 0x1000
 
 
 def op_water(vm):

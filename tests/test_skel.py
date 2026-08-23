@@ -2,7 +2,8 @@
 import pytest
 
 from PyAitD.formats import Body, Group, Primitive
-from PyAitD.skel import skin
+from PyAitD.game import init_game
+from PyAitD.skel import hot_point, pose_vertices, skin
 from PyAitD.world import CameraState
 
 
@@ -95,3 +96,34 @@ def test_actor_rotation_uses_group_zero_not_first_group_in_order():
 
     assert result.points[0] == pytest.approx((160.0, 100.0, 698.0))
     assert result.points[1] == pytest.approx((160.0, 100.0, 700.0))
+
+
+def test_hot_point_is_the_shared_posed_base_vertex():
+    body = Body(
+        flags=2, zv=(0, 0, 0, 0, 0, 0), scratch=(),
+        vertices=[(100, 0, 0), (0, 0, 0)],
+        groups=[Group(0, 1, 1, 0xFF, 0, 0, 0, 0)], group_order=[0],
+        primitives=[],
+    )
+    states = [(0, (0, 0x100, 0))]
+    posed = pose_vertices(body, states, actor_angles=(0, 0x100, 0))
+    assert hot_point(body, states, (0, 0x100, 0), 0) == tuple(posed[1])
+
+
+def test_real_combat_bodies_share_the_named_base_vertex(data_dir):
+    game = init_game(data_dir)
+    for body_num in (234, game.actors[game.current_camera_target_actor].body_num):
+        body = game.assets.body(body_num)
+        states = [(0, (0x20, 0x40, 0x10)) for _ in body.groups]
+        posed = pose_vertices(body, states, actor_angles=(0x10, 0x80, 0x20))
+        assert hot_point(body, states, (0x10, 0x80, 0x20), 0) == tuple(
+            posed[body.groups[0].base_vertices]
+        )
+
+
+def test_hot_point_zero_and_bad_group_contracts(data_dir):
+    plain = _cube_body()
+    assert hot_point(plain, [], (0, 0, 0), 0) == (0, 0, 0)
+    body = init_game(data_dir).assets.body(234)
+    with pytest.raises(ValueError, match=r"body with 24 groups has hot-point group 24"):
+        hot_point(body, [(0, (0, 0, 0))] * len(body.groups), (0, 0, 0), len(body.groups))

@@ -105,6 +105,17 @@ class Actor:
     life_mode: int = -1
 
 
+@dataclass(frozen=True)
+class FloorStart:
+    # a restart boundary: the coordinates for "immediately be on a floor"
+    stage: int
+    room: int
+    x: int
+    y: int
+    z: int
+    camera_slot: int
+
+
 class Game:
     def __init__(self, data_dir, hero=0):
         self._data_dir = data_dir
@@ -125,6 +136,9 @@ class Game:
         # play loop state (M3a): LIFE trace sink + per-actor anim players
         self.trace = None
         self.anim_players = {}
+        # restart boundary: current "immediately be on a floor" target (M3c)
+        self.floor_start = None
+        self.restart_requested = False
         # world / camera state
         self.current_floor = 0
         self.current_room = 0
@@ -522,6 +536,46 @@ def change_salle(game, room):
     game.flag_init_view = 2
 
 
+def relocate_actor(game, actor_idx, stage, room, x, y, z):
+    # setStage coordinate block (life.cpp:306): rebase zv onto the new
+    # actual position, move the actor, and zero its per-frame step deltas.
+    actor = game.actors[actor_idx]
+    actual_x = actor.room_x + actor.step_x
+    actual_y = actor.room_y + actor.step_y
+    actual_z = actor.room_z + actor.step_z
+    actor.zv[0] += x - actual_x
+    actor.zv[1] += x - actual_x
+    actor.zv[2] += y - actual_y
+    actor.zv[3] += y - actual_y
+    actor.zv[4] += z - actual_z
+    actor.zv[5] += z - actual_z
+    actor.stage, actor.room = stage, room
+    actor.room_x = actor.world_x = x
+    actor.room_y = actor.world_y = y
+    actor.room_z = actor.world_z = z
+    actor.step_x = actor.step_y = actor.step_z = 0
+
+
+def enter_floor_start(game, floor_start):
+    # the ONE implementation of "immediately be on a floor": used by the
+    # debug combat venue, integration tests, the headless proof tool, and
+    # restart. No Floor I/O here — the caller owns loading the Floor.
+    relocate_actor(
+        game, game.current_camera_target_actor,
+        floor_start.stage, floor_start.room,
+        floor_start.x, floor_start.y, floor_start.z,
+    )
+    game.current_floor = game.new_num_etage = floor_start.stage
+    game.flag_change_etage = 0
+    change_salle(game, floor_start.room)
+    game.new_num_salle = floor_start.room
+    game.new_num_camera = floor_start.camera_slot
+    game.flag_init_view = 2
+    spawn_stage_actors(game)
+    game.flag_genere_aff_list = 0
+    game.num_camera = -1
+
+
 def game_step_tick(game):
     game.timer += 1
 
@@ -536,4 +590,6 @@ def init_game(data_dir, hero=0):
     change_salle(game, 0)
     game.new_num_camera = 0
     game.flag_init_view = 2
+    hero = game.actors[game.current_camera_target_actor]
+    game.floor_start = FloorStart(hero.stage, hero.room, hero.room_x, hero.room_y, hero.room_z, 0)
     return game

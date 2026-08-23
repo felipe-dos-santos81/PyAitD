@@ -6,7 +6,8 @@ advanced without a window. Callers still reach `ui.py` for an InputBuffer;
 freeing that needs InputBuffer moved out of the presentation layer.
 """
 from PyAitD.actors import gere_anim
-from PyAitD.effects import GameMode, InputMode, LifeFrame
+from PyAitD.anim_action import gere_frappe, refresh_hot_point
+from PyAitD.effects import GameMode, GameOver, InputMode, LifeFrame
 from PyAitD.formats import parse_cover_zones
 from PyAitD.game import (
     AF_ANIMATED, AF_TRIGGER, change_salle, game_step_tick, spawn_stage_actors,
@@ -63,17 +64,29 @@ def _apply_mouse_input(game):
         game.local_joyd = 0
 
 
+def _run_actor_action(game, index, actor, flags):
+    # animAction.cpp's GereFrappe consumes the *previous* pose's hot point
+    # inside AllRedraw; this port refreshes it here, immediately before
+    # gere_anim advances that pose, to reproduce the same value headlessly.
+    if actor.anim_action_type and actor.hot_point_id != -1:
+        refresh_hot_point(game, index)
+    if flags & AF_ANIMATED:
+        gere_anim(game, index)
+        if game.mode is not GameMode.PLAY:
+            return False
+    if flags & AF_TRIGGER:
+        gere_dec(game, index)
+    if actor.anim_action_type:
+        gere_frappe(game, index)
+    return game.mode is GameMode.PLAY
+
+
 def _anim_pass(game):
     for index, actor in enumerate(game.actors):
         if actor.index_in_world < 0:
             continue
-        flags = actor.object_type
-        if flags & AF_ANIMATED:
-            gere_anim(game, index)
-            if game.mode is not GameMode.PLAY:
-                return False
-        if flags & AF_TRIGGER:
-            gere_dec(game, index)
+        if not _run_actor_action(game, index, actor, actor.object_type):
+            return False
     return game.mode is GameMode.PLAY
 
 
@@ -110,11 +123,42 @@ def _camera_switch(game, floor):
         game.flag_init_view = 1
 
 
+def _genere_active_list(game):
+    # mainLoop.cpp:249 GenereActiveList. FITD calls it unconditionally; this
+    # port keeps its flag_genere_aff_list request gate, so this stays the one
+    # place the active list is regenerated.
+    if not game.flag_genere_aff_list:
+        return
+    spawn_stage_actors(game)
+    game.flag_genere_aff_list = 0
+
+
+def _handoff_game_over(game):
+    # mainLoop.cpp:185,233: FlagGameOver is checked only after the complete
+    # LIFE actor loop, never mid-loop, and precedes floor/room/camera/spawn
+    # handling. No LIFE continuation is retained: restart is a fresh session.
+    if not game.flag_game_over:
+        return True
+    game.flag_game_over = 0
+    game.open_modal(GameOver())
+    return False
+
+
 def play_tick(game, floor, input_buffer):
     # mainLoop.cpp:41-281 PlayWorld, one 50Hz iteration, PLAY mode only.
     # Rendering stays outside this fixed-step function so catch-up ticks
     # cannot block input behind repeated GPU work.
     if game.mode is not GameMode.PLAY:
+        return False
+    if game.flag_game_over and not _handoff_game_over(game):
+        # A LIFE frame suspended on a modal is resumed by interaction.resume_life
+        # when that modal closes, outside this function: the real death sequence
+        # (LISTLIFE 554) is LM_PICTURE immediately followed by LM_GAME_OVER, so
+        # the flag is raised long after the raising tick's LIFE loop finished.
+        # FITD never sees a pending flag -- its LM_PICTURE blocks inside
+        # processLife, so LM_GAME_OVER lands in the same pass mainLoop.cpp:185
+        # checks. Consume it before this tick re-runs that LIFE, which would
+        # suspend on the picture again and strand the flag forever.
         return False
     game.current_floor_data = floor   # the mesh cache needs the loaded Floor
     apply_play_input(game, input_buffer)
@@ -142,13 +186,26 @@ def play_tick(game, floor, input_buffer):
                 return False
         if game.flag_change_etage:
             break
+    if not _handoff_game_over(game):
+        return False
     if game.flag_change_etage:
-        # LoadEtage M3a subset (floor.cpp:7): floor data swap happens in run();
-        # FITD LoadEtage sets FlagChangeSalle so the view re-rooms next tick.
+        # LoadEtage M3a subset (floor.cpp:7): floor data swap happens in run().
+        # LoadEtage raises FlagChangeSalle (floor.cpp:40) and mainLoop consumes
+        # it in the same iteration (mainLoop.cpp:189-199), so the room change
+        # lands here rather than a tick later.
         game.current_floor = game.new_num_etage
         game.flag_change_etage = 0
-        game.num_camera = -1
-        game.flag_change_salle = 1
+        change_salle(game, game.new_num_salle)
+        game.flag_change_salle = 0
+        # FITD then `continue`s past GenereActiveList, so its next iteration
+        # runs the anim pass over the previous floor's actors and only
+        # regenerates at the end of it (mainLoop.cpp:249) -- C++ tolerates the
+        # out-of-range roomDataTable read that produces, Python raises
+        # IndexError. Raise the port's existing spawn request instead, so the
+        # one spawn gate regenerates the list here, before any pass indexes the
+        # new floor's rooms.
+        game.flag_genere_aff_list = 1
+        _genere_active_list(game)
         return False
     if game.flag_change_salle:
         # mainLoop.cpp:194-199: ChangeSalle + InitView + continue (no draw)
@@ -160,8 +217,6 @@ def play_tick(game, floor, input_buffer):
         # InitView M3a subset: camera data is loaded on demand at draw
         game.num_camera = game.new_num_camera
         game.flag_init_view = 0
-    if game.flag_genere_aff_list:
-        spawn_stage_actors(game)
-        game.flag_genere_aff_list = 0
+    _genere_active_list(game)
     advance_messages(game)
     return True

@@ -51,15 +51,18 @@ def test_world_idx_out_of_range_raises(data_dir):
         eval_var(vm)
 
 
-def test_other_object_not_in_floor(data_dir):
+def test_other_object_not_in_floor_supports_only_fitd_raw_tags(data_dir):
     game = init_game(data_dir, hero=0)
     widx = next(i for i, w in enumerate(game.world_objects) if w.obj_index == -1)
-    game.world_objects[widx].room = 3
-    vm = _vm(game, 0x8000 | (0x1F + 1), widx)  # room allowed when not in floor
-    assert eval_var(vm) == 3
-    game.world_objects[widx].stage = 1
-    vm = _vm(game, 0x8000 | (0x26 + 1), widx)  # stage allowed when not in floor
-    assert eval_var(vm) == 1
+    world = game.world_objects[widx]
+    world.room = 3
+    world.stage = 5
+
+    assert eval_var(_vm(game, 0x801F, widx)) == 3
+    assert eval_var(_vm(game, 0x8026, widx)) == 5
+
+    with pytest.raises(ValueError, match=r"raw tag 0x0020.*FITD asserts"):
+        eval_var(_vm(game, 0x8020, widx))
 
 
 def test_nested_eval_var_found_flag(data_dir):

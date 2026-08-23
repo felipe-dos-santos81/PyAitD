@@ -20,7 +20,9 @@ class RenderResult:
     primitives: list
 
 
-def skin(body, group_states, position, camera, actor_angles=None):
+def pose_vertices(body, group_states, actor_angles=None):
+    # Unprojected pose step of FITD renderer.cpp AnimNuage, shared by skin()
+    # (render path) and hot_point() (combat path); see getHotPoint main.cpp:2976.
     pts = [list(v) for v in body.vertices]
     num_points = len(pts)
 
@@ -59,6 +61,24 @@ def skin(body, group_states, position, camera, actor_angles=None):
             p[0] += base[0]
             p[1] += base[1]
             p[2] += base[2]
+
+    return pts
+
+
+def hot_point(body, group_states, actor_angles, hot_point_id):
+    # getHotPoint main.cpp:2976: reads the skinned buffer, gated on flags & 2.
+    if not body.flags & 2:
+        return (0, 0, 0)
+    if not 0 <= hot_point_id < len(body.groups):
+        raise ValueError(
+            f"body with {len(body.groups)} groups has hot-point group {hot_point_id}"
+        )
+    points = pose_vertices(body, group_states, actor_angles)
+    return tuple(points[body.groups[hot_point_id].base_vertices])
+
+
+def skin(body, group_states, position, camera, actor_angles=None):
+    pts = pose_vertices(body, group_states, actor_angles)
 
     px, py, pz = position
     projected = []

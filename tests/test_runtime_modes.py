@@ -4,12 +4,13 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from PyAitD.__main__ import route_command, route_mouse
+from PyAitD.__main__ import restart_session, route_command, route_mouse
 from PyAitD.playworld import apply_play_input
 from PyAitD.effects import (
     GameMode, InputMode, NavDecision, NavIntent, OpenInventory, ReadText, ShowPicture,
 )
 from PyAitD.game import init_game
+from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.ui import Command, InputBuffer, ModalLayout, ModalSession
 
 
@@ -186,3 +187,171 @@ def test_nav_intent_defaults_to_a_bare_destination():
 def test_nav_decision_carries_the_mirrored_joystick_bits():
     decision = NavDecision(joyd=5, target_x=1, target_z=2, advance=True, arrived=False)
     assert decision.joyd == 5 and decision.advance is True
+
+
+def test_restart_session_rebuilds_state_and_preserves_session_choices(data_dir):
+    old = init_game(data_dir, hero=1)
+    enter_combat_venue(old)
+    old.input_mode = InputMode.KEYBOARD
+    old.trace = object()
+    old.vars[21] = 0
+    old.inventory_count[0] = 1
+    old.restart_requested = True
+
+    new = restart_session(old)
+
+    assert new is not old
+    assert new.floor_start == COMBAT_VENUE
+    assert new.cvars[8] == 1
+    assert new.input_mode is InputMode.KEYBOARD
+    assert new.trace is old.trace
+    assert new.vars[21] == 20
+    assert new.inventory_count == [0, 0]
+    assert new.active_modal is None
+    assert new.restart_requested is False
+    assert (new.current_floor, new.current_room, new.num_camera) == (5, 4, -1)
+
+
+def test_restart_session_rebuilds_state_from_the_initial_floor(data_dir):
+    # the combat venue is one supported restart boundary; floor 0 (a fresh
+    # game's own floor_start) is the other, and must not be special-cased.
+    old = init_game(data_dir, hero=1)
+    floor_start = old.floor_start
+    old.input_mode = InputMode.KEYBOARD
+    old.trace = object()
+    old.vars[21] = 0
+    old.inventory_count[0] = 1
+    old.restart_requested = True
+
+    new = restart_session(old)
+
+    assert new is not old
+    assert new.floor_start == floor_start
+    assert new.cvars[8] == 1
+    assert new.input_mode is InputMode.KEYBOARD
+    assert new.trace is old.trace
+    assert new.vars[21] == 20
+    assert new.inventory_count == [0, 0]
+    assert new.active_modal is None
+    assert new.restart_requested is False
+    assert (new.current_floor, new.current_room) == (floor_start.stage, floor_start.room)
+
+
+def test_restart_session_calls_init_game_and_enter_floor_start_once_and_builds_no_floor(
+    data_dir, monkeypatch,
+):
+    import PyAitD.__main__ as main
+
+    old = init_game(data_dir, hero=0)
+    enter_combat_venue(old)
+    old.restart_requested = True
+
+    init_calls, enter_calls, floor_calls = [], [], []
+    real_init_game, real_enter_floor_start = main.init_game, main.enter_floor_start
+
+    def spy_init_game(*args, **kwargs):
+        init_calls.append((args, kwargs))
+        return real_init_game(*args, **kwargs)
+
+    def spy_enter_floor_start(*args, **kwargs):
+        enter_calls.append((args, kwargs))
+        return real_enter_floor_start(*args, **kwargs)
+
+    def refuse_floor(*args, **kwargs):
+        floor_calls.append((args, kwargs))
+        raise AssertionError("restart_session must not construct a Floor")
+
+    monkeypatch.setattr(main, "init_game", spy_init_game)
+    monkeypatch.setattr(main, "enter_floor_start", spy_enter_floor_start)
+    monkeypatch.setattr(main, "Floor", refuse_floor)
+
+    new = main.restart_session(old)
+
+    assert len(init_calls) == 1
+    assert len(enter_calls) == 1
+    assert floor_calls == []
+    assert new is not old
+
+
+def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypatch, data_dir, tmp_path):
+    # Step 7: run() owns the atomic restart -- restart_session and Floor must
+    # run, then the per-frame state (session/input buffer) must be reset, then
+    # the scene must be recomposed, all before the loop is allowed to tick the
+    # world or present a frame for the new game.
+    import PyAitD.__main__ as main
+
+    calls = []
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+
+    old_game = init_game(data_dir)
+    old_game.restart_requested = True
+
+    new_game = SimpleNamespace(
+        _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,
+        num_camera=-1, new_num_camera=0, flag_init_view=2, current_room=0,
+        actors=[], active_modal=None, input_mode=InputMode.MOUSE,
+        restart_requested=False,
+    )
+
+    def spy_restart_session(game):
+        calls.append("restart_session")
+        return new_game
+
+    def spy_floor(*args):
+        calls.append("Floor")
+        return SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])])
+
+    def spy_modal_session():
+        calls.append("ModalSession reset")
+        # elapsed_ms lives on ModalSession itself (ui.ModalSession), not
+        # nested under .reading -- match that shape even though this test's
+        # restart path returns before reading it.
+        return SimpleNamespace(elapsed_ms=0)
+
+    def spy_input_buffer():
+        calls.append("InputBuffer reset")
+        return InputBuffer()
+
+    def spy_scene_frame(*args):
+        calls.append("_scene_frame")
+        return frame, []
+
+    def spy_play_tick(*args):
+        calls.append("play_tick")
+        return True
+
+    def spy_present(image):
+        calls.append("present")
+
+    event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])
+    times = iter([0] * 8)
+
+    monkeypatch.setattr(main, "restart_session", spy_restart_session)
+    monkeypatch.setattr(main, "Floor", spy_floor)
+    monkeypatch.setattr(main, "ModalSession", spy_modal_session)
+    monkeypatch.setattr(main, "InputBuffer", spy_input_buffer)
+    monkeypatch.setattr(main, "_scene_frame", spy_scene_frame)
+    monkeypatch.setattr(main, "play_tick", spy_play_tick)
+    monkeypatch.setattr(main, "render_active_mode", lambda *a: frame)
+    monkeypatch.setattr(
+        main, "Renderer",
+        lambda: SimpleNamespace(present=spy_present, close=lambda: None),
+    )
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *a: None)
+    )
+
+    assert main.run(old_game) == 0
+
+    start = calls.index("restart_session")
+    scene_at = calls.index("_scene_frame", start)
+    window = calls[start:scene_at + 1]
+    assert window[0] == "restart_session"
+    assert window[1] == "Floor"
+    assert "ModalSession reset" in window[2:-1]
+    assert "InputBuffer reset" in window[2:-1]
+    assert window[-1] == "_scene_frame"
+    assert "play_tick" not in window
+    assert "present" not in window

@@ -3,9 +3,10 @@
 import subprocess
 import sys
 
+from PyAitD.anim_action import WAIT_FRAPPE_ANIM
 from PyAitD.floor import Floor
 from PyAitD.game import init_game
-from PyAitD.playworld import play_tick
+from PyAitD.playworld import _anim_pass, play_tick
 from PyAitD.ui import InputBuffer
 
 # Runs in a fresh interpreter: pytest (and this module, via InputBuffer) has
@@ -13,7 +14,7 @@ from PyAitD.ui import InputBuffer
 # A static import walk cannot substitute — it reports pygame reachable through
 # interaction.apply_found_result's deferred `from PyAitD.ui import FoundResult`.
 _PURITY_PROBE = """
-import sys, PyAitD.playworld
+import sys, PyAitD.playworld, PyAitD.anim_action
 # the layer rule, then the third-party names a direct import would pull in
 leaked = {"PyAitD.ui", "PyAitD.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
 sys.exit(", ".join(sorted(leaked)) or None)
@@ -135,3 +136,23 @@ def test_hero_walks_to_a_clicked_destination_and_arrives(data_dir):
     )
     assert hero.room == 0, "the walk must not have left the room"
     assert game.action == 0, "a bare floor walk does not press the action button"
+
+
+def test_anim_pass_refreshes_before_anim_and_strikes_after_dec(monkeypatch, data_dir):
+    # idx is the hero (current_camera_target_actor), not actor 0: actor 0 is
+    # live but carries neither AF_ANIMATED nor AF_TRIGGER nor a set
+    # anim_action_type in the real floor-0 data, so it contributes zero
+    # entries to `calls` and the hero supplies the whole calls[:4] slice —
+    # the contract pinned here is refresh-before-anim, strike-after-dec, in
+    # that order, for the armed actor.
+    game = init_game(data_dir)
+    idx = game.current_camera_target_actor
+    game.actors[idx].anim_action_type = WAIT_FRAPPE_ANIM
+    game.actors[idx].hot_point_id = 0
+    calls = []
+    monkeypatch.setattr("PyAitD.playworld.refresh_hot_point", lambda *args: calls.append("hot"))
+    monkeypatch.setattr("PyAitD.playworld.gere_anim", lambda *args: calls.append("anim"))
+    monkeypatch.setattr("PyAitD.playworld.gere_dec", lambda *args: calls.append("dec"))
+    monkeypatch.setattr("PyAitD.playworld.gere_frappe", lambda *args: calls.append("hit"))
+    _anim_pass(game)
+    assert calls[:4] == ["hot", "anim", "dec", "hit"]
