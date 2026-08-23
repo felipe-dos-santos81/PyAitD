@@ -27,6 +27,7 @@ make floor=N run             # start on another floor
 | M3a | LIFE script VM core + world: the game boots from its **real scripts** — intro scene, actors spawn, scripts drive everything; script-driven player input | done (merged) |
 | M3b | Interaction: inventory (TAKE/FOUND/IN_HAND), action button, text MESSAGE rendering | done |
 | M3c | Combat: HIT/FIRE/THROW animActions, game over → completable | later |
+| M3d | Mouse-only point-and-click input | done |
 | M4 | Menus, audio, save/load | later |
 
 Design docs live in `docs/superpowers/specs/` and `docs/superpowers/plans/`
@@ -52,6 +53,9 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `world.py`, `cos_table.py` | Fixed-point rotations, camera transform/projection (M2-verified goldens) |
 | `skel.py`, `mask.py`, `render.py` | Skinning/projection, mask rasterization, ModernGL pipeline (actor FBO → composite → window quad) |
 | `playworld.py` | PlayWorld tick (mainLoop.cpp:41-281 order): input snapshot → anim/dec pass → LIFE pass → floor/room/camera flags → messages. Free of pygame/GL: `play_tick` runs headless |
+| `navmesh.py` | Walkable grid from cover zones (FITD `is_in_poly` vectorised) + A* |
+| `picking.py` | Screen->world: floor homography fitted from the real projection, actor bbox hit-test |
+| `navigate.py` | Mouse follower: NavIntent -> one tick of steering + mirrored joyd |
 | `__main__.py` | Process shell: event pump, fixed-step accumulator, `_scene_frame` view assembly, modal routing, one present per frame |
 
 ## Fidelity notes (hard-won)
@@ -113,6 +117,7 @@ M3b/M3c stubs in `life_ops.py` consume exact FITD arg counts and log under trace
 - Focused proof: `make prove-m3b`.
 - Full regression: `.venv/bin/pytest -q && make prove`.
 - Manual evidence: `docs/m3b-interaction-proof.md`.
+- M3d mouse-input proof (navmesh coverage per floor): `make prove-mouse`; manual evidence `docs/m3d-mouse-input-proof.md`.
 - Deferred (review rulings): `choose_inventory_action` sets in-hand + action
   directly where FITD sets in-hand only via LM_IN_HAND — revisit when M3c
   combat items land; `gere_dec` stops at the first containing zone where FITD

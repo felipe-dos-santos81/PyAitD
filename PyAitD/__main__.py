@@ -20,7 +20,7 @@ from PyAitD.picking import actor_bbox
 from PyAitD.playworld import TICK_MS, play_tick
 from PyAitD.render import Renderer
 from PyAitD.skel import skin
-from PyAitD.ui import Command, InputBuffer, ModalSession, event_to_input
+from PyAitD.ui import Command, InputBuffer, ModalSession, event_to_input, render_cursor
 from PyAitD.world import CameraState
 
 DEFAULT_DATA = (
@@ -129,6 +129,30 @@ def _is_interactable(game, actor_idx):
     if actor.object_type & AF_FOUNDABLE:
         return True
     return game.world_objects[actor.index_in_world].found_life != -1
+
+
+def _hover_kind(game, floor, logical_pos, draw_list):
+    from PyAitD.navmesh import agent_extent
+    from PyAitD.picking import pick_actor, pick_floor
+    if logical_pos is None or game.num_camera == -1:
+        return "blocked"
+    hero_idx = game.current_camera_target_actor
+    if hero_idx == -1:
+        return "blocked"
+    hero = game.actors[hero_idx]
+    if pick_actor(logical_pos, [
+        (idx, box) for idx, box in draw_list
+        if idx != hero_idx and _is_interactable(game, idx)
+    ]) is not None:
+        return "target"
+    picked = pick_floor(logical_pos, floor, hero.room, game.num_camera, hero.world_y)
+    if picked is None:
+        return "blocked"
+    mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
+    if mesh is None or mesh.is_walkable(*picked):
+        return "walk"
+    from PyAitD.navmesh import nearest_walkable
+    return "walk" if nearest_walkable(mesh, *picked) else "blocked"
 
 
 def _inventory_view(game, session):
@@ -303,10 +327,13 @@ def run(game, trace_path=None):
         game.num_camera = game.new_num_camera
         game.flag_init_view = 0
     draw_list = []
+    hover = None
     scene_frame, draw_list = _scene_frame(game, floor, renderer)
     while running:
         for event in pygame.event.get():
             running = event_to_input(event, input_buffer) and running
+            if event.type == pygame.MOUSEMOTION:
+                hover = renderer.window_to_logical(event.pos)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 logical = renderer.window_to_logical(event.pos)
                 if game.active_modal is None and game.mode is GameMode.PLAY:
@@ -344,7 +371,10 @@ def run(game, trace_path=None):
             input_buffer.commands.clear()
             from PyAitD.interaction import cancel_nav_intent
             cancel_nav_intent(game)
-        renderer.present(render_active_mode(game, session, scene_frame))
+        composed = render_active_mode(game, session, scene_frame)
+        if game.mode is GameMode.PLAY and game.active_modal is None:
+            composed = render_cursor(composed, hover, _hover_kind(game, floor, hover, draw_list))
+        renderer.present(composed)
         if game.num_camera != -1:
             # M3a draw_ready gate: transition frames (change_salle/floor
             # pending, num_camera == -1, current_room stale) reuse the
