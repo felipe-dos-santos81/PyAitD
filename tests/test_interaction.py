@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: GPL-2.0-only
+from PyAitD.actors import check_object_col
 from PyAitD.effects import ShowFound
-from PyAitD.game import init_game
+from PyAitD.game import init_game, AF_FOUNDABLE
 from PyAitD.interaction import (
-    _finish_take, choose_inventory_action, inventory_actions, inventory_items,
-    inventory_weight, put_object, remove_from_inventory, request_found,
+    _finish_take, apply_click_intent, cancel_nav_intent, choose_inventory_action,
+    dispatch_nav_arrival, inventory_actions, inventory_items, inventory_weight,
+    put_object, remove_from_inventory, request_found, resolve_actor_contacts,
 )
 
 
@@ -65,3 +67,173 @@ def test_inventory_choice_sets_action_and_in_hand_before_found_life(data_dir, mo
     assert game.in_hand_table[0] == 10
     assert game.action == 1 << 2
     assert called == [10]
+
+
+def _foundable_pair(game):
+    hero_idx = game.current_camera_target_actor
+    hero = game.actors[hero_idx]
+    other_idx = next(
+        i for i, a in enumerate(game.actors)
+        if a.index_in_world >= 0 and i != hero_idx
+    )
+    other = game.actors[other_idx]
+    other.object_type |= AF_FOUNDABLE
+    other.room = hero.room
+    other.zv = list(hero.zv)          # overlapping, so contact is guaranteed
+    # Cross the preserved FoundObjet track_number == -1 post-load debounce by
+    # advancing the clock, not by rewriting the object's data — same idiom as
+    # test_arrival_at_a_foundable_target_opens_that_object_s_prompt below.
+    game.timer = 300
+    return hero_idx, hero, other_idx
+
+
+def test_mouse_mode_hero_still_triggers_found_on_contact(data_dir):
+    # the gate was `track_mode == 1`; mode 4 is equally player-controlled
+    game = init_game(data_dir)
+    hero_idx, hero, _other = _foundable_pair(game)
+    hero.track_mode = 4
+    resolve_actor_contacts(game, hero_idx, list(hero.zv), list(hero.zv), 0, 0)
+    assert isinstance(game.active_modal, ShowFound)
+
+
+def test_tank_mode_hero_still_triggers_found_on_contact(data_dir):
+    game = init_game(data_dir)
+    hero_idx, hero, _other = _foundable_pair(game)
+    hero.track_mode = 1
+    resolve_actor_contacts(game, hero_idx, list(hero.zv), list(hero.zv), 0, 0)
+    assert isinstance(game.active_modal, ShowFound)
+
+
+def test_scripted_actor_does_not_trigger_found(data_dir):
+    game = init_game(data_dir)
+    hero_idx, hero, _other = _foundable_pair(game)
+    hero.track_mode = 3          # scripted track: not player-controlled
+    resolve_actor_contacts(game, hero_idx, list(hero.zv), list(hero.zv), 0, 0)
+    assert game.active_modal is None
+
+
+def test_apply_click_intent_replaces_any_previous_intent(data_dir):
+    game = init_game(data_dir)
+    apply_click_intent(game, 100, 200, 0)
+    apply_click_intent(game, 300, 400, 0)
+    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == (300, 400)
+    assert game.nav_intent.waypoints is None, "a new click re-paths from scratch"
+
+
+def test_cancel_clears_intent_and_decision(data_dir):
+    game = init_game(data_dir)
+    apply_click_intent(game, 100, 200, 0)
+    game.nav_decision = object()
+    cancel_nav_intent(game)
+    assert game.nav_intent is None and game.nav_decision is None
+
+
+def test_arrival_at_a_foundable_target_opens_that_object_s_prompt(data_dir):
+    # the accessibility win: the prompt is for the object that was CLICKED,
+    # not for whatever ZV the hero happened to overlap on the way
+    game = init_game(data_dir)
+    # No actor in this floor's initial spawn is naturally AF_FOUNDABLE, so mark
+    # one (matching the _foundable_pair idiom above). game.timer = 300 crosses
+    # the preserved FoundObjet track_number == -1 post-load debounce quirk.
+    game.timer = 300
+    target = next(i for i, w in enumerate(game.world_objects) if w.obj_index != -1)
+    game.actors[game.world_objects[target].obj_index].object_type |= AF_FOUNDABLE
+    game.nav_arrived_target = target
+    completed = dispatch_nav_arrival(game)
+    assert completed is False, "opening a modal suspends the tick"
+    assert isinstance(game.active_modal, ShowFound)
+    assert game.active_modal.object_idx == target
+    assert game.nav_arrived_target == -1, "arrival is consumed exactly once"
+
+
+def test_arrival_dispatches_the_clicked_target_not_a_proximity_neighbor(data_dir):
+    # Regression for the accessibility win itself: with a SINGLE foundable
+    # candidate (the test above), dispatch would pass identically whether it
+    # used the clicked index or fell back to whatever the hero's box happens
+    # to touch. Here two foundable objects both overlap the hero's zv, so
+    # both are plausible proximity candidates, and we deliberately click the
+    # one a proximity/collision scan would NOT pick first.
+    game = init_game(data_dir)
+    game.timer = 300  # cross the FoundObjet track_number == -1 debounce
+    hero_idx = game.current_camera_target_actor
+    hero = game.actors[hero_idx]
+    candidates = [
+        i for i, w in enumerate(game.world_objects)
+        if w.obj_index != -1 and w.obj_index != hero_idx
+    ][:2]
+    assert len(candidates) == 2, "fixture data needs two other spawned objects"
+    for world_idx in candidates:
+        actor = game.actors[game.world_objects[world_idx].obj_index]
+        actor.object_type |= AF_FOUNDABLE  # matches the _foundable_pair idiom
+        actor.room = hero.room
+        actor.zv = list(hero.zv)  # identical box: both fully overlap the hero
+
+    # This mirrors how resolve_actor_contacts finds a touched object: walk
+    # actors in ascending index order via check_object_col and take the
+    # first match. That is what a naive proximity/collision-based dispatch
+    # would pick -- and it is deliberately NOT the object we "click" below.
+    candidate_actor_idxs = {game.world_objects[w].obj_index for w in candidates}
+    touched = check_object_col(game, hero_idx, hero.zv)
+    naive_pick_actor_idx = next(a for a in touched if a in candidate_actor_idxs)
+    naive_pick_world_idx = next(
+        w for w in candidates
+        if game.world_objects[w].obj_index == naive_pick_actor_idx
+    )
+    clicked_world_idx = next(w for w in candidates if w != naive_pick_world_idx)
+
+    game.nav_arrived_target = clicked_world_idx
+    completed = dispatch_nav_arrival(game)
+
+    assert completed is False, "opening a modal suspends the tick"
+    assert isinstance(game.active_modal, ShowFound)
+    assert game.active_modal.object_idx == clicked_world_idx, (
+        "the prompt must be for the CLICKED object"
+    )
+    assert game.active_modal.object_idx != naive_pick_world_idx, (
+        "a proximity/collision scan would have picked the other object -- "
+        "if this fails, dispatch regressed to proximity"
+    )
+
+
+def test_a_bare_floor_arrival_does_not_press_the_action_bit(data_dir):
+    # The action bit is global: scripts poll it through evalVar 0x11, and the
+    # keyboard presses it only when the player presses Space. Pressing it at the
+    # end of every walk fires unrequested actions everywhere the player goes.
+    # Only a clicked, non-foundable target dispatches Action.
+    game = init_game(data_dir)
+    game.nav_arrived_target = -1
+    game.nav_intent = None
+    game.action = 0
+    assert dispatch_nav_arrival(game) is True
+    assert game.action == 0, "walking somewhere is not pressing the action button"
+
+
+def test_arrival_at_a_clicked_non_foundable_target_presses_the_action_bit(data_dir):
+    # the other half of the rule: a clicked target that cannot be picked up
+    # gets Action, which is how a mouse-only player operates doors and levers
+    game = init_game(data_dir)
+    target = next(
+        i for i, w in enumerate(game.world_objects)
+        if w.obj_index != -1 and not game.actors[w.obj_index].object_type & AF_FOUNDABLE
+    )
+    game.action = 0
+    game.nav_arrived_target = target
+    assert dispatch_nav_arrival(game) is True
+    assert game.action == 0x2000
+
+
+def test_arrival_on_a_despawned_target_is_dropped(data_dir):
+    game = init_game(data_dir)
+    target = next(i for i, w in enumerate(game.world_objects) if w.obj_index == -1)
+    game.nav_arrived_target = target
+    assert dispatch_nav_arrival(game) is True
+    assert game.active_modal is None
+    assert game.nav_arrived_target == -1
+
+
+def test_no_dispatch_while_a_modal_is_open(data_dir):
+    game = init_game(data_dir)
+    game.open_modal(ShowFound(object_idx=0, forced_refuse=False))
+    game.nav_arrived_target = 5
+    assert dispatch_nav_arrival(game) is True
+    assert game.active_modal.object_idx == 0, "the open modal is untouched"

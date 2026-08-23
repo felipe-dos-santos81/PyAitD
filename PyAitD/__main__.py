@@ -9,17 +9,18 @@ import sys
 import pygame
 
 from PyAitD.actors import anim_player_for, sort_actor_indices
-from PyAitD.effects import GameMode
+from PyAitD.effects import GameMode, InputMode
 from PyAitD.floor import Floor
 from PyAitD.game import init_game, spawn_stage_actors
 from PyAitD.life import Trace
 from PyAitD.pak import PakError
+from PyAitD.picking import actor_bbox
 # imported by name, not module-qualified: run() reads play_tick as a module
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.playworld import TICK_MS, play_tick
 from PyAitD.render import Renderer
 from PyAitD.skel import skin
-from PyAitD.ui import Command, InputBuffer, ModalSession, event_to_input
+from PyAitD.ui import Command, InputBuffer, ModalSession, event_to_input, render_cursor
 from PyAitD.world import CameraState
 
 DEFAULT_DATA = (
@@ -52,6 +53,7 @@ def _scene_frame(game, floor, renderer):
     results = []
     actor_rooms = []
     actor_zvs = []
+    draw_list = []
     draw_order = sort_actor_indices(game, state.x, state.y, state.z)
     for index in draw_order:
         actor = game.actors[index]
@@ -71,12 +73,104 @@ def _scene_frame(game, floor, renderer):
             state,
             actor_angles=(actor.alpha, actor.beta, actor.gamma),
         ))
+        draw_list.append((index, actor_bbox(results[-1])))
         actor_rooms.append(actor.room)
         actor_zvs.append(actor.zv)
     return renderer.compose_scene(
         floor.camera_image(cam_idx), results, floor.masks(cam_idx), floor.palette,
         actor_rooms, actor_zvs,
+    ), draw_list
+
+
+def _interactable_targets(game, draw_list, hero_idx):
+    """Draw-list entries a click may target: interactables, never the hero."""
+    return [
+        (idx, box) for idx, box in draw_list
+        if idx != hero_idx and _is_interactable(game, idx)
+    ]
+
+
+def resolve_play_click(game, floor, logical_pos, draw_list):
+    """What a left click at logical_pos means: (kind, apply_click_intent args).
+
+    One resolver behind both the cursor and the click, so hover feedback cannot
+    advertise something different from what clicking does. kind is "target" (an
+    interactable object), "walk" (a floor point we can head for) or "blocked"
+    (nothing to do, args None).
+    """
+    from PyAitD.navmesh import agent_extent, approach_cell, nearest_walkable
+    from PyAitD.picking import pick_actor, pick_floor_any_room
+    from PyAitD.world import room_delta
+    if (logical_pos is None or game.active_modal is not None
+            or game.input_mode is not InputMode.MOUSE or game.num_camera == -1):
+        return ("blocked", None)
+    hero_idx = game.current_camera_target_actor
+    if hero_idx == -1:
+        return ("blocked", None)
+    hero = game.actors[hero_idx]
+    agent = agent_extent(hero)
+
+    actor_idx = pick_actor(
+        logical_pos, _interactable_targets(game, draw_list, hero_idx),
     )
+    if actor_idx is not None:
+        target = game.actors[actor_idx]
+        dest_x, dest_z = target.room_x, target.room_z
+        # An object's own cell is essentially never walkable (the hard col
+        # standing for it, plus the agent inflation), so heading for its centre
+        # means find_path always fails and the hero grinds into the wall
+        # forever. Stand next to it instead, on the side we are coming from.
+        mesh = game.nav_meshes.mesh_for(floor, target.room, agent)
+        if mesh is not None:
+            # The mesh is in the TARGET's room frame, so the approach bias has
+            # to be too -- each room has its own origin. Re-frame the hero the
+            # way gere_dec re-frames a moving actor: room_delta with FITD's
+            # asymmetric signs (x minus, z plus).
+            from_x, from_z = hero.room_x, hero.room_z
+            if hero.room != target.room:
+                dx, _dy, dz = room_delta(game, hero.room, target.room)
+                from_x, from_z = from_x - dx, from_z + dz
+            spot = approach_cell(mesh, dest_x, dest_z, from_x, from_z)
+            if spot is not None:
+                dest_x, dest_z = spot
+        return ("target", (dest_x, dest_z, target.room, target.index_in_world))
+
+    picked = pick_floor_any_room(
+        logical_pos, floor, hero.room, game.num_camera, hero.world_y,
+    )
+    if picked is None:
+        return ("blocked", None)
+    dest_x, dest_z, dest_room = picked
+    mesh = game.nav_meshes.mesh_for(floor, dest_room, agent)
+    # A mesh with no walkable cell at all is the spec's degraded mode (case 1):
+    # keep the click and let direct steering handle it. A blocked cell inside a
+    # real mesh snaps, and only an unsnappable one is refused.
+    if mesh is not None and mesh.walkable.any():
+        snapped = nearest_walkable(mesh, dest_x, dest_z)
+        if snapped is None:
+            return ("blocked", None)
+        dest_x, dest_z = snapped
+    return ("walk", (dest_x, dest_z, dest_room, -1))
+
+
+def route_play_click(game, floor, logical_pos, draw_list):
+    """A left click during PLAY: pick an object, else a floor point, else nothing."""
+    from PyAitD.interaction import apply_click_intent
+    kind, args = resolve_play_click(game, floor, logical_pos, draw_list)
+    if kind == "blocked":
+        return
+    dest_x, dest_z, room, object_idx = args
+    apply_click_intent(game, dest_x, dest_z, room, target_object_idx=object_idx)
+
+
+def _is_interactable(game, actor_idx):
+    from PyAitD.game import AF_FOUNDABLE
+    actor = game.actors[actor_idx]
+    if actor.index_in_world < 0:
+        return False
+    if actor.object_type & AF_FOUNDABLE:
+        return True
+    return game.world_objects[actor.index_in_world].found_life != -1
 
 
 def _inventory_view(game, session):
@@ -95,6 +189,15 @@ def route_command(game, session, command):
         Command, ReadingResult, reading_pages, reduce_found, reduce_inventory,
         reduce_reading,
     )
+    if command is Command.TOGGLE_INPUT_MODE:
+        from PyAitD.interaction import cancel_nav_intent, sync_player_track_mode
+        game.input_mode = (
+            InputMode.KEYBOARD if game.input_mode is InputMode.MOUSE else InputMode.MOUSE
+        )
+        cancel_nav_intent(game)
+        sync_player_track_mode(game)
+        return True
+
     if game.mode is GameMode.PLAY:
         if command is Command.OPEN_INVENTORY and game.status_screen_allowed:
             if game.inventory_count[game.current_inventory]:
@@ -237,13 +340,22 @@ def run(game, trace_path=None):
     if game.num_camera == -1:
         game.num_camera = game.new_num_camera
         game.flag_init_view = 0
-    scene_frame = _scene_frame(game, floor, renderer)
+    draw_list = []
+    hover = None
+    scene_frame, draw_list = _scene_frame(game, floor, renderer)
     while running:
         for event in pygame.event.get():
             running = event_to_input(event, input_buffer) and running
+            if event.type == pygame.MOUSEMOTION:
+                hover = renderer.window_to_logical(event.pos)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 logical = renderer.window_to_logical(event.pos)
-                running = route_mouse(game, session, logical) and running
+                if game.active_modal is None and game.mode is GameMode.PLAY:
+                    # keyboard mode swallows play clicks; the cursor is hidden
+                    # there too, so nothing advertises a click that does nothing
+                    route_play_click(game, floor, logical, draw_list)
+                else:
+                    running = route_mouse(game, session, logical) and running
         now = pygame.time.get_ticks()
         elapsed = min(now - last, 250)
         last = now
@@ -262,7 +374,7 @@ def run(game, trace_path=None):
                 if floor.number != game.current_floor:
                     floor = Floor(game._data_dir, game.current_floor)
             if game.num_camera != -1:
-                scene_frame = _scene_frame(game, floor, renderer)
+                scene_frame, draw_list = _scene_frame(game, floor, renderer)
         else:
             accumulator = 0
             session.reading.elapsed_ms += elapsed
@@ -273,7 +385,14 @@ def run(game, trace_path=None):
             # not reach the new modal, where OPEN_INVENTORY maps to ACCEPT.
             # Already-modal frames keep theirs: freshly queued, must route.
             input_buffer.commands.clear()
-        renderer.present(render_active_mode(game, session, scene_frame))
+            from PyAitD.interaction import cancel_nav_intent
+            cancel_nav_intent(game)
+        composed = render_active_mode(game, session, scene_frame)
+        if (game.mode is GameMode.PLAY and game.active_modal is None
+                and game.input_mode is InputMode.MOUSE):
+            kind, _args = resolve_play_click(game, floor, hover, draw_list)
+            composed = render_cursor(composed, hover, kind)
+        renderer.present(composed)
         if game.num_camera != -1:
             # M3a draw_ready gate: transition frames (change_salle/floor
             # pending, num_camera == -1, current_room stale) reuse the
