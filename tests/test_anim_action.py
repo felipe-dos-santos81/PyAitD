@@ -388,3 +388,35 @@ def test_launch_throw_missing_actor_resets_thrower_only(data_dir):
 
     assert thrower.anim_action_type == 0
     assert (world.x, world.y, world.z) == (original_x, original_y, original_z)
+
+
+def test_prepare_throw_raises_when_thrown_object_has_no_body(data_dir):
+    # Spec: "A thrown object whose world record has no body raises with the
+    # object index; silently using the thrower's body is forbidden." Reached
+    # through gere_frappe (the real dispatch path), not by calling the
+    # private _raw_body_zv/_prepare_throw helpers directly.
+    game, thrower_idx = _live_actors(data_dir, 1)
+    thrower = game.actors[thrower_idx]
+    object_idx = 13
+    world = game.world_objects[object_idx]
+    world.body = -1  # no body: _raw_body_zv must refuse to guess one
+    thrower.anim_action_type = WAIT_ANIM_THROW
+    thrower.anim_action_anim = thrower.anim  # animation already matches
+    thrower.anim_action_param = object_idx
+
+    with pytest.raises(ValueError, match=rf"\b{object_idx}\b"):
+        gere_frappe(game, thrower_idx)
+
+
+def test_launch_throw_raises_when_thrown_object_has_no_body(data_dir):
+    game, thrower_idx = _live_actors(data_dir, 1)
+    thrower = game.actors[thrower_idx]
+    object_idx = 13
+    world = game.world_objects[object_idx]
+    assert world.obj_index != -1, "fixture must already carry a live actor for object 13"
+    world.body = -1  # no body: _raw_body_zv must refuse to guess one
+    thrower.anim_action_type = WAIT_FRAME_THROW
+    thrower.anim_action_param = object_idx
+
+    with pytest.raises(ValueError, match=rf"\b{object_idx}\b"):
+        gere_frappe(game, thrower_idx)

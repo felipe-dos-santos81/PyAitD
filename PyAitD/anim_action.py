@@ -46,6 +46,18 @@ def _publish_hit(game, attacker_idx, victim_idx):
     victim.hit_force = attacker.hit_force
 
 
+def _hot_point_world(actor):
+    # animAction.cpp:51-53 / 165-167 / 218-220: room position + cached hot
+    # point + the in-progress step delta, shared by the melee strike cube
+    # and both throw placements. Task 7's DO_TIR omits the step terms and
+    # Task 8's in-flight position is different again, so this covers only
+    # this exact triple — not a general "actor world position" helper.
+    x = actor.room_x + actor.hot_point[0] + actor.step_x
+    y = actor.room_y + actor.hot_point[1] + actor.step_y
+    z = actor.room_z + actor.hot_point[2] + actor.step_z
+    return x, y, z
+
+
 def _raw_body_zv(game, object_idx):
     # GiveZVObjet(HQR_Get(HQ_Bodys, objPtr->body), ...) (animAction.cpp:159):
     # the thrown *world object's* body, never the thrower's (life_ops's
@@ -72,9 +84,7 @@ def _prepare_throw(game, thrower_idx):
     object_idx = thrower.anim_action_param
     world = game.world_objects[object_idx]
     raw = _raw_body_zv(game, object_idx)
-    x = thrower.room_x + thrower.hot_point[0] + thrower.step_x
-    y = thrower.room_y + thrower.hot_point[1] + thrower.step_y
-    z = thrower.room_z + thrower.hot_point[2] + thrower.step_z
+    x, y, z = _hot_point_world(thrower)
     cube = [raw[0] + x, raw[1] + x, raw[2] + y, raw[3] + y, raw[4] + z, raw[5] + z]
     room = game.rooms_of_floor(game.current_floor)[thrower.room]
     if check_hard_col(cube, room.hard_cols):
@@ -106,9 +116,7 @@ def _launch_throw(game, thrower_idx):
     world = game.world_objects[object_idx]
     if world.obj_index == -1:
         return
-    x = thrower.room_x + thrower.hot_point[0] + thrower.step_x
-    y = thrower.room_y + thrower.hot_point[1] + thrower.step_y
-    z = thrower.room_z + thrower.hot_point[2] + thrower.step_z
+    x, y, z = _hot_point_world(thrower)
     thrown = game.actors[world.obj_index]
     _place_thrown_actor(game, world.obj_index, x, y, z, _raw_body_zv(game, object_idx))
     thrown.object_type |= AF_ANIMATED
@@ -148,9 +156,7 @@ def gere_frappe(game, actor_idx):
             actor.anim_action_type = 0
         # No early return here: FITD animAction.cpp:48-51 hit-tests on this
         # tick even when the anim mismatch just zeroed anim_action_type.
-        x = actor.room_x + actor.hot_point[0] + actor.step_x
-        y = actor.room_y + actor.hot_point[1] + actor.step_y
-        z = actor.room_z + actor.hot_point[2] + actor.step_z
+        x, y, z = _hot_point_world(actor)
         radius = actor.anim_action_param
         cube = [x-radius, x+radius, y-radius, y+radius, z-radius, z+radius]
         for victim_idx in check_object_col(game, actor_idx, cube):
