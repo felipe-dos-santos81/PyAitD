@@ -4,10 +4,11 @@ import pytest
 
 from PyAitD.actors import anim_player_for
 from PyAitD.anim_action import (
-    FRAPPE_OK, HIT_OBJECT, THROW_OBJECT, WAIT_ANIM_THROW, WAIT_FRAME_THROW, WAIT_FRAPPE_ANIM,
-    WAIT_FRAPPE_FRAME, gere_frappe, refresh_hot_point,
+    DO_TIR, FRAPPE_OK, HIT_OBJECT, THROW_OBJECT, WAIT_ANIM_THROW, WAIT_FRAME_THROW,
+    WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, WAIT_TIR_ANIM, check_line_projection_with_actors,
+    gere_frappe, refresh_hot_point,
 )
-from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_MOVABLE, init_game, spawn_stage_actors
+from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_MOVABLE, AF_SPECIAL, init_game, spawn_stage_actors
 from PyAitD.skel import hot_point as skel_hot_point
 
 
@@ -420,3 +421,192 @@ def test_launch_throw_raises_when_thrown_object_has_no_body(data_dir):
 
     with pytest.raises(ValueError, match=rf"\b{object_idx}\b"):
         gere_frappe(game, thrower_idx)
+
+
+# --- Task 7: firearm volume sweep (checkLineProjectionWithActors) ---
+
+
+def test_fire_sweep_preserves_no_hard_collision_termination(monkeypatch, data_dir):
+    # animAction.cpp:3900-3904 AsmCheckListCol branch: the sweep stops with
+    # NO hit the instant the swept cube overlaps zero hard-collision
+    # entries. This is FITD's verified (if counterintuitive) behaviour, not
+    # a raycast-until-blocked convention to "correct".
+    game, shooter_idx, victim_idx = _live_actors(data_dir, 2)
+    monkeypatch.setattr("PyAitD.anim_action.check_hard_col", lambda *args: [])
+    result = check_line_projection_with_actors(game, shooter_idx, 0, 0, 0, 0, 0, 50)
+    assert result[0] == -1
+    assert result[1:] == (0, 0, 0)
+    assert game.actors[victim_idx].hit_by == -1
+
+
+def test_fire_sweep_returns_first_live_non_special_slot(monkeypatch, data_dir):
+    # Controller ruling: the brief co-locates only three actors, but the
+    # sweep iterates every live actor in slot order, so on real floor-0
+    # data an unrelated live actor at a lower slot (possibly in another
+    # room, reachable via adjust_zv_between_rooms) could intersect the
+    # swept cube first and make the assertion below flaky. Deactivate every
+    # other live actor rather than weaken the asserted contract, which
+    # stays: first live, non-AF_SPECIAL, non-shooter actor in slot order.
+    game, shooter_idx, first_idx, second_idx = _live_actors(data_dir, 3)
+    for idx, other in enumerate(game.actors):
+        if idx not in (shooter_idx, first_idx, second_idx):
+            other.index_in_world = -1
+    monkeypatch.setattr("PyAitD.anim_action.check_hard_col", lambda *args: [object()])
+    game.actors[first_idx].object_type |= AF_SPECIAL
+    game.actors[second_idx].zv = [-100, 100, -100, 100, -100, 100]
+    hit, x, y, z = check_line_projection_with_actors(
+        game, shooter_idx, 0, 0, -100, 0, game.actors[shooter_idx].room, 50,
+    )
+    assert hit == second_idx
+    assert (x, y, z) == (0, 0, -100)
+
+
+@pytest.mark.parametrize(
+    "beta, start_x, expected_impact_x",
+    [
+        # beta == 0: walkStep gives move_x == +param*2 (rotate_step's
+        # crossed no-rotation identity). param == 1 carries X from 19999 to
+        # exactly 20001 in a single step, past the 20000 upper bound.
+        (0, 19999, 19999),
+        # beta == 0x200 (half turn): move_x == -param*2, so param == 1
+        # carries X from -19999 to exactly -20001, past the lower bound —
+        # exercising both signs of the strict '>'/'<' comparison.
+        (0x200, -19999, -19999),
+    ],
+)
+def test_fire_sweep_terminates_outside_xz_bounds(beta, start_x, expected_impact_x, data_dir):
+    # animAction.cpp:3892-3897: X/Z leaving [-20000, 20000] ends the sweep
+    # with no hit. The returned impact position is the *pre-step* tempX
+    # (animMoveX at loop exit), one step short of the out-of-bounds value
+    # that triggered termination — pinned by hand below so an off-by-one
+    # iteration bug is not invisible to the assertion.
+    game, shooter_idx = _live_actors(data_dir, 1)
+    room = game.actors[shooter_idx].room
+    result = check_line_projection_with_actors(game, shooter_idx, start_x, 0, 0, beta, room, 1)
+    assert result == (-1, expected_impact_x, 0, 0)
+
+
+def test_fire_sweep_adjusts_zv_across_rooms_before_intersecting(monkeypatch, data_dir):
+    # animAction.cpp:3910-3922: when the candidate actor is in a different
+    # room, the swept cube is copied and AdjustZV'd into that actor's room
+    # *before* CubeIntersect runs — the raw same-room cube is never
+    # compared directly for a cross-room actor. Forcing
+    # adjust_zv_between_rooms to return a cube that only overlaps the
+    # victim (the untouched local cube, still near x=0, does not) proves
+    # its return value is what gets tested, not silently discarded.
+    game, shooter_idx, victim_idx = _live_actors(data_dir, 2)
+    for idx, other in enumerate(game.actors):
+        if idx not in (shooter_idx, victim_idx):
+            other.index_in_world = -1
+    shooter = game.actors[shooter_idx]
+    victim = game.actors[victim_idx]
+    # Floor 0 (the fixture default) carries only one room, so force a floor
+    # with >= 2 rooms to exercise the cross-room branch at all.
+    multi_room_floor = next(
+        f for f in range(8) if len(game.rooms_of_floor(f)) >= 2
+    )
+    game.current_floor = multi_room_floor
+    shooter.room = 0
+    victim.room = 1
+    victim.zv = [900, 1100, -100, 100, -100, 100]
+
+    monkeypatch.setattr("PyAitD.anim_action.check_hard_col", lambda *args: [object()])
+
+    captured = {}
+
+    def fake_adjust(game_arg, zv, from_room, to_room):
+        captured["game"] = game_arg
+        captured["from_room"] = from_room
+        captured["to_room"] = to_room
+        captured["zv"] = list(zv)
+        return [900, 1100, -100, 100, -100, 100]
+
+    monkeypatch.setattr("PyAitD.anim_action.adjust_zv_between_rooms", fake_adjust)
+
+    hit, x, y, z = check_line_projection_with_actors(
+        game, shooter_idx, 0, 0, -100, 0, shooter.room, 50,
+    )
+
+    assert hit == victim_idx
+    assert captured["game"] is game
+    assert captured["from_room"] == shooter.room
+    assert captured["to_room"] == victim.room
+    assert len(captured["zv"]) == 6
+
+
+def test_wait_tir_anim_arms_do_tir_only_when_anim_and_frame_match(data_dir):
+    # animAction.cpp:92-100 case WAIT_TIR_ANIM: two separate early returns
+    # in C++ (ANIM mismatch, then frame mismatch) collapse into a single
+    # AND-guarded transition in the port; exercise both mismatches.
+    game, actor_idx = _live_actors(data_dir, 1)
+    actor = game.actors[actor_idx]
+    actor.anim_action_type = WAIT_TIR_ANIM
+    actor.anim_action_anim = actor.anim + 1  # anim mismatch
+    actor.anim_action_frame = actor.frame
+    gere_frappe(game, actor_idx)
+    assert actor.anim_action_type == WAIT_TIR_ANIM
+
+    actor.anim_action_anim = actor.anim  # anim matches now, frame doesn't
+    actor.anim_action_frame = actor.frame + 1
+    gere_frappe(game, actor_idx)
+    assert actor.anim_action_type == WAIT_TIR_ANIM
+
+    actor.anim_action_frame = actor.frame  # both match
+    gere_frappe(game, actor_idx)
+    assert actor.anim_action_type == DO_TIR
+
+
+def test_do_tir_hit_updates_hotpoint_and_publishes_hit(monkeypatch, data_dir):
+    # animAction.cpp:104-149 case DO_TIR: the fire hot point deliberately
+    # omits the step_x/y/z terms _hot_point_world adds for melee/throw, and
+    # uses beta - 0x100 (not beta) for the sweep angle. Distinct non-zero
+    # step_* values make sure an accidental step inclusion would move the
+    # captured call away from this hand-computed expectation.
+    game, actor_idx, victim_idx = _live_actors(data_dir, 2)
+    actor = game.actors[actor_idx]
+    actor.anim_action_type = DO_TIR
+    actor.room_x, actor.room_y, actor.room_z = 1000, 2000, 3000
+    actor.hot_point[:] = [10, 20, 30]
+    actor.step_x, actor.step_y, actor.step_z = 1, 2, 3
+    actor.beta = 0x300
+    actor.anim_action_param = 50
+    actor.hit_force = 9
+    expected_room = actor.room
+
+    captured = {}
+
+    def fake_sweep(game_arg, actor_idx_arg, x, y, z, beta, room, param):
+        captured["args"] = (actor_idx_arg, x, y, z, beta, room, param)
+        return (victim_idx, 1111, 2222, 3333)
+
+    monkeypatch.setattr("PyAitD.anim_action.check_line_projection_with_actors", fake_sweep)
+
+    gere_frappe(game, actor_idx)
+
+    # x = 1000 + 10 = 1010, y = 2000 + 20 = 2020, z = 3000 + 30 = 3030 (no
+    # step_* terms); beta = 0x300 - 0x100 = 0x200 — computed by hand.
+    assert captured["args"] == (actor_idx, 1010, 2020, 3030, 0x200, expected_room, 50)
+    assert list(actor.hot_point) == [1111 - 1000, 2222 - 2000, 3333 - 3000]
+    assert actor.hit == victim_idx
+    assert game.actors[victim_idx].hit_by == actor_idx
+    assert game.actors[victim_idx].hit_force == 9
+    assert actor.anim_action_type == 0
+
+
+def test_do_tir_miss_resets_without_publishing_hit(monkeypatch, data_dir):
+    game, actor_idx = _live_actors(data_dir, 1)
+    actor = game.actors[actor_idx]
+    actor.anim_action_type = DO_TIR
+    actor.hot_point[:] = [10, 20, 30]
+    actor.hit = -1
+
+    monkeypatch.setattr(
+        "PyAitD.anim_action.check_line_projection_with_actors",
+        lambda *args: (-1, 999, 999, 999),
+    )
+
+    gere_frappe(game, actor_idx)
+
+    assert list(actor.hot_point) == [10, 20, 30]
+    assert actor.hit == -1
+    assert actor.anim_action_type == 0

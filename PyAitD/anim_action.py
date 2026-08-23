@@ -7,11 +7,12 @@ pass) to build a strike cube and publish hits through `check_object_col`.
 Never touches actor.life: health lives in script vars, hit/hit_by/hit_force
 are the only fields this module writes.
 """
-from PyAitD.actors import anim_player_for, check_hard_col, check_object_col
+from PyAitD.actors import anim_player_for, check_hard_col, check_object_col, cube_intersect
 from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_SPECIAL, put_at_objet
 from PyAitD.interaction import remove_from_inventory
 from PyAitD.realvalue import init_real_value
 from PyAitD.skel import hot_point
+from PyAitD.world import adjust_zv_between_rooms, rotate_step
 
 WAIT_FRAPPE_ANIM = 1
 FRAPPE_OK = 2
@@ -132,6 +133,66 @@ def _launch_throw(game, thrower_idx):
     init_real_value(0, thrown.speed, 60, thrown.speed_change, game.timer)
 
 
+def check_line_projection_with_actors(game, actor_idx, x, y, z, beta, room, param):
+    # animAction.cpp:3863-3946 checkLineProjectionWithActors: an 84-line
+    # integer stepped-volume sweep, not a screen-space raycast. The cube
+    # walks by walkStep(param*2, 0, beta) increments each iteration (ported
+    # here as rotate_step, unpacked crossed to preserve walkStep's output
+    # convention). Per FITD's counterintuitive AsmCheckListCol branch, the
+    # sweep terminates with NO hit the instant the cube stops overlapping
+    # any hard-collision entry — this is verified source behaviour, not a
+    # bug to "fix" into a conventional raycast.
+    local = [x-param, x+param, y-param, y+param, z-param, z+param]
+    move_z, move_x = rotate_step(beta, param * 2, 0)
+    impact_x, impact_z = x, z
+    while True:
+        local[0] += move_x; local[1] += move_x
+        local[4] += move_z; local[5] += move_z
+        impact_x, impact_z = x, z
+        x += move_x; z += move_z
+        if x > 20000 or x < -20000 or z > 20000 or z < -20000:
+            return (-1, impact_x, y, impact_z)
+        hard_cols = game.rooms_of_floor(game.current_floor)[room].hard_cols
+        if not check_hard_col(local, hard_cols):
+            return (-1, impact_x, y, impact_z)
+        for other_idx, other in enumerate(game.actors):
+            if other.index_in_world == -1 or other_idx == actor_idx:
+                continue
+            if other.object_type & AF_SPECIAL:
+                continue
+            candidate = local if other.room == room else adjust_zv_between_rooms(
+                game, local, room, other.room,
+            )
+            if cube_intersect(candidate, other.zv):
+                return (other_idx, impact_x, y, impact_z)
+
+
+def _gere_fire(game, actor_idx, actor, action):
+    # animAction.cpp:92-150 case WAIT_TIR_ANIM / DO_TIR. InitSpecialObjet's
+    # muzzle-flash and impact visuals are out of scope for this port: combat
+    # publishes hit/hit_by/hit_force only, never actor.life.
+    if action == WAIT_TIR_ANIM:
+        if actor.anim == actor.anim_action_anim and actor.frame == actor.anim_action_frame:
+            actor.anim_action_type = DO_TIR
+        return
+    if action == DO_TIR:
+        victim_idx, impact_x, impact_y, impact_z = check_line_projection_with_actors(
+            game, actor_idx,
+            actor.room_x + actor.hot_point[0],
+            actor.room_y + actor.hot_point[1],
+            actor.room_z + actor.hot_point[2],
+            actor.beta - 0x100, actor.room, actor.anim_action_param,
+        )
+        if victim_idx != -1:
+            actor.hot_point[:] = [
+                impact_x - actor.room_x,
+                impact_y - actor.room_y,
+                impact_z - actor.room_z,
+            ]
+            _publish_hit(game, actor_idx, victim_idx)
+        actor.anim_action_type = 0
+
+
 def gere_frappe(game, actor_idx):
     actor = game.actors[actor_idx]
     action = actor.anim_action_type
@@ -164,6 +225,12 @@ def gere_frappe(game, actor_idx):
             if game.actors[victim_idx].object_type & AF_ANIMATED:
                 actor.anim_action_type = 0
                 return
+        return
+    if action == WAIT_TIR_ANIM:
+        _gere_fire(game, actor_idx, actor, action)
+        return
+    if action == DO_TIR:
+        _gere_fire(game, actor_idx, actor, action)
         return
     if action == HIT_OBJECT:
         return
