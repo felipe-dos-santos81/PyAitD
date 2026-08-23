@@ -11,7 +11,7 @@ import pygame
 from PyAitD.actors import anim_player_for, sort_actor_indices
 from PyAitD.effects import GameMode, InputMode
 from PyAitD.floor import Floor
-from PyAitD.game import init_game
+from PyAitD.game import enter_floor_start, init_game
 from PyAitD.life import Trace
 from PyAitD.pak import PakError
 from PyAitD.picking import actor_bbox
@@ -185,8 +185,19 @@ def _inventory_view(game, session):
     return object_ids, inventory_actions(game, selected)
 
 
+def _route_game_over_command(game, session, modal_command):
+    # LM_GAME_OVER's accessibility gate: ignore ACCEPT/CANCEL (and, via the
+    # caller's OPEN_INVENTORY-as-ACCEPT translation, OPEN_INVENTORY too) until
+    # the wall-clock wait has elapsed, so a startled keypress cannot restart
+    # the session before the player has even registered dying.
+    ready = session.elapsed_ms >= game.active_modal.delay_units * 1000 // 60
+    if ready and modal_command in (Command.ACCEPT, Command.CANCEL):
+        game.restart_requested = True
+    return True
+
+
 def route_command(game, session, command):
-    from PyAitD.effects import GameMode, OpenInventory, ReadText, ShowFound, ShowPicture
+    from PyAitD.effects import GameMode, GameOver, OpenInventory, ReadText, ShowFound, ShowPicture
     from PyAitD.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
     )
@@ -239,11 +250,13 @@ def route_command(game, session, command):
         if modal_command in (Command.ACCEPT, Command.CANCEL):
             apply_reading_result(game, ReadingResult(True))
         return True
+    if isinstance(game.active_modal, GameOver):
+        return _route_game_over_command(game, session, modal_command)
     raise RuntimeError(f"unroutable modal {type(game.active_modal).__name__}")
 
 
 def route_mouse(game, session, logical_pos):
-    from PyAitD.effects import OpenInventory, ReadText, ShowFound, ShowPicture
+    from PyAitD.effects import GameOver, OpenInventory, ReadText, ShowFound, ShowPicture
     from PyAitD.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
     )
@@ -283,6 +296,13 @@ def route_mouse(game, session, logical_pos):
     if isinstance(effect, ShowPicture):
         apply_reading_result(game, ReadingResult(True))
         return True
+    if isinstance(effect, GameOver):
+        # the whole 320x200 logical frame is the target: no hit rectangle, no
+        # precision requirement -- any left click once the wait has elapsed
+        ready = session.elapsed_ms >= effect.delay_units * 1000 // 60
+        if ready:
+            game.restart_requested = True
+        return True
     raise RuntimeError(f"unroutable modal {type(effect).__name__}")
 
 
@@ -294,17 +314,17 @@ def _auto_dismiss_picture(game, session):
     if not isinstance(effect, ShowPicture) or effect.delay_units <= 0:
         return True
     delay_ms = effect.delay_units * 1000 // 60
-    if session.reading.elapsed_ms < delay_ms:
+    if session.elapsed_ms < delay_ms:
         return True
     apply_reading_result(game, ReadingResult(True))
     return True
 
 
 def render_active_mode(game, session, scene_frame):
-    from PyAitD.effects import OpenInventory, ReadText, ShowFound, ShowPicture
+    from PyAitD.effects import GameOver, OpenInventory, ReadText, ShowFound, ShowPicture
     from PyAitD.ui import (
-        overlay_messages, render_found, render_inventory, render_picture,
-        render_reading,
+        overlay_messages, render_found, render_game_over, render_inventory,
+        render_picture, render_reading,
     )
     effect = game.active_modal
     if effect is None:
@@ -324,7 +344,60 @@ def render_active_mode(game, session, scene_frame):
         return render_reading(effect, session.reading, game.assets)
     if isinstance(effect, ShowPicture):
         return render_picture(effect, game.assets)
+    if isinstance(effect, GameOver):
+        ready = session.elapsed_ms >= effect.delay_units * 1000 // 60
+        return render_game_over(scene_frame, ready)
     raise RuntimeError(f"unrenderable modal {type(effect).__name__}")
+
+
+def restart_session(old_game):
+    # Death restarts the current floor (task-10 brief): menus and a title
+    # screen are M4, and restart is the only option that keeps the game
+    # playable end-to-end. No Floor I/O here -- the caller (run's atomic
+    # restart branch) owns loading the Floor for the reconstructed game.
+    hero = old_game.cvars[8]
+    input_mode = old_game.input_mode
+    trace = old_game.trace
+    data_dir = old_game._data_dir
+    floor_start = old_game.floor_start
+    new_game = init_game(data_dir, hero=hero)
+    new_game.input_mode = input_mode
+    new_game.trace = trace
+    from PyAitD.interaction import sync_player_track_mode
+    sync_player_track_mode(new_game)
+    enter_floor_start(new_game, floor_start)
+    new_game.floor_start = floor_start
+    return new_game
+
+
+def _restart_branch(game, renderer):
+    # The atomic replace-game-and-floor step run() inlines each frame: a
+    # successful restart hands back every loop local that referenced the old
+    # game, so a single tuple assignment plus `continue` is enough to resume
+    # the loop on the new session without a stray tick or a stale present.
+    if not getattr(game, "restart_requested", False):
+        return None
+    try:
+        new_game = restart_session(game)
+        new_floor = Floor(new_game._data_dir, new_game.current_floor)
+    except PakError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return (None, None, None, None, 0, [], None, None, None, 2)
+    game = new_game
+    floor = new_floor
+    session = ModalSession()
+    input_buffer = InputBuffer()
+    accumulator = 0
+    draw_list = []
+    hover = None
+    game.num_camera = game.new_num_camera
+    game.flag_init_view = 0
+    scene_frame, draw_list = _scene_frame(game, floor, renderer)
+    last = pygame.time.get_ticks()
+    return (
+        game, floor, session, input_buffer, accumulator,
+        draw_list, hover, scene_frame, last, 0,
+    )
 
 
 def run(game, trace_path=None):
@@ -340,6 +413,7 @@ def run(game, trace_path=None):
     input_buffer = InputBuffer()
     session = ModalSession()
     running = True
+    exit_status = 0
     last = pygame.time.get_ticks()
     accumulator = 0
     if game.num_camera == -1:
@@ -371,6 +445,23 @@ def run(game, trace_path=None):
                 running = False
             else:
                 route_command(game, session, command)
+        restarted = _restart_branch(game, renderer)
+        if restarted is not None:
+            (
+                new_game, new_floor, new_session, new_input_buffer,
+                new_accumulator, new_draw_list, new_hover, new_scene_frame,
+                new_last, exit_status,
+            ) = restarted
+            if exit_status:
+                running = False
+                break
+            game, floor, session, input_buffer = (
+                new_game, new_floor, new_session, new_input_buffer,
+            )
+            accumulator, draw_list, hover, scene_frame, last = (
+                new_accumulator, new_draw_list, new_hover, new_scene_frame, new_last,
+            )
+            continue
         if game.mode is GameMode.PLAY:
             accumulator += elapsed
             while accumulator >= TICK_MS and game.mode is GameMode.PLAY:
@@ -382,7 +473,7 @@ def run(game, trace_path=None):
                 scene_frame, draw_list = _scene_frame(game, floor, renderer)
         else:
             accumulator = 0
-            session.reading.elapsed_ms += elapsed
+            session.elapsed_ms += elapsed
             _auto_dismiss_picture(game, session)
         if was_play and game.mode is not GameMode.PLAY:
             # FITD flushes input on modal entry: leftover edges queued by the
@@ -413,7 +504,7 @@ def run(game, trace_path=None):
     if game.trace is not None:
         game.trace.close()
     renderer.close()
-    return 0
+    return exit_status
 
 
 def main(argv=None):

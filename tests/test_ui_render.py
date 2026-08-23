@@ -7,7 +7,8 @@ from PyAitD.game import init_game
 from PyAitD.text import BookToken
 from PyAitD.ui import (
     FoundPresenter, ReadingPresenter, layout_book,
-    overlay_messages, render_cursor, render_found, render_picture, render_reading,
+    overlay_messages, render_cursor, render_found, render_game_over, render_picture,
+    render_reading,
 )
 
 
@@ -64,3 +65,14 @@ def test_cursor_kinds_differ():
 def test_cursor_outside_the_surface_is_a_no_op():
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     assert np.array_equal(render_cursor(frame, None, "walk"), frame)
+
+
+def test_game_over_locked_frame_is_identical_and_ready_frame_is_overlayed():
+    pygame.font.init()
+    source = np.arange(320 * 200 * 3, dtype=np.uint8).reshape((200, 320, 3))
+    locked = render_game_over(source, ready=False)
+    ready = render_game_over(source, ready=True)
+    assert locked is source
+    assert np.array_equal(locked, source)
+    assert not np.array_equal(ready, source)
+    assert np.array_equal(source, locked)

@@ -2,11 +2,14 @@
 """LM_GAME_OVER's flag becomes a GameOver modal at the end of the LIFE pass
 (mainLoop.cpp:185, 233): checked only after every live actor has run LIFE,
 never mid-loop."""
+import pytest
+
+from PyAitD.__main__ import route_command, route_mouse
 from PyAitD.effects import GameMode, GameOver
 from PyAitD.floor import Floor
 from PyAitD.game import init_game
 from PyAitD.playworld import play_tick
-from PyAitD.ui import InputBuffer
+from PyAitD.ui import Command, InputBuffer, ModalSession
 
 
 def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, monkeypatch):
@@ -34,3 +37,57 @@ def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, monkeyp
     timer = game.timer
     assert play_tick(game, floor, InputBuffer()) is False
     assert game.timer == timer
+
+
+def _game_over_session(data_dir):
+    game = init_game(data_dir)
+    game.open_modal(GameOver())
+    session = ModalSession()
+    session.reset_for(game.active_modal)
+    return game, session
+
+
+@pytest.mark.parametrize("command", [Command.ACCEPT, Command.CANCEL, Command.OPEN_INVENTORY])
+def test_game_over_command_locked_at_1999ms_rejects_restart(data_dir, command):
+    game, session = _game_over_session(data_dir)
+    session.elapsed_ms = 1999
+    assert route_command(game, session, command) is True
+    assert game.restart_requested is False
+
+
+@pytest.mark.parametrize("command", [Command.ACCEPT, Command.CANCEL, Command.OPEN_INVENTORY])
+def test_game_over_command_ready_at_2000ms_requests_restart(data_dir, command):
+    # OPEN_INVENTORY is translated to ACCEPT by route_command before dispatch,
+    # so this parametrization also covers the OPEN_INVENTORY-as-ACCEPT case.
+    game, session = _game_over_session(data_dir)
+    session.elapsed_ms = 2000
+    assert route_command(game, session, command) is True
+    assert game.restart_requested is True
+
+
+def test_game_over_accepts_any_left_click_only_after_delay(data_dir):
+    game = init_game(data_dir)
+    game.open_modal(GameOver())
+    session = ModalSession()
+    session.reset_for(game.active_modal)
+    assert route_mouse(game, session, (0, 0))
+    assert game.restart_requested is False
+    session.elapsed_ms = 120 * 1000 // 60
+    assert route_mouse(game, session, (319, 199))
+    assert game.restart_requested is True
+
+
+@pytest.mark.parametrize("corner", [(0, 0), (319, 199)])
+def test_game_over_click_accepts_at_either_extreme_corner_once_ready(data_dir, corner):
+    game, session = _game_over_session(data_dir)
+    session.elapsed_ms = 2000
+    assert route_mouse(game, session, corner) is True
+    assert game.restart_requested is True
+
+
+@pytest.mark.parametrize("corner", [(0, 0), (319, 199)])
+def test_game_over_click_locked_at_either_extreme_corner_rejects_restart(data_dir, corner):
+    game, session = _game_over_session(data_dir)
+    session.elapsed_ms = 1999
+    assert route_mouse(game, session, corner) is True
+    assert game.restart_requested is False
