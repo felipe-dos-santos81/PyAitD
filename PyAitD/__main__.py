@@ -82,15 +82,6 @@ def _scene_frame(game, floor, renderer):
     ), draw_list
 
 
-def _state_for(floor, room_idx, cam_slot):
-    from PyAitD.world import CameraState
-    room = floor.rooms[room_idx]
-    camera = floor.cameras[room.camera_indices[cam_slot]]
-    return CameraState.from_camera(
-        camera, room.world_x, room.world_y, room.world_z,
-    ).angles()
-
-
 def route_play_click(game, floor, logical_pos, draw_list):
     """A left click during PLAY: pick an object, else a floor point, else nothing."""
     from PyAitD.interaction import apply_click_intent

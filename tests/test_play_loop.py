@@ -228,8 +228,20 @@ def test_depth_sort_y_bands():
     assert len(order) == 2
 
 
-from PyAitD.__main__ import _is_interactable, _state_for, route_play_click
-from PyAitD.effects import InputMode
+from PyAitD.__main__ import _is_interactable, route_play_click
+
+
+def _state_for(floor, room_idx, cam_slot):
+    # test scaffolding: route_play_click's floor path goes through
+    # pick_floor, which builds its own camera state internally, so this
+    # has no production caller — it exists only to reproduce a click's
+    # screen coordinates for project_floor_point in the test below.
+    from PyAitD.world import CameraState
+    room = floor.rooms[room_idx]
+    camera = floor.cameras[room.camera_indices[cam_slot]]
+    return CameraState.from_camera(
+        camera, room.world_x, room.world_y, room.world_z,
+    ).angles()
 
 
 def test_a_floor_click_becomes_a_walk_intent(data_dir):

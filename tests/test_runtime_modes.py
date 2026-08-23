@@ -36,6 +36,32 @@ def test_inventory_edge_opens_once_and_play_ticks_pause(data_dir):
     assert isinstance(game.active_modal, OpenInventory)
 
 
+def test_toggle_input_mode_flips_track_mode_and_cancels_intent(data_dir):
+    # Command.TOGGLE_INPUT_MODE's mutation (input_mode, hero track_mode,
+    # nav_intent cancellation) is route_command's job, not ui.py's — this
+    # exercises route_command directly, the same way
+    # test_inventory_edge_opens_once_and_play_ticks_pause does for
+    # OPEN_INVENTORY, rather than only proving Tab enqueues a Command.
+    from PyAitD.effects import NavIntent
+    game = init_game(data_dir)
+    session = ModalSession()
+    hero = game.actors[game.current_camera_target_actor]
+
+    game.input_mode = InputMode.MOUSE
+    hero.track_mode = 4
+    game.nav_intent = NavIntent(dest_x=100, dest_z=200, room=hero.room)
+    assert route_command(game, session, Command.TOGGLE_INPUT_MODE) is True
+    assert game.input_mode is InputMode.KEYBOARD
+    assert hero.track_mode == 1
+    assert game.nav_intent is None
+
+    game.nav_intent = NavIntent(dest_x=300, dest_z=400, room=hero.room)
+    assert route_command(game, session, Command.TOGGLE_INPUT_MODE) is True
+    assert game.input_mode is InputMode.MOUSE
+    assert hero.track_mode == 4
+    assert game.nav_intent is None
+
+
 def test_picture_dismiss_does_not_leave_stale_movement_or_replay_command(data_dir):
     game = init_game(data_dir)
     game.open_modal(ShowPicture(10, 0, -1))
