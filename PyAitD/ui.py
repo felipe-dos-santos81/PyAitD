@@ -11,6 +11,7 @@ import pygame
 class Command(Enum):
     UP = auto(); DOWN = auto(); LEFT = auto(); RIGHT = auto()
     ACCEPT = auto(); CANCEL = auto(); OPEN_INVENTORY = auto()
+    TOGGLE_INPUT_MODE = auto()
 
 
 @dataclass
@@ -54,6 +55,8 @@ def event_to_input(event, state):
             state.commands.append(Command.OPEN_INVENTORY)
         elif not repeated and event.key == pygame.K_ESCAPE:
             state.commands.append(Command.CANCEL)
+        elif not repeated and event.key == pygame.K_TAB:
+            state.commands.append(Command.TOGGLE_INPUT_MODE)
     elif event.type == pygame.KEYUP:
         if event.key in _DIRECTION:
             state.held_joyd &= ~_DIRECTION[event.key][1]

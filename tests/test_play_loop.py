@@ -3,8 +3,10 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from PyAitD.floor import Floor
 from PyAitD.game import init_game
 from PyAitD.life import life_gate
+from PyAitD.picking import project_floor_point
 
 
 def test_life_gate(data_dir):
@@ -224,3 +226,46 @@ def test_depth_sort_y_bands():
     game.actors[2] = Actor(index_in_world=2, body_num=1, zv=[0, 10, 5000, 5010, 0, 10])
     order = sort_actor_indices(game, 0, 0, 0)
     assert len(order) == 2
+
+
+from PyAitD.__main__ import _is_interactable, _state_for, route_play_click
+from PyAitD.effects import InputMode
+
+
+def test_a_floor_click_becomes_a_walk_intent(data_dir):
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    hero = game.actors[game.current_camera_target_actor]
+    screen = project_floor_point(
+        _state_for(floor, hero.room, game.num_camera),
+        hero.room_x + 1500, hero.world_y, hero.room_z,
+    )
+    route_play_click(game, floor, (int(screen[0]), int(screen[1])), [])
+    assert game.nav_intent is not None
+    assert game.nav_intent.target_object_idx == -1
+
+
+def test_a_click_on_an_actor_becomes_a_target_intent(data_dir):
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    # the actor must be a valid click target (found-able or touch-scripted);
+    # not every actor in the draw list is interactable (e.g. plain scenery).
+    other_idx = next(
+        i for i, a in enumerate(game.actors)
+        if a.index_in_world >= 0 and i != game.current_camera_target_actor
+        and _is_interactable(game, i)
+    )
+    draw_list = [(other_idx, (100, 60, 200, 160))]
+    route_play_click(game, floor, (150, 100), draw_list)
+    assert game.nav_intent is not None
+    assert game.nav_intent.target_object_idx == game.actors[other_idx].index_in_world
+
+
+def test_a_click_on_nothing_leaves_the_intent_alone(data_dir):
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    route_play_click(game, floor, (2, 2), [])
+    assert game.nav_intent is None

@@ -36,3 +36,9 @@ def test_inventory_shortcuts_are_single_edges():
     event_to_input(key(pygame.KEYDOWN, pygame.K_RETURN, repeat=True), state)
     event_to_input(key(pygame.KEYDOWN, pygame.K_i), state)
     assert list(state.commands) == [Command.OPEN_INVENTORY, Command.OPEN_INVENTORY]
+
+
+def test_tab_requests_an_input_mode_toggle():
+    state = InputBuffer()
+    event_to_input(key(pygame.KEYDOWN, pygame.K_TAB), state)
+    assert Command.TOGGLE_INPUT_MODE in state.commands

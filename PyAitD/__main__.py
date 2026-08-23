@@ -9,7 +9,7 @@ import sys
 import pygame
 
 from PyAitD.actors import anim_player_for, sort_actor_indices
-from PyAitD.effects import GameMode
+from PyAitD.effects import GameMode, InputMode
 from PyAitD.floor import Floor
 from PyAitD.game import init_game, spawn_stage_actors
 from PyAitD.life import Trace
@@ -82,6 +82,60 @@ def _scene_frame(game, floor, renderer):
     ), draw_list
 
 
+def _state_for(floor, room_idx, cam_slot):
+    from PyAitD.world import CameraState
+    room = floor.rooms[room_idx]
+    camera = floor.cameras[room.camera_indices[cam_slot]]
+    return CameraState.from_camera(
+        camera, room.world_x, room.world_y, room.world_z,
+    ).angles()
+
+
+def route_play_click(game, floor, logical_pos, draw_list):
+    """A left click during PLAY: pick an object, else a floor point, else nothing."""
+    from PyAitD.interaction import apply_click_intent
+    from PyAitD.navmesh import agent_extent, nearest_walkable
+    from PyAitD.picking import pick_actor, pick_floor
+    if logical_pos is None or game.active_modal is not None:
+        return
+    hero_idx = game.current_camera_target_actor
+    if hero_idx == -1 or game.num_camera == -1:
+        return
+    hero = game.actors[hero_idx]
+
+    actor_idx = pick_actor(logical_pos, [
+        (idx, box) for idx, box in draw_list
+        if idx != hero_idx and _is_interactable(game, idx)
+    ])
+    if actor_idx is not None:
+        target = game.actors[actor_idx]
+        apply_click_intent(
+            game, target.room_x, target.room_z, target.room,
+            target_object_idx=target.index_in_world,
+        )
+        return
+
+    picked = pick_floor(logical_pos, floor, hero.room, game.num_camera, hero.world_y)
+    if picked is None:
+        return
+    mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
+    if mesh is not None:
+        snapped = nearest_walkable(mesh, picked[0], picked[1])
+        if snapped is not None:
+            picked = snapped
+    apply_click_intent(game, picked[0], picked[1], hero.room)
+
+
+def _is_interactable(game, actor_idx):
+    from PyAitD.game import AF_FOUNDABLE
+    actor = game.actors[actor_idx]
+    if actor.index_in_world < 0:
+        return False
+    if actor.object_type & AF_FOUNDABLE:
+        return True
+    return game.world_objects[actor.index_in_world].found_life != -1
+
+
 def _inventory_view(game, session):
     from PyAitD.interaction import inventory_actions, inventory_items
     object_ids = inventory_items(game)
@@ -98,6 +152,19 @@ def route_command(game, session, command):
         Command, ReadingResult, reading_pages, reduce_found, reduce_inventory,
         reduce_reading,
     )
+    if command is Command.TOGGLE_INPUT_MODE:
+        from PyAitD.interaction import cancel_nav_intent
+        game.input_mode = (
+            InputMode.KEYBOARD if game.input_mode is InputMode.MOUSE else InputMode.MOUSE
+        )
+        cancel_nav_intent(game)
+        hero_idx = game.current_camera_target_actor
+        if hero_idx != -1:
+            game.actors[hero_idx].track_mode = (
+                4 if game.input_mode is InputMode.MOUSE else 1
+            )
+        return True
+
     if game.mode is GameMode.PLAY:
         if command is Command.OPEN_INVENTORY and game.status_screen_allowed:
             if game.inventory_count[game.current_inventory]:
@@ -247,7 +314,10 @@ def run(game, trace_path=None):
             running = event_to_input(event, input_buffer) and running
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 logical = renderer.window_to_logical(event.pos)
-                running = route_mouse(game, session, logical) and running
+                if game.active_modal is None and game.mode is GameMode.PLAY:
+                    route_play_click(game, floor, logical, draw_list)
+                else:
+                    running = route_mouse(game, session, logical) and running
         now = pygame.time.get_ticks()
         elapsed = min(now - last, 250)
         last = now
@@ -277,6 +347,8 @@ def run(game, trace_path=None):
             # not reach the new modal, where OPEN_INVENTORY maps to ACCEPT.
             # Already-modal frames keep theirs: freshly queued, must route.
             input_buffer.commands.clear()
+            from PyAitD.interaction import cancel_nav_intent
+            cancel_nav_intent(game)
         renderer.present(render_active_mode(game, session, scene_frame))
         if game.num_camera != -1:
             # M3a draw_ready gate: transition frames (change_salle/floor
