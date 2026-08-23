@@ -13,7 +13,7 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 
 ```bash
 make run                     # play (windowed); make run trace=/tmp/t.log writes per-opcode LIFE trace
-make test                    # pytest suite (187 passed, 1 skipped)
+make test                    # pytest suite (238 passed, 1 skipped)
 make prove                   # M3a proof: parse-all 563 scripts/45 tracks/tables + headless 60-tick boot
 make floor=N run             # start on another floor
 ```

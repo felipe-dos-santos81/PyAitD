@@ -382,6 +382,7 @@ def run(game, trace_path=None):
         now = pygame.time.get_ticks()
         elapsed = min(now - last, 250)
         last = now
+        was_play = game.mode is GameMode.PLAY
         if input_buffer.commands:
             command = input_buffer.commands.popleft()
             if game.mode is GameMode.PLAY and command is Command.CANCEL:
@@ -401,6 +402,12 @@ def run(game, trace_path=None):
             accumulator = 0
             session.reading.elapsed_ms += elapsed
             _auto_dismiss_picture(game, session)
+        if was_play and game.mode is not GameMode.PLAY:
+            # FITD flushes input on modal entry: leftover edges queued by the
+            # same pump (route_command or a found-contact in play_tick) must
+            # not reach the new modal, where OPEN_INVENTORY maps to ACCEPT.
+            # Already-modal frames keep theirs: freshly queued, must route.
+            input_buffer.commands.clear()
         renderer.present(render_active_mode(game, session, scene_frame))
         if game.num_camera != -1:
             # M3a draw_ready gate: transition frames (change_salle/floor

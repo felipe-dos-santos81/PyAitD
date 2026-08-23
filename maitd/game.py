@@ -206,20 +206,6 @@ def _cdiv(a, b):
     return a // b if a >= 0 else -((-a) // b)
 
 
-def joyd_from_keys(up=False, down=False, left=False, right=False):
-    # FITD JoyD bit mapping: UP=1, DOWN=2, LEFT=4, RIGHT=8
-    joyd = 0
-    if up:
-        joyd |= 1
-    if down:
-        joyd |= 2
-    if left:
-        joyd |= 4
-    if right:
-        joyd |= 8
-    return joyd
-
-
 def _zv_default():
     return [-100, 100, -2000, 0, -100, 100]
 
