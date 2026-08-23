@@ -221,13 +221,8 @@ def _dispatch(vm, op):
 
 
 def _dispatch_reduced(vm, op, world_idx):
-    # world-object-field ops on game.world_objects[world_idx]; implemented in task 7.
-    try:
-        from maitd.life_reduced import reduced_dispatch
-    except ModuleNotFoundError:
-        raise ValueError(
-            f"opcode {op & 0x7FFF} reduced dispatch unavailable (maitd.life_reduced, task 7)"
-        ) from None
+    # world-object-field ops on game.world_objects[world_idx]
+    from maitd.life_reduced import reduced_dispatch
     reduced_dispatch(vm, op & 0x7FFF, world_idx)
 
 

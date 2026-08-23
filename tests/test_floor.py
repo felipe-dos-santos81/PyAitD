@@ -36,8 +36,13 @@ def test_missing_floor_raises(data_dir):
 def test_cache_hits(data_dir):
     floormod.cache_clear()
     f = Floor(data_dir, 0)
-    f.camera_image(0)
+    raw_path = str(f._images)
+    floormod.load_entry(raw_path, 0)
     info_before = floormod.load_entry.cache_info()
-    f.camera_image(0)
-    info_after = floormod.load_entry.cache_info()
-    assert info_after.hits > info_before.hits
+    floormod.load_entry(raw_path, 0)
+    assert floormod.load_entry.cache_info().hits > info_before.hits
+
+
+def test_camera_image_decoded_once(data_dir):
+    f = Floor(data_dir, 0)
+    assert f.camera_image(0) is f.camera_image(0)

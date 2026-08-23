@@ -21,7 +21,6 @@ from maitd.game import (
     spawn_stage_actors,
 )
 from maitd.life import Trace, life_gate
-from maitd.mask import create_aitd1_mask
 from maitd.pak import PakError
 from maitd.render import Renderer
 from maitd.skel import skin
@@ -67,10 +66,7 @@ def _scene_frame(game, floor, renderer):
     results = []
     actor_rooms = []
     actor_zvs = []
-    translate_x = (cam.x - room.world_x) * 10
-    translate_y = (room.world_y - cam.y) * 10
-    translate_z = (room.world_z - cam.z) * 10
-    draw_order = sort_actor_indices(game, translate_x, translate_y, translate_z)
+    draw_order = sort_actor_indices(game, state.x, state.y, state.z)
     for index in draw_order:
         actor = game.actors[index]
         body = game.assets.body(actor.body_num)
@@ -91,11 +87,8 @@ def _scene_frame(game, floor, renderer):
         ))
         actor_rooms.append(actor.room)
         actor_zvs.append(actor.zv)
-    masks = create_aitd1_mask(
-        floor.camera_raw, floor.camera_data_offsets[cam_idx],
-    )
     return renderer.compose_scene(
-        floor.camera_image(cam_idx), results, masks, floor.palette,
+        floor.camera_image(cam_idx), results, floor.masks(cam_idx), floor.palette,
         actor_rooms, actor_zvs,
     )
 
@@ -115,6 +108,15 @@ def _anim_pass(game):
     return game.mode is GameMode.PLAY
 
 
+def _cover_zones(floor, cam_idx, room_idx):
+    # cover zones of camera cam_idx for room_idx; [] when it does not view it
+    viewed = [vr.viewed_room_idx for vr in floor.cameras[cam_idx].viewed_rooms]
+    if room_idx not in viewed:
+        return []
+    off = floor.camera_data_offsets[cam_idx]
+    return parse_cover_zones(floor.camera_raw, off, viewed.index(room_idx))
+
+
 def _camera_switch(game, floor):
     # main.cpp:3654 GereSwitchCamera port: hero out of the current camera's
     # cover zones -> findBestCamera among the hero-room's cameras.
@@ -127,24 +129,12 @@ def _camera_switch(game, floor):
     x1, x2 = int(zv[0] / 10), int(zv[1] / 10)
     z1, z2 = int(zv[4] / 10), int(zv[5] / 10)
     if game.num_camera != -1:
-        cam_idx = room.camera_indices[game.num_camera]
-        cam = floor.cameras[cam_idx]
-        viewed = [vr.viewed_room_idx for vr in cam.viewed_rooms]
-        if actor.room in viewed:
-            vi = viewed.index(actor.room)
-            off = floor.camera_data_offsets[cam_idx]
-            if is_in_poly(x1, x2, z1, z2, parse_cover_zones(floor.camera_raw, off, vi)):
-                return
-    zones_by_camera = []
-    for cam_idx in room.camera_indices:
-        cam = floor.cameras[cam_idx]
-        viewed = [vr.viewed_room_idx for vr in cam.viewed_rooms]
-        if actor.room in viewed:
-            vi = viewed.index(actor.room)
-            off = floor.camera_data_offsets[cam_idx]
-            zones_by_camera.append(parse_cover_zones(floor.camera_raw, off, vi))
-        else:
-            zones_by_camera.append([])
+        current = _cover_zones(floor, room.camera_indices[game.num_camera], actor.room)
+        if current and is_in_poly(x1, x2, z1, z2, current):
+            return
+    zones_by_camera = [
+        _cover_zones(floor, cam_idx, actor.room) for cam_idx in room.camera_indices
+    ]
     new_camera = find_best_camera(x1, x2, z1, z2, actor.beta, room_cameras, zones_by_camera)
     if new_camera != -1 and game.num_camera != new_camera:
         game.new_num_camera = new_camera
@@ -209,11 +199,17 @@ def play_tick(game, floor, input_buffer):
     return True
 
 
-def route_command(game, session, command, scene_frame):
+def _inventory_view(game, session):
+    from maitd.interaction import inventory_actions, inventory_items
+    object_ids = inventory_items(game)
+    selected = object_ids[min(session.inventory.object_cursor, len(object_ids) - 1)]
+    return object_ids, inventory_actions(game, selected)
+
+
+def route_command(game, session, command):
     from maitd.effects import GameMode, OpenInventory, ReadText, ShowFound, ShowPicture
     from maitd.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
-        inventory_actions, inventory_items,
     )
     from maitd.ui import (
         Command, ReadingResult, reading_pages, reduce_found, reduce_inventory,
@@ -237,12 +233,10 @@ def route_command(game, session, command, scene_frame):
             apply_found_result(game, result)
         return True
     if isinstance(game.active_modal, OpenInventory):
-        object_ids = inventory_items(game)
-        selected = object_ids[min(session.inventory.object_cursor, len(object_ids) - 1)]
-        actions = inventory_actions(game, selected)
+        object_ids, action_ids = _inventory_view(game, session)
         result = reduce_inventory(
             session.inventory, modal_command,
-            object_ids=object_ids, action_ids=actions,
+            object_ids=object_ids, action_ids=action_ids,
         )
         if result is not None:
             apply_inventory_result(game, result)
@@ -260,15 +254,14 @@ def route_command(game, session, command, scene_frame):
     raise RuntimeError(f"unroutable modal {type(game.active_modal).__name__}")
 
 
-def route_mouse(game, session, logical_pos, scene_frame):
+def route_mouse(game, session, logical_pos):
     from maitd.effects import OpenInventory, ReadText, ShowFound, ShowPicture
     from maitd.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
-        inventory_actions, inventory_items,
     )
     from maitd.ui import (
         ReadingResult, hit_test_found, hit_test_inventory, hit_test_reading,
-        reading_pages,
+        reading_pages, turn_page,
     )
     if logical_pos is None or game.active_modal is None:
         return True
@@ -280,9 +273,7 @@ def route_mouse(game, session, logical_pos, scene_frame):
             apply_found_result(game, result)
         return True
     if isinstance(effect, OpenInventory):
-        object_ids = inventory_items(game)
-        selected = object_ids[min(session.inventory.object_cursor, len(object_ids) - 1)]
-        action_ids = inventory_actions(game, selected)
+        object_ids, action_ids = _inventory_view(game, session)
         result = hit_test_inventory(
             logical_pos, session.inventory, object_ids, action_ids,
         )
@@ -297,10 +288,7 @@ def route_mouse(game, session, logical_pos, scene_frame):
         if result is None:
             return True
         if result.page_delta:
-            session.reading.page = min(
-                page_count - 1,
-                max(0, session.reading.page + result.page_delta),
-            )
+            turn_page(session.reading, result.page_delta, page_count)
             return True
         apply_reading_result(game, result)
         return True
@@ -326,7 +314,6 @@ def _auto_dismiss_picture(game, session):
 
 def render_active_mode(game, session, scene_frame):
     from maitd.effects import OpenInventory, ReadText, ShowFound, ShowPicture
-    from maitd.interaction import inventory_actions, inventory_items
     from maitd.ui import (
         overlay_messages, render_found, render_inventory, render_picture,
         render_reading,
@@ -339,11 +326,9 @@ def render_active_mode(game, session, scene_frame):
         world = game.world_objects[effect.object_idx]
         return render_found(effect, session.found, game.assets, game.assets.system_text(world.found_name))
     if isinstance(effect, OpenInventory):
-        object_ids = inventory_items(game)
-        selected = object_ids[min(session.inventory.object_cursor, len(object_ids) - 1)]
-        action_ids = inventory_actions(game, selected)
+        object_ids, action_ids = _inventory_view(game, session)
         return render_inventory(
-            object_ids, action_ids, session.inventory, game.assets, scene_frame,
+            session.inventory, game.assets, scene_frame,
             tuple(game.assets.system_text(game.world_objects[i].found_name) for i in object_ids),
             tuple(game.assets.system_text(i) for i in action_ids),
         )
@@ -378,7 +363,7 @@ def run(game, trace_path=None):
             running = event_to_input(event, input_buffer) and running
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 logical = renderer.window_to_logical(event.pos)
-                running = route_mouse(game, session, logical, scene_frame) and running
+                running = route_mouse(game, session, logical) and running
         now = pygame.time.get_ticks()
         elapsed = min(now - last, 250)
         last = now
@@ -388,7 +373,7 @@ def run(game, trace_path=None):
             if game.mode is GameMode.PLAY and command is Command.CANCEL:
                 running = False
             else:
-                route_command(game, session, command, scene_frame)
+                route_command(game, session, command)
         if game.mode is GameMode.PLAY:
             accumulator += elapsed
             while accumulator >= TICK_MS and game.mode is GameMode.PLAY:

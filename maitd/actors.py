@@ -1,41 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Actor state, hard-col collision helpers (FITD ports)."""
-from dataclasses import dataclass
 
 from maitd.anim import AnimPlayer
 from maitd.game import AF_BOXIFY, AF_DRAWABLE, AF_ANIMATED
 from maitd.realvalue import evaluate_real, init_real_value
-from maitd.world import rotate_step
-
-PLAYER_BODY = 12
-PLAYER_ANIM = 2
-SPAWN_POS = (-3642, 0, 1977)
-
-
-@dataclass
-class Actor:
-    body_idx: int
-    anim_idx: int
-    x: int
-    y: int
-    z: int
-    beta: int
-    room_idx: int
-    tick: int = 0
-
-
-def spawn_player(assets, floor):
-    return Actor(PLAYER_BODY, PLAYER_ANIM, SPAWN_POS[0], SPAWN_POS[1], SPAWN_POS[2], 0, 0)
-
-
-def actor_zv(actor, body):
-    bx = body.zv
-    return (
-        bx[0] + actor.x, bx[1] + actor.x,
-        bx[2] + actor.y, bx[3] + actor.y,
-        bx[4] + actor.z, bx[5] + actor.z,
-    )
-
+from maitd.world import adjust_zv_between_rooms, cdiv as _cdiv, rotate_step
 
 def cube_intersect(zv1, zv2):
     return not (
@@ -46,16 +15,10 @@ def cube_intersect(zv1, zv2):
 
 
 def check_hard_col(zv, hard_cols):
-    out = []
-    for col in hard_cols:
-        f = (col.x1, col.x2, col.y1, col.y2, col.z1, col.z2)
-        if (
-            f[0] < zv[1] and zv[0] < f[1]
-            and f[2] < zv[3] and zv[2] < f[3]
-            and f[4] < zv[5] and zv[4] < f[5]
-        ):
-            out.append(col)
-    return out
+    return [
+        col for col in hard_cols
+        if cube_intersect(zv, (col.x1, col.x2, col.y1, col.y2, col.z1, col.z2))
+    ]
 
 
 def _glisser(flag, step_x, step_z):
@@ -115,14 +78,6 @@ def gere_collision(old_zv, animated_zv, fix_zv, step_x, step_z):
         else:
             step_x, step_z = _glisser(oldpos & pos, step_x, step_z)
     return (step_x, step_z)
-
-
-def adjust_zv_between_rooms(game, zv, start_room, dest_room):
-    rooms = game.rooms_of_floor(game.current_floor)
-    dx = 10 * (rooms[dest_room].world_x - rooms[start_room].world_x)
-    dy = 10 * (rooms[dest_room].world_y - rooms[start_room].world_y)
-    dz = 10 * (rooms[dest_room].world_z - rooms[start_room].world_z)
-    return [zv[0] - dx, zv[1] - dx, zv[2] + dy, zv[3] + dy, zv[4] + dz, zv[5] + dz]
 
 
 def check_object_col(game, actor_idx, zv):
@@ -318,10 +273,6 @@ def gere_anim(game, actor_idx):
         a.flag_end_anim = 0
 
 
-def _cdiv(a, b):
-    return a // b if a >= 0 else -((-a) // b)
-
-
 def _sort_compare(game, i1, i2, translate_x, translate_y, translate_z):
     # FITD actorList.cpp sortCompareFunction port (AITD1 branch)
     a1 = game.actors[i1]
@@ -329,11 +280,9 @@ def _sort_compare(game, i1, i2, translate_x, translate_y, translate_z):
     zv1 = list(a1.zv)
     zv2 = list(a2.zv)
     if a1.room != game.current_room:
-        from maitd.eval_var import _adjust_zv
-        _adjust_zv(game, zv1, a1.room, game.current_room)
+        zv1 = adjust_zv_between_rooms(game, zv1, a1.room, game.current_room)
     if a2.room != game.current_room:
-        from maitd.eval_var import _adjust_zv
-        _adjust_zv(game, zv2, a2.room, game.current_room)
+        zv2 = adjust_zv_between_rooms(game, zv2, a2.room, game.current_room)
     y1 = _cdiv((zv1[2] + zv1[3]) // 2 - 2000, 2000) * 2000
     y2 = _cdiv((zv2[2] + zv2[3]) // 2 - 2000, 2000) * 2000
     if y1 == y2:  # AITD1 branch

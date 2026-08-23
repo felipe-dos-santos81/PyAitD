@@ -8,6 +8,7 @@ from maitd.game import AF_ANIMATED, AF_MASK, _zv_cube, _zv_max, _zv_rot
 from maitd.life import eval_var, read_s16
 from maitd.realvalue import init_real_value, update_actor_rotation
 from maitd.tracks import gere_manual_rot, init_deplacement, process_track
+from maitd.world import room_delta
 
 log = logging.getLogger("maitd.life")
 
@@ -58,11 +59,6 @@ def _add_room(a, zv):
 
 def _body_zv(vm):
     return vm.game.assets.body(vm.actor.body_num).zv
-
-
-def op_do_move(vm):
-    # life.cpp:1197: processTrack()
-    process_track(vm.game, vm.actor)
 
 
 def op_anim_once(vm):
@@ -223,8 +219,9 @@ def op_special(vm):
 
 def op_do_real_zv(vm):
     # life.cpp:810: doRealZv transforms the body vertex list (computeScreenBox);
-    # M3a approximates with the rotated body ZV box (getZvRot path)
-    vm.actor.zv = _add_room(vm.actor, _zv_rot(_body_zv(vm), vm.actor.alpha, vm.actor.beta, vm.actor.gamma))
+    # M3a approximates with the rotated body ZV box, i.e. the getZvRot path.
+    # ponytail: when computeScreenBox lands, this stops delegating.
+    op_do_rot_zv(vm)
 
 
 def op_sample(vm):
@@ -318,10 +315,10 @@ def op_stage(vm):
                 game.new_num_salle = new_room
     else:
         if game.current_room != new_room:
-            rooms = game.rooms_of_floor(game.current_floor)
-            a.world_x -= (rooms[game.current_room].world_x - rooms[new_room].world_x) * 10
-            a.world_y += (rooms[game.current_room].world_y - rooms[new_room].world_y) * 10
-            a.world_z += (rooms[game.current_room].world_z - rooms[new_room].world_z) * 10
+            dx, dy, dz = room_delta(game, new_room, game.current_room)
+            a.world_x -= dx
+            a.world_y += dy
+            a.world_z += dz
 
 
 def op_found_name(vm):

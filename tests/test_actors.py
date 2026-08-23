@@ -1,26 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.actors import actor_zv, check_hard_col, cube_intersect, gere_collision, spawn_player
-from maitd.assets import Assets
-
-
-def test_spawn_player(data_dir):
-    assets = Assets(data_dir)
-    floor = None  # Floor(data_dir, 0) — import if needed
-    from maitd.floor import Floor
-    actor = spawn_player(assets, Floor(data_dir, 0))
-    assert (actor.x, actor.y, actor.z) == (-3642, 0, 1977)
-    assert actor.beta == 0
-    assert actor.body_idx == 12
-    assert actor.anim_idx == 2
-
-
-def test_actor_zv(data_dir):
-    from maitd.floor import Floor
-    assets = Assets(data_dir)
-    actor = spawn_player(assets, Floor(data_dir, 0))
-    zv = actor_zv(actor, assets.body(12))
-    assert len(zv) == 6
-    assert zv[0] <= zv[1] and zv[4] <= zv[5]
+from maitd.actors import check_hard_col, cube_intersect, gere_collision
 
 
 def test_cube_intersect():

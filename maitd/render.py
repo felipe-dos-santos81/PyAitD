@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Window + ModernGL renderer for camera background images."""
+import math
+
 import moderngl
 import numpy as np
 import pygame
@@ -89,26 +91,19 @@ class Renderer:
         if not hasattr(self, "_actor_layer"):
             self._actor_layer = _ActorLayer(self._ctx, palette)
         self._actor_layer.draw(actor_results, actor_rooms, masks, actor_zvs=actor_zvs)
-        rgba = np.zeros((200, 320, 4), dtype=np.uint8)
-        rgba[:, :, :3] = background
-        rgba[:, :, 3] = 255
-        layer = np.frombuffer(self._actor_layer._tex.read(), dtype=np.uint8).reshape(200, 320, 4).copy()
+        layer = np.frombuffer(self._actor_layer._tex.read(), dtype=np.uint8).reshape(200, 320, 4)
         layer = layer[::-1]  # GL rows are bottom-up; background is top-down
-        alpha = layer[:, :, 3:4].astype("f4") / 255.0
-        composite = (layer[:, :, :3].astype("f4") * alpha + rgba[:, :, :3].astype("f4") * (1.0 - alpha)).astype(np.uint8)
+        composite = np.empty((200, 320, 3), dtype=np.uint8)  # M1 texture is RGB
+        np.copyto(composite, background)
+        np.copyto(composite, layer[:, :, :3], where=layer[:, :, 3:4] != 0)
         self._ctx.screen.use()  # unbind the actor FBO: M1 quad renders to the window
-        return np.ascontiguousarray(composite[:, :, :3])  # M1 texture is RGB (3 channels)
+        return composite
 
     def compose_scene(self, background, actor_results, masks, palette, actor_rooms,
                       actor_zvs):
         return self._compose_existing_scene(
             background, actor_results, masks, palette, actor_rooms, actor_zvs,
         )
-
-    def present_scene(self, background, actor_results, masks, palette, actor_rooms, actor_zvs):
-        self.present(self.compose_scene(
-            background, actor_results, masks, palette, actor_rooms, actor_zvs,
-        ))
 
     def close(self):
         self._vbo.release()
@@ -156,6 +151,7 @@ class _ActorLayer:
             color_attachments=[self._tex], depth_attachment=self._depth
         )
         self._palette = palette
+        self._palette_f = palette.astype("f4") / 255.0
 
     def draw(self, results, actor_rooms, masks, actor_zvs=None):
         self._fbo.use()
@@ -169,7 +165,7 @@ class _ActorLayer:
         for result, room, zv in zip(results, actor_rooms, actor_zvs):
             self._fbo.clear(0.0, 0.0, 0.0, 0.0)
             for prim in result.primitives:
-                color = self._palette[prim.color].astype("f4") / 255.0
+                color = self._palette_f[prim.color]
                 verts = []
                 mode = moderngl.TRIANGLES
                 if prim.type == 1:  # poly -> triangle fan
@@ -184,7 +180,6 @@ class _ActorLayer:
                 elif prim.type == 3:  # sphere: 8-gon fan around center, radius size
                     cx, cy, cz = prim.points[0]
                     r = prim.size
-                    import math
                     for k in range(8):
                         a0 = k * math.pi / 4
                         a1 = (k + 1) * math.pi / 4

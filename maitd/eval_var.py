@@ -4,6 +4,7 @@ import random
 
 from maitd.life import read_s16
 from maitd.realvalue import eval_chrono
+from maitd.world import adjust_zv_between_rooms
 
 
 def _world_idx(game, slot):
@@ -52,20 +53,8 @@ def get_pos_rel(game, actor1, actor2):
 
 
 def _adjust_zv(game, zv, from_room, to_room):
-    # FITD AdjustZV (main.cpp:3222): roomDataTable world-coord delta * 10;
-    # X/Y/Z signs match game.py add_actor world-coord adjust.
-    rooms = game.rooms_of_floor(game.current_floor)
-    src = rooms[from_room]
-    dst = rooms[to_room]
-    xdif = 10 * (dst.world_x - src.world_x)
-    ydif = 10 * (dst.world_y - src.world_y)
-    zdif = 10 * (dst.world_z - src.world_z)
-    zv[0] -= xdif
-    zv[1] -= xdif
-    zv[2] += ydif
-    zv[3] += ydif
-    zv[4] += zdif
-    zv[5] += zdif
+    # FITD AdjustZV (main.cpp:3222), in place
+    zv[:] = adjust_zv_between_rooms(game, zv, from_room, to_room)
 
 
 def _prop(game, a, code, vm):

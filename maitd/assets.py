@@ -30,6 +30,7 @@ class Assets:
         self._resource_pak = str(find_pak(data_dir, RESOURCE_PAK))
         self._system_texts = parse_system_texts(load_entry(self._text_pak, 0))
         self._book_tokens = {}
+        self.book_pages = {}  # ui-layer wrapped page layout, keyed by text entry
         self._resource_screens = {}
         self._game_palette = decode_palette(load_entry(self._resource_pak, GAME_PALETTE_ENTRY))
 
@@ -80,4 +81,5 @@ class Assets:
         self._bodies.clear()
         self._anims.clear()
         self._book_tokens.clear()
+        self.book_pages.clear()
         self._resource_screens.clear()

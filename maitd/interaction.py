@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from maitd.effects import AddMessage, AfterLife, BeginTake, LifeFrame, TimedMessage
 from maitd.life import process_life
+from maitd.world import adjust_zv_between_rooms, room_delta, shifted_zv
 
 INVENTORY_SIZE = 30
 MAX_VISIBLE_ACTIONS = 5
@@ -207,10 +208,7 @@ def choose_inventory_action(game, object_idx, action_text_id):
 
 
 def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z):
-    from maitd.actors import (
-        adjust_zv_between_rooms, check_hard_col, check_object_col,
-        gere_collision,
-    )
+    from maitd.actors import check_hard_col, check_object_col, gere_collision
     from maitd.game import AF_ANIMATED, AF_BOXIFY, AF_FOUNDABLE, AF_MOVABLE
 
     actor = game.actors[actor_idx]
@@ -257,11 +255,6 @@ def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z
                 old_zv[4] + step_z, old_zv[5] + step_z,
             ]
     return attempted_zv, step_x, step_z
-
-
-def dismiss_modal(game):
-    game.close_modal()
-    return resume_life(game)
 
 
 def apply_found_result(game, result):
@@ -319,18 +312,11 @@ def gere_dec(game, actor_idx):
         if zone.type == 0:
             old_room = actor.room
             actor.room = zone.parameter
-            dx = (rooms[actor.room].world_x - rooms[old_room].world_x) * 10
-            dy = (rooms[actor.room].world_y - rooms[old_room].world_y) * 10
-            dz = (rooms[actor.room].world_z - rooms[old_room].world_z) * 10
+            dx, dy, dz = room_delta(game, old_room, actor.room)
             actor.room_x -= dx
             actor.room_y += dy
             actor.room_z += dz
-            actor.zv[0] -= dx
-            actor.zv[1] -= dx
-            actor.zv[2] += dy
-            actor.zv[3] += dy
-            actor.zv[4] += dz
-            actor.zv[5] += dz
+            actor.zv = shifted_zv(actor.zv, dx, dy, dz)
             if actor_idx == game.current_camera_target_actor:
                 game.flag_change_salle = 1
                 game.new_num_salle = actor.room

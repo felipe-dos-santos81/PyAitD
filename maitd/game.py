@@ -5,13 +5,11 @@ from dataclasses import dataclass, field
 from itertools import product
 
 from maitd.assets import Assets
-from maitd.effects import (
-    AddMessage, BeginTake, OpenInventory, ReadText, ShowFound, ShowPicture,
-    GameMode, TimedMessage,
-)
+from maitd.effects import GameMode, ImmediateEffect, MODAL_MODE, TimedMessage
 from maitd.cos_table import COS_TABLE
 from maitd.floor import Floor
 from maitd.formats import parse_defines, parse_objets, parse_vars
+from maitd.world import cdiv as _cdiv, room_delta
 
 NUM_MAX_OBJECT = 128
 
@@ -143,7 +141,6 @@ class Game:
         self.flag_genere_aff_list = 1
         self.hard_clip = [32000, -32000, 32000, -32000, 32000, -32000]
         # M3b effect / mode / inventory state
-        self.mode = GameMode.PLAY
         self.active_modal = None
         self.life_stack = []
         self.immediate_effects = deque()
@@ -183,27 +180,21 @@ class Game:
                 f"{type(self.active_modal).__name__} is active"
             )
         self.active_modal = effect
-        self.mode = {
-            ShowFound: GameMode.FOUND,
-            OpenInventory: GameMode.INVENTORY,
-            ReadText: GameMode.READING,
-            ShowPicture: GameMode.READING,
-        }[type(effect)]
+
+    @property
+    def mode(self):
+        if self.active_modal is None:
+            return GameMode.PLAY
+        return MODAL_MODE[type(self.active_modal)]
 
     def close_modal(self):
         self.active_modal = None
-        self.mode = GameMode.PLAY
 
     def emit(self, effect):
-        if isinstance(effect, (AddMessage, BeginTake)):
+        if isinstance(effect, ImmediateEffect):
             self.immediate_effects.append(effect)
             return
         self.open_modal(effect)
-
-
-def _cdiv(a, b):
-    # C integer division: truncation toward zero
-    return a // b if a >= 0 else -((-a) // b)
 
 
 def _zv_default():
@@ -321,11 +312,10 @@ def add_actor(game, world_idx):
             zv = _zv_default()
 
     if obj.room != game.current_room:
-        rooms = game.rooms_of_floor(game.current_floor)
-        cur, act = rooms[game.current_room], rooms[obj.room]
-        actor.world_x -= (cur.world_x - act.world_x) * 10
-        actor.world_y += (cur.world_y - act.world_y) * 10
-        actor.world_z += (cur.world_z - act.world_z) * 10
+        dx, dy, dz = room_delta(game, obj.room, game.current_room)
+        actor.world_x -= dx
+        actor.world_y += dy
+        actor.world_z += dz
 
     actor.alpha = obj.alpha
     actor.beta = obj.beta
@@ -382,18 +372,6 @@ def add_actor(game, world_idx):
     actor.zv = [zv[0] + x, zv[1] + x, zv[2] + y, zv[3] + y, zv[4] + z, zv[5] + z]
 
     return slot
-
-
-def _init_deplacement(actor, track_mode, track_number):
-    # InitDeplacement port (main.cpp:1791)
-    actor.track_mode = track_mode
-    if track_mode == 2:
-        actor.track_number = track_number
-        actor.mark = -1
-    elif track_mode == 3:
-        actor.track_number = track_number
-        actor.position_in_track = 0
-        actor.mark = -1
 
 
 def _delete_objet(game, index):
@@ -480,6 +458,7 @@ def put_at_objet(game, obj_idx, obj_idx_to_put_at):
 
 def spawn_stage_actors(game):
     # GenereActiveList port (main.cpp:1990-2130)
+    from maitd.tracks import init_deplacement  # tracks imports game
     for i, actor in enumerate(game.actors):
         if actor.index_in_world == -1:
             continue
@@ -523,7 +502,7 @@ def spawn_stage_actors(game):
             actor.life = obj.life
             actor.life_mode = obj.life_mode
             actor.index_in_world = i
-            _init_deplacement(actor, obj.track_mode, obj.track_number)
+            init_deplacement(actor, obj.track_mode, obj.track_number)
             actor.position_in_track = obj.position_in_track
             game.flag_genere_aff_list = 1
 

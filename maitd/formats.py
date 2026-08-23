@@ -365,14 +365,6 @@ class WorldObject:
     position_in_track: int
 
 
-_WORLD_OBJ_FIELDS = (
-    "obj_index", "body", "flags", "type_zv", "found_body", "found_name",
-    "found_flag", "found_life", "x", "y", "z", "alpha", "beta", "gamma",
-    "stage", "room", "life_mode", "life", "floor_life", "anim", "frame",
-    "anim_type", "anim_info", "track_mode", "track_number", "position_in_track",
-)
-
-
 def parse_objets(raw):
     # FITD LoadWorld (main.cpp:1005): u16 count + fixed 26-s16 records, flags |= 0x20
     count = _u16(raw, 0)

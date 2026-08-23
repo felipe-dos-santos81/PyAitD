@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Track runner port (FITD track.cpp processTrack, AITD1 macro set)."""
-import struct
-
+from maitd.formats import _s16 as _read_s16
 from maitd.game import AF_TRIGGER
 from maitd.realvalue import give_distance_2d, init_real_value, update_actor_rotation
-from maitd.world import rotate_step
+from maitd.world import cdiv as _cdiv, room_delta, rotate_step
 
 TL_INIT_COOR, TL_GOTO, TL_END, TL_REPEAT, TL_MARK = 0, 1, 2, 3, 4
 TL_WALK, TL_RUN, TL_STOP, TL_BACK, TL_SET_ANGLE = 5, 6, 7, 8, 9
@@ -12,15 +11,6 @@ TL_COL_OFF, TL_COL_ON, TL_SET_DIST, TL_DEC_OFF, TL_DEC_ON = 10, 11, 12, 13, 14
 TL_GOTO_3D, TL_MEMO_COOR, TL_GOTO_3DX, TL_GOTO_3DZ, TL_ANGLE, TL_CLOSE = 15, 16, 17, 18, 19, 20
 
 DISTANCE_TO_POINT_TRESSHOLD = 400  # [sic] FITD spelling kept
-
-
-def _read_s16(buf, off):
-    return struct.unpack_from("<h", buf, off)[0]
-
-
-def _cdiv(a, b):
-    # C integer division: truncation toward zero
-    return a // b if a >= 0 else -((-a) // b)
 
 
 def _rotate(x, z, beta):
@@ -60,27 +50,17 @@ def cap_objet(x1, z1, beta, x2, z2):
 
 
 def gere_manual_rot(actor, param, joyd, timer):
-    if joyd & 4:
-        if actor.direction != 1:
+    for bit, direction in ((4, 1), (8, -1)):
+        if not joyd & bit:
+            continue
+        if actor.direction != direction:
             actor.rotate.num_steps = 0
-        actor.direction = 1
+        actor.direction = direction
         if actor.rotate.num_steps == 0:
-            old_beta = actor.beta
-            if actor.speed == 0:
-                init_real_value(old_beta, old_beta + 0x100, int(param / 2), actor.rotate, timer)
-            else:
-                init_real_value(old_beta, old_beta + 0x100, param, actor.rotate, timer)
-        actor.beta = update_actor_rotation(actor.rotate, timer)
-    if joyd & 8:
-        if actor.direction != -1:
-            actor.rotate.num_steps = 0
-        actor.direction = -1
-        if actor.rotate.num_steps == 0:
-            old_beta = actor.beta
-            if actor.speed == 0:
-                init_real_value(old_beta, old_beta - 0x100, int(param / 2), actor.rotate, timer)
-            else:
-                init_real_value(old_beta, old_beta - 0x100, param, actor.rotate, timer)
+            steps = int(param / 2) if actor.speed == 0 else param
+            init_real_value(
+                actor.beta, actor.beta + direction * 0x100, steps, actor.rotate, timer,
+            )
         actor.beta = update_actor_rotation(actor.rotate, timer)
     if not (joyd & 0xC):
         actor.direction = 0
@@ -138,27 +118,13 @@ def _process_track_follow(game, actor):
         target_x = link.x1 + _cdiv(link.x2 - link.x1, 2)
         target_y = link.y1 + _cdiv(link.y2 - link.y1, 2)
         target_z = link.z1 + _cdiv(link.z2 - link.z1, 2)
-    angle_modif = cap_objet(
-        actor.room_x + actor.step_x, actor.room_z + actor.step_z, actor.beta, target_x, target_z
-    )
-    if actor.rotate.num_steps == 0 or actor.direction != angle_modif:
-        init_real_value(actor.beta, actor.beta - angle_modif * 256, 60, actor.rotate, game.timer)
-    actor.direction = angle_modif
-    if actor.direction == 0:
-        actor.rotate.num_steps = 0
-    else:
-        actor.beta = update_actor_rotation(actor.rotate, game.timer)
+    _turn_toward(game, actor, target_x, target_z)
     actor.speed = 4
 
 
 def _goto_adjust(game, actor, room_number):
     # TL_GOTO / TL_GOTO_3D: room-diff world adjust (x -, y +, z +)
-    rooms = game.rooms_of_floor(game.current_floor)
-    return (
-        (rooms[actor.room].world_x - rooms[room_number].world_x) * 10,
-        (rooms[actor.room].world_y - rooms[room_number].world_y) * 10,
-        (rooms[actor.room].world_z - rooms[room_number].world_z) * 10,
-    )
+    return room_delta(game, room_number, actor.room)
 
 
 def _stairs_walk(game, actor, x, y, z, prop):
@@ -169,16 +135,7 @@ def _stairs_walk(game, actor, x, y, z, prop):
         actor.room_y += dif_y
         actor.zv[2] += dif_y
         actor.zv[3] += dif_y
-        angle_modif = cap_objet(
-            actor.room_x + actor.step_x, actor.room_z + actor.step_z, actor.beta, x, z
-        )
-        if not actor.rotate.num_steps or actor.direction != angle_modif:
-            init_real_value(actor.beta, actor.beta - (angle_modif << 8), 60, actor.rotate, game.timer)
-        actor.direction = angle_modif
-        if angle_modif:
-            actor.beta = update_actor_rotation(actor.rotate, game.timer)
-        else:
-            actor.rotate.num_steps = 0
+        _turn_toward(game, actor, x, z)
     else:
         dif_y = y - actor.world_y
         actor.step_y = 0
@@ -187,6 +144,23 @@ def _stairs_walk(game, actor, x, y, z, prop):
         actor.zv[2] += dif_y
         actor.zv[3] += dif_y
         actor.position_in_track += 4
+
+
+def _turn_toward(game, actor, x, z, *, step=256, time=60):
+    # shared TL_* "rotate toward the target point" block (FITD track.cpp)
+    angle_modif = cap_objet(
+        actor.room_x + actor.step_x, actor.room_z + actor.step_z, actor.beta, x, z
+    )
+    if actor.rotate.num_steps == 0 or actor.direction != angle_modif:
+        init_real_value(
+            actor.beta, actor.beta - angle_modif * step, time, actor.rotate, game.timer,
+        )
+    actor.direction = angle_modif
+    if angle_modif:
+        actor.beta = update_actor_rotation(actor.rotate, game.timer)
+    else:
+        actor.rotate.num_steps = 0
+    return angle_modif
 
 
 def _make_proportional(x1, x2, y1, y2):
@@ -221,11 +195,10 @@ def _process_track_scripted(game, actor):
         off += 2
         actor.world_z = actor.room_z = _read_s16(track, off)
         off += 2
-        rooms = game.rooms_of_floor(game.current_floor)
-        cur, act = rooms[game.current_room], rooms[actor.room]
-        actor.world_x -= (cur.world_x - act.world_x) * 10
-        actor.world_y += (cur.world_y - act.world_y) * 10
-        actor.world_z += (cur.world_z - act.world_z) * 10
+        dx, dy, dz = room_delta(game, actor.room, game.current_room)
+        actor.world_x -= dx
+        actor.world_y += dy
+        actor.world_z += dz
         zv[0] += actor.room_x + actor.step_x
         zv[1] += actor.room_x + actor.step_x
         zv[2] += actor.room_y + actor.step_y
@@ -251,16 +224,7 @@ def _process_track_scripted(game, actor):
             actor.room_x + actor.step_x, actor.room_z + actor.step_z, x, z
         )
         if distance >= DISTANCE_TO_POINT_TRESSHOLD:
-            angle_modif = cap_objet(
-                actor.room_x + actor.step_x, actor.room_z + actor.step_z, actor.beta, x, z
-            )
-            if actor.rotate.num_steps == 0 or actor.direction != angle_modif:
-                init_real_value(actor.beta, actor.beta - angle_modif * 64, 15, actor.rotate, game.timer)
-            actor.direction = angle_modif
-            if not angle_modif:
-                actor.rotate.num_steps = 0
-            else:
-                actor.beta = update_actor_rotation(actor.rotate, game.timer)
+            _turn_toward(game, actor, x, z, step=64, time=15)
         else:
             actor.position_in_track += 4
     elif macro == TL_GOTO_3D:
@@ -286,18 +250,9 @@ def _process_track_scripted(game, actor):
             if distance < DISTANCE_TO_POINT_TRESSHOLD:
                 actor.position_in_track += 6
                 return
-        direction = cap_objet(
-            actor.room_x + actor.step_x, actor.room_z + actor.step_z, actor.beta, x, z
-        )
         if actor.y_handler.num_steps == 0:
             init_real_value(0, y - (actor.room_y + actor.step_y), time, actor.y_handler, game.timer)
-        if actor.rotate.num_steps == 0 or actor.direction != direction:
-            init_real_value(actor.beta, actor.beta - direction * 256, 60, actor.rotate, game.timer)
-        actor.direction = direction
-        if not direction:
-            actor.rotate.num_steps = 0
-        else:
-            actor.beta = update_actor_rotation(actor.rotate, game.timer)
+        _turn_toward(game, actor, x, z)
     elif macro == TL_END:
         actor.speed = 0
         actor.track_number = -1

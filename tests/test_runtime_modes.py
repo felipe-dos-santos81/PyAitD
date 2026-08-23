@@ -24,10 +24,10 @@ def test_inventory_edge_opens_once_and_play_ticks_pause(data_dir):
     game.inventory_table[0][0] = 13
     session = ModalSession()
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    assert route_command(game, session, Command.OPEN_INVENTORY, frame) is True
+    assert route_command(game, session, Command.OPEN_INVENTORY) is True
     assert game.mode is GameMode.INVENTORY
     assert isinstance(game.active_modal, OpenInventory)
-    assert route_command(game, session, Command.OPEN_INVENTORY, frame) is True
+    assert route_command(game, session, Command.OPEN_INVENTORY) is True
     assert isinstance(game.active_modal, OpenInventory)
 
 
@@ -36,7 +36,7 @@ def test_picture_dismiss_does_not_leave_stale_movement_or_replay_command(data_di
     game.open_modal(ShowPicture(10, 0, -1))
     session = ModalSession()
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    assert route_command(game, session, Command.ACCEPT, frame) is True
+    assert route_command(game, session, Command.ACCEPT) is True
     assert game.mode is GameMode.PLAY
 
 
@@ -48,7 +48,7 @@ def test_mouse_reading_next_changes_page_without_resuming_life(data_dir, monkeyp
         "maitd.ui.reading_pages", lambda effect, assets: (("one",), ("two",))
     )
     logical = ModalLayout.READING_NEXT.center
-    assert route_mouse(game, session, logical, np.zeros((200, 320, 3), dtype=np.uint8))
+    assert route_mouse(game, session, logical)
     assert session.reading.page == 1
     assert game.mode is GameMode.READING
 

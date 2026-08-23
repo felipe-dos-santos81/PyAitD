@@ -3,6 +3,7 @@
 import functools
 
 from maitd.formats import camera_offsets, decode_image, decode_palette, parse_cameras, parse_rooms
+from maitd.mask import create_aitd1_mask
 from maitd.pak import Pak, find_pak
 
 PALETTE_PAK = "ITD_RESS"
@@ -30,9 +31,21 @@ class Floor:
         palette_pak = find_pak(data_dir, PALETTE_PAK)
         self.palette = decode_palette(load_entry(str(palette_pak), PALETTE_ENTRY))
         self._num_images = Pak(self._images).count
+        self._camera_images = {}
+        self._masks = {}
 
     def camera_image(self, camera_idx):
         if not 0 <= camera_idx < self._num_images:
             raise KeyError(f"floor {self.number}: camera image {camera_idx} out of range")
-        raw = load_entry(str(self._images), camera_idx)
-        return decode_image(raw, self.palette)
+        if camera_idx not in self._camera_images:
+            raw = load_entry(str(self._images), camera_idx)
+            self._camera_images[camera_idx] = decode_image(raw, self.palette)
+        return self._camera_images[camera_idx]
+
+    def masks(self, camera_idx):
+        # occlusion masks are static camera data; read-only in the render path
+        if camera_idx not in self._masks:
+            self._masks[camera_idx] = create_aitd1_mask(
+                self.camera_raw, self.camera_data_offsets[camera_idx],
+            )
+        return self._masks[camera_idx]
