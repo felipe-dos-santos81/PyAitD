@@ -156,7 +156,6 @@ class Game:
         self.nav_intent = None
         self.nav_decision = None
         self.nav_arrived_target = -1
-        self.nav_arrived_plain = False
         self.nav_meshes = MeshCache()
         self.current_floor_data = None
         # M3b/M4 stubs (audio)
@@ -528,8 +527,12 @@ def game_step_tick(game):
 
 
 def init_game(data_dir, hero=0):
+    from PyAitD.interaction import sync_player_track_mode  # interaction imports game
     game = Game(data_dir, hero=hero)
     spawn_stage_actors(game)
+    # object data spawns the hero in track mode 1 (tank); the default input mode
+    # is the mouse, and mode 1 would eat the follower's mirrored joyd as keyboard
+    sync_player_track_mode(game)
     change_salle(game, 0)
     game.new_num_camera = 0
     game.flag_init_view = 2

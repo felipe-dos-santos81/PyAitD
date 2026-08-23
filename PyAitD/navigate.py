@@ -15,6 +15,19 @@ from PyAitD.world import cdiv
 
 ARRIVE_DISTANCE = 400    # tracks.DISTANCE_TO_POINT_TRESSHOLD [sic], same units
 WAYPOINT_DISTANCE = 400  # how close counts as reaching an intermediate hop
+# Give-up guard. The follower steers at the engine's own rotation rate
+# (_turn_toward: 256 beta units per 60 ticks), so a turn-around takes ~120 ticks
+# during which the hero legitimately walks *away* from its target. Measured over
+# 80 randomised floor-0 walks with the guard disabled: walks that completed
+# never spent more than 147 ticks without closing on the current steering
+# target, while a hero wedged against geometry racked up 1500-2900. 300 is twice
+# the worst honest run, and six seconds of grinding is already far too long.
+STALL_TICKS = 300
+# How close to the destination a give-up still counts as getting there. Past it
+# the click is abandoned instead of dispatched, so a hero stuck behind a wall
+# cannot reach the object through it. The hero's own half-extent is 266, so this
+# is about one body short of the standing spot the click snapped to.
+GIVE_UP_ARRIVE_DISTANCE = 2 * ARRIVE_DISTANCE
 
 
 def _repath(game, actor, mesh):
@@ -49,7 +62,7 @@ def decide(game, actor, mesh):
     intent = game.nav_intent
     if intent is None:
         return None
-    if intent.waypoints is None or getattr(intent, "path_room", None) != actor.room:
+    if intent.waypoints is None or intent.path_room != actor.room:
         _repath(game, actor, mesh)
     here_x = actor.room_x + actor.step_x
     here_z = actor.room_z + actor.step_z
@@ -60,12 +73,55 @@ def decide(game, actor, mesh):
         intent.waypoints.pop(0)
     target_x, target_z = intent.waypoints[0]
     distance = give_distance_2d(here_x, here_z, target_x, target_z)
-    if len(intent.waypoints) == 1 and distance < ARRIVE_DISTANCE:
+    # Only the destination room reports arrival. A cross-room intent's single
+    # waypoint is the room-link midpoint, not the destination: the type-0
+    # sce_zone that performs the transition starts 50+ units past the link slab
+    # (measured over all 95 type-4 links: median 50, max 850), so stopping at
+    # the link would halt the hero in the doorway and dispatch as if it had
+    # reached the click. gere_dec crosses us over; _repath then aims at the
+    # real destination.
+    if (intent.room == actor.room
+            and len(intent.waypoints) == 1 and distance < ARRIVE_DISTANCE):
         return NavDecision(0, target_x, target_z, advance=False, arrived=True)
+    if _stalled(intent, target_x, target_z, distance):
+        # Blocked short of the destination. Count it as arrival only when we got
+        # near enough that a player would call it there — the mesh does not
+        # model other actors' ZVs, so "wedged against the thing I clicked" is a
+        # real arrival, while "wedged halfway across the room" is a dead click.
+        close = distance < GIVE_UP_ARRIVE_DISTANCE
+        return NavDecision(
+            0, target_x, target_z, advance=False, arrived=close, abandoned=not close,
+        )
     joyd = 1  # forward
     modificator = cap_objet(here_x, here_z, actor.beta, target_x, target_z)
+    # The joyd mirror must reproduce the *physical* turn, and the two engine
+    # functions read the same numeral with opposite meaning:
+    #   tracks._turn_toward:    init_real_value(beta, beta - angle_modif * step)
+    #   tracks.gere_manual_rot: bit 4 -> direction +1, bit 8 -> direction -1,
+    #                           init_real_value(beta, beta + direction * 0x100)
+    # so equivalence is direction == -angle_modif, i.e. cap_objet > 0 -> bit 8.
+    # It is a sign relationship, not a numeral coincidence: do not "correct" it
+    # to match +1 with bit 4. tests/test_navigate.py proves both paths drive
+    # beta the same way for the same target.
     if modificator > 0:
-        joyd |= 4   # gere_manual_rot: bit 4 -> direction +1
+        joyd |= 8
     elif modificator < 0:
-        joyd |= 8   # bit 8 -> direction -1
+        joyd |= 4
     return NavDecision(joyd, target_x, target_z, advance=True, arrived=False)
+
+
+def _stalled(intent, target_x, target_z, distance):
+    """True once the follower has spent STALL_TICKS not closing on its target.
+
+    Without this the hero grinds into an obstacle forever: the mesh models hard
+    cols but not other actors' ZVs, so a destination can be walkable on the mesh
+    and still unreachable. The caller turns a give-up into an arrival or into an
+    abandoned click depending on how far short of the destination it happened.
+    """
+    if (target_x, target_z) != intent.stall_target or distance < intent.stall_best:
+        intent.stall_target = (target_x, target_z)
+        intent.stall_best = distance
+        intent.stall_ticks = 0
+        return False
+    intent.stall_ticks += 1
+    return intent.stall_ticks >= STALL_TICKS

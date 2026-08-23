@@ -6,7 +6,9 @@ import numpy as np
 
 from PyAitD.__main__ import route_command, route_mouse
 from PyAitD.playworld import apply_play_input
-from PyAitD.effects import GameMode, InputMode, OpenInventory, ReadText, ShowPicture
+from PyAitD.effects import (
+    GameMode, InputMode, NavDecision, NavIntent, OpenInventory, ReadText, ShowPicture,
+)
 from PyAitD.game import init_game
 from PyAitD.ui import Command, InputBuffer, ModalLayout, ModalSession
 
@@ -42,7 +44,6 @@ def test_toggle_input_mode_flips_track_mode_and_cancels_intent(data_dir):
     # exercises route_command directly, the same way
     # test_inventory_edge_opens_once_and_play_ticks_pause does for
     # OPEN_INVENTORY, rather than only proving Tab enqueues a Command.
-    from PyAitD.effects import NavIntent
     game = init_game(data_dir)
     session = ModalSession()
     hero = game.actors[game.current_camera_target_actor]
@@ -128,16 +129,52 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     assert list(buffer.commands) == []
 
 
-from PyAitD.effects import InputMode, NavDecision, NavIntent
-from PyAitD.game import init_game
-
-
 def test_game_starts_in_mouse_mode_with_no_intent(data_dir):
     game = init_game(data_dir)
     assert game.input_mode is InputMode.MOUSE
     assert game.nav_intent is None
     assert game.nav_decision is None
     assert game.nav_arrived_target == -1
+
+
+def test_a_fresh_game_puts_the_hero_in_the_mode_its_input_mode_needs(data_dir):
+    # Object data spawns the hero in track mode 1 (tank) via init_deplacement,
+    # and nothing in the hero's LIFE script changes that. With mouse as the
+    # default input mode, a hero left in mode 1 makes process_track hand the
+    # follower's mirrored joyd to the *keyboard* path — the "autopilot driving
+    # a tank" the spec rejected — so init_game must translate it.
+    game = init_game(data_dir)
+    assert game.actors[game.current_camera_target_actor].track_mode == 4
+
+
+def test_the_input_snapshot_re_asserts_the_follower_mode(data_dir):
+    # a script can call LM_INIT_DEPLACEMENT and hand the hero back to mode 1 at
+    # any time; the next input snapshot must take it back for the mouse
+    game = init_game(data_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    hero.track_mode = 1
+    apply_play_input(game, InputBuffer())
+    assert hero.track_mode == 4
+
+
+def test_a_scripted_track_survives_the_input_snapshot(data_dir):
+    # the translation is 1 <-> 4 only: a cutscene that parks the hero on a
+    # scripted track (mode 3) or freezes it (mode 0) keeps what it asked for
+    game = init_game(data_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    for mode in (0, 2, 3):
+        hero.track_mode = mode
+        apply_play_input(game, InputBuffer())
+        assert hero.track_mode == mode
+
+
+def test_keyboard_mode_hands_the_hero_back_to_tank_controls(data_dir):
+    game = init_game(data_dir)
+    game.input_mode = InputMode.KEYBOARD
+    hero = game.actors[game.current_camera_target_actor]
+    assert hero.track_mode == 4, "fixture: init_game starts in mouse mode"
+    apply_play_input(game, InputBuffer())
+    assert hero.track_mode == 1
 
 
 def test_nav_intent_defaults_to_a_bare_destination():

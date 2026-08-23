@@ -92,6 +92,11 @@ class NavIntent:
     target_object_idx: int = -1
     waypoints: list = None
     path_room: int = -1
+    # give-up bookkeeping (navigate._stalled): the steering target we are
+    # closing on, the best distance seen to it, and how long since it improved
+    stall_target: tuple = None
+    stall_best: int = 0
+    stall_ticks: int = 0
 
 
 @dataclass
@@ -102,3 +107,6 @@ class NavDecision:
     target_z: int
     advance: bool
     arrived: bool
+    # gave up too far from the destination to call it an arrival: the intent is
+    # dropped without dispatching, so a wedged hero cannot act through a wall
+    abandoned: bool = False

@@ -346,7 +346,7 @@ def _process_track_mouse(game, actor):
     # _process_track_follow (steer toward a point, speed 4) to a waypoint list,
     # so the player turns *while* walking instead of pivoting in place the way
     # tank controls do. The decision itself is made in playworld.apply_play_input.
-    decision = getattr(game, "nav_decision", None)
+    decision = game.nav_decision
     if decision is None or not decision.advance:
         if 0 < actor.speed <= 4:
             actor.speed -= 1

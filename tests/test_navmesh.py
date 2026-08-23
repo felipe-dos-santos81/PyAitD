@@ -109,7 +109,9 @@ def test_room_links_never_block(data_dir):
 
 import numpy as np
 
-from PyAitD.navmesh import MeshCache, RoomMesh, find_path, nearest_walkable
+from PyAitD.navmesh import (
+    TARGET_SNAP_CELLS, MeshCache, RoomMesh, approach_cell, find_path, nearest_walkable,
+)
 
 
 def _segment_is_walkable(mesh, p, q):
@@ -218,3 +220,44 @@ def test_mesh_cache_returns_the_same_object_for_the_same_room(data_dir):
     assert cache.mesh_for(floor, 0, agent) is first
     cache.clear()
     assert cache.mesh_for(floor, 0, agent) is not first
+
+
+def test_snapping_a_clicked_object_needs_more_rings_than_a_clicked_floor(data_dir):
+    # Floor 0's only clickable interactable is world object 13 (actor 10). Its
+    # own cell is not walkable: a type-9 hard col covers it, and the agent's
+    # 266-unit inflation widens that further. nearest_walkable's default 6
+    # rings (600 units) cannot reach past it, which is why target snapping has
+    # its own, wider constant. Censused over all 22 interactable world objects
+    # on all 8 floors, the worst needs 8 rings; this one needs 7.
+    game, hero = _hero_agent(data_dir)
+    mesh = build_room_mesh(Floor(data_dir, 0), 0, agent_extent(hero))
+    target = game.actors[10]
+    assert game.world_objects[target.index_in_world].found_life != -1, "fixture moved"
+    assert not mesh.is_walkable(target.room_x, target.room_z)
+    assert nearest_walkable(mesh, target.room_x, target.room_z) is None
+    spot = approach_cell(mesh, target.room_x, target.room_z, hero.room_x, hero.room_z)
+    assert spot == (4060, -3870)
+    assert mesh.is_walkable(*spot)
+    assert TARGET_SNAP_CELLS >= 8, "the census maximum, plus room to spare"
+
+
+def test_approach_cell_stands_on_the_side_the_actor_comes_from():
+    # a corridor of walkable cells with one blocked cell in the middle: the
+    # standing spot must be the neighbour nearer whoever is approaching
+    walkable = np.ones((5, 5), dtype=bool)
+    walkable[2, 2] = False
+    mesh = RoomMesh(0, 0, 100, walkable)
+    blocked = mesh.center_of(2, 2)
+    assert approach_cell(mesh, *blocked, *mesh.center_of(0, 2)) == mesh.center_of(1, 2)
+    assert approach_cell(mesh, *blocked, *mesh.center_of(4, 2)) == mesh.center_of(3, 2)
+
+
+def test_approach_cell_accepts_a_target_outside_the_grid():
+    # objects can sit past the cover-zone bounds; the search origin clamps in
+    mesh = RoomMesh(0, 0, 100, np.ones((3, 3), dtype=bool))
+    assert approach_cell(mesh, -5000, -5000, 200, 200) == mesh.center_of(0, 0)
+
+
+def test_approach_cell_gives_up_when_nothing_walkable_is_in_range():
+    mesh = RoomMesh(0, 0, 100, np.zeros((30, 30), dtype=bool))
+    assert approach_cell(mesh, 1500, 1500, 0, 0) is None

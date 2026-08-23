@@ -171,23 +171,25 @@ def test_pick_floor_any_room_reports_which_room_it_hit(data_dir):
 
 
 def test_pick_floor_any_room_prefers_the_hero_s_own_room(data_dir):
-    # a multi-room floor: whichever room the hero is in must win a tie, because
-    # walking within the current room never needs a transition
+    # A real preference: one screen point that resolves to a valid floor point
+    # in BOTH rooms camera 0 views, so the hero's room is what breaks the tie
+    # rather than the only candidate. Camera 0 lists its viewed rooms as
+    # [6, 0], so without the preference room 6 would win in both directions.
     floor = Floor(data_dir, 1)
-    game = init_game(data_dir)
+    screen = (178, 181)
     floor_y = 0
-    for slot in range(len(floor.rooms[0].camera_indices)):
-        state = _state(floor, 0, slot)
-        polys = cover_polys(floor, 0)
-        if not polys:
-            continue
-        xs = [p[0] * COVER_SCALE for p in polys[0]]
-        zs = [p[1] * COVER_SCALE for p in polys[0]]
-        screen = project_floor_point(state, sum(xs) // len(xs), floor_y, sum(zs) // len(zs))
-        if screen is None:
-            continue
-        hit = pick_floor_any_room(screen, floor, 0, slot, floor_y)
-        if hit is not None:
-            assert hit[2] == 0
-            return
-    raise AssertionError("no camera of floor 1 room 0 produced a pick")
+    for room_idx in (0, 6):
+        assert pick_floor_in_room(screen, floor, room_idx, 0, floor_y) is not None, (
+            f"fixture: room {room_idx} must claim this pixel for the tie to exist"
+        )
+    hero_in_0 = pick_floor_any_room(
+        screen, floor, 0, floor.rooms[0].camera_indices.index(0), floor_y,
+    )
+    hero_in_6 = pick_floor_any_room(
+        screen, floor, 6, floor.rooms[6].camera_indices.index(0), floor_y,
+    )
+    assert hero_in_0[2] == 0, "the hero's own room must win the overlap"
+    assert hero_in_6[2] == 6, "the same pixel resolves to room 6 for a hero there"
+    assert hero_in_0[:2] != hero_in_6[:2], (
+        "each room recovers the point in its own coordinate space"
+    )

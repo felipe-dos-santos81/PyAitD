@@ -34,16 +34,16 @@ $ SDL_VIDEODRIVER=dummy .venv/bin/pytest tests/test_ui_render.py -q
 
 ```
 $ SDL_VIDEODRIVER=dummy .venv/bin/pytest -q
-.............................................................s.......... [ 23%]
-........................................................................ [ 47%]
-........................................................................ [ 70%]
-........................................................................ [ 94%]
-.................                                                        [100%]
-304 passed, 1 skipped in 1.73s
+.............................................................s.......... [ 22%]
+........................................................................ [ 44%]
+........................................................................ [ 66%]
+........................................................................ [ 88%]
+....................................                                     [100%]
+323 passed, 1 skipped in 1.90s
 ```
 
-(304 = the 301-passed/1-skipped baseline recorded at the start of this task,
-plus the 3 new `render_cursor` tests.)
+(323 = the 304-passed/1-skipped figure this document first recorded, plus the
+19 tests added by the post-review fix wave — see "Post-review fixes" below.)
 
 ### `make prove` (M3a parse-all + headless boot)
 
@@ -144,6 +144,37 @@ Reading this output:
   Floor 5 room 3's `walkable 0` is consistent with the documented boundary:
   the harness completes with exit code 0 and does not treat it as an error.
 
+### Post-review fixes
+
+A whole-branch review found three seam defects that broke mouse navigation on
+floor 0, the only bootable content. All are fixed, and each is pinned by a test
+that was checked to fail without its fix:
+
+- **The hero was never put in track mode 4.** Object data spawns it in mode 1
+  and nothing changed that, so `process_track` fed the follower's mirrored joyd
+  to the *keyboard* path. Measured before: from a fresh `init_game` with the
+  goal at `(4460, 1030)`, 299 ticks took the hero 5434 units in the opposite
+  direction, ending at `(168, -3919)`. `interaction.sync_player_track_mode` now
+  translates mode 1 <-> 4 to match the input mode, from `init_game` and from
+  every input snapshot.
+- **The mirrored turn bits were inverted.** `_turn_toward` and
+  `gere_manual_rot` read the same numeral with opposite sign, so the mirror
+  needs `direction == -angle_modif`. Measured over 30 ticks from beta 0: before
+  the fix, mode 4 reached beta 123 while the mirrored joyd reached 901 (-123)
+  for the same target; after, both reach 123. `evalVar 0x13` and
+  `LM_MANUAL_ROT` see the corrected bits.
+- **Clicking an object aimed at its own centre**, which is never walkable, so
+  `find_path` failed every tick. Measured before: 6000 ticks with the hero
+  still stuck. Clicks on an object now snap to a standing spot beside it
+  (`navmesh.approach_cell`, 12 rings; the census maximum over all 22
+  interactable world objects on all 8 floors is 8). Floor 0's interactable now
+  dispatches after 165 ticks.
+- Cross-room clicks no longer report arrival at the doorway, a bare floor walk
+  no longer presses the global action bit, the follower gives up after 300
+  ticks without closing on its target, and the hover cursor and the click now
+  share one resolver (`__main__.resolve_play_click`, measured 0.146 ms per
+  call on floor 0).
+
 ## Manual verification (not yet done)
 
 None of the following has been performed. They require a human at a real
@@ -166,4 +197,9 @@ display running `make run` (mouse is the default input mode):
       blocked floor, and an interactable object, and that it never appears
       while a modal (Found/Inventory/Reading/Picture) is open.
 - [ ] Click across a room boundary (cross-room hop) and confirm the hero
-      arrives in the correct neighbouring room.
+      crosses the doorway and continues to the clicked point, rather than
+      stopping in the doorway.
+- [ ] In keyboard mode (after Tab), confirm no cursor is drawn over the play
+      view and that clicking the floor does nothing.
+- [ ] Click an object the hero cannot reach and confirm it stops trying after
+      a few seconds instead of grinding into the obstacle indefinitely.

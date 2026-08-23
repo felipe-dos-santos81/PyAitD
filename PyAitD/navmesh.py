@@ -158,6 +158,53 @@ def build_room_mesh(floor, room_idx, agent, step=GRID_STEP):
 
 _NEIGHBOURS = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
 
+TARGET_SNAP_CELLS = 12   # rings searched when snapping a clicked *object* to a
+                         # standing spot. An object's own cell is essentially
+                         # never walkable — the hard col representing it plus
+                         # the 266-unit agent inflation — and nearest_walkable's
+                         # 6 is too small: censused over all 22 interactable
+                         # world objects on all 8 floors, the worst needs 8
+                         # rings and floor 0's only interactable needs 7.
+
+
+def _clamp_cell(value, limit):
+    return max(0, min(int(value), limit - 1))
+
+
+def approach_cell(mesh, x, z, from_x, from_z, max_cells=TARGET_SNAP_CELLS):
+    """Where to stand to reach (x, z), coming from (from_x, from_z).
+
+    Rings outward from the target and takes the first ring's cell closest to the
+    approaching actor, so the hero stops on its own side of the object instead
+    of walking around it. Unlike nearest_walkable this accepts a target outside
+    the grid (an object can sit past the cover-zone bounds) by clamping the
+    search origin. None when no walkable cell is within max_cells.
+    """
+    if mesh.is_walkable(x, z):
+        return (x, z)
+    nx, nz = mesh.shape
+    origin_i = _clamp_cell(round((x - mesh.x0) / mesh.step), nx)
+    origin_j = _clamp_cell(round((z - mesh.z0) / mesh.step), nz)
+    from_i = (from_x - mesh.x0) / mesh.step
+    from_j = (from_z - mesh.z0) / mesh.step
+    # radius 0 is the clamped origin itself, which matters only when the target
+    # was outside the grid: an in-grid walkable target already returned above
+    for radius in range(0, max_cells + 1):
+        best = None
+        for di in range(-radius, radius + 1):
+            for dj in range(-radius, radius + 1):
+                if max(abs(di), abs(dj)) != radius:
+                    continue
+                i, j = origin_i + di, origin_j + dj
+                if not (0 <= i < nx and 0 <= j < nz) or not mesh.walkable[i, j]:
+                    continue
+                score = (i - from_i) ** 2 + (j - from_j) ** 2
+                if best is None or score < best[0]:
+                    best = (score, (i, j))
+        if best is not None:
+            return mesh.center_of(*best[1])
+    return None
+
 
 def nearest_walkable(mesh, x, z, max_cells=6):
     """Closest walkable cell centre to (x, z), searching outward in rings."""

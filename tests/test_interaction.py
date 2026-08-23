@@ -80,9 +80,10 @@ def _foundable_pair(game):
     other.object_type |= AF_FOUNDABLE
     other.room = hero.room
     other.zv = list(hero.zv)          # overlapping, so contact is guaranteed
-    # Initialize world object's debounce counter to allow request_found to proceed
-    world = game.world_objects[other.index_in_world]
-    world.track_number = 0
+    # Cross the preserved FoundObjet track_number == -1 post-load debounce by
+    # advancing the clock, not by rewriting the object's data — same idiom as
+    # test_arrival_at_a_foundable_target_opens_that_object_s_prompt below.
+    game.timer = 300
     return hero_idx, hero, other_idx
 
 
@@ -194,13 +195,31 @@ def test_arrival_dispatches_the_clicked_target_not_a_proximity_neighbor(data_dir
     )
 
 
-def test_arrival_without_a_target_sets_the_action_bit(data_dir):
+def test_a_bare_floor_arrival_does_not_press_the_action_bit(data_dir):
+    # The action bit is global: scripts poll it through evalVar 0x11, and the
+    # keyboard presses it only when the player presses Space. Pressing it at the
+    # end of every walk fires unrequested actions everywhere the player goes.
+    # Only a clicked, non-foundable target dispatches Action.
     game = init_game(data_dir)
     game.nav_arrived_target = -1
     game.nav_intent = None
-    game.nav_arrived_plain = True
+    game.action = 0
     assert dispatch_nav_arrival(game) is True
-    assert game.action == 0x2000, "a bare floor arrival presses Action once"
+    assert game.action == 0, "walking somewhere is not pressing the action button"
+
+
+def test_arrival_at_a_clicked_non_foundable_target_presses_the_action_bit(data_dir):
+    # the other half of the rule: a clicked target that cannot be picked up
+    # gets Action, which is how a mouse-only player operates doors and levers
+    game = init_game(data_dir)
+    target = next(
+        i for i, w in enumerate(game.world_objects)
+        if w.obj_index != -1 and not game.actors[w.obj_index].object_type & AF_FOUNDABLE
+    )
+    game.action = 0
+    game.nav_arrived_target = target
+    assert dispatch_nav_arrival(game) is True
+    assert game.action == 0x2000
 
 
 def test_arrival_on_a_despawned_target_is_dropped(data_dir):

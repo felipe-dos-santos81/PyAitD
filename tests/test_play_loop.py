@@ -6,6 +6,7 @@ import numpy as np
 from PyAitD.floor import Floor
 from PyAitD.game import init_game
 from PyAitD.life import life_gate
+from PyAitD.navmesh import agent_extent
 from PyAitD.picking import project_floor_point
 
 
@@ -40,7 +41,7 @@ def test_apply_play_input_mapping(data_dir):
 
 def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tmp_path):
     import PyAitD.__main__ as main
-    from PyAitD.effects import GameMode
+    from PyAitD.effects import GameMode, InputMode
 
     calls = []
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -73,7 +74,7 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
     game = SimpleNamespace(
         _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,
         num_camera=-1, new_num_camera=0, flag_init_view=0, current_room=0,
-        actors=[], active_modal=None,
+        actors=[], active_modal=None, input_mode=InputMode.MOUSE,
     )
     assert main.run(game) == 0
     assert calls == ["tick"] * 5 + ["present", "present"]
@@ -85,7 +86,7 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch,
     # must reuse the previous frame instead of recomputing the scene or
     # indexing floor.rooms[current_room] (IndexError / wrong camera).
     import PyAitD.__main__ as main
-    from PyAitD.effects import GameMode
+    from PyAitD.effects import GameMode, InputMode
 
     scene_calls = []
     presented = []
@@ -123,7 +124,7 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch,
     game = SimpleNamespace(
         _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,
         num_camera=0, new_num_camera=0, flag_init_view=0, current_room=0,
-        actors=[], active_modal=None,
+        actors=[], active_modal=None, input_mode=InputMode.MOUSE,
     )
     assert main.run(game) == 0
     assert len(scene_calls) == 1  # only the pre-loop frame, reused after
@@ -228,7 +229,7 @@ def test_depth_sort_y_bands():
     assert len(order) == 2
 
 
-from PyAitD.__main__ import _is_interactable, route_play_click
+from PyAitD.__main__ import _is_interactable, resolve_play_click, route_play_click
 
 
 def _state_for(floor, room_idx, cam_slot):
@@ -281,3 +282,147 @@ def test_a_click_on_nothing_leaves_the_intent_alone(data_dir):
     game.num_camera = game.new_num_camera
     route_play_click(game, floor, (2, 2), [])
     assert game.nav_intent is None
+
+
+def _real_draw_list_entry(game, floor, actor_idx):
+    """The (actor, screen bbox) pair _scene_frame would produce, without a
+    Renderer: the same skin() call, the same picking.actor_bbox."""
+    from PyAitD.picking import actor_bbox
+    from PyAitD.skel import skin
+    from PyAitD.world import CameraState
+    room = floor.rooms[game.current_room]
+    camera = floor.cameras[room.camera_indices[game.num_camera]]
+    state = CameraState.from_camera(
+        camera, room.world_x, room.world_y, room.world_z,
+    ).angles()
+    actor = game.actors[actor_idx]
+    body = game.assets.body(actor.body_num)
+    result = skin(
+        body, [(0, (0, 0, 0))] * len(body.groups),
+        (actor.world_x, actor.world_y, actor.world_z), state,
+        actor_angles=(actor.alpha, actor.beta, actor.gamma),
+    )
+    return (actor_idx, actor_bbox(result))
+
+
+def test_clicking_floor_zero_s_interactable_walks_there_and_dispatches(data_dir):
+    # End to end on the only bootable content: floor 0 has exactly one clickable
+    # interactable (actor 10 / world object 13, found_life 9), and its own cell
+    # is not walkable — the hard col standing for it plus the 266-unit agent
+    # inflation cover it. Aiming at the object's centre makes find_path fail
+    # every tick, and the hero grinds into the wall forever (measured: still
+    # 875 units short after 6000 ticks). The click must snap to a standing spot
+    # instead, so the walk actually finishes and the arrival dispatches.
+    from PyAitD.effects import GameMode
+    from PyAitD.playworld import play_tick
+    from PyAitD.ui import InputBuffer
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    # the draw list is what a click can hit: only actors with a body are in it
+    # (actors.sort_actor_indices skips body_num == -1)
+    target_idx = next(
+        i for i, a in enumerate(game.actors)
+        if a.index_in_world >= 0 and a.body_num != -1
+        and i != game.current_camera_target_actor and _is_interactable(game, i)
+    )
+    entry = _real_draw_list_entry(game, floor, target_idx)
+    box = entry[1]
+    assert box is not None, "the interactable must be on screen to be clickable"
+    click = ((box[0] + box[2]) // 2, (box[1] + box[3]) // 2)
+
+    route_play_click(game, floor, click, [entry])
+    intent = game.nav_intent
+    assert intent is not None and intent.target_object_idx == game.actors[target_idx].index_in_world
+    target = game.actors[target_idx]
+    assert (intent.dest_x, intent.dest_z) != (target.room_x, target.room_z), (
+        "the destination must be a standing spot beside the object, not its own "
+        "cell, which is never walkable"
+    )
+    mesh = game.nav_meshes.mesh_for(floor, target.room, agent_extent(game.actors[
+        game.current_camera_target_actor]))
+    assert mesh.is_walkable(intent.dest_x, intent.dest_z)
+
+    buf = InputBuffer()
+    dispatched = False
+    for _tick in range(2000):
+        play_tick(game, floor, buf)
+        if game.mode is not GameMode.PLAY:
+            dispatched = True   # a foundable target would open its prompt
+            break
+        if game.action == 0x2000:
+            dispatched = True   # a non-foundable target gets the action bit
+            break
+        if game.nav_intent is None:
+            break
+    assert dispatched, "the click never reached a dispatch — the hero is grinding"
+
+
+def _floor_screen_point(game, floor, dx, dz):
+    hero = game.actors[game.current_camera_target_actor]
+    return project_floor_point(
+        _state_for(floor, hero.room, game.num_camera),
+        hero.room_x + dx, hero.world_y, hero.room_z + dz,
+    )
+
+
+def test_a_play_click_is_ignored_in_keyboard_mode(data_dir):
+    # Tab hands control back to the tank keys; a click that silently does
+    # nothing is worse than no click, so the cursor is hidden in that mode too
+    # (run() only renders it in mouse mode) and the resolver refuses outright.
+    from PyAitD.effects import InputMode
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    screen = _floor_screen_point(game, floor, 1500, 0)
+    click = (int(screen[0]), int(screen[1]))
+    assert resolve_play_click(game, floor, click, [])[0] != "blocked", "fixture"
+
+    game.input_mode = InputMode.KEYBOARD
+    assert resolve_play_click(game, floor, click, [])[0] == "blocked"
+    route_play_click(game, floor, click, [])
+    assert game.nav_intent is None
+
+
+def test_the_cursor_and_the_click_come_from_one_resolution(data_dir):
+    # The hover cursor used to resolve the floor with pick_floor (the hero's
+    # room only) while the click used pick_floor_any_room, so a neighbouring
+    # room's floor drew the red "blocked" X and then walked there anyway. Both
+    # now go through resolve_play_click, and this pins the agreement: whatever
+    # the cursor shows is exactly what clicking does.
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    points = [(x, y) for x in range(10, 320, 23) for y in range(20, 200, 17)]
+    seen = set()
+    for point in points:
+        kind, args = resolve_play_click(game, floor, point, [])
+        seen.add(kind)
+        game.nav_intent = None
+        route_play_click(game, floor, point, [])
+        if kind == "blocked":
+            assert game.nav_intent is None, f"{point}: cursor said blocked, click walked"
+        else:
+            assert game.nav_intent is not None, f"{point}: cursor said {kind}, click did nothing"
+            assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == args[:2]
+    assert {"walk", "blocked"} <= seen, "the sweep must cover both outcomes"
+
+
+def test_a_walk_click_always_lands_on_a_walkable_cell(data_dir):
+    # the cursor promises "walk", so the destination must really be on the mesh
+    from PyAitD.navmesh import agent_extent
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    hero = game.actors[game.current_camera_target_actor]
+    mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
+    walks = 0
+    for x in range(10, 320, 17):
+        for y in range(20, 200, 13):
+            kind, args = resolve_play_click(game, floor, (x, y), [])
+            if kind != "walk":
+                continue
+            walks += 1
+            assert mesh.is_walkable(args[0], args[1]), f"click at {(x, y)} is not walkable"
+    assert walks > 20, "the sweep must actually produce walk clicks"

@@ -83,18 +83,32 @@ def test_mouse_mode_mirrors_the_follower_joystick(data_dir):
     assert game.local_joyd & 1, "scripts reading evalVar 0x13 must see movement"
 
 
-def test_hero_walks_toward_a_destination_over_real_ticks(data_dir):
-    game = init_game(data_dir, hero=0)
-    game.input_mode = InputMode.MOUSE
+def test_hero_walks_to_a_clicked_destination_and_arrives(data_dir):
+    from PyAitD.navigate import ARRIVE_DISTANCE
+    from PyAitD.realvalue import give_distance_2d
+
+    game = init_game(data_dir)
     floor = Floor(data_dir, game.current_floor)
     hero = game.actors[game.current_camera_target_actor]
-    hero.track_mode = 4
+    # Deliberately NOT set here. Object data spawns the hero in track mode 1
+    # (tank), and mouse is the default input mode: if init_game does not put the
+    # hero into the follower's mode 4, process_track hands the follower's
+    # mirrored joyd to _process_track_manual, which reads it as *keyboard*
+    # input. The hero then walks a long way in the wrong direction — which is
+    # why this test asserts where it ended up, not merely that it moved.
+    assert hero.track_mode == 4, "init_game left the hero in tank mode"
     mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
-    goal = mesh.center_of(145, 78)          # the type-10 sce zone, component 0
+    goal = mesh.center_of(100, 45)   # walkable, and clear of room 0's two sce_zones
+    assert mesh.is_walkable(*goal), "the fixture goal must be on the mesh"
+    assert not any(
+        zone.x1 <= goal[0] <= zone.x2 and zone.z1 <= goal[1] <= zone.z2
+        for zone in floor.rooms[hero.room].sce_zones
+    ), "the goal must not be a trigger/transition zone"
     start = (hero.room_x, hero.room_z)
     game.nav_intent = NavIntent(goal[0], goal[1], hero.room)
     buf = InputBuffer()
-    for _ in range(400):
+    joyd_seen = 0
+    for tick in range(600):
         # play_tick returns False whenever a LIFE script suspends mid-tick
         # (e.g. a background actor's own message op) — that is a normal
         # "the tick did not finish, call me again" signal, not game-over;
@@ -105,11 +119,19 @@ def test_hero_walks_toward_a_destination_over_real_ticks(data_dir):
         play_tick(game, floor, buf)
         if game.mode is not GameMode.PLAY:
             break
+        joyd_seen |= game.local_joyd
         # hero.track_mode is owned by the hero's LIFE script (LM_DO_MOVE ->
-        # process_track dispatches on it); re-assert every tick so this test
-        # genuinely covers the mode-4 mouse path rather than only seeding it.
-        assert hero.track_mode == 4, "the LIFE script reset track_mode away from mouse-follow"
+        # process_track dispatches on it); apply_play_input re-asserts the
+        # follower mode every tick, so this must hold all the way through.
+        assert hero.track_mode == 4, "the hero fell out of mouse-follow mode"
         if game.nav_intent is None:
             break
-    moved = abs(hero.room_x - start[0]) + abs(hero.room_z - start[1])
-    assert moved > 500, f"the hero barely moved ({moved} units)"
+    assert game.nav_intent is None, "the hero never reached the destination"
+    assert joyd_seen & 1, "scripts reading evalVar 0x13 must have seen movement"
+    here = (hero.room_x + hero.step_x, hero.room_z + hero.step_z)
+    assert give_distance_2d(*here, *goal) < ARRIVE_DISTANCE, (
+        f"stopped at {here}, not at the goal {goal} "
+        f"(started at {start})"
+    )
+    assert hero.room == 0, "the walk must not have left the room"
+    assert game.action == 0, "a bare floor walk does not press the action button"

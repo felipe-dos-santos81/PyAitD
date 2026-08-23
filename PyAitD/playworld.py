@@ -13,7 +13,7 @@ from PyAitD.game import (
 )
 from PyAitD.interaction import (
     advance_messages, dispatch_nav_arrival, drain_immediate_effects, execute_found_life,
-    gere_dec, run_life,
+    gere_dec, run_life, sync_player_track_mode,
 )
 from PyAitD.life import life_gate
 from PyAitD.navigate import decide
@@ -24,6 +24,10 @@ TICK_MS = 20  # 50 Hz logic tick
 
 
 def apply_play_input(game, input_buffer):
+    # The hero's manual-control track mode belongs to the input mode, and a
+    # script can hand it back to tank mode at any time (LM_INIT_DEPLACEMENT),
+    # so it is re-asserted here rather than only at init and on the Tab toggle.
+    sync_player_track_mode(game)
     if game.input_mode is InputMode.MOUSE:
         _apply_mouse_input(game)
         return
@@ -51,9 +55,9 @@ def _apply_mouse_input(game):
     decision = decide(game, hero, mesh)
     game.nav_decision = decision
     game.local_joyd = decision.joyd if decision is not None else 0
-    if decision is not None and decision.arrived:
-        game.nav_arrived_target = game.nav_intent.target_object_idx
-        game.nav_arrived_plain = game.nav_intent.target_object_idx == -1
+    if decision is not None and (decision.arrived or decision.abandoned):
+        if decision.arrived:
+            game.nav_arrived_target = game.nav_intent.target_object_idx
         game.nav_intent = None
         game.nav_decision = None
         game.local_joyd = 0
