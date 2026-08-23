@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from maitd.__main__ import apply_play_input, route_command, route_mouse
+from maitd.__main__ import route_command, route_mouse
+from maitd.playworld import apply_play_input
 from maitd.effects import GameMode, OpenInventory, ReadText, ShowPicture
 from maitd.game import init_game
 from maitd.ui import Command, InputBuffer, ModalLayout, ModalSession

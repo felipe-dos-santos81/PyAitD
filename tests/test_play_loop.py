@@ -21,7 +21,7 @@ def test_life_gate(data_dir):
 
 
 def test_apply_play_input_mapping(data_dir):
-    from maitd.__main__ import apply_play_input
+    from maitd.playworld import apply_play_input
     from maitd.ui import InputBuffer
     game = init_game(data_dir)
     state = InputBuffer(held_joyd=9, action_held=True)
@@ -29,19 +29,6 @@ def test_apply_play_input_mapping(data_dir):
     assert game.local_joyd == 9
     assert game.local_click == 1
     assert game.action == 0x2000
-
-
-def test_play_tick_does_not_render_inside_the_simulation_tick(data_dir, monkeypatch):
-    import maitd.__main__ as main
-    from maitd.floor import Floor
-    from maitd.ui import InputBuffer
-
-    def forbidden(*args):
-        raise AssertionError("simulation tick attempted a render")
-
-    monkeypatch.setattr(main, "_scene_frame", forbidden)
-    game = init_game(data_dir, hero=0)
-    main.play_tick(game, Floor(data_dir, 0), InputBuffer())
 
 
 def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tmp_path):

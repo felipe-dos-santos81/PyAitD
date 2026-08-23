@@ -13,7 +13,7 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 
 ```bash
 make run                     # play (windowed); make run trace=/tmp/t.log writes per-opcode LIFE trace
-make test                    # pytest suite (240 passed, 1 skipped)
+make test                    # pytest suite (238 passed, 1 skipped)
 make prove                   # M3a proof: parse-all 563 scripts/45 tracks/tables + headless 60-tick play_tick boot
 make floor=N run             # start on another floor
 ```
@@ -108,7 +108,8 @@ M3b/M3c stubs in `life_ops.py` consume exact FITD arg counts and log under trace
 - `effects.py`: typed immediate/modal effects and resumable LIFE frames.
 - `interaction.py`: found-LIFE, inventory/world transitions, contacts, and GereDec.
 - `ui.py`: command buffering, modal reducers, mouse targets, and 320x200 presenters.
-- `__main__.py`: one event pump, PLAY-only fixed ticks, mode routing, one present.
+- `playworld.py`: the PLAY-only fixed tick body, free of pygame/rendering.
+- `__main__.py`: one event pump, tick accumulator, mode routing, one present.
 - Focused proof: `make prove-m3b`.
 - Full regression: `.venv/bin/pytest -q && make prove`.
 - Manual evidence: `docs/m3b-interaction-proof.md`.

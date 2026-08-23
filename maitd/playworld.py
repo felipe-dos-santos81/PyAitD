@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """PlayWorld simulation tick (FITD mainLoop.cpp:41-281 order).
 
-Deliberately free of pygame, ModernGL and the Renderer: one 50 Hz logic step
-that a headless caller can advance without a window. Rendering and the event
-pump live in `__main__.py`; view assembly stays there too.
+Imports no pygame, ModernGL or Renderer, so one 50 Hz logic step can be
+advanced without a window. Callers still reach `ui.py` for an InputBuffer;
+freeing that needs InputBuffer moved out of the presentation layer.
 """
 from maitd.actors import gere_anim
 from maitd.effects import GameMode, LifeFrame

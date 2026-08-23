@@ -14,8 +14,9 @@ from maitd.floor import Floor
 from maitd.game import init_game, spawn_stage_actors
 from maitd.life import Trace
 from maitd.pak import PakError
-# re-exported so run() reads them as module globals (and tests can patch them there)
-from maitd.playworld import TICK_MS, apply_play_input, play_tick
+# imported by name, not module-qualified: run() reads play_tick as a module
+# global, which is the patch point tests/test_play_loop.py relies on
+from maitd.playworld import TICK_MS, play_tick
 from maitd.render import Renderer
 from maitd.skel import skin
 from maitd.ui import Command, InputBuffer, ModalSession, event_to_input
@@ -76,7 +77,6 @@ def _scene_frame(game, floor, renderer):
         floor.camera_image(cam_idx), results, floor.masks(cam_idx), floor.palette,
         actor_rooms, actor_zvs,
     )
-
 
 
 def _inventory_view(game, session):

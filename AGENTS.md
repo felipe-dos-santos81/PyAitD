@@ -48,9 +48,10 @@ the test suite is the only gate. Never mass-reformat.
 ## Conventions
 
 - `# SPDX-License-Identifier: GPL-2.0-only` first line of every Python file.
-- Layer boundary: `life_ops.py`/`interaction.py`/`effects.py` never touch
-  pygame/rendering/events; `ui.py` never mutates world/actor/inventory/LIFE
-  state; `__main__.py` owns the single event pump and one present per frame.
+- Layer boundary: `playworld.py`/`life_ops.py`/`interaction.py`/`effects.py`
+  never touch pygame/rendering/events; `ui.py` never mutates world/actor/
+  inventory/LIFE state; `__main__.py` owns the single event pump and one
+  present per frame. `tests/test_playworld.py` enforces the playworld half.
 - `ponytail:` comments mark deliberate simplifications with upgrade path —
   respect them, don't silently remove.
 - Workflow is brainstorm → spec → plan → TDD under `docs/superpowers/`
