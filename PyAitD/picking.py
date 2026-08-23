@@ -135,3 +135,29 @@ def _point_in_world_poly(x, z, world_poly):
             if x < crossing:
                 inside = not inside
     return inside
+
+
+ACTOR_PICK_PAD = 3  # logical pixels of slack; the accessibility contract
+                    # forbids requiring precise pointing
+_CULLED = -9000     # skel.skin writes -10000 for culled vertices
+
+
+def actor_bbox(result, pad=ACTOR_PICK_PAD):
+    """Screen-space bounding box of a skinned actor, or None if fully culled."""
+    xs = [p[0] for p in result.points if p[0] > _CULLED and p[1] > _CULLED]
+    ys = [p[1] for p in result.points if p[0] > _CULLED and p[1] > _CULLED]
+    if not xs:
+        return None
+    return (int(min(xs)) - pad, int(min(ys)) - pad,
+            int(max(xs)) + pad, int(max(ys)) + pad)
+
+
+def pick_actor(logical_pos, draw_list):
+    """Topmost interactable actor under the click. draw_list is painter order."""
+    x, y = logical_pos
+    for actor_idx, box in reversed(draw_list):
+        if box is None:
+            continue
+        if box[0] <= x <= box[2] and box[1] <= y <= box[3]:
+            return actor_idx
+    return None

@@ -78,7 +78,7 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
         lambda: SimpleNamespace(present=lambda image: None, close=lambda: None),
     )
     monkeypatch.setattr(main, "play_tick", lambda *args: True)
-    monkeypatch.setattr(main, "_scene_frame", lambda *args: frame)
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
     monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))

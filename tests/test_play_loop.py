@@ -55,7 +55,7 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
     monkeypatch.setattr(
         main, "play_tick", lambda *args: calls.append("tick") or True
     )
-    monkeypatch.setattr(main, "_scene_frame", lambda *args: frame)
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
     monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
@@ -86,7 +86,7 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch,
 
     def scene_frame(*args):
         scene_calls.append(1)
-        return frame
+        return frame, []
 
     def tick(game, floor, input_buffer):
         game.num_camera = -1  # floor-change tick: change_salle pending

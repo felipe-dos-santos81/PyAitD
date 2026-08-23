@@ -77,3 +77,37 @@ def test_pick_floor_outside_every_cover_polygon_is_none(data_dir):
     floor = Floor(data_dir, 0)
     # top-left corner of the 320x200 logical surface is ceiling, never floor
     assert pick_floor((2, 2), floor, 0, 0, 0) is None
+
+
+from PyAitD.picking import ACTOR_PICK_PAD, actor_bbox, pick_actor
+
+
+class _FakeResult:
+    def __init__(self, points):
+        self.points = points
+
+
+def test_actor_bbox_ignores_culled_vertices():
+    # skel.skin writes (-10000, -10000, -10000) for culled points
+    result = _FakeResult([(100.0, 50.0, 900.0), (-10000.0, -10000.0, -10000.0),
+                          (120.0, 80.0, 900.0)])
+    assert actor_bbox(result, pad=0) == (100, 50, 120, 80)
+
+
+def test_actor_bbox_is_none_when_everything_is_culled():
+    assert actor_bbox(_FakeResult([(-10000.0, -10000.0, -10000.0)])) is None
+
+
+def test_pick_actor_returns_the_topmost_hit():
+    # painter order is farthest first, so a later entry is nearer the camera
+    draw_list = [(3, (100, 40, 160, 120)), (7, (110, 50, 140, 100))]
+    assert pick_actor((120, 60), draw_list) == 7
+    assert pick_actor((105, 45), draw_list) == 3
+    assert pick_actor((10, 10), draw_list) is None
+
+
+def test_actor_bbox_padding_enlarges_the_target():
+    result = _FakeResult([(100.0, 50.0, 900.0), (120.0, 80.0, 900.0)])
+    x0, y0, x1, y1 = actor_bbox(result)
+    assert (x0, y0, x1, y1) == (100 - ACTOR_PICK_PAD, 50 - ACTOR_PICK_PAD,
+                                120 + ACTOR_PICK_PAD, 80 + ACTOR_PICK_PAD)

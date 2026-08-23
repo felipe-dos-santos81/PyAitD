@@ -14,6 +14,7 @@ from PyAitD.floor import Floor
 from PyAitD.game import init_game, spawn_stage_actors
 from PyAitD.life import Trace
 from PyAitD.pak import PakError
+from PyAitD.picking import actor_bbox
 # imported by name, not module-qualified: run() reads play_tick as a module
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.playworld import TICK_MS, play_tick
@@ -52,6 +53,7 @@ def _scene_frame(game, floor, renderer):
     results = []
     actor_rooms = []
     actor_zvs = []
+    draw_list = []
     draw_order = sort_actor_indices(game, state.x, state.y, state.z)
     for index in draw_order:
         actor = game.actors[index]
@@ -71,12 +73,13 @@ def _scene_frame(game, floor, renderer):
             state,
             actor_angles=(actor.alpha, actor.beta, actor.gamma),
         ))
+        draw_list.append((index, actor_bbox(results[-1])))
         actor_rooms.append(actor.room)
         actor_zvs.append(actor.zv)
     return renderer.compose_scene(
         floor.camera_image(cam_idx), results, floor.masks(cam_idx), floor.palette,
         actor_rooms, actor_zvs,
-    )
+    ), draw_list
 
 
 def _inventory_view(game, session):
@@ -237,7 +240,8 @@ def run(game, trace_path=None):
     if game.num_camera == -1:
         game.num_camera = game.new_num_camera
         game.flag_init_view = 0
-    scene_frame = _scene_frame(game, floor, renderer)
+    draw_list = []
+    scene_frame, draw_list = _scene_frame(game, floor, renderer)
     while running:
         for event in pygame.event.get():
             running = event_to_input(event, input_buffer) and running
@@ -262,7 +266,7 @@ def run(game, trace_path=None):
                 if floor.number != game.current_floor:
                     floor = Floor(game._data_dir, game.current_floor)
             if game.num_camera != -1:
-                scene_frame = _scene_frame(game, floor, renderer)
+                scene_frame, draw_list = _scene_frame(game, floor, renderer)
         else:
             accumulator = 0
             session.reading.elapsed_ms += elapsed
