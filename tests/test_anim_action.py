@@ -2,10 +2,12 @@
 """Melee hot-point timing and hit publication (FITD animAction.cpp GereFrappe)."""
 import pytest
 
+from PyAitD.actors import anim_player_for
 from PyAitD.anim_action import (
-    FRAPPE_OK, HIT_OBJECT, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, gere_frappe,
+    FRAPPE_OK, HIT_OBJECT, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, gere_frappe, refresh_hot_point,
 )
 from PyAitD.game import AF_ANIMATED, init_game
+from PyAitD.skel import hot_point as skel_hot_point
 
 
 def _live_actors(data_dir, count):
@@ -88,3 +90,90 @@ def test_hit_object_state_is_an_explicit_no_op(data_dir):
     assert actor.hit == -1
     assert actor.hit_by == -1
     assert actor.hit_force == 7
+
+
+def test_frappe_ok_builds_the_expected_strike_cube(monkeypatch, data_dir):
+    # Distinct, non-zero values on every axis so a dropped term, a swapped
+    # axis, or a flipped sign in room_*/hot_point/step_* would move the
+    # captured cube away from the hand-computed expectation below.
+    game, attacker_idx, victim_idx = _live_actors(data_dir, 2)
+    attacker = game.actors[attacker_idx]
+    attacker.anim_action_type = FRAPPE_OK
+    attacker.anim_action_anim = attacker.anim  # no mismatch: keep the fall-through out of this test
+    attacker.room_x, attacker.room_y, attacker.room_z = 1000, 2000, 3000
+    attacker.hot_point[:] = [10, 20, 30]
+    attacker.step_x, attacker.step_y, attacker.step_z = 1, 2, 3
+    attacker.anim_action_param = 50
+
+    captured = {}
+
+    def capturing_check_object_col(game_arg, actor_idx_arg, zv):
+        captured["zv"] = zv
+        return (victim_idx,)
+
+    monkeypatch.setattr("PyAitD.anim_action.check_object_col", capturing_check_object_col)
+    gere_frappe(game, attacker_idx)
+
+    # x = 1000 + 10 + 1 = 1011, y = 2000 + 20 + 2 = 2022, z = 3000 + 30 + 3 = 3033,
+    # cube = [x-50, x+50, y-50, y+50, z-50, z+50] — computed by hand, not by
+    # re-reading the same attacker.room_*/hot_point/step_* expression under test.
+    assert list(captured["zv"]) == [961, 1061, 1972, 2072, 2983, 3083]
+    assert attacker.hit == victim_idx
+
+
+def test_refresh_hot_point_uses_the_live_anim_pose(data_dir):
+    game, idx = _live_actors(data_dir, 1)
+    actor = game.actors[idx]
+    actor.anim = 4  # a real body-12 walk anim with non-zero keyframe deltas
+    actor.body_num = 12
+    body = game.assets.body(actor.body_num)
+    assert body.flags & 2, "fixture body must carry INFO_ANIM for hot_point() to do real posing"
+    actor.alpha, actor.beta, actor.gamma = 0x40, 0x120, 0x2C0
+    actor.hot_point_id = 5  # group 5, not the group-0 slot pose_vertices overrides with actor_angles
+
+    player = anim_player_for(game, idx)
+    player.advance(game.timer)  # populate real per-group keyframe deltas, mirroring gere_anim's usage
+    live_states = list(player.group_states())
+    assert any(delta != (0, 0, 0) for _gtype, delta in live_states), (
+        "fixture animation must carry a non-zero delta or this test cannot "
+        "distinguish the live pose from the zero-state fallback"
+    )
+
+    refresh_hot_point(game, idx)
+
+    expected = skel_hot_point(
+        body, live_states, (actor.alpha, actor.beta, actor.gamma), actor.hot_point_id,
+    )
+    assert tuple(actor.hot_point) == expected
+
+    zero_states = [(0, (0, 0, 0))] * len(body.groups)
+    zero_expected = skel_hot_point(
+        body, zero_states, (actor.alpha, actor.beta, actor.gamma), actor.hot_point_id,
+    )
+    assert expected != zero_expected, (
+        "the live and zero-state poses coincide here, so this fixture choice "
+        "would not catch refresh_hot_point picking the wrong states branch"
+    )
+
+
+def test_refresh_hot_point_uses_zero_states_when_actor_has_no_anim(monkeypatch, data_dir):
+    game, idx = _live_actors(data_dir, 1)
+    actor = game.actors[idx]
+    actor.anim = -1
+    actor.body_num = 12  # confirmed INFO_ANIM (flags & 2) so hot_point() does real posing
+    actor.alpha, actor.beta, actor.gamma = 0x40, 0x120, 0x2C0
+    actor.hot_point_id = 5
+
+    def _must_not_be_called(*args, **kwargs):
+        raise AssertionError("refresh_hot_point must not touch game.assets.anim when actor.anim == -1")
+
+    monkeypatch.setattr(game.assets, "anim", _must_not_be_called)
+
+    refresh_hot_point(game, idx)
+
+    body = game.assets.body(actor.body_num)
+    zero_states = [(0, (0, 0, 0))] * len(body.groups)
+    expected = skel_hot_point(
+        body, zero_states, (actor.alpha, actor.beta, actor.gamma), actor.hot_point_id,
+    )
+    assert tuple(actor.hot_point) == expected

@@ -6,7 +6,7 @@ import sys
 from PyAitD.anim_action import WAIT_FRAPPE_ANIM
 from PyAitD.floor import Floor
 from PyAitD.game import init_game
-from PyAitD.playworld import play_tick
+from PyAitD.playworld import _anim_pass, play_tick
 from PyAitD.ui import InputBuffer
 
 # Runs in a fresh interpreter: pytest (and this module, via InputBuffer) has
@@ -136,9 +136,6 @@ def test_hero_walks_to_a_clicked_destination_and_arrives(data_dir):
     )
     assert hero.room == 0, "the walk must not have left the room"
     assert game.action == 0, "a bare floor walk does not press the action button"
-
-
-from PyAitD.playworld import _anim_pass
 
 
 def test_anim_pass_refreshes_before_anim_and_strikes_after_dec(monkeypatch, data_dir):

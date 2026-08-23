@@ -52,6 +52,9 @@ def gere_frappe(game, actor_idx):
     if action == WAIT_FRAPPE_ANIM:
         if actor.anim == actor.anim_action_anim:
             actor.anim_action_type = WAIT_FRAPPE_FRAME
+        # Same-tick fall-through into WAIT_FRAPPE_FRAME below: FITD
+        # animAction.cpp:24 marks this an explicit [[fallthrough]], not a
+        # missing break.
         action = actor.anim_action_type
     if action == WAIT_FRAPPE_FRAME:
         if actor.anim != actor.anim_action_anim:
