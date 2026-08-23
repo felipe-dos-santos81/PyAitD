@@ -125,5 +125,5 @@ def test_hot_point_zero_and_bad_group_contracts(data_dir):
     plain = _cube_body()
     assert hot_point(plain, [], (0, 0, 0), 0) == (0, 0, 0)
     body = init_game(data_dir).assets.body(234)
-    with pytest.raises(ValueError, match=r"body.*group"):
+    with pytest.raises(ValueError, match=r"body with 24 groups has hot-point group 24"):
         hot_point(body, [(0, (0, 0, 0))] * len(body.groups), (0, 0, 0), len(body.groups))
