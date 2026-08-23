@@ -1,7 +1,6 @@
 # PyAitD
 
-Python engine reimplementation of **Alone in the Dark 1** (DOS, 1992),
-test-driven from the [FITD](https://github.com/yaz0r/FITD) decompilation.
+Python engine reimplementation of **Alone in the Dark 1** (DOS, 1992).
 pygame-ce + ModernGL, Apple Silicon, windowed. GPLv2.
 
 **You must own the original game** — this repo never ships game data.
