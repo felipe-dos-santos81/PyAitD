@@ -51,8 +51,34 @@ class CameraState:
         return (sx, sy, depth)
 
 
-def _trunc_div(v):
-    return int(v / 65536)  # C integer division: truncation toward zero
+def cdiv(a, b):
+    # C integer division: truncation toward zero
+    return a // b if a >= 0 else -((-a) // b)
+
+
+def trunc_div(v, n):
+    return int(v / n)  # C integer division: truncation toward zero
+
+
+def room_delta(game, from_room, to_room):
+    # FITD AdjustZV (main.cpp:3222): roomDataTable world-coord delta * 10.
+    # Every caller applies it with FITD's asymmetric signs: x -, y +, z +.
+    rooms = game.rooms_of_floor(game.current_floor)
+    src, dst = rooms[from_room], rooms[to_room]
+    return (
+        10 * (dst.world_x - src.world_x),
+        10 * (dst.world_y - src.world_y),
+        10 * (dst.world_z - src.world_z),
+    )
+
+
+def shifted_zv(zv, dx, dy, dz):
+    # room_delta's sign convention applied to a 6-element ZV box
+    return [zv[0] - dx, zv[1] - dx, zv[2] + dy, zv[3] + dy, zv[4] + dz, zv[5] + dz]
+
+
+def adjust_zv_between_rooms(game, zv, from_room, to_room):
+    return shifted_zv(zv, *room_delta(game, from_room, to_room))
 
 
 def transform_point(x, y, z, angles):
@@ -60,8 +86,8 @@ def transform_point(x, y, z, angles):
     if angles._use_y:
         s = COS_TABLE[(angles._use_y + 0x100) & 0x3FF]
         c = COS_TABLE[angles._use_y & 0x3FF]
-        x = (_trunc_div(ax * s - cx * c)) << 1
-        z = (_trunc_div(ax * c + cx * s)) << 1
+        x = (trunc_div(ax * s - cx * c, 65536)) << 1
+        z = (trunc_div(ax * c + cx * s, 65536)) << 1
     else:
         x, z = ax, cx
     if angles._use_x:
@@ -69,8 +95,8 @@ def transform_point(x, y, z, angles):
         c = COS_TABLE[angles._use_x & 0x3FF]
         temp_y = bx
         temp_z = z
-        y = (_trunc_div(temp_y * s - temp_z * c)) << 1
-        z = (_trunc_div(temp_y * c + temp_z * s)) << 1
+        y = (trunc_div(temp_y * s - temp_z * c, 65536)) << 1
+        z = (trunc_div(temp_y * c + temp_z * s, 65536)) << 1
     else:
         y = bx
     if angles._use_z:
@@ -78,8 +104,8 @@ def transform_point(x, y, z, angles):
         c = COS_TABLE[angles._use_z & 0x3FF]
         temp_x = x
         temp_y = y
-        x = (_trunc_div(temp_x * s - temp_y * c)) << 1
-        y = (_trunc_div(temp_x * c + temp_y * s)) << 1
+        x = (trunc_div(temp_x * s - temp_y * c, 65536)) << 1
+        y = (trunc_div(temp_x * c + temp_y * s, 65536)) << 1
     return (x, y, z)
 
 

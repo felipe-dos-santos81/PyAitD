@@ -62,6 +62,14 @@ class ShowPicture:
 ModalEffect = ShowFound | OpenInventory | ReadText | ShowPicture
 ImmediateEffect = AddMessage | BeginTake
 
+# the one place a modal effect type is mapped to the mode it puts the loop in
+MODAL_MODE = {
+    ShowFound: GameMode.FOUND,
+    OpenInventory: GameMode.INVENTORY,
+    ReadText: GameMode.READING,
+    ShowPicture: GameMode.READING,
+}
+
 
 @dataclass
 class TimedMessage:

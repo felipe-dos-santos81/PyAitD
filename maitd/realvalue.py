@@ -32,17 +32,14 @@ def update_actor_rotation(rotate_ptr, timer):
     if time_dif > rotate_ptr.num_steps:
         rotate_ptr.num_steps = 0
         return rotate_ptr.end_value
-    angle_dif = (rotate_ptr.end_value & 0x3FF) - (rotate_ptr.start_value & 0x3FF)
-    if angle_dif <= 0x200:
-        if angle_dif >= -0x200:
-            angle = (rotate_ptr.end_value & 0x3FF) - (rotate_ptr.start_value & 0x3FF)
-            return (rotate_ptr.start_value & 0x3FF) + int((angle * time_dif) / rotate_ptr.num_steps)
-        else:
-            angle = ((rotate_ptr.end_value & 0x3FF) + 0x400) - (rotate_ptr.start_value & 0x3FF)
-            return (rotate_ptr.start_value & 0x3FF) + int((angle * time_dif) / rotate_ptr.num_steps)
-    else:
-        angle = (rotate_ptr.end_value & 0x3FF) - ((rotate_ptr.start_value & 0x3FF) + 0x400)
-        return int((angle * time_dif) / rotate_ptr.num_steps) + (rotate_ptr.start_value & 0x3FF)
+    end = rotate_ptr.end_value & 0x3FF
+    start = rotate_ptr.start_value & 0x3FF
+    angle = end - start
+    if angle > 0x200:  # take the short way round
+        angle -= 0x400
+    elif angle < -0x200:
+        angle += 0x400
+    return start + int((angle * time_dif) / rotate_ptr.num_steps)
 
 
 def start_chrono(actor, field, timer):

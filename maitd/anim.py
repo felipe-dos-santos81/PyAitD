@@ -1,12 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Animation state machine port (FITD anim.cpp SetAnimObjet/SetInterAnimObjet)."""
 
-
-def _trunc_div(v, n):
-    return int(v / n)
+from maitd.world import trunc_div as _trunc_div
 
 
-def patch_inter_angle(value, previous, next_, bp, bx):
+def patch_inter_angle(previous, next_, bp, bx):
     diff = next_ - previous
     if diff == 0:
         return next_
@@ -21,7 +19,7 @@ def patch_inter_angle(value, previous, next_, bp, bx):
     return _trunc_div(next_ * bp, bx) + previous
 
 
-def patch_inter_step(value, previous, next_, bp, bx):
+def patch_inter_step(previous, next_, bp, bx):
     if next_ == previous:
         return next_
     return _trunc_div((next_ - previous) * bp, bx) + previous
@@ -37,20 +35,6 @@ class AnimPlayer:
         self._states = [(0, (0, 0, 0))] * len(body.groups)
         self.anim_step = (0, 0, 0)  # FITD animStepX/Y/Z (interpolated per tick)
         self.wrapped = False  # anim looped on the last keyframe commit
-
-    def set_anim(self, anim, start_tick):
-        # SetAnimObjet port (AITD1: keep current frame, apply keyframe 0 states)
-        self.anim = anim
-        self.start_tick = start_tick
-        self.prev_frame = None
-        self.frame = 0
-        self.anim_step = (0, 0, 0)
-        self.wrapped = False
-        keyframe = anim.frames[0]
-        n = min(anim.num_groups, len(self.body.groups))
-        self._states = list(
-            zip(keyframe.group_types[:n], keyframe.group_deltas[:n])
-        ) + [(0, (0, 0, 0))] * (len(self.body.groups) - n)
 
     def group_states(self):
         return self._states
@@ -73,15 +57,15 @@ class AnimPlayer:
                 nd = keyframe.group_deltas[i]
                 if gtype == 0:
                     delta = (
-                        patch_inter_angle(0, pd[0], nd[0], bp, bx),
-                        patch_inter_angle(0, pd[1], nd[1], bp, bx),
-                        patch_inter_angle(0, pd[2], nd[2], bp, bx),
+                        patch_inter_angle(pd[0], nd[0], bp, bx),
+                        patch_inter_angle(pd[1], nd[1], bp, bx),
+                        patch_inter_angle(pd[2], nd[2], bp, bx),
                     )
                 else:
                     delta = (
-                        patch_inter_step(0, pd[0], nd[0], bp, bx),
-                        patch_inter_step(0, pd[1], nd[1], bp, bx),
-                        patch_inter_step(0, pd[2], nd[2], bp, bx),
+                        patch_inter_step(pd[0], nd[0], bp, bx),
+                        patch_inter_step(pd[1], nd[1], bp, bx),
+                        patch_inter_step(pd[2], nd[2], bp, bx),
                     )
                 states.append((gtype, delta))
             self._states = states + [(0, (0, 0, 0))] * (len(self.body.groups) - n)

@@ -3,6 +3,8 @@
 import struct
 from dataclasses import dataclass
 
+from maitd.formats import _s16
+
 import numpy as np
 
 SCREEN_W, SCREEN_H = 320, 200
@@ -79,11 +81,6 @@ def fill_poly(points, target, value):
             x_b = max(0, min(w - 1, row[j + 1]))
             if x_a <= x_b:
                 target[y, x_a : x_b + 1] = value
-
-
-def _s16(buf, off):
-    v = struct.unpack_from("<H", buf, off)[0]
-    return v - 0x10000 if v & 0x8000 else v
 
 
 def create_aitd1_mask(camera_raw, camera_off):

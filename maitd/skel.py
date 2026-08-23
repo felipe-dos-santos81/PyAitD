@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from maitd.cos_table import COS_TABLE
-from maitd.world import transform_point
+from maitd.world import transform_point, trunc_div as _trunc_div
 
 
 @dataclass
@@ -18,10 +18,6 @@ class PrimEntry:
 class RenderResult:
     points: list
     primitives: list
-
-
-def _trunc_div(v, n):
-    return int(v / n)
 
 
 def skin(body, group_states, position, camera, actor_angles=None):

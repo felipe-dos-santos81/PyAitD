@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from collections import deque
+from functools import lru_cache
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
@@ -120,13 +121,16 @@ def reduce_inventory(state, command, *, object_ids, action_ids):
         return InventoryResult(cancelled=True)
     if not object_ids:
         return InventoryResult(cancelled=True)
-    if command is Command.UP:
-        field_name = "action_cursor" if state.choosing_action else "object_cursor"
-        setattr(state, field_name, max(0, getattr(state, field_name) - 1))
-    elif command is Command.DOWN:
-        field_name = "action_cursor" if state.choosing_action else "object_cursor"
-        limit = len(action_ids) - 1 if state.choosing_action else len(object_ids) - 1
-        setattr(state, field_name, min(limit, getattr(state, field_name) + 1))
+    if command in (Command.UP, Command.DOWN):
+        cursor = state.action_cursor if state.choosing_action else state.object_cursor
+        if command is Command.UP:
+            cursor = max(0, cursor - 1)
+        else:
+            cursor = min(len(action_ids if state.choosing_action else object_ids) - 1, cursor + 1)
+        if state.choosing_action:
+            state.action_cursor = cursor
+        else:
+            state.object_cursor = cursor
     elif command is Command.ACCEPT and not state.choosing_action:
         state.choosing_action = True
         state.action_cursor = 0
@@ -135,16 +139,19 @@ def reduce_inventory(state, command, *, object_ids, action_ids):
     return None
 
 
+def turn_page(state, delta, page_count):
+    state.page = min(page_count - 1, max(0, state.page + delta))
+
+
 def reduce_reading(state, command, *, page_count):
     if command is Command.CANCEL:
         return ReadingResult(True)
     if command in (Command.LEFT, Command.UP):
-        state.page = max(0, state.page - 1)
+        turn_page(state, -1, page_count)
     elif command in (Command.RIGHT, Command.DOWN, Command.ACCEPT):
-        if state.page + 1 < page_count:
-            state.page += 1
-        else:
+        if state.page + 1 >= page_count:
             return ReadingResult(True)
+        turn_page(state, 1, page_count)
     return None
 
 
@@ -152,12 +159,12 @@ class ModalLayout:
     FOUND_LEAVE = pygame.Rect(28, 154, 120, 30)
     FOUND_TAKE = pygame.Rect(172, 154, 120, 30)
     INVENTORY_ROWS = tuple(pygame.Rect(24, 30 + i * 24, 272, 22) for i in range(5))
-    INVENTORY_ACTIONS = tuple(pygame.Rect(24, 30 + i * 24, 272, 22) for i in range(5))
     READING_PREV = pygame.Rect(12, 164, 96, 28)
     READING_CLOSE = pygame.Rect(114, 164, 96, 28)
     READING_NEXT = pygame.Rect(216, 164, 96, 28)
 
 
+@lru_cache(maxsize=8)
 def _font(size=16):
     if not pygame.font.get_init():
         pygame.font.init()
@@ -246,6 +253,8 @@ def render_picture(effect, assets):
 
 
 def overlay_messages(frame, messages, assets):
+    if all(message is None for message in messages):
+        return frame
     surface = _to_surface(frame.copy())
     y = 184
     font = _font(16)
@@ -262,13 +271,16 @@ def overlay_messages(frame, messages, assets):
 
 
 def reading_pages(effect, assets):
-    return layout_book(assets.book_tokens(effect.text_index), _font(16), 190, 8)
+    pages = assets.book_pages.get(effect.text_index)
+    if pages is None:
+        pages = layout_book(assets.book_tokens(effect.text_index), _font(16), 190, 8)
+        assets.book_pages[effect.text_index] = pages
+    return pages
 
 
 def render_reading(effect, presenter, assets):
     surface = _to_surface(assets.resource_screen({0: 6, 1: 7, 2: 8}[effect.kind]).copy())
     pages = reading_pages(effect, assets)
-    presenter.page = min(presenter.page, len(pages) - 1)
     y = 20
     font = _font(16)
     for text, centered in pages[presenter.page]:
@@ -282,8 +294,7 @@ def render_reading(effect, presenter, assets):
     return _to_frame(surface)
 
 
-def render_inventory(object_ids, action_ids, presenter, assets, scene_frame,
-                     object_names, action_names):
+def render_inventory(presenter, assets, scene_frame, object_names, action_names):
     surface = _to_surface((scene_frame.astype("f4") * 0.45).astype(np.uint8))
     rows = action_names if presenter.choosing_action else object_names
     cursor = presenter.action_cursor if presenter.choosing_action else presenter.object_cursor
@@ -315,9 +326,7 @@ def hit_test_inventory(pos, presenter, object_ids, action_ids):
     rows = action_ids if presenter.choosing_action else object_ids
     cursor = presenter.action_cursor if presenter.choosing_action else presenter.object_cursor
     start = visible_start(cursor, len(rows))
-    for visible, rect in enumerate(
-        ModalLayout.INVENTORY_ACTIONS if presenter.choosing_action else ModalLayout.INVENTORY_ROWS
-    ):
+    for visible, rect in enumerate(ModalLayout.INVENTORY_ROWS):
         index = start + visible
         if index < len(rows) and rect.collidepoint(pos):
             if presenter.choosing_action:
