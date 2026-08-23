@@ -57,6 +57,21 @@ def _adjust_zv(game, zv, from_room, to_room):
     zv[:] = adjust_zv_between_rooms(game, zv, from_room, to_room)
 
 
+def _other_object_property(game, vm, tag, widx, world):
+    raw_tag = tag & 0x7FFF
+    code = raw_tag - 1
+    if world.obj_index != -1:
+        return _prop(game, game.actors[world.obj_index], code, vm)
+    if code == 0x1E:
+        return world.room
+    if code == 0x25:
+        return world.stage
+    raise ValueError(
+        f"evalVar: raw tag 0x{raw_tag:04X} on out-of-floor object {widx}; "
+        "FITD asserts for this property"
+    )
+
+
 def _prop(game, a, code, vm):
     if code == 0x00:
         return _world_idx(game, a.col[0])
@@ -180,12 +195,5 @@ def eval_var(vm):
                 f"(life owner actor {vm.owner_idx}, byte {vm.pc - 4})"
             )
         w = game.world_objects[widx]
-        code = (tag & 0x7FFF) - 1
-        if w.obj_index != -1:
-            return _prop(game, game.actors[w.obj_index], code, vm)
-        if code == 0x1F:
-            return w.room
-        if code == 0x26:
-            return w.stage
-        raise ValueError(f"evalVar: code {code} on out-of-floor object {widx}")
+        return _other_object_property(game, vm, tag, widx, w)
     return _prop(game, vm.owner, tag - 1, vm)
