@@ -2,6 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status: executed, and partly superseded.** This plan was implemented across
+> 14 tasks; a whole-branch review then found three Critical seam defects that no
+> per-task review could see, and the fix wave changed some of the code below.
+> Most notably: `nav_arrived_plain` and `_hover_kind` no longer exist, the
+> mirrored joyd turn bits are the opposite polarity to what Task 7 shows here,
+> and actor-target clicks snap through `navmesh.approach_cell` rather than using
+> the object's own centre. **The spec is the binding authority and is accurate;
+> this plan is a historical record of the argument, not of the shipped code.**
+> Read `git log` on `PyAitD/navigate.py`, `PyAitD/interaction.py` and
+> `PyAitD/__main__.py` for what actually landed.
+
 **Goal:** Make the game fully playable with a mouse alone — click the floor to walk there, click an object to approach and interact with it — without removing the keyboard route.
 
 **Architecture:** Three new pygame-free modules (`navmesh`, `picking`, `navigate`) plus a new `track_mode == 4` in the existing FITD track runner. The navmesh is a grid rasterized from the game's own camera cover zones using FITD's own containment predicate; picking inverts the floor plane with a homography fitted from the engine's real forward projection; the follower drives the hero through `_turn_toward` and mirrors tank joystick bits so LIFE scripts still see coherent input.
