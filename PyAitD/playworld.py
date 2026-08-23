@@ -6,6 +6,7 @@ advanced without a window. Callers still reach `ui.py` for an InputBuffer;
 freeing that needs InputBuffer moved out of the presentation layer.
 """
 from PyAitD.actors import gere_anim
+from PyAitD.anim_action import gere_frappe, refresh_hot_point
 from PyAitD.effects import GameMode, InputMode, LifeFrame
 from PyAitD.formats import parse_cover_zones
 from PyAitD.game import (
@@ -63,17 +64,29 @@ def _apply_mouse_input(game):
         game.local_joyd = 0
 
 
+def _run_actor_action(game, index, actor, flags):
+    # animAction.cpp's GereFrappe consumes the *previous* pose's hot point
+    # inside AllRedraw; this port refreshes it here, immediately before
+    # gere_anim advances that pose, to reproduce the same value headlessly.
+    if actor.anim_action_type and actor.hot_point_id != -1:
+        refresh_hot_point(game, index)
+    if flags & AF_ANIMATED:
+        gere_anim(game, index)
+        if game.mode is not GameMode.PLAY:
+            return False
+    if flags & AF_TRIGGER:
+        gere_dec(game, index)
+    if actor.anim_action_type:
+        gere_frappe(game, index)
+    return game.mode is GameMode.PLAY
+
+
 def _anim_pass(game):
     for index, actor in enumerate(game.actors):
         if actor.index_in_world < 0:
             continue
-        flags = actor.object_type
-        if flags & AF_ANIMATED:
-            gere_anim(game, index)
-            if game.mode is not GameMode.PLAY:
-                return False
-        if flags & AF_TRIGGER:
-            gere_dec(game, index)
+        if not _run_actor_action(game, index, actor, actor.object_type):
+            return False
     return game.mode is GameMode.PLAY
 
 
