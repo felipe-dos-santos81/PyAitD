@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.effects import NavIntent, ShowFound
+from PyAitD.actors import check_object_col
+from PyAitD.effects import ShowFound
 from PyAitD.game import init_game, AF_FOUNDABLE
 from PyAitD.interaction import (
     _finish_take, apply_click_intent, cancel_nav_intent, choose_inventory_action,
@@ -142,6 +143,55 @@ def test_arrival_at_a_foundable_target_opens_that_object_s_prompt(data_dir):
     assert isinstance(game.active_modal, ShowFound)
     assert game.active_modal.object_idx == target
     assert game.nav_arrived_target == -1, "arrival is consumed exactly once"
+
+
+def test_arrival_dispatches_the_clicked_target_not_a_proximity_neighbor(data_dir):
+    # Regression for the accessibility win itself: with a SINGLE foundable
+    # candidate (the test above), dispatch would pass identically whether it
+    # used the clicked index or fell back to whatever the hero's box happens
+    # to touch. Here two foundable objects both overlap the hero's zv, so
+    # both are plausible proximity candidates, and we deliberately click the
+    # one a proximity/collision scan would NOT pick first.
+    game = init_game(data_dir)
+    game.timer = 300  # cross the FoundObjet track_number == -1 debounce
+    hero_idx = game.current_camera_target_actor
+    hero = game.actors[hero_idx]
+    candidates = [
+        i for i, w in enumerate(game.world_objects)
+        if w.obj_index != -1 and w.obj_index != hero_idx
+    ][:2]
+    assert len(candidates) == 2, "fixture data needs two other spawned objects"
+    for world_idx in candidates:
+        actor = game.actors[game.world_objects[world_idx].obj_index]
+        actor.object_type |= AF_FOUNDABLE  # matches the _foundable_pair idiom
+        actor.room = hero.room
+        actor.zv = list(hero.zv)  # identical box: both fully overlap the hero
+
+    # This mirrors how resolve_actor_contacts finds a touched object: walk
+    # actors in ascending index order via check_object_col and take the
+    # first match. That is what a naive proximity/collision-based dispatch
+    # would pick -- and it is deliberately NOT the object we "click" below.
+    candidate_actor_idxs = {game.world_objects[w].obj_index for w in candidates}
+    touched = check_object_col(game, hero_idx, hero.zv)
+    naive_pick_actor_idx = next(a for a in touched if a in candidate_actor_idxs)
+    naive_pick_world_idx = next(
+        w for w in candidates
+        if game.world_objects[w].obj_index == naive_pick_actor_idx
+    )
+    clicked_world_idx = next(w for w in candidates if w != naive_pick_world_idx)
+
+    game.nav_arrived_target = clicked_world_idx
+    completed = dispatch_nav_arrival(game)
+
+    assert completed is False, "opening a modal suspends the tick"
+    assert isinstance(game.active_modal, ShowFound)
+    assert game.active_modal.object_idx == clicked_world_idx, (
+        "the prompt must be for the CLICKED object"
+    )
+    assert game.active_modal.object_idx != naive_pick_world_idx, (
+        "a proximity/collision scan would have picked the other object -- "
+        "if this fails, dispatch regressed to proximity"
+    )
 
 
 def test_arrival_without_a_target_sets_the_action_bit(data_dir):
