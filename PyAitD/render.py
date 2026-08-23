@@ -38,7 +38,7 @@ def fit_quad(img_w, img_h, win_w, win_h):
 
 
 class Renderer:
-    def __init__(self, width=1280, height=800, title="maitd"):
+    def __init__(self, width=1280, height=800, title="PyAitD"):
         pygame.init()
         pygame.display.set_caption(title)
         pygame.display.gl_set_attribute(pygame.GL_CONTEXT_MAJOR_VERSION, 3)

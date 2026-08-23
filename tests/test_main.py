@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pathlib
 
-from maitd.__main__ import parse_args
+from PyAitD.__main__ import parse_args
 
 
 def test_parse_args_defaults():

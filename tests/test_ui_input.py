@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pygame
 
-from maitd.ui import Command, InputBuffer, event_to_input
+from PyAitD.ui import Command, InputBuffer, event_to_input
 
 
 def key(kind, value, *, repeat=False):

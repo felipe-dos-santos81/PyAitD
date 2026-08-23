@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from maitd.formats import parse_cover_zones
-from maitd.pak import Pak
-from maitd.world import find_best_camera, is_in_poly
+from PyAitD.formats import parse_cover_zones
+from PyAitD.pak import Pak
+from PyAitD.world import find_best_camera, is_in_poly
 
 
 def test_cover_zones_real_data(data_dir):
@@ -34,7 +34,7 @@ def test_synthetic_zone_contains_point():
 
 
 def test_find_best_camera_real_data(data_dir):
-    from maitd.formats import parse_cameras
+    from PyAitD.formats import parse_cameras
     cam_raw = Pak(data_dir / "ETAGE00.PAK").read(1)
     cameras = parse_cameras(cam_raw)
     zones_by_camera = [parse_cover_zones(cam_raw, off, 0) for off in (24, 858, 1300, 2240, 2834)]

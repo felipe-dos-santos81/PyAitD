@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from maitd.formats import Body, Group, Primitive
-from maitd.skel import skin
-from maitd.world import CameraState
+from PyAitD.formats import Body, Group, Primitive
+from PyAitD.skel import skin
+from PyAitD.world import CameraState
 
 
 def _cube_body():

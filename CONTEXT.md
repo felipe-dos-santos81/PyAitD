@@ -1,4 +1,4 @@
-# CONTEXT — maitd
+# CONTEXT — PyAitD
 
 Python engine rewrite of **Alone in the Dark 1 (DOS, 1992)** — a faithful,
 test-driven port of the [FITD](https://github.com/fn2006/FITD) C++
@@ -34,7 +34,7 @@ Design docs live in `docs/superpowers/specs/` and `docs/superpowers/plans/`
 is the opcode research doc (note: its opcode numbers were later corrected
 against `AITD1.cpp` — the plan + code are the source of truth).
 
-## Architecture (maitd/)
+## Architecture (PyAitD/)
 
 | Module | Role |
 |---|---|

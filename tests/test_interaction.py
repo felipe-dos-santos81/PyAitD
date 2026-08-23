@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.effects import ShowFound
-from maitd.game import init_game
-from maitd.interaction import (
+from PyAitD.effects import ShowFound
+from PyAitD.game import init_game
+from PyAitD.interaction import (
     _finish_take, choose_inventory_action, inventory_actions, inventory_items,
     inventory_weight, put_object, remove_from_inventory, request_found,
 )
@@ -60,7 +60,7 @@ def test_inventory_choice_sets_action_and_in_hand_before_found_life(data_dir, mo
     _finish_take(game, 10)
     game.world_objects[10].found_flag |= 1 << 2
     called = []
-    monkeypatch.setattr("maitd.interaction.execute_found_life", lambda g, i, **kw: called.append(i) or True)
+    monkeypatch.setattr("PyAitD.interaction.execute_found_life", lambda g, i, **kw: called.append(i) or True)
     assert choose_inventory_action(game, 10, 25) is True
     assert game.in_hand_table[0] == 10
     assert game.action == 1 << 2

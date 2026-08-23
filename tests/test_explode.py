@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from maitd.explode import explode, ExplodeError
+from PyAitD.explode import explode, ExplodeError
 
 
 def _entry_payload(data, off):

@@ -13,7 +13,7 @@ DEFAULT_DATA = REPO_ROOT / "Alone in the Dark 1.app" / "Contents" / "Resources" 
 
 @pytest.fixture
 def data_dir():
-    path = pathlib.Path(os.environ.get("M_AITD_DATA", DEFAULT_DATA))
+    path = pathlib.Path(os.environ.get("PYAITD_DATA", DEFAULT_DATA))
     if not path.is_dir():
         pytest.skip(f"game data not found at {path}")
     return path

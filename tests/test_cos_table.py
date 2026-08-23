@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.cos_table import COS_TABLE
+from PyAitD.cos_table import COS_TABLE
 
 
 def test_length():

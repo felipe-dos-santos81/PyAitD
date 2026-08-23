@@ -2,8 +2,8 @@
 """Skinning port of FITD renderer.cpp AnimNuage (AITD1 non-optimise path)."""
 from dataclasses import dataclass
 
-from maitd.cos_table import COS_TABLE
-from maitd.world import transform_point, trunc_div as _trunc_div
+from PyAitD.cos_table import COS_TABLE
+from PyAitD.world import transform_point, trunc_div as _trunc_div
 
 
 @dataclass

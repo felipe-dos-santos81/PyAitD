@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Not-in-floor world-object dispatch (life.cpp:522-716, AITD1)."""
-from maitd.life import eval_var, read_s16
+from PyAitD.life import eval_var, read_s16
 
 TYPE_MASK = 0x1D1
 

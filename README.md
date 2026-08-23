@@ -1,4 +1,4 @@
-# maitd
+# PyAitD
 
 Python engine reimplementation of **Alone in the Dark 1** (DOS, 1992),
 test-driven from the [FITD](https://github.com/yaz0r/FITD) decompilation.
@@ -14,7 +14,7 @@ make install            # .venv + editable install with dev deps
 
 Game data defaults to `Alone in the Dark 1.app/Contents/Resources/game/INDARK`
 at the repo root; override with `data=` on any make target or `--data DIR`.
-Tests honor env `M_AITD_DATA` and skip when data is absent.
+Tests honor env `PYAITD_DATA` and skip when data is absent.
 
 ## Run
 

@@ -6,8 +6,8 @@ import pathlib
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
-from maitd.assets import Assets
-from maitd.formats import parse_defines, parse_objets, parse_priority, parse_vars
+from PyAitD.assets import Assets
+from PyAitD.formats import parse_defines, parse_objets, parse_priority, parse_vars
 
 
 def test_all_scripts_fetch(data_dir):
@@ -38,11 +38,11 @@ def test_headless_boot_ticks(data_dir):
     # Headless 60-tick PlayWorld boot with opcode trace, through the same
     # play_tick the game runs — playworld is pygame/GL-free, so CI needs no
     # window. Fails (not skips) if boot breaks or the intro produces no trace.
-    from maitd.floor import Floor
-    from maitd.game import init_game
-    from maitd.life import Trace
-    from maitd.playworld import play_tick
-    from maitd.ui import InputBuffer
+    from PyAitD.floor import Floor
+    from PyAitD.game import init_game
+    from PyAitD.life import Trace
+    from PyAitD.playworld import play_tick
+    from PyAitD.ui import InputBuffer
 
     trace_path = "/tmp/m3a_trace.log"
     game = init_game(data_dir, hero=0)

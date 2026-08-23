@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from maitd.game import init_game
-from maitd.life import process_life
+from PyAitD.game import init_game
+from PyAitD.life import process_life
 
 
 class _FakeAssets:

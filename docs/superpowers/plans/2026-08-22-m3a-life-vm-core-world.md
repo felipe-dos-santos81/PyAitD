@@ -44,11 +44,11 @@ Research (`docs/life-vm-opcodes.md` + fresh FITD extraction) found four deltas v
 ### Task 1: World-data parsers
 
 **Files:**
-- Modify: `maitd/formats.py` (append)
+- Modify: `PyAitD/formats.py` (append)
 - Test: `tests/test_world_data.py`
 
 **Interfaces:**
-- Consumes: `data_dir` fixture, `maitd.formats` helpers `_u16`/`_s16` (M1).
+- Consumes: `data_dir` fixture, `PyAitD.formats` helpers `_u16`/`_s16` (M1).
 - Produces (all pure, no I/O):
   - `@dataclass WorldObject` — 26 s16 fields in FITD order (`obj_index, body, flags, type_zv, found_body, found_name, found_flag, found_life, x, y, z, alpha, beta, gamma, stage, room, life_mode, life, floor_life, anim, frame, anim_type, anim_info, track_mode, track_number, position_in_track`)
   - `def parse_objets(raw: bytes) -> list[WorldObject]` — u16 count header; per-record `flags |= 0x20`
@@ -62,7 +62,7 @@ Research (`docs/life-vm-opcodes.md` + fresh FITD extraction) found four deltas v
 # SPDX-License-Identifier: GPL-2.0-only
 import pathlib
 
-from maitd.formats import parse_defines, parse_objets, parse_priority, parse_vars
+from PyAitD.formats import parse_defines, parse_objets, parse_priority, parse_vars
 
 
 def test_objets_golden(data_dir):
@@ -107,7 +107,7 @@ def test_priority_golden(data_dir):
 Run: `.venv/bin/pytest tests/test_world_data.py -q`
 Expected: FAIL, `ImportError: cannot import name 'parse_objets'`.
 
-- [ ] **Step 3: Append to `maitd/formats.py`**
+- [ ] **Step 3: Append to `PyAitD/formats.py`**
 
 ```python
 @dataclass
@@ -180,7 +180,7 @@ def parse_priority(raw):
     return list(struct.unpack_from(f"<{n}h", raw, 0))
 ```
 
-Note: `dataclass` and `struct` already imported in `maitd/formats.py`; `_u16` exists from M1. Append only.
+Note: `dataclass` and `struct` already imported in `PyAitD/formats.py`; `_u16` exists from M1. Append only.
 
 - [ ] **Step 4: Run tests, verify pass**
 
@@ -190,7 +190,7 @@ Expected: 4 passed. Then full suite: `.venv/bin/pytest -q` — expect 76 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/formats.py tests/test_world_data.py
+git add PyAitD/formats.py tests/test_world_data.py
 git commit -m "feat: world-data parsers (OBJETS/VARS/DEFINES/PRIORITY)"
 ```
 
@@ -199,11 +199,11 @@ git commit -m "feat: world-data parsers (OBJETS/VARS/DEFINES/PRIORITY)"
 ### Task 2: Script and track asset registry
 
 **Files:**
-- Modify: `maitd/assets.py` (append)
+- Modify: `PyAitD/assets.py` (append)
 - Test: `tests/test_assets_life.py`
 
 **Interfaces:**
-- Consumes: `maitd.floor.load_entry` (M1 LRU), `find_pak`.
+- Consumes: `PyAitD.floor.load_entry` (M1 LRU), `find_pak`.
 - Produces (append to `Assets`):
   - `.num_lifes: int` (563), `.num_tracks: int` (45)
   - `.life(index: int) -> bytes`, `.track(index: int) -> bytes` — KeyError out of range
@@ -214,7 +214,7 @@ git commit -m "feat: world-data parsers (OBJETS/VARS/DEFINES/PRIORITY)"
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from maitd.assets import Assets
+from PyAitD.assets import Assets
 
 
 def test_counts(data_dir):
@@ -243,7 +243,7 @@ def test_out_of_range(data_dir):
 Run: `.venv/bin/pytest tests/test_assets_life.py -q`
 Expected: FAIL, `AttributeError: 'Assets' object has no attribute 'num_lifes'`.
 
-- [ ] **Step 3: Append to `maitd/assets.py`**
+- [ ] **Step 3: Append to `PyAitD/assets.py`**
 
 ```python
 LIFES_PAK = "LISTLIFE"
@@ -280,7 +280,7 @@ Expected: 3 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/assets.py tests/test_assets_life.py
+git add PyAitD/assets.py tests/test_assets_life.py
 git commit -m "feat: LISTLIFE/LISTTRAK asset registry"
 ```
 
@@ -289,7 +289,7 @@ git commit -m "feat: LISTLIFE/LISTTRAK asset registry"
 ### Task 3: Game state and init
 
 **Files:**
-- Create: `maitd/game.py`
+- Create: `PyAitD/game.py`
 - Test: `tests/test_game.py`
 
 **Interfaces:**
@@ -310,7 +310,7 @@ git commit -m "feat: LISTLIFE/LISTTRAK asset registry"
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.game import NUM_MAX_OBJECT, Game, init_game
+from PyAitD.game import NUM_MAX_OBJECT, Game, init_game
 
 
 def test_init_golden(data_dir):
@@ -343,19 +343,19 @@ def test_tick(data_dir):
 - [ ] **Step 2: Run tests, verify fail**
 
 Run: `.venv/bin/pytest tests/test_game.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.game'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.game'`.
 
-- [ ] **Step 3: Implement** `maitd/game.py`
+- [ ] **Step 3: Implement** `PyAitD/game.py`
 
-Skeleton (implementer completes `add_actor`/`spawn_stage_actors` per the FITD references in Interfaces; RealValue import from task 6 — if task 6 lands first, import `maitd.realvalue`; otherwise define `RealValue` here and have task 6 move it, keeping import compatible):
+Skeleton (implementer completes `add_actor`/`spawn_stage_actors` per the FITD references in Interfaces; RealValue import from task 6 — if task 6 lands first, import `PyAitD.realvalue`; otherwise define `RealValue` here and have task 6 move it, keeping import compatible):
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
 """Game state: CVars, script vars, world objects, actor table (FITD main.cpp ports)."""
 from dataclasses import dataclass, field
 
-from maitd.assets import Assets
-from maitd.formats import parse_defines, parse_objets, parse_vars
+from PyAitD.assets import Assets
+from PyAitD.formats import parse_defines, parse_objets, parse_vars
 
 NUM_MAX_OBJECT = 128
 NUM_CVARS = 45
@@ -520,7 +520,7 @@ def init_game(data_dir, hero=0):
 ```
 
 Implementer notes:
-- `add_actor` fills every actor field InitObjet touches; consult `main.cpp` InitObjet (lines ~1930-1985) and the task-9 M2 precedent (`actor_zv` in `maitd/actors.py`).
+- `add_actor` fills every actor field InitObjet touches; consult `main.cpp` InitObjet (lines ~1930-1985) and the task-9 M2 precedent (`actor_zv` in `PyAitD/actors.py`).
 - `spawn_stage_actors` gates (main.cpp:2053-2086): skip if `obj_index != -1`; `stage != current_floor` skip; if `life != -1`: life_mode -1 skip, 0 pass, 1 pass iff `room == current_room`, 2 pass iff room in camera view list (M3a simplification: pass — attic boot needs room 0 only; `ponytail:` note the simplification), else (life == -1): pass (M3a: accept; FITD checks isInViewList).
 - `Game` needs `data_dir` only in `__init__` (parsers + Assets); play-loop code holds its own `Floor` (M1).
 
@@ -532,7 +532,7 @@ Expected: 3 passed. Then full suite: `.venv/bin/pytest -q` — expect 79 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/game.py tests/test_game.py
+git add PyAitD/game.py tests/test_game.py
 git commit -m "feat: game state, actor table, world init (FITD LoadWorld/GenereActiveList ports)"
 ```
 
@@ -541,7 +541,7 @@ git commit -m "feat: game state, actor table, world init (FITD LoadWorld/GenereA
 ### Task 4: RealValue and chrono math
 
 **Files:**
-- Create: `maitd/realvalue.py`
+- Create: `PyAitD/realvalue.py`
 - Test: `tests/test_realvalue.py`
 
 **Interfaces:**
@@ -557,10 +557,10 @@ git commit -m "feat: game state, actor table, world init (FITD LoadWorld/GenereA
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.realvalue import (
+from PyAitD.realvalue import (
     eval_chrono, give_distance_2d, init_real_value, start_chrono, update_actor_rotation,
 )
-from maitd.game import RealValue
+from PyAitD.game import RealValue
 
 
 def test_update_rotation_identity():
@@ -587,7 +587,7 @@ def test_update_rotation_wrap():
 
 
 def test_chrono():
-    from maitd.game import Actor
+    from PyAitD.game import Actor
     actor = Actor()
     start_chrono(actor, "chrono", timer=10)
     assert eval_chrono(actor.chrono, timer=30) == 20
@@ -605,9 +605,9 @@ def test_distance():
 - [ ] **Step 2: Run tests, verify fail**
 
 Run: `.venv/bin/pytest tests/test_realvalue.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.realvalue'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.realvalue'`.
 
-- [ ] **Step 3: Implement** `maitd/realvalue.py`
+- [ ] **Step 3: Implement** `PyAitD/realvalue.py`
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
@@ -675,7 +675,7 @@ Expected: 6 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/realvalue.py tests/test_realvalue.py
+git add PyAitD/realvalue.py tests/test_realvalue.py
 git commit -m "feat: RealValue interpolation and chrono ports"
 ```
 
@@ -684,7 +684,7 @@ git commit -m "feat: RealValue interpolation and chrono ports"
 ### Task 5: VM core — fetch loop and control flow
 
 **Files:**
-- Create: `maitd/life.py`
+- Create: `PyAitD/life.py`
 - Test: `tests/test_life_vm.py`
 
 **Interfaces:**
@@ -709,8 +709,8 @@ import struct
 
 import pytest
 
-from maitd.game import Game, init_game
-from maitd.life import process_life, read_s16, VM
+from PyAitD.game import Game, init_game
+from PyAitD.life import process_life, read_s16, VM
 
 
 def _script(*words):
@@ -822,9 +822,9 @@ class _FakeAssets:
 - [ ] **Step 2: Run tests, verify fail**
 
 Run: `.venv/bin/pytest tests/test_life_vm.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.life'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.life'`.
 
-- [ ] **Step 3: Implement** `maitd/life.py`
+- [ ] **Step 3: Implement** `PyAitD/life.py`
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
@@ -933,7 +933,7 @@ def _op_life_mode(vm):
 
 
 def _op_start_chrono(vm):
-    from maitd.realvalue import start_chrono
+    from PyAitD.realvalue import start_chrono
     start_chrono(vm.actor, "chrono", vm.game.timer)
 
 
@@ -978,7 +978,7 @@ def _dispatch(vm, op):
 
 def _dispatch_reduced(vm, op, world_idx):
     # world-object-field ops on game.world_objects[world_idx]; implemented in task 7.
-    from maitd.life_reduced import reduced_dispatch  # noqa: F401  (task 7 fills this in)
+    from PyAitD.life_reduced import reduced_dispatch  # noqa: F401  (task 7 fills this in)
     reduced_dispatch(vm, op & 0x7FFF, world_idx)
 
 
@@ -988,7 +988,7 @@ def life_gate(actor):
 
 # eval_var imported lazily to avoid a cycle (task 6); handlers need it:
 def eval_var(vm):
-    from maitd.eval_var import eval_var as _eval
+    from PyAitD.eval_var import eval_var as _eval
     return _eval(vm)
 
 
@@ -1028,7 +1028,7 @@ Expected: 8 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/life.py tests/test_life_vm.py
+git add PyAitD/life.py tests/test_life_vm.py
 git commit -m "feat: LIFE VM core — fetch loop, actor switch, control flow"
 ```
 
@@ -1037,7 +1037,7 @@ git commit -m "feat: LIFE VM core — fetch loop, actor switch, control flow"
 ### Task 6: evalVar port
 
 **Files:**
-- Create: `maitd/eval_var.py`
+- Create: `PyAitD/eval_var.py`
 - Test: `tests/test_eval_var.py`
 
 **Interfaces:**
@@ -1101,9 +1101,9 @@ import struct
 
 import pytest
 
-from maitd.eval_var import eval_var
-from maitd.game import init_game
-from maitd.life import VM
+from PyAitD.eval_var import eval_var
+from PyAitD.game import init_game
+from PyAitD.life import VM
 
 
 def _vm(game, *words):
@@ -1182,17 +1182,17 @@ def test_unknown_code_raises(data_dir):
 - [ ] **Step 2: Run tests, verify fail**
 
 Run: `.venv/bin/pytest tests/test_eval_var.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.eval_var'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.eval_var'`.
 
-- [ ] **Step 3: Implement** `maitd/eval_var.py`
+- [ ] **Step 3: Implement** `PyAitD/eval_var.py`
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
 """evalVar port (FITD evalVar.cpp:148, AITD1 path). Owner = life owner actor."""
 import random
 
-from maitd.life import read_s16
-from maitd.realvalue import eval_chrono
+from PyAitD.life import read_s16
+from PyAitD.realvalue import eval_chrono
 
 
 def _prop(game, a, code, vm):
@@ -1383,7 +1383,7 @@ Expected: 10 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/eval_var.py tests/test_eval_var.py
+git add PyAitD/eval_var.py tests/test_eval_var.py
 git commit -m "feat: evalVar encodings port (AITD1)"
 ```
 
@@ -1392,7 +1392,7 @@ git commit -m "feat: evalVar encodings port (AITD1)"
 ### Task 7: Track runner
 
 **Files:**
-- Create: `maitd/tracks.py`
+- Create: `PyAitD/tracks.py`
 - Test: `tests/test_tracks.py`
 
 **Interfaces:**
@@ -1430,8 +1430,8 @@ git commit -m "feat: evalVar encodings port (AITD1)"
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from maitd.game import Actor, Game, init_game
-from maitd.tracks import init_deplacement, process_track
+from PyAitD.game import Actor, Game, init_game
+from PyAitD.tracks import init_deplacement, process_track
 
 
 def _actor():
@@ -1509,17 +1509,17 @@ class _FakeAssets:
 - [ ] **Step 2: Run tests, verify fail**
 
 Run: `.venv/bin/pytest tests/test_tracks.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.tracks'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.tracks'`.
 
-- [ ] **Step 3: Implement** `maitd/tracks.py`
+- [ ] **Step 3: Implement** `PyAitD/tracks.py`
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
 """Track runner port (FITD track.cpp processTrack, AITD1 macro set)."""
 import struct
 
-from maitd.realvalue import give_distance_2d, init_real_value, update_actor_rotation
-from maitd.world import rotate_step
+from PyAitD.realvalue import give_distance_2d, init_real_value, update_actor_rotation
+from PyAitD.world import rotate_step
 
 TL_INIT_COOR, TL_GOTO, TL_END, TL_REPEAT, TL_MARK = 0, 1, 2, 3, 4
 TL_WALK, TL_RUN, TL_STOP, TL_BACK, TL_SET_ANGLE = 5, 6, 7, 8, 9
@@ -1648,7 +1648,7 @@ Expected: 5 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/tracks.py maitd/game.py tests/test_tracks.py
+git add PyAitD/tracks.py PyAitD/game.py tests/test_tracks.py
 git commit -m "feat: track runner (manual/follow/scripted modes, TL_* macros)"
 ```
 
@@ -1657,13 +1657,13 @@ git commit -m "feat: track runner (manual/follow/scripted modes, TL_* macros)"
 ### Task 8: Movement, state, and world-opcode handlers
 
 **Files:**
-- Create: `maitd/life_ops.py` (full-dispatch handlers) and `maitd/life_reduced.py` (not-in-floor dispatch)
-- Modify: `maitd/life.py` (wire `LIFETABLE[op] = ...` for implemented opcodes)
-- Modify: `maitd/game.py` (add `camera_param`, `hard_clip` state)
+- Create: `PyAitD/life_ops.py` (full-dispatch handlers) and `PyAitD/life_reduced.py` (not-in-floor dispatch)
+- Modify: `PyAitD/life.py` (wire `LIFETABLE[op] = ...` for implemented opcodes)
+- Modify: `PyAitD/game.py` (add `camera_param`, `hard_clip` state)
 - Test: `tests/test_life_ops.py`
 
 **Interfaces:**
-- Consumes: tasks 3-6, `maitd.tracks` (task 7 — process_track is called by LM_DO_MOVE; wiring import is lazy).
+- Consumes: tasks 3-6, `PyAitD.tracks` (task 7 — process_track is called by LM_DO_MOVE; wiring import is lazy).
 - Produces full-path handlers:
   - LM_DO_MOVE (0): `process_track(vm)` on `vm.actor`
   - LM_ANIM_ONCE (1) / LM_ANIM_ALL_ONCE (2) / LM_ANIM_REPEAT (13): M3a — consume args (1: anim, flags; 2: anim, flags; 13: anim), set `a.anim`/`a.new_anim=-2` per FITD InitAnim contract (anim==-1 → anim=-1, new_anim=-2), M2 AnimPlayer switch happens in the play loop (task 11). Log via trace.
@@ -1711,8 +1711,8 @@ import struct
 
 import pytest
 
-from maitd.game import init_game
-from maitd.life import process_life
+from PyAitD.game import init_game
+from PyAitD.life import process_life
 
 
 class _FakeAssets:
@@ -1797,18 +1797,18 @@ def test_type_mask(data_dir):
 - [ ] **Step 2: Run tests, verify fail**
 
 Run: `.venv/bin/pytest tests/test_life_ops.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.life_ops'` (or NotImplementedError from the placeholder table).
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.life_ops'` (or NotImplementedError from the placeholder table).
 
-- [ ] **Step 3: Implement** `maitd/life_ops.py`, `maitd/life_reduced.py`, wire `maitd/life.py`
+- [ ] **Step 3: Implement** `PyAitD/life_ops.py`, `PyAitD/life_reduced.py`, wire `PyAitD/life.py`
 
 Implementer follows the Interfaces table above; every handler is small (`read_s16` + field write + trace line). Structure:
 
 ```python
-# maitd/life_ops.py
+# PyAitD/life_ops.py
 # SPDX-License-Identifier: GPL-2.0-only
 """Full-dispatch opcode handlers (life.cpp switch bodies, AITD1)."""
-from maitd.life import read_s16, eval_var
-from maitd.realvalue import init_real_value
+from PyAitD.life import read_s16, eval_var
+from PyAitD.realvalue import init_real_value
 
 
 def op_angle(vm):
@@ -1817,11 +1817,11 @@ def op_angle(vm):
     vm.actor.gamma = read_s16(vm)
 ```
 
-and in `maitd/life.py`:
+and in `PyAitD/life.py`:
 
 ```python
 def _install_handlers():
-    from maitd import life_ops as ops
+    from PyAitD import life_ops as ops
     LIFETABLE[0] = lambda vm: process_track(vm)          # LM_DO_MOVE
     LIFETABLE[1] = ops.op_anim_once
     LIFETABLE[2] = ops.op_anim_all_once
@@ -1900,7 +1900,7 @@ Expected: 9 passed. Then full suite: `.venv/bin/pytest -q` — all green.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/life_ops.py maitd/life_reduced.py maitd/life.py maitd/game.py tests/test_life_ops.py
+git add PyAitD/life_ops.py PyAitD/life_reduced.py PyAitD/life.py PyAitD/game.py tests/test_life_ops.py
 git commit -m "feat: movement/state/object opcode handlers + reduced dispatch"
 ```
 
@@ -1909,9 +1909,9 @@ git commit -m "feat: movement/state/object opcode handlers + reduced dispatch"
 ### Task 9: Play loop integration (script-driven input)
 
 **Files:**
-- Modify: `maitd/__main__.py` (rewrite the loop)
-- Modify: `maitd/actors.py` (delete `player_step`; keep `Actor`-related helpers or re-home them into `game.py`)
-- Modify: `maitd/game.py` (input mapping, `camera_param`, `hard_clip`)
+- Modify: `PyAitD/__main__.py` (rewrite the loop)
+- Modify: `PyAitD/actors.py` (delete `player_step`; keep `Actor`-related helpers or re-home them into `game.py`)
+- Modify: `PyAitD/game.py` (input mapping, `camera_param`, `hard_clip`)
 - Test: `tests/test_play_loop.py`
 
 **Interfaces:**
@@ -1935,15 +1935,15 @@ git commit -m "feat: movement/state/object opcode handlers + reduced dispatch"
     8. if `flag_init_view`: recompute view (M2) and clear the flag
     9. `spawn_stage_actors(game)` if `flag_genere_aff_list`
     10. draw: M2 pipeline with every live actor (skin + masks), camera `game.num_camera`
-  - `def run(data_dir, trace_path=None)` — init `Game`, `Floor`, loop at 50Hz (M2 clock discipline), draw, quit on `pygame.QUIT`; `--trace FILE` writes per-opcode lines (`actor`, `life`, `op`, `pc`, args) — `Trace` helper class in `maitd/life.py` (best-effort IO, never crashes).
+  - `def run(data_dir, trace_path=None)` — init `Game`, `Floor`, loop at 50Hz (M2 clock discipline), draw, quit on `pygame.QUIT`; `--trace FILE` writes per-opcode lines (`actor`, `life`, `op`, `pc`, args) — `Trace` helper class in `PyAitD/life.py` (best-effort IO, never crashes).
 - Removed: M2 direct-input movement path (`player_step` calls from `__main__`).
 
 - [ ] **Step 1: Write failing tests** `tests/test_play_loop.py`
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.game import init_game
-from maitd.life import life_gate
+from PyAitD.game import init_game
+from PyAitD.life import life_gate
 
 
 def test_life_gate(data_dir):
@@ -1961,7 +1961,7 @@ def test_life_gate(data_dir):
 
 def test_poll_input_mapping(data_dir):
     # pygame not importable headless in all environments: test the pure mapping helper
-    from maitd.game import joyd_from_keys
+    from PyAitD.game import joyd_from_keys
     assert joyd_from_keys(up=True) == 1
     assert joyd_from_keys(down=True) == 2
     assert joyd_from_keys(left=True) == 4
@@ -2001,7 +2001,7 @@ Expected: 2 passed. Then full suite `.venv/bin/pytest -q` — all green (removin
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/__main__.py maitd/actors.py maitd/game.py tests/test_play_loop.py
+git add PyAitD/__main__.py PyAitD/actors.py PyAitD/game.py tests/test_play_loop.py
 git commit -m "feat: FITD play loop, script-driven input, trace hook"
 ```
 
@@ -2025,8 +2025,8 @@ git commit -m "feat: FITD play loop, script-driven input, trace hook"
 # SPDX-License-Identifier: GPL-2.0-only
 import pathlib
 
-from maitd.assets import Assets
-from maitd.formats import parse_defines, parse_objets, parse_priority, parse_vars
+from PyAitD.assets import Assets
+from PyAitD.formats import parse_defines, parse_objets, parse_priority, parse_vars
 
 
 def test_all_scripts_fetch(data_dir):
@@ -2054,8 +2054,8 @@ def test_all_tables_parse(data_dir):
 
 
 def test_headless_boot_ticks(data_dir):
-    from maitd.game import init_game
-    from maitd.life import process_life
+    from PyAitD.game import init_game
+    from PyAitD.life import process_life
     game = init_game(data_dir, hero=0)
     for tick in range(60):
         game.timer += 1

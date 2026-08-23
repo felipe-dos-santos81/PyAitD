@@ -2,8 +2,8 @@
 """Camera math ports from FITD main.cpp/renderer.cpp (fixed point, exact)."""
 from dataclasses import dataclass
 
-from maitd.cos_table import COS_TABLE
-from maitd.formats import Camera
+from PyAitD.cos_table import COS_TABLE
+from PyAitD.formats import Camera
 
 SCREEN_CENTER_X = 160
 SCREEN_CENTER_Y = 100

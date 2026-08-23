@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.ui import (
+from PyAitD.ui import (
     FoundResult, InventoryPresenter, ModalLayout, ReadingResult,
     hit_test_found, hit_test_inventory, hit_test_reading,
 )

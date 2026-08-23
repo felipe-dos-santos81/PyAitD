@@ -3,8 +3,8 @@ from collections import deque
 
 import pytest
 
-from maitd.effects import AddMessage, BeginTake, GameMode, LifeFrame, ShowFound
-from maitd.game import init_game
+from PyAitD.effects import AddMessage, BeginTake, GameMode, LifeFrame, ShowFound
+from PyAitD.game import init_game
 
 
 def test_game_initializes_fitd_inventory_and_effect_state(data_dir):

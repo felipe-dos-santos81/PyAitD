@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Actor state, hard-col collision helpers (FITD ports)."""
 
-from maitd.anim import AnimPlayer
-from maitd.game import AF_BOXIFY, AF_DRAWABLE, AF_ANIMATED
-from maitd.realvalue import evaluate_real, init_real_value
-from maitd.world import adjust_zv_between_rooms, cdiv as _cdiv, rotate_step
+from PyAitD.anim import AnimPlayer
+from PyAitD.game import AF_BOXIFY, AF_DRAWABLE, AF_ANIMATED
+from PyAitD.realvalue import evaluate_real, init_real_value
+from PyAitD.world import adjust_zv_between_rooms, cdiv as _cdiv, rotate_step
 
 def cube_intersect(zv1, zv2):
     return not (
@@ -223,7 +223,7 @@ def gere_anim(game, actor_idx):
                     step_z = hard_col_step_z
         else:
             a.hard_col = 1 if check_hard_col(zv_local, room.hard_cols) else 0
-        from maitd.interaction import resolve_actor_contacts
+        from PyAitD.interaction import resolve_actor_contacts
         zv_local, step_x, step_z = resolve_actor_contacts(
             game, actor_idx, list(a.zv), zv_local, step_x, step_z,
         )
@@ -250,7 +250,7 @@ def gere_anim(game, actor_idx):
                 # anim.cpp:654-660: one-shot anim wrapped with no pending anim:
                 # clear ANIM_UNINTERRUPTABLE, restart same anim as ANIM_REPEAT
                 a.anim_type &= ~2
-                from maitd.life_ops import init_anim
+                from PyAitD.life_ops import init_anim
                 init_anim(a, a.anim_info, 1, -1)
         a.world_x += a.step_x
         a.room_x += a.step_x

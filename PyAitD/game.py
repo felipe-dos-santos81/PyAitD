@@ -4,12 +4,12 @@ from collections import deque
 from dataclasses import dataclass, field
 from itertools import product
 
-from maitd.assets import Assets
-from maitd.effects import GameMode, ImmediateEffect, MODAL_MODE, TimedMessage
-from maitd.cos_table import COS_TABLE
-from maitd.floor import Floor
-from maitd.formats import parse_defines, parse_objets, parse_vars
-from maitd.world import cdiv as _cdiv, room_delta
+from PyAitD.assets import Assets
+from PyAitD.effects import GameMode, ImmediateEffect, MODAL_MODE, TimedMessage
+from PyAitD.cos_table import COS_TABLE
+from PyAitD.floor import Floor
+from PyAitD.formats import parse_defines, parse_objets, parse_vars
+from PyAitD.world import cdiv as _cdiv, room_delta
 
 NUM_MAX_OBJECT = 128
 
@@ -422,7 +422,7 @@ def delete_object(game, obj_idx):
     obj.obj_index = -1
     obj.room = -1
     obj.stage = -1
-    from maitd.interaction import remove_from_inventory
+    from PyAitD.interaction import remove_from_inventory
     remove_from_inventory(game, obj_idx)
 
 
@@ -452,13 +452,13 @@ def put_at_objet(game, obj_idx, obj_idx_to_put_at):
         actor.alpha, actor.beta, actor.gamma = alpha, beta, gamma
         game.world_objects[actor.index_in_world].found_flag |= 0x4000
         game.world_objects[actor.index_in_world].flags |= 0x80
-    from maitd.interaction import remove_from_inventory
+    from PyAitD.interaction import remove_from_inventory
     remove_from_inventory(game, obj_idx)
 
 
 def spawn_stage_actors(game):
     # GenereActiveList port (main.cpp:1990-2130)
-    from maitd.tracks import init_deplacement  # tracks imports game
+    from PyAitD.tracks import init_deplacement  # tracks imports game
     for i, actor in enumerate(game.actors):
         if actor.index_in_world == -1:
             continue

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from maitd.effects import AfterLife, LifeFrame, ReadText
-from maitd.game import init_game
-from maitd.interaction import resume_life, run_life
+from PyAitD.effects import AfterLife, LifeFrame, ReadText
+from PyAitD.game import init_game
+from PyAitD.interaction import resume_life, run_life
 
 
 class Scripts:

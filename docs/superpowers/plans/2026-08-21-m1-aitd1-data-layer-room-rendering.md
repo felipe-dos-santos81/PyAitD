@@ -13,7 +13,7 @@
 - Python `>= 3.12`; target platform Apple Silicon (arm64), windowed mode only.
 - Dependencies: `pygame-ce`, `moderngl`, `numpy` (runtime); `pytest` (dev). No other dependencies.
 - License: GPLv2 (FITD-derived); every source file starts with an SPDX header `# SPDX-License-Identifier: GPL-2.0-only` (task 1 sets this pattern).
-- Original game data is read in place, never copied into the repo. Default data dir: `Alone in the Dark 1.app/Contents/Resources/game/INDARK` relative to repo root; override via `--data` CLI or env `M_AITD_DATA`.
+- Original game data is read in place, never copied into the repo. Default data dir: `Alone in the Dark 1.app/Contents/Resources/game/INDARK` relative to repo root; override via `--data` CLI or env `PYAITD_DATA`.
 - Unknown compression flag / corrupt archive / out-of-range entry: raise with file name and entry index. Never silent skip.
 - Tests requiring game data skip automatically when data dir absent (`pytest.skip`).
 - FitD reference for format questions: `/Users/felipe.dos.santos/code/theirs/FITD/FitdLib/` (`pak.cpp`, `unpack.cpp`, `floor.cpp`, `room.cpp`, `main.cpp`, `palette.cpp`).
@@ -44,19 +44,19 @@ Camera data (entry 1): u32 offset table; camera `i` at `raw + u32(raw + i*4)`; s
 
 **Files:**
 - Create: `pyproject.toml`
-- Create: `maitd/__init__.py`
+- Create: `PyAitD/__init__.py`
 - Create: `tests/__init__.py`
 - Create: `tests/conftest.py`
 - Modify: `.gitignore`
 
 **Interfaces:**
-- Produces: importable package `maitd`; pytest fixture `data_dir` (`pathlib.Path`, skips test if game data absent) used by all later tests.
+- Produces: importable package `PyAitD`; pytest fixture `data_dir` (`pathlib.Path`, skips test if game data absent) used by all later tests.
 
 - [ ] **Step 1: Create `pyproject.toml`**
 
 ```toml
 [project]
-name = "maitd"
+name = "PyAitD"
 version = "0.1.0"
 description = "Alone in the Dark 1 engine reimplementation (Python/pygame-ce/ModernGL)"
 requires-python = ">=3.12"
@@ -74,7 +74,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["maitd"]
+packages = ["PyAitD"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -82,7 +82,7 @@ testpaths = ["tests"]
 
 Note: `[tool.setuptools] packages` is explicit because `tests/` also carries an `__init__.py` — flat-layout autodiscovery would otherwise fail.
 
-- [ ] **Step 2: Create `maitd/__init__.py`**
+- [ ] **Step 2: Create `PyAitD/__init__.py`**
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
@@ -106,7 +106,7 @@ DEFAULT_DATA = REPO_ROOT / "Alone in the Dark 1.app" / "Contents" / "Resources" 
 
 @pytest.fixture
 def data_dir():
-    path = pathlib.Path(os.environ.get("M_AITD_DATA", DEFAULT_DATA))
+    path = pathlib.Path(os.environ.get("PYAITD_DATA", DEFAULT_DATA))
     if not path.is_dir():
         pytest.skip(f"game data not found at {path}")
     return path
@@ -133,7 +133,7 @@ Expected: `no tests ran` (exit code 5). That is acceptable for this task only.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add pyproject.toml maitd tests .gitignore
+git add pyproject.toml PyAitD tests .gitignore
 git commit -m "scaffold: package, deps, pytest fixture for game data"
 ```
 
@@ -142,7 +142,7 @@ git commit -m "scaffold: package, deps, pytest fixture for game data"
 ### Task 2: PKWARE explode decompressor
 
 **Files:**
-- Create: `maitd/explode.py`
+- Create: `PyAitD/explode.py`
 - Test: `tests/test_explode.py`
 
 **Interfaces:**
@@ -156,7 +156,7 @@ Background: port of FITD `unpack.cpp` (`PAK_explode` + Huffman builder). `flags 
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from maitd.explode import explode, ExplodeError
+from PyAitD.explode import explode, ExplodeError
 
 
 def _entry_payload(data, off):
@@ -198,9 +198,9 @@ def test_explode_rejects_truncated_tree():
 .venv/bin/pytest tests/test_explode.py -q
 ```
 
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.explode'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.explode'`.
 
-- [ ] **Step 3: Implement `maitd/explode.py`**
+- [ ] **Step 3: Implement `PyAitD/explode.py`**
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
@@ -519,7 +519,7 @@ Expected: 3 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/explode.py tests/test_explode.py
+git add PyAitD/explode.py tests/test_explode.py
 git commit -m "feat: PKWARE explode decompression for PAK flag 1"
 ```
 
@@ -528,11 +528,11 @@ git commit -m "feat: PKWARE explode decompression for PAK flag 1"
 ### Task 3: PAK archive reader
 
 **Files:**
-- Create: `maitd/pak.py`
+- Create: `PyAitD/pak.py`
 - Test: `tests/test_pak.py`
 
 **Interfaces:**
-- Consumes: `maitd.explode.explode(src, uncompressed_size, flags) -> bytes`
+- Consumes: `PyAitD.explode.explode(src, uncompressed_size, flags) -> bytes`
 - Produces:
   - `class PakError(Exception)`
   - `class PakInfo` (dataclass: `disc_size: int`, `uncompressed_size: int`, `flag: int`, `info5: int`, `name: str`)
@@ -545,7 +545,7 @@ git commit -m "feat: PKWARE explode decompression for PAK flag 1"
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from maitd.pak import Pak, PakError, find_pak
+from PyAitD.pak import Pak, PakError, find_pak
 
 
 def test_entry_counts(data_dir):
@@ -591,9 +591,9 @@ def test_find_pak(data_dir):
 .venv/bin/pytest tests/test_pak.py -q
 ```
 
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.pak'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.pak'`.
 
-- [ ] **Step 3: Implement `maitd/pak.py`**
+- [ ] **Step 3: Implement `PyAitD/pak.py`**
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
@@ -603,7 +603,7 @@ import struct
 import zlib
 from dataclasses import dataclass
 
-from maitd.explode import explode
+from PyAitD.explode import explode
 
 FLAG_RAW = 0
 FLAG_EXPLODE = 1
@@ -697,7 +697,7 @@ Expected: 6 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/pak.py tests/test_pak.py
+git add PyAitD/pak.py tests/test_pak.py
 git commit -m "feat: PAK archive reader (raw, explode, deflate)"
 ```
 
@@ -706,7 +706,7 @@ git commit -m "feat: PAK archive reader (raw, explode, deflate)"
 ### Task 4: Floor/room/camera format parsers
 
 **Files:**
-- Create: `maitd/formats.py`
+- Create: `PyAitD/formats.py`
 - Test: `tests/test_formats.py`
 
 **Interfaces:**
@@ -723,8 +723,8 @@ git commit -m "feat: PAK archive reader (raw, explode, deflate)"
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.formats import parse_cameras, parse_rooms
-from maitd.pak import Pak
+from PyAitD.formats import parse_cameras, parse_rooms
+from PyAitD.pak import Pak
 
 
 def test_floor0_rooms(data_dir):
@@ -767,9 +767,9 @@ def test_room_camera_cross_reference(data_dir):
 .venv/bin/pytest tests/test_formats.py -q
 ```
 
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.formats'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.formats'`.
 
-- [ ] **Step 3: Implement `maitd/formats.py`**
+- [ ] **Step 3: Implement `PyAitD/formats.py`**
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
@@ -939,7 +939,7 @@ Expected: 3 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/formats.py tests/test_formats.py
+git add PyAitD/formats.py tests/test_formats.py
 git commit -m "feat: room and camera format parsers (AITD1)"
 ```
 
@@ -948,7 +948,7 @@ git commit -m "feat: room and camera format parsers (AITD1)"
 ### Task 5: Palette and image decoding
 
 **Files:**
-- Modify: `maitd/formats.py` (append functions)
+- Modify: `PyAitD/formats.py` (append functions)
 - Test: `tests/test_image.py`
 
 **Interfaces:**
@@ -964,8 +964,8 @@ git commit -m "feat: room and camera format parsers (AITD1)"
 import numpy as np
 import pytest
 
-from maitd.formats import decode_image, decode_palette
-from maitd.pak import Pak
+from PyAitD.formats import decode_image, decode_palette
+from PyAitD.pak import Pak
 
 
 def test_palette_golden_values(data_dir):
@@ -1016,7 +1016,7 @@ def test_image_rejects_bad_size():
 
 Expected: FAIL, `ImportError: cannot import name 'decode_palette'`.
 
-- [ ] **Step 3: Append to `maitd/formats.py`**
+- [ ] **Step 3: Append to `PyAitD/formats.py`**
 
 ```python
 import numpy as np
@@ -1049,7 +1049,7 @@ Expected: 5 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/formats.py tests/test_image.py
+git add PyAitD/formats.py tests/test_image.py
 git commit -m "feat: VGA palette and 320x200 image decoding"
 ```
 
@@ -1058,7 +1058,7 @@ git commit -m "feat: VGA palette and 320x200 image decoding"
 ### Task 6: Floor loader with LRU cache
 
 **Files:**
-- Create: `maitd/floor.py`
+- Create: `PyAitD/floor.py`
 - Test: `tests/test_floor.py`
 
 **Interfaces:**
@@ -1080,9 +1080,9 @@ git commit -m "feat: VGA palette and 320x200 image decoding"
 import numpy as np
 import pytest
 
-from maitd import floor as floormod
-from maitd.floor import Floor
-from maitd.pak import PakError
+from PyAitD import floor as floormod
+from PyAitD.floor import Floor
+from PyAitD.pak import PakError
 
 
 def test_floor0_loads(data_dir):
@@ -1127,17 +1127,17 @@ def test_cache_hits(data_dir):
 .venv/bin/pytest tests/test_floor.py -q
 ```
 
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.floor'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.floor'`.
 
-- [ ] **Step 3: Implement `maitd/floor.py`**
+- [ ] **Step 3: Implement `PyAitD/floor.py`**
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
 """Floor loading: rooms, cameras, palette, camera background images."""
 import functools
 
-from maitd.formats import decode_image, decode_palette, parse_cameras, parse_rooms
-from maitd.pak import Pak, find_pak
+from PyAitD.formats import decode_image, decode_palette, parse_cameras, parse_rooms
+from PyAitD.pak import Pak, find_pak
 
 PALETTE_PAK = "ITD_RESS"
 PALETTE_ENTRY = 3
@@ -1181,7 +1181,7 @@ Expected: 5 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/floor.py tests/test_floor.py
+git add PyAitD/floor.py tests/test_floor.py
 git commit -m "feat: floor loader with LRU-cached PAK access"
 ```
 
@@ -1190,13 +1190,13 @@ git commit -m "feat: floor loader with LRU-cached PAK access"
 ### Task 7: ModernGL background renderer
 
 **Files:**
-- Create: `maitd/render.py`
+- Create: `PyAitD/render.py`
 - Test: `tests/test_render.py`
 
 **Interfaces:**
 - Consumes: image arrays `(200, 320, 3)` uint8 from `Floor.camera_image` (task 6).
 - Produces:
-  - `class Renderer` — `Renderer(width: int = 1280, height: int = 800, title: str = "maitd")` creates a pygame-ce OPENGL window + ModernGL context; `.present(image: numpy.ndarray)` uploads/updates the texture and flips the window; `.close()`.
+  - `class Renderer` — `Renderer(width: int = 1280, height: int = 800, title: str = "PyAitD")` creates a pygame-ce OPENGL window + ModernGL context; `.present(image: numpy.ndarray)` uploads/updates the texture and flips the window; `.close()`.
   - Pure helper (GL-free, unit tested): `def fit_quad(img_w: int, img_h: int, win_w: int, win_h: int) -> tuple[float, float, float, float]` returning `(x0, y0, x1, y1)` NDC coords that letterbox the image keeping aspect.
 
 - [ ] **Step 1: Write failing tests** `tests/test_render.py`
@@ -1205,7 +1205,7 @@ git commit -m "feat: floor loader with LRU-cached PAK access"
 # SPDX-License-Identifier: GPL-2.0-only
 import math
 
-from maitd.render import fit_quad
+from PyAitD.render import fit_quad
 
 
 def test_fit_quad_exact_multiple():
@@ -1232,9 +1232,9 @@ def test_fit_quad_centered():
 .venv/bin/pytest tests/test_render.py -q
 ```
 
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.render'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.render'`.
 
-- [ ] **Step 3: Implement `maitd/render.py`**
+- [ ] **Step 3: Implement `PyAitD/render.py`**
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
@@ -1275,7 +1275,7 @@ def fit_quad(img_w, img_h, win_w, win_h):
 
 
 class Renderer:
-    def __init__(self, width=1280, height=800, title="maitd"):
+    def __init__(self, width=1280, height=800, title="PyAitD"):
         pygame.init()
         pygame.display.set_caption(title)
         pygame.display.gl_set_attribute(pygame.GL_CONTEXT_MAJOR_VERSION, 3)
@@ -1330,7 +1330,7 @@ Expected: 3 passed. (Renderer class itself is exercised manually in task 8/9 —
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/render.py tests/test_render.py
+git add PyAitD/render.py tests/test_render.py
 git commit -m "feat: pygame/ModernGL background renderer"
 ```
 
@@ -1339,12 +1339,12 @@ git commit -m "feat: pygame/ModernGL background renderer"
 ### Task 8: Debug viewer main loop
 
 **Files:**
-- Create: `maitd/__main__.py`
+- Create: `PyAitD/__main__.py`
 - Test: `tests/test_main.py`
 
 **Interfaces:**
 - Consumes: `Floor` (task 6), `Renderer` (task 7), `PakError` (task 3).
-- Produces: `def main(argv: list[str] | None = None) -> int` — CLI: `--data PATH` (default `DEFAULT_DATA` from `tests/conftest.py` semantics, i.e. repo-relative bundle path resolved from `maitd/__main__.py`), `--floor N` (default 0). Keys: Left/Right cycle cameras of current room, Up/Down cycle rooms, Escape quits. Returns process exit code (0 normal, 2 bad floor/data).
+- Produces: `def main(argv: list[str] | None = None) -> int` — CLI: `--data PATH` (default `DEFAULT_DATA` from `tests/conftest.py` semantics, i.e. repo-relative bundle path resolved from `PyAitD/__main__.py`), `--floor N` (default 0). Keys: Left/Right cycle cameras of current room, Up/Down cycle rooms, Escape quits. Returns process exit code (0 normal, 2 bad floor/data).
 
 - [ ] **Step 1: Write failing tests** `tests/test_main.py`
 
@@ -1352,7 +1352,7 @@ git commit -m "feat: pygame/ModernGL background renderer"
 # SPDX-License-Identifier: GPL-2.0-only
 import pathlib
 
-from maitd.__main__ import parse_args
+from PyAitD.__main__ import parse_args
 
 
 def test_parse_args_defaults():
@@ -1373,9 +1373,9 @@ def test_parse_args_overrides():
 .venv/bin/pytest tests/test_main.py -q
 ```
 
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.__main__'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.__main__'`.
 
-- [ ] **Step 3: Implement `maitd/__main__.py`**
+- [ ] **Step 3: Implement `PyAitD/__main__.py`**
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
@@ -1386,9 +1386,9 @@ import sys
 
 import pygame
 
-from maitd.floor import Floor
-from maitd.pak import PakError
-from maitd.render import Renderer
+from PyAitD.floor import Floor
+from PyAitD.pak import PakError
+from PyAitD.render import Renderer
 
 DEFAULT_DATA = (
     pathlib.Path(__file__).resolve().parent.parent
@@ -1401,7 +1401,7 @@ DEFAULT_DATA = (
 
 
 def parse_args(argv):
-    p = argparse.ArgumentParser(prog="maitd", description="AITD1 room viewer (M1 debug)")
+    p = argparse.ArgumentParser(prog="PyAitD", description="AITD1 room viewer (M1 debug)")
     p.add_argument("--data", type=pathlib.Path, default=DEFAULT_DATA, help="game data dir")
     p.add_argument("--floor", type=int, default=0, help="floor number (default 0)")
     return p.parse_args(argv)
@@ -1431,7 +1431,7 @@ def main(argv=None):
         cam_idx = room.camera_indices[cam_slot % len(room.camera_indices)]
         renderer.present(floor.camera_image(cam_idx))
         pygame.display.set_caption(
-            f"maitd — floor {floor.number} room {room_idx} camera {cam_idx}"
+            f"PyAitD — floor {floor.number} room {room_idx} camera {cam_idx}"
         )
 
     show()
@@ -1477,7 +1477,7 @@ Expected: 2 passed.
 - [ ] **Step 5: Manual smoke run**
 
 ```bash
-.venv/bin/python -m maitd --floor 0
+.venv/bin/python -m PyAitD --floor 0
 ```
 
 Expected: window opens showing floor 0 room 0 camera 2 background (the starting studio/attic view). Left/Right/Up/Down cycle; Escape quits. Verify visually, then close.
@@ -1485,7 +1485,7 @@ Expected: window opens showing floor 0 room 0 camera 2 background (the starting 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add maitd/__main__.py tests/test_main.py
+git add PyAitD/__main__.py tests/test_main.py
 git commit -m "feat: debug viewer main loop with room/camera cycling"
 ```
 
@@ -1513,8 +1513,8 @@ import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from maitd.floor import Floor  # noqa: E402
-from maitd.pak import Pak, PakError, find_pak  # noqa: E402
+from PyAitD.floor import Floor  # noqa: E402
+from PyAitD.pak import Pak, PakError, find_pak  # noqa: E402
 
 
 def main():
@@ -1570,7 +1570,7 @@ Expected: one line per floor 0..N (until ETAGE missing), final line `OK: ...`, e
 - [ ] **Step 3: Write `README.md`**
 
 ```markdown
-# maitd
+# PyAitD
 
 Alone in the Dark 1 engine reimplementation in Python (pygame-ce + ModernGL),
 driven by the original game data files. Apple Silicon, windowed.
@@ -1584,11 +1584,11 @@ You must own the original game; this repo never ships game data.
     .venv/bin/pip install -e ".[dev]"
 
 Data defaults to `Alone in the Dark 1.app/Contents/Resources/game/INDARK`;
-override with `--data DIR` or env `M_AITD_DATA`.
+override with `--data DIR` or env `PYAITD_DATA`.
 
 ## Run (M1: room viewer)
 
-    .venv/bin/python -m maitd --floor 0
+    .venv/bin/python -m PyAitD --floor 0
 
 Keys: Left/Right cycle cameras, Up/Down cycle rooms, Esc quits.
 
@@ -1619,7 +1619,7 @@ git commit -m "docs+proof: M1 full-data proof harness and README"
 
 - [ ] `pytest -q` green (data present) or green-with-skips (data absent)
 - [ ] `scripts/prove_m1.py` exits 0
-- [ ] `python -m maitd --floor 0` shows a recognizable AITD1 room; cycling reaches every camera of floor 0
+- [ ] `python -m PyAitD --floor 0` shows a recognizable AITD1 room; cycling reaches every camera of floor 0
 - [ ] No new dependencies beyond pygame-ce, moderngl, numpy, pytest
 
 ## Deferred to later milestones (explicitly out of M1)

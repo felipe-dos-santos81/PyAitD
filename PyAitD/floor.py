@@ -2,9 +2,9 @@
 """Floor loading: rooms, cameras, palette, camera background images."""
 import functools
 
-from maitd.formats import camera_offsets, decode_image, decode_palette, parse_cameras, parse_rooms
-from maitd.mask import create_aitd1_mask
-from maitd.pak import Pak, find_pak
+from PyAitD.formats import camera_offsets, decode_image, decode_palette, parse_cameras, parse_rooms
+from PyAitD.mask import create_aitd1_mask
+from PyAitD.pak import Pak, find_pak
 
 PALETTE_PAK = "ITD_RESS"
 PALETTE_ENTRY = 3

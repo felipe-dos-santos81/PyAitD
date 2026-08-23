@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Track runner port (FITD track.cpp processTrack, AITD1 macro set)."""
-from maitd.formats import _s16 as _read_s16
-from maitd.game import AF_TRIGGER
-from maitd.realvalue import give_distance_2d, init_real_value, update_actor_rotation
-from maitd.world import cdiv as _cdiv, room_delta, rotate_step
+from PyAitD.formats import _s16 as _read_s16
+from PyAitD.game import AF_TRIGGER
+from PyAitD.realvalue import give_distance_2d, init_real_value, update_actor_rotation
+from PyAitD.world import cdiv as _cdiv, room_delta, rotate_step
 
 TL_INIT_COOR, TL_GOTO, TL_END, TL_REPEAT, TL_MARK = 0, 1, 2, 3, 4
 TL_WALK, TL_RUN, TL_STOP, TL_BACK, TL_SET_ANGLE = 5, 6, 7, 8, 9

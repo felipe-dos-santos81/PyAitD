@@ -29,7 +29,7 @@
 - Port FITD's two inventories of thirty slots, first-object-at-slot-zero insertion rule, later-object-at-slot-one insertion rule, five displayed actions, weight CVar index 2, and found-flag mutations exactly.
 - English is the M3b presentation language because `ENGLISH.PAK` is present and the language/configuration screen belongs to M4a. Decode its DOS text with CP437.
 - Use ITD_RESS entries 6, 7, and 8 as letter, book, and notebook backgrounds. Use pygame-ce's built-in font for readable text; entry 5's custom bitmap-font renderer is outside this slice.
-- Preserve all current user work. The starting tree has edits in `CONTEXT.md`, `maitd/__main__.py`, `maitd/mask.py`, `maitd/render.py`, `maitd/skel.py`, and their tests. Inspect `git diff` before each overlapping edit and stage only new M3b hunks with `git add -p`; never revert or silently include pre-existing hunks.
+- Preserve all current user work. The starting tree has edits in `CONTEXT.md`, `PyAitD/__main__.py`, `PyAitD/mask.py`, `PyAitD/render.py`, `PyAitD/skel.py`, and their tests. Inspect `git diff` before each overlapping edit and stage only new M3b hunks with `git add -p`; never revert or silently include pre-existing hunks.
 - Current regression baseline is `.venv/bin/pytest -q`: `187 passed, 1 skipped`. Every task keeps that baseline green in addition to its focused tests.
 - `make prove` remains the real-data regression gate. Scene geometry, camera selection, masks, and actor rendering are unchanged except for the minimal `Renderer.compose_scene()` extraction required to add message/UI overlays before the one presentation call.
 - Fall behavior remains in M3c, as assigned by the approved conclusion spec. This plan removes only the actor-contact portions of the current M3b simplification note.
@@ -57,25 +57,25 @@ The graph communities reinforce the file split: Life Scripts (14) maps to `life.
 
 | File | Responsibility in M3b |
 |---|---|
-| `maitd/effects.py` | pygame-free effect records, modal results, and LIFE continuation tokens |
-| `maitd/game.py` | active mode/effect, effect queues, continuation stack, inventory arrays, messages |
-| `maitd/life.py` | execute from a byte PC and return a continuation after complete operands |
-| `maitd/life_ops.py` | decode interaction/text opcodes and emit typed effects |
-| `maitd/interaction.py` | found-LIFE execution, inventory/world transitions, `GereDec`, contact results, modal-result application |
-| `maitd/actors.py` | cross-room collision query and motion/push primitives used by interaction |
-| `maitd/text.py` | pure CP437 system-text and book-markup parsing |
-| `maitd/assets.py` | cached ENGLISH and ITD_RESS entry access through the existing loader |
-| `maitd/ui.py` | event-to-command mapping, pure presenter reducers, modal/message rendering |
-| `maitd/render.py` | return the already-composited scene before presentation |
-| `maitd/__main__.py` | sole event pump, input buffer, fixed-step/mode routing, one presentation per frame |
+| `PyAitD/effects.py` | pygame-free effect records, modal results, and LIFE continuation tokens |
+| `PyAitD/game.py` | active mode/effect, effect queues, continuation stack, inventory arrays, messages |
+| `PyAitD/life.py` | execute from a byte PC and return a continuation after complete operands |
+| `PyAitD/life_ops.py` | decode interaction/text opcodes and emit typed effects |
+| `PyAitD/interaction.py` | found-LIFE execution, inventory/world transitions, `GereDec`, contact results, modal-result application |
+| `PyAitD/actors.py` | cross-room collision query and motion/push primitives used by interaction |
+| `PyAitD/text.py` | pure CP437 system-text and book-markup parsing |
+| `PyAitD/assets.py` | cached ENGLISH and ITD_RESS entry access through the existing loader |
+| `PyAitD/ui.py` | event-to-command mapping, pure presenter reducers, modal/message rendering |
+| `PyAitD/render.py` | return the already-composited scene before presentation |
+| `PyAitD/__main__.py` | sole event pump, input buffer, fixed-step/mode routing, one presentation per frame |
 
 ---
 
 ### Task 1: Typed effects and authoritative M3b state
 
 **Files:**
-- Create: `maitd/effects.py`
-- Modify: `maitd/game.py:1-162`
+- Create: `PyAitD/effects.py`
+- Modify: `PyAitD/game.py:1-162`
 - Test: `tests/test_effects.py`
 
 **Interfaces:**
@@ -101,8 +101,8 @@ from collections import deque
 
 import pytest
 
-from maitd.effects import AddMessage, BeginTake, GameMode, LifeFrame, ShowFound
-from maitd.game import init_game
+from PyAitD.effects import AddMessage, BeginTake, GameMode, LifeFrame, ShowFound
+from PyAitD.game import init_game
 
 
 def test_game_initializes_fitd_inventory_and_effect_state(data_dir):
@@ -137,12 +137,12 @@ def test_immediate_effect_is_fifo(data_dir):
 
 Run: `.venv/bin/pytest tests/test_effects.py -q`
 
-Expected: collection fails because `maitd.effects` does not exist.
+Expected: collection fails because `PyAitD.effects` does not exist.
 
 - [ ] **Step 3: Add the pygame-free records**
 
 ```python
-# maitd/effects.py
+# PyAitD/effects.py
 # SPDX-License-Identifier: GPL-2.0-only
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -217,10 +217,10 @@ class TimedMessage:
 - [ ] **Step 4: Extend `Game` with exact initial state and transition methods**
 
 ```python
-# imports in maitd/game.py
+# imports in PyAitD/game.py
 from collections import deque
 
-from maitd.effects import (
+from PyAitD.effects import (
     AddMessage, BeginTake, OpenInventory, ReadText, ShowFound, ShowPicture,
     GameMode, TimedMessage,
 )
@@ -276,8 +276,8 @@ Expected: `190 passed, 1 skipped` or a higher pass count if the dirty baseline g
 - [ ] **Step 6: Commit only Task 1 hunks**
 
 ```bash
-git add maitd/effects.py tests/test_effects.py
-git add -p maitd/game.py
+git add PyAitD/effects.py tests/test_effects.py
+git add -p PyAitD/game.py
 git diff --cached --check
 git commit -m "feat: add M3b effect and mode state"
 ```
@@ -287,8 +287,8 @@ git commit -m "feat: add M3b effect and mode state"
 ### Task 2: LIFE suspension, resume, and nested found-LIFE frames
 
 **Files:**
-- Modify: `maitd/life.py:8-187`
-- Create: `maitd/interaction.py`
+- Modify: `PyAitD/life.py:8-187`
+- Create: `PyAitD/interaction.py`
 - Test: `tests/test_life_continuation.py`
 
 **Interfaces:**
@@ -307,9 +307,9 @@ git commit -m "feat: add M3b effect and mode state"
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from maitd.effects import AfterLife, LifeFrame, ReadText
-from maitd.game import init_game
-from maitd.interaction import resume_life, run_life
+from PyAitD.effects import AfterLife, LifeFrame, ReadText
+from PyAitD.game import init_game
+from PyAitD.interaction import resume_life, run_life
 
 
 class Scripts:
@@ -360,13 +360,13 @@ def test_resume_keeps_parent_below_nested_frame(data_dir):
 
 Run: `.venv/bin/pytest tests/test_life_continuation.py -q`
 
-Expected: import failure for `maitd.interaction` or `TypeError` because `process_life` has no resume PC.
+Expected: import failure for `PyAitD.interaction` or `TypeError` because `process_life` has no resume PC.
 
 - [ ] **Step 3: Make `VM` resumable and return its post-operand frame**
 
 ```python
-# imports in maitd/life.py
-from maitd.effects import AfterLife, LifeFrame
+# imports in PyAitD/life.py
+from PyAitD.effects import AfterLife, LifeFrame
 
 
 class VM:
@@ -440,10 +440,10 @@ The actor-switch branch restores `vm.cur_idx = vm.owner_idx` immediately after d
 - [ ] **Step 4: Add frame execution and temporary-actor found-LIFE setup**
 
 ```python
-# maitd/interaction.py
+# PyAitD/interaction.py
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.effects import AfterLife, LifeFrame
-from maitd.life import process_life
+from PyAitD.effects import AfterLife, LifeFrame
+from PyAitD.life import process_life
 
 
 def _release_temporary_actor(game, actor_idx):
@@ -530,7 +530,7 @@ Expected: no regression.
 - [ ] **Step 7: Commit Task 2**
 
 ```bash
-git add maitd/life.py maitd/interaction.py tests/test_life_continuation.py tests/test_life_vm.py
+git add PyAitD/life.py PyAitD/interaction.py tests/test_life_continuation.py tests/test_life_vm.py
 git diff --cached --check
 git commit -m "feat: suspend and resume LIFE scripts"
 ```
@@ -540,8 +540,8 @@ git commit -m "feat: suspend and resume LIFE scripts"
 ### Task 3: English text and ITD_RESS screen assets
 
 **Files:**
-- Create: `maitd/text.py`
-- Modify: `maitd/assets.py:1-52`
+- Create: `PyAitD/text.py`
+- Modify: `PyAitD/assets.py:1-52`
 - Test: `tests/test_text_assets.py`
 
 **Interfaces:**
@@ -562,8 +562,8 @@ git commit -m "feat: suspend and resume LIFE scripts"
 import numpy as np
 import pytest
 
-from maitd.assets import Assets
-from maitd.text import BookToken, parse_book_tokens, parse_system_texts
+from PyAitD.assets import Assets
+from PyAitD.text import BookToken, parse_book_tokens, parse_system_texts
 
 
 def test_system_text_parser_decodes_ids_and_cp437():
@@ -600,12 +600,12 @@ def test_missing_text_names_archive_and_id(data_dir):
 
 Run: `.venv/bin/pytest tests/test_text_assets.py -q`
 
-Expected: collection fails for `maitd.text`.
+Expected: collection fails for `PyAitD.text`.
 
 - [ ] **Step 3: Implement the pure CP437 parsers**
 
 ```python
-# maitd/text.py
+# PyAitD/text.py
 # SPDX-License-Identifier: GPL-2.0-only
 from dataclasses import dataclass
 import re
@@ -660,9 +660,9 @@ def parse_book_tokens(raw):
 - [ ] **Step 4: Extend `Assets` with cached language and resource access**
 
 ```python
-# additions in maitd/assets.py
-from maitd.formats import decode_image, decode_palette, parse_anim, parse_body
-from maitd.text import parse_book_tokens, parse_system_texts
+# additions in PyAitD/assets.py
+from PyAitD.formats import decode_image, decode_palette, parse_anim, parse_body
+from PyAitD.text import parse_book_tokens, parse_system_texts
 
 TEXT_PAK = "ENGLISH"
 RESOURCE_PAK = "ITD_RESS"
@@ -715,7 +715,7 @@ Expected: no regression.
 - [ ] **Step 6: Commit Task 3**
 
 ```bash
-git add maitd/text.py maitd/assets.py tests/test_text_assets.py
+git add PyAitD/text.py PyAitD/assets.py tests/test_text_assets.py
 git diff --cached --check
 git commit -m "feat: load AITD1 text and modal screens"
 ```
@@ -725,8 +725,8 @@ git commit -m "feat: load AITD1 text and modal screens"
 ### Task 4: FITD inventory and world-object transitions
 
 **Files:**
-- Modify: `maitd/interaction.py`
-- Modify: `maitd/game.py:164-end`
+- Modify: `PyAitD/interaction.py`
+- Modify: `PyAitD/game.py:164-end`
 - Test: `tests/test_interaction.py`
 
 **Interfaces:**
@@ -748,9 +748,9 @@ git commit -m "feat: load AITD1 text and modal screens"
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.effects import ShowFound
-from maitd.game import init_game
-from maitd.interaction import (
+from PyAitD.effects import ShowFound
+from PyAitD.game import init_game
+from PyAitD.interaction import (
     _finish_take, choose_inventory_action, inventory_actions, inventory_items,
     inventory_weight, put_object, remove_from_inventory, request_found,
 )
@@ -808,7 +808,7 @@ def test_inventory_choice_sets_action_and_in_hand_before_found_life(data_dir, mo
     game = init_game(data_dir)
     _finish_take(game, 10)
     called = []
-    monkeypatch.setattr("maitd.interaction.execute_found_life", lambda g, i, **kw: called.append(i) or True)
+    monkeypatch.setattr("PyAitD.interaction.execute_found_life", lambda g, i, **kw: called.append(i) or True)
     assert choose_inventory_action(game, 10, 25) is True
     assert game.in_hand_table[0] == 10
     assert game.action == 1 << 2
@@ -824,7 +824,7 @@ Expected: import errors for the new functions.
 - [ ] **Step 3: Implement inventory queries and exact insertion/removal**
 
 ```python
-# additions in maitd/interaction.py
+# additions in PyAitD/interaction.py
 INVENTORY_SIZE = 30
 MAX_VISIBLE_ACTIONS = 5
 
@@ -851,7 +851,7 @@ def inventory_actions(game, object_idx):
 
 
 def request_found(game, object_idx, parameter):
-    from maitd.effects import ShowFound
+    from PyAitD.effects import ShowFound
     if object_idx < 0:
         return None
     world = game.world_objects[object_idx]
@@ -923,7 +923,7 @@ def put_object(game, object_idx, x, y, z, room, stage, alpha, beta, gamma):
 
 
 def drop_object(game, object_idx, source_idx):
-    from maitd.game import put_at_objet
+    from PyAitD.game import put_at_objet
     put_at_objet(game, object_idx, source_idx)
     game.flag_genere_aff_list = 1
 
@@ -936,7 +936,7 @@ def choose_inventory_action(game, object_idx, action_text_id):
     return execute_found_life(game, object_idx)
 ```
 
-Replace the two M3b skip comments in `maitd/game.py` with the same local inventory-removal call:
+Replace the two M3b skip comments in `PyAitD/game.py` with the same local inventory-removal call:
 
 ```python
 def delete_object(game, obj_idx):
@@ -950,7 +950,7 @@ def delete_object(game, obj_idx):
     obj.obj_index = -1
     obj.room = -1
     obj.stage = -1
-    from maitd.interaction import remove_from_inventory
+    from PyAitD.interaction import remove_from_inventory
     remove_from_inventory(game, obj_idx)
 
 
@@ -979,7 +979,7 @@ def put_at_objet(game, obj_idx, obj_idx_to_put_at):
         actor.alpha, actor.beta, actor.gamma = alpha, beta, gamma
         game.world_objects[actor.index_in_world].found_flag |= 0x4000
         game.world_objects[actor.index_in_world].flags |= 0x80
-    from maitd.interaction import remove_from_inventory
+    from PyAitD.interaction import remove_from_inventory
     remove_from_inventory(game, obj_idx)
 ```
 
@@ -998,8 +998,8 @@ Expected: no regression.
 - [ ] **Step 6: Commit Task 4 hunks**
 
 ```bash
-git add maitd/interaction.py tests/test_interaction.py
-git add -p maitd/game.py
+git add PyAitD/interaction.py tests/test_interaction.py
+git add -p PyAitD/game.py
 git diff --cached --check
 git commit -m "feat: port AITD1 inventory transitions"
 ```
@@ -1009,7 +1009,7 @@ git commit -m "feat: port AITD1 inventory transitions"
 ### Task 5: Interaction and text LIFE opcodes
 
 **Files:**
-- Modify: `maitd/life_ops.py:150-430`
+- Modify: `PyAitD/life_ops.py:150-430`
 - Test: `tests/test_life_interaction_ops.py`
 
 **Interfaces:**
@@ -1023,9 +1023,9 @@ git commit -m "feat: port AITD1 inventory transitions"
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from maitd.effects import AddMessage, BeginTake, ReadText, ShowFound, ShowPicture
-from maitd.game import init_game
-from maitd.life import process_life
+from PyAitD.effects import AddMessage, BeginTake, ReadText, ShowFound, ShowPicture
+from PyAitD.game import init_game
+from PyAitD.life import process_life
 
 
 class Scripts:
@@ -1085,8 +1085,8 @@ Expected: effects are missing and modal assertions fail.
 - [ ] **Step 3: Replace message/found/read/picture stubs with typed emission**
 
 ```python
-# imports in maitd/life_ops.py
-from maitd.effects import AddMessage, BeginTake, ReadText, ShowPicture
+# imports in PyAitD/life_ops.py
+from PyAitD.effects import AddMessage, BeginTake, ReadText, ShowPicture
 
 
 def op_message(vm):
@@ -1100,7 +1100,7 @@ def op_message_value(vm):
 
 
 def op_found(vm):
-    from maitd.interaction import request_found
+    from PyAitD.interaction import request_found
     effect = request_found(vm.game, read_s16(vm), parameter=1)
     if effect is not None:
         vm.suspend(effect)
@@ -1128,14 +1128,14 @@ def op_take(vm):
 
 
 def op_drop(vm):
-    from maitd.interaction import drop_object
+    from PyAitD.interaction import drop_object
     object_idx = eval_var(vm)
     source_idx = read_s16(vm)
     drop_object(vm.game, object_idx, source_idx)
 
 
 def op_put(vm):
-    from maitd.interaction import put_object
+    from PyAitD.interaction import put_object
     object_idx = read_s16(vm)
     x, y, z = read_s16(vm), read_s16(vm), read_s16(vm)
     room, stage = read_s16(vm), read_s16(vm)
@@ -1144,7 +1144,7 @@ def op_put(vm):
 
 
 def op_put_at(vm):
-    from maitd.interaction import drop_object
+    from PyAitD.interaction import drop_object
     drop_object(vm.game, read_s16(vm), read_s16(vm))
 
 
@@ -1192,7 +1192,7 @@ Expected: no regression.
 - [ ] **Step 6: Commit Task 5**
 
 ```bash
-git add maitd/life_ops.py tests/test_life_interaction_ops.py
+git add PyAitD/life_ops.py tests/test_life_interaction_ops.py
 git diff --cached --check
 git commit -m "feat: connect interaction LIFE opcodes"
 ```
@@ -1202,7 +1202,7 @@ git commit -m "feat: connect interaction LIFE opcodes"
 ### Task 6: `GereDec` scene-zone behavior
 
 **Files:**
-- Modify: `maitd/interaction.py`
+- Modify: `PyAitD/interaction.py`
 - Test: `tests/test_gere_dec.py`
 
 **Interfaces:**
@@ -1218,8 +1218,8 @@ git commit -m "feat: connect interaction LIFE opcodes"
 # SPDX-License-Identifier: GPL-2.0-only
 from types import SimpleNamespace
 
-from maitd.formats import Zone
-from maitd.interaction import gere_dec
+from PyAitD.formats import Zone
+from PyAitD.interaction import gere_dec
 
 
 def room(wx, wy, wz, zones=()):
@@ -1227,7 +1227,7 @@ def room(wx, wy, wz, zones=()):
 
 
 def test_room_zone_rebases_room_coordinates_and_requests_camera_change(monkeypatch, data_dir):
-    from maitd.game import init_game
+    from PyAitD.game import init_game
     game = init_game(data_dir)
     actor_idx = game.current_camera_target_actor
     actor = game.actors[actor_idx]
@@ -1245,7 +1245,7 @@ def test_room_zone_rebases_room_coordinates_and_requests_camera_change(monkeypat
 
 
 def test_scenario_and_floor_life_zones_write_fitd_fields(monkeypatch, data_dir):
-    from maitd.game import init_game
+    from PyAitD.game import init_game
     game = init_game(data_dir)
     actor = game.actors[0]
     actor.room = 0
@@ -1329,7 +1329,7 @@ Expected: no regression.
 - [ ] **Step 5: Commit Task 6**
 
 ```bash
-git add maitd/interaction.py tests/test_gere_dec.py
+git add PyAitD/interaction.py tests/test_gere_dec.py
 git diff --cached --check
 git commit -m "feat: port AITD1 scene zones"
 ```
@@ -1339,9 +1339,9 @@ git commit -m "feat: port AITD1 scene zones"
 ### Task 7: Cross-room actor contacts, foundable objects, and push movement
 
 **Files:**
-- Modify: `maitd/game.py:1-20`
-- Modify: `maitd/actors.py:1-260`
-- Modify: `maitd/interaction.py`
+- Modify: `PyAitD/game.py:1-20`
+- Modify: `PyAitD/actors.py:1-260`
+- Modify: `PyAitD/interaction.py`
 - Test: `tests/test_actor_contacts.py`
 
 **Interfaces:**
@@ -1359,9 +1359,9 @@ git commit -m "feat: port AITD1 scene zones"
 # SPDX-License-Identifier: GPL-2.0-only
 from types import SimpleNamespace
 
-from maitd.actors import check_object_col
-from maitd.game import AF_FOUNDABLE, AF_MOVABLE, init_game
-from maitd.interaction import resolve_actor_contacts
+from PyAitD.actors import check_object_col
+from PyAitD.game import AF_FOUNDABLE, AF_MOVABLE, init_game
+from PyAitD.interaction import resolve_actor_contacts
 
 
 def live_actor(game, index, room, zv, flags=0, world_idx=0):
@@ -1423,12 +1423,12 @@ Expected: imports fail for `AF_MOVABLE`, `check_object_col`, or `resolve_actor_c
 - [ ] **Step 3: Add flags and cross-room collision query**
 
 ```python
-# maitd/game.py constants
+# PyAitD/game.py constants
 AF_MOVABLE = 0x0010
 AF_FALLABLE = 0x0100
 
 
-# maitd/actors.py
+# PyAitD/actors.py
 def adjust_zv_between_rooms(game, zv, start_room, dest_room):
     rooms = game.rooms_of_floor(game.current_floor)
     dx = 10 * (rooms[dest_room].world_x - rooms[start_room].world_x)
@@ -1459,11 +1459,11 @@ def check_object_col(game, actor_idx, zv):
 
 ```python
 def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z):
-    from maitd.actors import (
+    from PyAitD.actors import (
         adjust_zv_between_rooms, check_hard_col, check_object_col,
         gere_collision,
     )
-    from maitd.game import AF_ANIMATED, AF_BOXIFY, AF_FOUNDABLE, AF_MOVABLE
+    from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_FOUNDABLE, AF_MOVABLE
 
     actor = game.actors[actor_idx]
     room = game.rooms_of_floor(game.current_floor)[actor.room]
@@ -1521,7 +1521,7 @@ for touched_idx in check_object_col(game, actor_idx, a.zv):
     game.actors[touched_idx].col_by = actor_idx
 
 # moving branch, after hard collision and before assigning a.step_x/a.step_z
-from maitd.interaction import resolve_actor_contacts
+from PyAitD.interaction import resolve_actor_contacts
 zv_local, step_x, step_z = resolve_actor_contacts(
     game, actor_idx, list(a.zv), zv_local, step_x, step_z,
 )
@@ -1542,8 +1542,8 @@ Expected: no regression.
 - [ ] **Step 7: Commit Task 7 hunks**
 
 ```bash
-git add tests/test_actor_contacts.py maitd/interaction.py
-git add -p maitd/game.py maitd/actors.py
+git add tests/test_actor_contacts.py PyAitD/interaction.py
+git add -p PyAitD/game.py PyAitD/actors.py
 git diff --cached --check
 git commit -m "feat: port actor object contacts"
 ```
@@ -1553,8 +1553,8 @@ git commit -m "feat: port actor object contacts"
 ### Task 8: Immediate message queue and pre-present scene composition
 
 **Files:**
-- Modify: `maitd/interaction.py`
-- Modify: `maitd/render.py:38-94`
+- Modify: `PyAitD/interaction.py`
+- Modify: `PyAitD/render.py:38-94`
 - Modify: `tests/test_render.py`
 - Test: `tests/test_messages.py`
 
@@ -1571,9 +1571,9 @@ git commit -m "feat: port actor object contacts"
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.effects import AddMessage, BeginTake, LifeFrame
-from maitd.game import init_game
-from maitd.interaction import advance_messages, drain_immediate_effects
+from PyAitD.effects import AddMessage, BeginTake, LifeFrame
+from PyAitD.game import init_game
+from PyAitD.interaction import advance_messages, drain_immediate_effects
 
 
 def test_messages_refresh_duplicate_fill_five_slots_and_expire(data_dir):
@@ -1595,7 +1595,7 @@ def test_begin_take_runs_after_parent_frame_is_stacked(data_dir, monkeypatch):
     game = init_game(data_dir)
     game.life_stack.append(LifeFrame(0, 1, pc=6))
     seen = []
-    monkeypatch.setattr("maitd.interaction.begin_take", lambda g, i: seen.append((i, len(g.life_stack))) or False)
+    monkeypatch.setattr("PyAitD.interaction.begin_take", lambda g, i: seen.append((i, len(g.life_stack))) or False)
     game.emit(BeginTake(12))
     assert drain_immediate_effects(game) is False
     assert seen == [(12, 1)]
@@ -1660,7 +1660,7 @@ def advance_messages(game):
 - [ ] **Step 4: Extract scene composition without changing pixels**
 
 ```python
-# maitd/render.py
+# PyAitD/render.py
 def _compose_existing_scene(self, background, actor_results, masks, palette,
                             actor_rooms, actor_zvs):
     if not hasattr(self, "_actor_layer"):
@@ -1695,7 +1695,7 @@ def present_scene(self, background, actor_results, masks, palette, actor_rooms, 
     ))
 ```
 
-The extraction must preserve the dirty worktree's room-aware depth/mask changes. Before editing, save `git diff -- maitd/render.py tests/test_render.py` in the execution transcript; after extraction, run all pixel golden tests.
+The extraction must preserve the dirty worktree's room-aware depth/mask changes. Before editing, save `git diff -- PyAitD/render.py tests/test_render.py` in the execution transcript; after extraction, run all pixel golden tests.
 
 - [ ] **Step 5: Run message, pixel, and full tests**
 
@@ -1710,8 +1710,8 @@ Expected: no regression.
 - [ ] **Step 6: Commit only Task 8 hunks**
 
 ```bash
-git add maitd/interaction.py tests/test_messages.py
-git add -p maitd/render.py tests/test_render.py
+git add PyAitD/interaction.py tests/test_messages.py
+git add -p PyAitD/render.py tests/test_render.py
 git diff --cached --check
 git commit -m "feat: queue messages before frame presentation"
 ```
@@ -1721,7 +1721,7 @@ git commit -m "feat: queue messages before frame presentation"
 ### Task 9: Accessible command buffer and pure modal reducers
 
 **Files:**
-- Create: `maitd/ui.py`
+- Create: `PyAitD/ui.py`
 - Test: `tests/test_ui_input.py`
 - Test: `tests/test_ui_reducers.py`
 
@@ -1744,7 +1744,7 @@ git commit -m "feat: queue messages before frame presentation"
 # SPDX-License-Identifier: GPL-2.0-only
 import pygame
 
-from maitd.ui import Command, InputBuffer, event_to_input
+from PyAitD.ui import Command, InputBuffer, event_to_input
 
 
 def key(kind, value, *, repeat=False):
@@ -1785,7 +1785,7 @@ def test_inventory_shortcuts_are_single_edges():
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.ui import (
+from PyAitD.ui import (
     Command, FoundPresenter, FoundResult, InventoryPresenter,
     reduce_found, reduce_inventory,
 )
@@ -1813,12 +1813,12 @@ def test_inventory_two_stage_selection_is_bounded():
 
 Run: `.venv/bin/pytest tests/test_ui_input.py tests/test_ui_reducers.py -q`
 
-Expected: collection fails because `maitd.ui` does not exist.
+Expected: collection fails because `PyAitD.ui` does not exist.
 
 - [ ] **Step 4: Implement command types, input state, and event translation**
 
 ```python
-# maitd/ui.py
+# PyAitD/ui.py
 # SPDX-License-Identifier: GPL-2.0-only
 from collections import deque
 from dataclasses import dataclass, field
@@ -1971,7 +1971,7 @@ Expected: no regression.
 - [ ] **Step 7: Commit Task 9**
 
 ```bash
-git add maitd/ui.py tests/test_ui_input.py tests/test_ui_reducers.py
+git add PyAitD/ui.py tests/test_ui_input.py tests/test_ui_reducers.py
 git diff --cached --check
 git commit -m "feat: add accessible modal command reducers"
 ```
@@ -1981,7 +1981,7 @@ git commit -m "feat: add accessible modal command reducers"
 ### Task 10: ITD_RESS-backed modal and message presenters
 
 **Files:**
-- Modify: `maitd/ui.py`
+- Modify: `PyAitD/ui.py`
 - Test: `tests/test_ui_render.py`
 - Test: `tests/test_ui_mouse.py`
 
@@ -2007,10 +2007,10 @@ git commit -m "feat: add accessible modal command reducers"
 import numpy as np
 import pygame
 
-from maitd.effects import ReadText, ShowFound, ShowPicture, TimedMessage
-from maitd.game import init_game
-from maitd.text import BookToken
-from maitd.ui import (
+from PyAitD.effects import ReadText, ShowFound, ShowPicture, TimedMessage
+from PyAitD.game import init_game
+from PyAitD.text import BookToken
+from PyAitD.ui import (
     FoundPresenter, FoundResult, InventoryPresenter, ModalLayout,
     ReadingPresenter, hit_test_found, hit_test_inventory, layout_book,
     overlay_messages, render_found, render_picture, render_reading,
@@ -2301,7 +2301,7 @@ Expected: no regression.
 - [ ] **Step 8: Commit Task 10**
 
 ```bash
-git add maitd/ui.py tests/test_ui_render.py tests/test_ui_mouse.py
+git add PyAitD/ui.py tests/test_ui_render.py tests/test_ui_mouse.py
 git diff --cached --check
 git commit -m "feat: render accessible AITD1 modal screens"
 ```
@@ -2311,8 +2311,8 @@ git commit -m "feat: render accessible AITD1 modal screens"
 ### Task 11: Apply modal results without leaking gameplay rules into UI
 
 **Files:**
-- Modify: `maitd/interaction.py`
-- Modify: `maitd/ui.py`
+- Modify: `PyAitD/interaction.py`
+- Modify: `PyAitD/ui.py`
 - Test: `tests/test_modal_results.py`
 
 **Interfaces:**
@@ -2329,10 +2329,10 @@ git commit -m "feat: render accessible AITD1 modal screens"
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.effects import GameMode, LifeFrame, OpenInventory, ReadText, ShowFound
-from maitd.game import init_game
-from maitd.interaction import apply_found_result, apply_inventory_result, apply_reading_result
-from maitd.ui import FoundResult, InventoryResult, ReadingResult
+from PyAitD.effects import GameMode, LifeFrame, OpenInventory, ReadText, ShowFound
+from PyAitD.game import init_game
+from PyAitD.interaction import apply_found_result, apply_inventory_result, apply_reading_result
+from PyAitD.ui import FoundResult, InventoryResult, ReadingResult
 
 
 def test_leave_debounces_and_resumes_parent(data_dir, monkeypatch):
@@ -2340,7 +2340,7 @@ def test_leave_debounces_and_resumes_parent(data_dir, monkeypatch):
     game.life_stack.append(LifeFrame(0, 1, pc=6))
     game.open_modal(ShowFound(13, False))
     resumed = []
-    monkeypatch.setattr("maitd.interaction.resume_life", lambda g: resumed.append(True) or True)
+    monkeypatch.setattr("PyAitD.interaction.resume_life", lambda g: resumed.append(True) or True)
     assert apply_found_result(game, FoundResult.LEAVE) is True
     assert game.world_objects[13].track_number == game.timer
     assert game.mode is GameMode.PLAY
@@ -2351,14 +2351,14 @@ def test_take_closes_found_before_nested_found_life(data_dir, monkeypatch):
     game = init_game(data_dir)
     game.open_modal(ShowFound(13, False))
     seen = []
-    monkeypatch.setattr("maitd.interaction.begin_take", lambda g, i: seen.append((i, g.active_modal)) or False)
+    monkeypatch.setattr("PyAitD.interaction.begin_take", lambda g, i: seen.append((i, g.active_modal)) or False)
     assert apply_found_result(game, FoundResult.TAKE) is False
     assert seen == [(13, None)]
 
 
 def test_inventory_cancel_and_read_dismiss_restore_play(data_dir, monkeypatch):
     game = init_game(data_dir)
-    monkeypatch.setattr("maitd.interaction.resume_life", lambda g: True)
+    monkeypatch.setattr("PyAitD.interaction.resume_life", lambda g: True)
     game.open_modal(OpenInventory())
     assert apply_inventory_result(game, InventoryResult(cancelled=True)) is True
     game.open_modal(ReadText(1, 0))
@@ -2382,8 +2382,8 @@ def dismiss_modal(game):
 
 
 def apply_found_result(game, result):
-    from maitd.effects import ShowFound
-    from maitd.ui import FoundResult
+    from PyAitD.effects import ShowFound
+    from PyAitD.ui import FoundResult
     effect = game.active_modal
     if not isinstance(effect, ShowFound):
         raise RuntimeError(f"found result applied to {type(effect).__name__}")
@@ -2398,7 +2398,7 @@ def apply_found_result(game, result):
 
 
 def apply_inventory_result(game, result):
-    from maitd.effects import OpenInventory
+    from PyAitD.effects import OpenInventory
     if not isinstance(game.active_modal, OpenInventory):
         raise RuntimeError(f"inventory result applied to {type(game.active_modal).__name__}")
     game.close_modal()
@@ -2409,7 +2409,7 @@ def apply_inventory_result(game, result):
 
 
 def apply_reading_result(game, result):
-    from maitd.effects import ReadText, ShowPicture
+    from PyAitD.effects import ReadText, ShowPicture
     if not isinstance(game.active_modal, (ReadText, ShowPicture)):
         raise RuntimeError(f"reading result applied to {type(game.active_modal).__name__}")
     if not result.dismissed:
@@ -2454,7 +2454,7 @@ Expected: no regression.
 - [ ] **Step 6: Commit Task 11**
 
 ```bash
-git add maitd/interaction.py maitd/ui.py tests/test_modal_results.py
+git add PyAitD/interaction.py PyAitD/ui.py tests/test_modal_results.py
 git diff --cached --check
 git commit -m "feat: apply modal results and resume LIFE"
 ```
@@ -2464,7 +2464,7 @@ git commit -m "feat: apply modal results and resume LIFE"
 ### Task 12: Single event/render loop and freeze-proof mode routing
 
 **Files:**
-- Modify: `maitd/__main__.py:1-260`
+- Modify: `PyAitD/__main__.py:1-260`
 - Modify: `tests/test_play_loop.py`
 - Test: `tests/test_runtime_modes.py`
 
@@ -2488,10 +2488,10 @@ from collections import deque
 
 import numpy as np
 
-from maitd.__main__ import apply_play_input, route_command
-from maitd.effects import GameMode, OpenInventory, ShowPicture
-from maitd.game import init_game
-from maitd.ui import Command, InputBuffer, ModalSession
+from PyAitD.__main__ import apply_play_input, route_command
+from PyAitD.effects import GameMode, OpenInventory, ShowPicture
+from PyAitD.game import init_game
+from PyAitD.ui import Command, InputBuffer, ModalSession
 
 
 def test_play_input_reads_held_state_without_consuming_edges(data_dir):
@@ -2546,9 +2546,9 @@ Expected: imports fail for `apply_play_input` or `route_command`.
 
 ```python
 # __main__.py import changes
-from maitd.effects import GameMode
-from maitd.game import AF_ANIMATED, AF_TRIGGER, change_salle, game_step_tick, init_game, spawn_stage_actors
-from maitd.ui import Command, InputBuffer, ModalSession, event_to_input
+from PyAitD.effects import GameMode
+from PyAitD.game import AF_ANIMATED, AF_TRIGGER, change_salle, game_step_tick, init_game, spawn_stage_actors
+from PyAitD.ui import Command, InputBuffer, ModalSession, event_to_input
 
 
 def apply_play_input(game, input_buffer):
@@ -2607,7 +2607,7 @@ Delete `_draw()` after moving this exact calculation into `_scene_frame()`. Move
 
 ```python
 def _anim_pass(game):
-    from maitd.interaction import gere_dec
+    from PyAitD.interaction import gere_dec
     for index, actor in enumerate(game.actors):
         if actor.index_in_world < 0:
             continue
@@ -2622,8 +2622,8 @@ def _anim_pass(game):
 
 
 def play_tick(game, floor, input_buffer):
-    from maitd.effects import LifeFrame
-    from maitd.interaction import (
+    from PyAitD.effects import LifeFrame
+    from PyAitD.interaction import (
         advance_messages, drain_immediate_effects, execute_found_life, run_life,
     )
     if game.mode is not GameMode.PLAY:
@@ -2678,12 +2678,12 @@ Place `game_step_tick()` after mode validation and input snapshot, as above. A m
 
 ```python
 def route_command(game, session, command, scene_frame):
-    from maitd.effects import GameMode, OpenInventory, ReadText, ShowFound, ShowPicture
-    from maitd.interaction import (
+    from PyAitD.effects import GameMode, OpenInventory, ReadText, ShowFound, ShowPicture
+    from PyAitD.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
         inventory_actions, inventory_items,
     )
-    from maitd.ui import (
+    from PyAitD.ui import (
         Command, ReadingResult, reading_pages, reduce_found, reduce_inventory,
         reduce_reading,
     )
@@ -2728,7 +2728,7 @@ def route_command(game, session, command, scene_frame):
     raise RuntimeError(f"unroutable modal {type(game.active_modal).__name__}")
 ```
 
-Add this exact reading reducer to `maitd/ui.py`:
+Add this exact reading reducer to `PyAitD/ui.py`:
 
 ```python
 def reduce_reading(state, command, *, page_count):
@@ -2748,12 +2748,12 @@ def reduce_reading(state, command, *, page_count):
 
 ```python
 def route_mouse(game, session, logical_pos, scene_frame):
-    from maitd.effects import OpenInventory, ReadText, ShowFound, ShowPicture
-    from maitd.interaction import (
+    from PyAitD.effects import OpenInventory, ReadText, ShowFound, ShowPicture
+    from PyAitD.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
         inventory_actions, inventory_items,
     )
-    from maitd.ui import (
+    from PyAitD.ui import (
         ReadingResult, hit_test_found, hit_test_inventory, hit_test_reading,
         reading_pages,
     )
@@ -2798,9 +2798,9 @@ def route_mouse(game, session, logical_pos, scene_frame):
 
 
 def _auto_dismiss_picture(game, session):
-    from maitd.effects import ShowPicture
-    from maitd.interaction import apply_reading_result
-    from maitd.ui import ReadingResult
+    from PyAitD.effects import ShowPicture
+    from PyAitD.interaction import apply_reading_result
+    from PyAitD.ui import ReadingResult
     effect = game.active_modal
     if not isinstance(effect, ShowPicture) or effect.delay_units <= 0:
         return True
@@ -2812,9 +2812,9 @@ def _auto_dismiss_picture(game, session):
 
 
 def render_active_mode(game, session, scene_frame):
-    from maitd.effects import OpenInventory, ReadText, ShowFound, ShowPicture
-    from maitd.interaction import inventory_actions, inventory_items
-    from maitd.ui import (
+    from PyAitD.effects import OpenInventory, ReadText, ShowFound, ShowPicture
+    from PyAitD.interaction import inventory_actions, inventory_items
+    from PyAitD.ui import (
         overlay_messages, render_found, render_inventory, render_picture,
         render_reading,
     )
@@ -2891,7 +2891,7 @@ def run(game, trace_path=None):
         cam_idx = room.camera_indices[game.num_camera]
         live = sum(1 for actor in game.actors if actor.index_in_world >= 0)
         pygame.display.set_caption(
-            f"maitd — floor {floor.number} room {game.current_room} "
+            f"PyAitD — floor {floor.number} room {game.current_room} "
             f"camera {cam_idx} actors {live}"
         )
         clock.tick(60)
@@ -2927,7 +2927,7 @@ def test_mouse_reading_next_changes_page_without_resuming_life(data_dir, monkeyp
     game.open_modal(ReadText(1, 0))
     session = ModalSession()
     monkeypatch.setattr(
-        "maitd.ui.reading_pages", lambda effect, assets: (("one",), ("two",))
+        "PyAitD.ui.reading_pages", lambda effect, assets: (("one",), ("two",))
     )
     logical = ModalLayout.READING_NEXT.center
     assert route_mouse(game, session, logical, np.zeros((200, 320, 3), dtype=np.uint8))
@@ -2959,7 +2959,7 @@ Expected: no regression.
 
 ```bash
 git add tests/test_runtime_modes.py
-git add -p maitd/__main__.py maitd/render.py tests/test_play_loop.py tests/test_render.py
+git add -p PyAitD/__main__.py PyAitD/render.py tests/test_play_loop.py tests/test_render.py
 git diff --cached --check
 git commit -m "feat: route M3b modes through one game loop"
 ```
@@ -2983,13 +2983,13 @@ git commit -m "feat: route M3b modes through one game loop"
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.effects import OpenInventory
-from maitd.game import init_game
-from maitd.interaction import (
+from PyAitD.effects import OpenInventory
+from PyAitD.game import init_game
+from PyAitD.interaction import (
     apply_found_result, apply_inventory_result, inventory_actions,
     inventory_items, request_found,
 )
-from maitd.ui import FoundResult, InventoryResult
+from PyAitD.ui import FoundResult, InventoryResult
 
 
 def test_attic_lamp_find_take_use_and_drop_checkpoint(data_dir):
@@ -3110,7 +3110,7 @@ Run: `make prove`
 
 Expected: parse-all and headless real-data checks pass.
 
-Run: `rg -n "M3b stub|M3b skip|blocking wait skipped|CheckObjectCol.*skipped|GereDec.*skipped" maitd tests`
+Run: `rg -n "M3b stub|M3b skip|blocking wait skipped|CheckObjectCol.*skipped|GereDec.*skipped" PyAitD tests`
 
 Expected: no match in the M3b-owned interaction/text/runtime paths. Audio references must identify M4b, and fall/combat references must identify M3c.
 

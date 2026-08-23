@@ -37,7 +37,7 @@
 ### Task 1: Cos table
 
 **Files:**
-- Create: `maitd/cos_table.py`
+- Create: `PyAitD/cos_table.py`
 - Test: `tests/test_cos_table.py`
 
 **Interfaces:**
@@ -47,7 +47,7 @@
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.cos_table import COS_TABLE
+from PyAitD.cos_table import COS_TABLE
 
 
 def test_length():
@@ -77,9 +77,9 @@ def test_formula_consistency():
 - [ ] **Step 2: Run test, verify fail**
 
 Run: `.venv/bin/pytest tests/test_cos_table.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.cos_table'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.cos_table'`.
 
-- [ ] **Step 3: Implement** `maitd/cos_table.py`
+- [ ] **Step 3: Implement** `PyAitD/cos_table.py`
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
@@ -103,7 +103,7 @@ Expected: 3 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/cos_table.py tests/test_cos_table.py
+git add PyAitD/cos_table.py tests/test_cos_table.py
 git commit -m "feat: fixed-point cos table (FITD port)"
 ```
 
@@ -112,11 +112,11 @@ git commit -m "feat: fixed-point cos table (FITD port)"
 ### Task 2: Body and animation parsers
 
 **Files:**
-- Modify: `maitd/formats.py` (append)
+- Modify: `PyAitD/formats.py` (append)
 - Test: `tests/test_body_anim.py`
 
 **Interfaces:**
-- Consumes: `maitd.pak.Pak` (M1), real data via `data_dir` fixture.
+- Consumes: `PyAitD.pak.Pak` (M1), real data via `data_dir` fixture.
 - Produces (dataclasses, all ints):
   - `@dataclass Primitive: type: int, material: int, color: int, points: list[int], size: int = 0`
   - `@dataclass Group: start: int, num_vertices: int, base_vertices: int, org_group: int, num_group: int, delta_x: int, delta_y: int, delta_z: int`
@@ -133,8 +133,8 @@ git commit -m "feat: fixed-point cos table (FITD port)"
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from maitd.formats import parse_anim, parse_body
-from maitd.pak import Pak
+from PyAitD.formats import parse_anim, parse_body
+from PyAitD.pak import Pak
 
 
 def _read(pak_name, index, data_dir):
@@ -197,7 +197,7 @@ def test_parse_anim_rejects_bad_size():
 Run: `.venv/bin/pytest tests/test_body_anim.py -q`
 Expected: FAIL, `ImportError: cannot import name 'parse_body'`.
 
-- [ ] **Step 3: Append to `maitd/formats.py`**
+- [ ] **Step 3: Append to `PyAitD/formats.py`**
 
 ```python
 @dataclass
@@ -354,7 +354,7 @@ def parse_anim(raw):
     return Animation(num_frames, num_groups, frames)
 ```
 
-Note: imports `dataclass` and `struct` already exist in `maitd/formats.py` from M1; append only the new code.
+Note: imports `dataclass` and `struct` already exist in `PyAitD/formats.py` from M1; append only the new code.
 
 - [ ] **Step 4: Run tests, verify pass**
 
@@ -364,7 +364,7 @@ Expected: 5 passed. Then full suite: `.venv/bin/pytest -q` — expect 36 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/formats.py tests/test_body_anim.py
+git add PyAitD/formats.py tests/test_body_anim.py
 git commit -m "feat: body and animation format parsers"
 ```
 
@@ -373,11 +373,11 @@ git commit -m "feat: body and animation format parsers"
 ### Task 3: Asset registry
 
 **Files:**
-- Create: `maitd/assets.py`
+- Create: `PyAitD/assets.py`
 - Test: `tests/test_assets.py`
 
 **Interfaces:**
-- Consumes: `maitd.floor.load_entry(pak_path: str, index: int) -> bytes` (M1 LRU); `parse_body`, `parse_anim` (task 2).
+- Consumes: `PyAitD.floor.load_entry(pak_path: str, index: int) -> bytes` (M1 LRU); `parse_body`, `parse_anim` (task 2).
 - Produces:
   - `class Assets` — `Assets(data_dir: pathlib.Path)`
     - `.body(index: int) -> Body` — raises KeyError out of range
@@ -391,7 +391,7 @@ git commit -m "feat: body and animation format parsers"
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from maitd.assets import Assets
+from PyAitD.assets import Assets
 
 
 def test_loads(data_dir):
@@ -426,16 +426,16 @@ def test_parse_cache(data_dir):
 - [ ] **Step 2: Run tests, verify fail**
 
 Run: `.venv/bin/pytest tests/test_assets.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.assets'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.assets'`.
 
-- [ ] **Step 3: Implement** `maitd/assets.py`
+- [ ] **Step 3: Implement** `PyAitD/assets.py`
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
 """Parsed body/animation asset registry (parse-once caches over the M1 LRU)."""
-from maitd.floor import load_entry
-from maitd.formats import parse_anim, parse_body
-from maitd.pak import Pak, find_pak
+from PyAitD.floor import load_entry
+from PyAitD.formats import parse_anim, parse_body
+from PyAitD.pak import Pak, find_pak
 
 BODIES_PAK = "LISTBODY"
 ANIMS_PAK = "LISTANIM"
@@ -477,7 +477,7 @@ Expected: 4 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/assets.py tests/test_assets.py
+git add PyAitD/assets.py tests/test_assets.py
 git commit -m "feat: body/anim asset registry"
 ```
 
@@ -486,7 +486,7 @@ git commit -m "feat: body/anim asset registry"
 ### Task 4: Camera transform math
 
 **Files:**
-- Create: `maitd/world.py`
+- Create: `PyAitD/world.py`
 - Test: `tests/test_world.py`
 
 **Interfaces:**
@@ -504,7 +504,7 @@ git commit -m "feat: body/anim asset registry"
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.world import CameraState, rotate_step, transform_point
+from PyAitD.world import CameraState, rotate_step, transform_point
 
 
 def test_identity_camera_no_rotation():
@@ -526,7 +526,7 @@ def test_rotate_step_identity():
 
 
 def test_camera_from_room_coords():
-    from maitd.formats import Camera
+    from PyAitD.formats import Camera
     cam = Camera(109, 185, 0, -741, 280, -116, 300, 189, 158)
     state = CameraState.from_camera(cam, world_x=0, world_y=0, world_z=0)
     assert (state.x, state.y, state.z) == (-7410, -2800, 1160)
@@ -546,17 +546,17 @@ def test_projection_center():
 - [ ] **Step 2: Run tests, verify fail**
 
 Run: `.venv/bin/pytest tests/test_world.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.world'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.world'`.
 
-- [ ] **Step 3: Implement** `maitd/world.py`
+- [ ] **Step 3: Implement** `PyAitD/world.py`
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
 """Camera math ports from FITD main.cpp/renderer.cpp (fixed point, exact)."""
 from dataclasses import dataclass
 
-from maitd.cos_table import COS_TABLE
-from maitd.formats import Camera
+from PyAitD.cos_table import COS_TABLE
+from PyAitD.formats import Camera
 
 SCREEN_CENTER_X = 160
 SCREEN_CENTER_Y = 100
@@ -664,7 +664,7 @@ Expected: 5 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/world.py tests/test_world.py
+git add PyAitD/world.py tests/test_world.py
 git commit -m "feat: camera transform math (FITD fixed-point port)"
 ```
 
@@ -673,7 +673,7 @@ git commit -m "feat: camera transform math (FITD fixed-point port)"
 ### Task 5: Skinning and projection
 
 **Files:**
-- Create: `maitd/skel.py`
+- Create: `PyAitD/skel.py`
 - Test: `tests/test_skel.py`
 
 **Interfaces:**
@@ -688,9 +688,9 @@ git commit -m "feat: camera transform math (FITD fixed-point port)"
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.formats import Body, Group, Primitive
-from maitd.skel import skin
-from maitd.world import CameraState
+from PyAitD.formats import Body, Group, Primitive
+from PyAitD.skel import skin
+from PyAitD.world import CameraState
 
 
 def _cube_body():
@@ -746,17 +746,17 @@ def test_translate_group():
 - [ ] **Step 2: Run tests, verify fail**
 
 Run: `.venv/bin/pytest tests/test_skel.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.skel'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.skel'`.
 
-- [ ] **Step 3: Implement** `maitd/skel.py`
+- [ ] **Step 3: Implement** `PyAitD/skel.py`
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
 """Skinning port of FITD renderer.cpp AnimNuage (AITD1 non-optimise path)."""
 from dataclasses import dataclass
 
-from maitd.cos_table import COS_TABLE
-from maitd.world import transform_point
+from PyAitD.cos_table import COS_TABLE
+from PyAitD.world import transform_point
 
 
 @dataclass
@@ -878,7 +878,7 @@ Expected: 3 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/skel.py tests/test_skel.py
+git add PyAitD/skel.py tests/test_skel.py
 git commit -m "feat: body skinning and projection (AnimNuage port)"
 ```
 
@@ -887,7 +887,7 @@ git commit -m "feat: body skinning and projection (AnimNuage port)"
 ### Task 6: Animation player
 
 **Files:**
-- Create: `maitd/anim.py`
+- Create: `PyAitD/anim.py`
 - Test: `tests/test_anim_player.py`
 
 **Interfaces:**
@@ -904,7 +904,7 @@ git commit -m "feat: body skinning and projection (AnimNuage port)"
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.anim import patch_inter_angle, patch_inter_step
+from PyAitD.anim import patch_inter_angle, patch_inter_step
 
 
 def test_patch_angle_equal():
@@ -932,9 +932,9 @@ def test_patch_step():
 - [ ] **Step 2: Run tests, verify fail**
 
 Run: `.venv/bin/pytest tests/test_anim_player.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.anim'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.anim'`.
 
-- [ ] **Step 3: Implement** `maitd/anim.py`
+- [ ] **Step 3: Implement** `PyAitD/anim.py`
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
@@ -1038,7 +1038,7 @@ Expected: 5 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/anim.py tests/test_anim_player.py
+git add PyAitD/anim.py tests/test_anim_player.py
 git commit -m "feat: animation state machine with keyframe interpolation"
 ```
 
@@ -1047,7 +1047,7 @@ git commit -m "feat: animation state machine with keyframe interpolation"
 ### Task 7: Mask rasterization
 
 **Files:**
-- Create: `maitd/mask.py`
+- Create: `PyAitD/mask.py`
 - Test: `tests/test_mask.py`
 
 **Interfaces:**
@@ -1063,7 +1063,7 @@ git commit -m "feat: animation state machine with keyframe interpolation"
 # SPDX-License-Identifier: GPL-2.0-only
 import numpy as np
 
-from maitd.mask import fill_poly
+from PyAitD.mask import fill_poly
 
 
 def test_fill_triangle():
@@ -1089,9 +1089,9 @@ def test_fill_square_rows():
 - [ ] **Step 2: Run tests, verify fail**
 
 Run: `.venv/bin/pytest tests/test_mask.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.mask'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.mask'`.
 
-- [ ] **Step 3: Implement** `maitd/mask.py`
+- [ ] **Step 3: Implement** `PyAitD/mask.py`
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
@@ -1225,7 +1225,7 @@ Expected: 2 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/mask.py tests/test_mask.py
+git add PyAitD/mask.py tests/test_mask.py
 git commit -m "feat: mask rasterization (fillpoly + createAITD1Mask ports)"
 ```
 
@@ -1234,17 +1234,17 @@ git commit -m "feat: mask rasterization (fillpoly + createAITD1Mask ports)"
 ### Task 8: Cover zones and camera switching
 
 **Files:**
-- Modify: `maitd/formats.py` (append `parse_cover_zones`)
-- Modify: `maitd/world.py` (append zone + camera-selection functions)
+- Modify: `PyAitD/formats.py` (append `parse_cover_zones`)
+- Modify: `PyAitD/world.py` (append zone + camera-selection functions)
 - Test: `tests/test_camera_switch.py`
 
 **Interfaces:**
 - Consumes: camera raw bytes, `CameraState` (task 4), camera dataclasses (M1).
 - Produces:
-  - `def parse_cover_zones(camera_raw: bytes, camera_off: int, viewed_idx: int) -> list[list[tuple[int, int]]]` in `maitd/formats.py` — s16 polygons for a viewed room's cover zones
-  - `def test_cross_product(x1, z1, x2, z2, x3, z3, x4, z4) -> bool` in `maitd/world.py`
-  - `def is_in_poly(x1: int, x2: int, z1: int, z2: int, zones: list[list[tuple[int, int]]]) -> bool` in `maitd/world.py` — actor box center ray-cast per FITD
-  - `def find_best_camera(actor_x1, actor_x2, actor_z1, actor_z2, actor_beta, room_cameras: list[Camera], zones_by_camera: list[list[list[tuple[int, int]]]]) -> int` in `maitd/world.py` — returns camera slot index or -1
+  - `def parse_cover_zones(camera_raw: bytes, camera_off: int, viewed_idx: int) -> list[list[tuple[int, int]]]` in `PyAitD/formats.py` — s16 polygons for a viewed room's cover zones
+  - `def test_cross_product(x1, z1, x2, z2, x3, z3, x4, z4) -> bool` in `PyAitD/world.py`
+  - `def is_in_poly(x1: int, x2: int, z1: int, z2: int, zones: list[list[tuple[int, int]]]) -> bool` in `PyAitD/world.py` — actor box center ray-cast per FITD
+  - `def find_best_camera(actor_x1, actor_x2, actor_z1, actor_z2, actor_beta, room_cameras: list[Camera], zones_by_camera: list[list[list[tuple[int, int]]]]) -> int` in `PyAitD/world.py` — returns camera slot index or -1
 
 - [ ] **Step 1: Write failing tests** `tests/test_camera_switch.py`
 
@@ -1252,9 +1252,9 @@ git commit -m "feat: mask rasterization (fillpoly + createAITD1Mask ports)"
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from maitd.formats import parse_cover_zones
-from maitd.pak import Pak
-from maitd.world import find_best_camera, is_in_poly
+from PyAitD.formats import parse_cover_zones
+from PyAitD.pak import Pak
+from PyAitD.world import find_best_camera, is_in_poly
 
 
 def test_cover_zones_real_data(data_dir):
@@ -1285,7 +1285,7 @@ def test_synthetic_zone_contains_point():
 
 
 def test_find_best_camera_real_data(data_dir):
-    from maitd.formats import parse_cameras
+    from PyAitD.formats import parse_cameras
     cam_raw = Pak(data_dir / "ETAGE00.PAK").read(1)
     cameras = parse_cameras(cam_raw)
     zones_by_camera = [parse_cover_zones(cam_raw, off, 0) for off in (24, 858, 1300, 2240, 2834)]
@@ -1298,7 +1298,7 @@ def test_find_best_camera_real_data(data_dir):
 Run: `.venv/bin/pytest tests/test_camera_switch.py -q`
 Expected: FAIL, `ImportError: cannot import name 'parse_cover_zones'`.
 
-- [ ] **Step 3: Append to `maitd/formats.py`**
+- [ ] **Step 3: Append to `PyAitD/formats.py`**
 
 ```python
 def parse_cover_zones(camera_raw, camera_off, viewed_idx):
@@ -1316,7 +1316,7 @@ def parse_cover_zones(camera_raw, camera_off, viewed_idx):
     return zones
 ```
 
-- [ ] **Step 4: Append to `maitd/world.py`**
+- [ ] **Step 4: Append to `PyAitD/world.py`**
 
 ```python
 def test_cross_product(x1, z1, x2, z2, x3, z3, x4, z4):
@@ -1377,7 +1377,7 @@ Expected: 5 passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add maitd/formats.py maitd/world.py tests/test_camera_switch.py
+git add PyAitD/formats.py PyAitD/world.py tests/test_camera_switch.py
 git commit -m "feat: cover zones, is_in_poly, find_best_camera"
 ```
 
@@ -1386,7 +1386,7 @@ git commit -m "feat: cover zones, is_in_poly, find_best_camera"
 ### Task 9: Actor state, movement, collision
 
 **Files:**
-- Create: `maitd/actors.py`
+- Create: `PyAitD/actors.py`
 - Test: `tests/test_actors.py`
 
 **Interfaces:**
@@ -1406,14 +1406,14 @@ Movement forward-direction note: FITD `walkStep(0, animStepZ, beta)` with `rotat
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.actors import actor_zv, check_hard_col, cube_intersect, gere_collision, spawn_player
-from maitd.assets import Assets
+from PyAitD.actors import actor_zv, check_hard_col, cube_intersect, gere_collision, spawn_player
+from PyAitD.assets import Assets
 
 
 def test_spawn_player(data_dir):
     assets = Assets(data_dir)
     floor = None  # Floor(data_dir, 0) — import if needed
-    from maitd.floor import Floor
+    from PyAitD.floor import Floor
     actor = spawn_player(assets, Floor(data_dir, 0))
     assert (actor.x, actor.y, actor.z) == (-3642, 0, 1977)
     assert actor.beta == 0
@@ -1422,7 +1422,7 @@ def test_spawn_player(data_dir):
 
 
 def test_actor_zv(data_dir):
-    from maitd.floor import Floor
+    from PyAitD.floor import Floor
     assets = Assets(data_dir)
     actor = spawn_player(assets, Floor(data_dir, 0))
     zv = actor_zv(actor, assets.body(12))
@@ -1437,7 +1437,7 @@ def test_cube_intersect():
 
 
 def test_check_hard_col():
-    from maitd.formats import Zone
+    from PyAitD.formats import Zone
     cols = [Zone(0, 10, 0, 100, 0, 10, 0, 0), Zone(50, 60, 0, 100, 0, 10, 0, 0)]
     assert len(check_hard_col((0, 10, 0, 10, 0, 10), cols)) == 1
 
@@ -1454,16 +1454,16 @@ def test_gere_collision_side_push():
 - [ ] **Step 2: Run tests, verify fail**
 
 Run: `.venv/bin/pytest tests/test_actors.py -q`
-Expected: FAIL, `ModuleNotFoundError: No module named 'maitd.actors'`.
+Expected: FAIL, `ModuleNotFoundError: No module named 'PyAitD.actors'`.
 
-- [ ] **Step 3: Implement** `maitd/actors.py`
+- [ ] **Step 3: Implement** `PyAitD/actors.py`
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
 """Actor state, tank movement, and hard-col collision (FITD ports)."""
 from dataclasses import dataclass
 
-from maitd.world import rotate_step
+from PyAitD.world import rotate_step
 
 PLAYER_BODY = 12
 PLAYER_ANIM = 2
@@ -1613,7 +1613,7 @@ Expected: 5 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add maitd/actors.py tests/test_actors.py
+git add PyAitD/actors.py tests/test_actors.py
 git commit -m "feat: actor state, tank movement, hard-col collision"
 ```
 
@@ -1622,7 +1622,7 @@ git commit -m "feat: actor state, tank movement, hard-col collision"
 ### Task 10: GL actor rendering and composite
 
 **Files:**
-- Modify: `maitd/render.py`
+- Modify: `PyAitD/render.py`
 - Test: none (GL paths are manual-smoke; `fit_quad` tests unchanged)
 
 **Interfaces:**
@@ -1631,7 +1631,7 @@ git commit -m "feat: actor state, tank movement, hard-col collision"
   - `.present_scene(background: numpy.ndarray (200,320,3), actor_results: list[RenderResult], masks: list[Mask], palette: numpy.ndarray (256,3))` — composites background + actors-with-mask into the upscaled window
   - Internal: 320x200 RGBA FBO; per RenderResult draw primitives in order — type 1 poly (GL_TRIANGLE_FAN), type 0 line (GL_LINES), types 2/6/7 point (GL_POINTS, size 1/2/1), type 3 sphere (screen-space circle via triangle fan, radius `size * focal2 / depth`); color = palette[prim.color]; no depth test; then mask application: for each Mask, zero the alpha inside its rect where bitmap==255; composite actor layer over background; upload to M1 quad and flip.
 
-- [ ] **Step 1: Extend `maitd/render.py`**
+- [ ] **Step 1: Extend `PyAitD/render.py`**
 
 Add after the `Renderer` class definition:
 
@@ -1753,7 +1753,7 @@ Expected: all tests pass (68 total).
 - [ ] **Step 4: Commit**
 
 ```bash
-git add maitd/render.py
+git add PyAitD/render.py
 git commit -m "feat: GL actor layer with mask composite"
 ```
 
@@ -1762,18 +1762,18 @@ git commit -m "feat: GL actor layer with mask composite"
 ### Task 11: Play loop integration
 
 **Files:**
-- Modify: `maitd/formats.py` (extract `camera_offsets`)
-- Modify: `maitd/floor.py` (expose `camera_raw`, `camera_data_offsets`)
-- Modify: `maitd/__main__.py` (rewrite as play loop)
+- Modify: `PyAitD/formats.py` (extract `camera_offsets`)
+- Modify: `PyAitD/floor.py` (expose `camera_raw`, `camera_data_offsets`)
+- Modify: `PyAitD/__main__.py` (rewrite as play loop)
 - Test: none (manual smoke; loop logic visually verified)
 
 **Interfaces:**
 - Consumes: `Assets` (task 3), `Floor` (M1), `CameraState`, `find_best_camera`, `is_in_poly` (tasks 4, 8), `AnimPlayer` (task 6), `skin` (task 5), `spawn_player`, `player_step`, `actor_zv` (task 9), `create_aitd1_mask` (task 7), `parse_cover_zones` (task 8), `Renderer.present_scene` (task 10).
 - Produces:
-  - `def camera_offsets(raw: bytes) -> list[int]` in `maitd/formats.py` (extracted from `parse_cameras`' scan; `parse_cameras` refactored to call it — existing tests must stay green)
+  - `def camera_offsets(raw: bytes) -> list[int]` in `PyAitD/formats.py` (extracted from `parse_cameras`' scan; `parse_cameras` refactored to call it — existing tests must stay green)
   - `Floor.camera_raw: bytes` and `Floor.camera_data_offsets: list[int]` (set in `__init__` from `ETAGE{number:02d}.PAK` entry 1)
 
-- [ ] **Step 1: Extract `camera_offsets` in `maitd/formats.py`**
+- [ ] **Step 1: Extract `camera_offsets` in `PyAitD/formats.py`**
 
 Replace the offset-scan block inside `parse_cameras`:
 
@@ -1820,7 +1820,7 @@ def parse_cameras(raw):
 
 Run `.venv/bin/pytest tests/test_formats.py tests/test_camera_switch.py -q` — expect 8 passed.
 
-- [ ] **Step 2: Extend `maitd/floor.py`**
+- [ ] **Step 2: Extend `PyAitD/floor.py`**
 
 In `Floor.__init__`, replace:
 
@@ -1838,11 +1838,11 @@ with:
         self.camera_data_offsets = camera_offsets(self.camera_raw)
 ```
 
-and add `camera_offsets` to the imports from `maitd.formats`.
+and add `camera_offsets` to the imports from `PyAitD.formats`.
 
 Run `.venv/bin/pytest tests/test_floor.py -q` — expect 5 passed.
 
-- [ ] **Step 3: Rewrite `maitd/__main__.py`**
+- [ ] **Step 3: Rewrite `PyAitD/__main__.py`**
 
 ```python
 # SPDX-License-Identifier: GPL-2.0-only
@@ -1853,16 +1853,16 @@ import sys
 
 import pygame
 
-from maitd.actors import actor_zv, player_step, spawn_player
-from maitd.anim import AnimPlayer
-from maitd.assets import Assets
-from maitd.floor import Floor
-from maitd.formats import parse_cover_zones
-from maitd.mask import create_aitd1_mask
-from maitd.pak import PakError
-from maitd.render import Renderer
-from maitd.skel import skin
-from maitd.world import CameraState, find_best_camera, is_in_poly
+from PyAitD.actors import actor_zv, player_step, spawn_player
+from PyAitD.anim import AnimPlayer
+from PyAitD.assets import Assets
+from PyAitD.floor import Floor
+from PyAitD.formats import parse_cover_zones
+from PyAitD.mask import create_aitd1_mask
+from PyAitD.pak import PakError
+from PyAitD.render import Renderer
+from PyAitD.skel import skin
+from PyAitD.world import CameraState, find_best_camera, is_in_poly
 
 DEFAULT_DATA = (
     pathlib.Path(__file__).resolve().parent.parent
@@ -1877,7 +1877,7 @@ TICK_MS = 20  # 50 Hz logic tick
 
 
 def parse_args(argv):
-    p = argparse.ArgumentParser(prog="maitd", description="AITD1 room viewer (M2: actor walk)")
+    p = argparse.ArgumentParser(prog="PyAitD", description="AITD1 room viewer (M2: actor walk)")
     p.add_argument("--data", type=pathlib.Path, default=DEFAULT_DATA, help="game data dir")
     p.add_argument("--floor", type=int, default=0, help="floor number (default 0)")
     return p.parse_args(argv)
@@ -1931,7 +1931,7 @@ def main(argv=None):
         masks = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[cam_idx])
         renderer.present_scene(floor.camera_image(cam_idx), [result], masks, floor.palette)
         pygame.display.set_caption(
-            f"maitd — floor {floor.number} room {room_idx} camera {cam_idx} "
+            f"PyAitD — floor {floor.number} room {room_idx} camera {cam_idx} "
             f"body {actor.body_idx} anim {actor.anim_idx}"
         )
 
@@ -2002,13 +2002,13 @@ Expected: 68 passed.
 
 - [ ] **Step 5: Manual smoke**
 
-Run: `.venv/bin/python -m maitd --floor 0`
+Run: `.venv/bin/python -m PyAitD --floor 0`
 Expected: window opens on floor 0; a humanoid figure visible; arrows walk (Up forward, Left/Right turn); camera switches when walking out of a camera zone; actor occluded when walking behind furniture; Esc quits. If the figure walks backward or is invisible at spawn, adjust `SPAWN_POS` / speed sign / `PLAYER_BODY` in `actors.py` constants and re-run until the figure is visible and walking plausibly; record the final values in the commit message body.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add maitd/formats.py maitd/floor.py maitd/__main__.py
+git add PyAitD/formats.py PyAitD/floor.py PyAitD/__main__.py
 git commit -m "feat: M2 play loop (walk, camera switching, masks)"
 ```
 
@@ -2025,7 +2025,7 @@ git commit -m "feat: M2 play loop (walk, camera switching, masks)"
 Add after the floor loop:
 
 ```python
-    from maitd.assets import Assets
+    from PyAitD.assets import Assets
     assets = Assets(data)
     for i in range(assets.num_bodies):
         body = assets.body(i)
@@ -2061,7 +2061,7 @@ git commit -m "proof: parse all bodies and animations"
 
 - [ ] `pytest -q` green (68 tests)
 - [ ] `scripts/prove_m1.py` exit 0 (floors + 272 bodies + 305 anims)
-- [ ] `.venv/bin/python -m maitd --floor 0` shows walking humanoid, camera switches at zones, mask occlusion visible (human-verified)
+- [ ] `.venv/bin/python -m PyAitD --floor 0` shows walking humanoid, camera switches at zones, mask occlusion visible (human-verified)
 - [ ] No new dependencies
 
 ## Deferred to M3 (explicitly out of M2)

@@ -1,6 +1,6 @@
-# Makefile for maitd — Alone in the Dark 1 engine reimplementation
+# Makefile for PyAitD — Alone in the Dark 1 engine reimplementation
 # Targets: env → run → test → prove → prove-m3b → clean
-SERVICE = maitd
+SERVICE = PyAitD
 
 # Variables
 VENV_DIR = .venv
@@ -36,7 +36,7 @@ clean: ## Remove venv and all temporary/generated files
 # ── Run ──────────────────────────────────────────────────────────────────────
 
 run: install ## Run the game: walk the attic, find/take/use/drop objects, read texts (usage: make run floor=3 data="path/to/INDARK" trace=/tmp/t.log)
-	$(PYTHON) -m maitd --floor "$(floor)" --data $(data) $(if $(trace),--trace $(trace))
+	$(PYTHON) -m PyAitD --floor "$(floor)" --data $(data) $(if $(trace),--trace $(trace))
 
 # ── Development ──────────────────────────────────────────────────────────────
 

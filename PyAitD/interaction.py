@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.effects import AddMessage, AfterLife, BeginTake, LifeFrame, TimedMessage
-from maitd.life import process_life
-from maitd.world import adjust_zv_between_rooms, room_delta, shifted_zv
+from PyAitD.effects import AddMessage, AfterLife, BeginTake, LifeFrame, TimedMessage
+from PyAitD.life import process_life
+from PyAitD.world import adjust_zv_between_rooms, room_delta, shifted_zv
 
 INVENTORY_SIZE = 30
 MAX_VISIBLE_ACTIONS = 5
@@ -125,7 +125,7 @@ def inventory_actions(game, object_idx):
 
 
 def request_found(game, object_idx, parameter):
-    from maitd.effects import ShowFound
+    from PyAitD.effects import ShowFound
     if object_idx < 0:
         return None
     world = game.world_objects[object_idx]
@@ -194,7 +194,7 @@ def put_object(game, object_idx, x, y, z, room, stage, alpha, beta, gamma):
 
 
 def drop_object(game, object_idx, source_idx):
-    from maitd.game import put_at_objet
+    from PyAitD.game import put_at_objet
     put_at_objet(game, object_idx, source_idx)
     game.flag_genere_aff_list = 1
 
@@ -208,8 +208,8 @@ def choose_inventory_action(game, object_idx, action_text_id):
 
 
 def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z):
-    from maitd.actors import check_hard_col, check_object_col, gere_collision
-    from maitd.game import AF_ANIMATED, AF_BOXIFY, AF_FOUNDABLE, AF_MOVABLE
+    from PyAitD.actors import check_hard_col, check_object_col, gere_collision
+    from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_FOUNDABLE, AF_MOVABLE
 
     actor = game.actors[actor_idx]
     room = game.rooms_of_floor(game.current_floor)[actor.room]
@@ -258,8 +258,8 @@ def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z
 
 
 def apply_found_result(game, result):
-    from maitd.effects import ShowFound
-    from maitd.ui import FoundResult
+    from PyAitD.effects import ShowFound
+    from PyAitD.ui import FoundResult
     effect = game.active_modal
     if not isinstance(effect, ShowFound):
         raise RuntimeError(f"found result applied to {type(effect).__name__}")
@@ -274,7 +274,7 @@ def apply_found_result(game, result):
 
 
 def apply_inventory_result(game, result):
-    from maitd.effects import OpenInventory
+    from PyAitD.effects import OpenInventory
     if not isinstance(game.active_modal, OpenInventory):
         raise RuntimeError(f"inventory result applied to {type(game.active_modal).__name__}")
     game.close_modal()
@@ -285,7 +285,7 @@ def apply_inventory_result(game, result):
 
 
 def apply_reading_result(game, result):
-    from maitd.effects import ReadText, ShowPicture
+    from PyAitD.effects import ReadText, ShowPicture
     if not isinstance(game.active_modal, (ReadText, ShowPicture)):
         raise RuntimeError(f"reading result applied to {type(game.active_modal).__name__}")
     if not result.dismissed:

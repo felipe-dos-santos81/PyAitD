@@ -65,7 +65,7 @@ Original game data is read in place from the `.app` bundle; path configurable vi
 
 ## Architecture
 
-Package `maitd/`, one concern per module, dependencies flow one direction:
+Package `PyAitD/`, one concern per module, dependencies flow one direction:
 
 ```
 pak -> formats -> cache      (pure I/O + parsing; no game state)

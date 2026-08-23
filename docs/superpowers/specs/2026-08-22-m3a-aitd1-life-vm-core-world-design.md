@@ -71,24 +71,24 @@ The player is controlled through their own script (script-driven input).
 
 New/changed modules (extends the M2 pipeline):
 
-- `maitd/game.py` — `Game` class: CVars (from VARS.ITD), world objects
+- `PyAitD/game.py` — `Game` class: CVars (from VARS.ITD), world objects
   (OBJETS.ITD), actor table (ListObjets-equivalent), inventory/in-hand
   placeholder fields, chronos, current stage/room, floor orchestration
   (LoadEtage-equivalent), input snapshot (JoyD/action per tick),
   `init_game(data_dir)` (menu bypassed).
-- `maitd/life.py` — VM: `process_life(game, actor_idx, life_num)`;
+- `PyAitD/life.py` — VM: `process_life(game, actor_idx, life_num)`;
   `eval_var(game, s16) -> int` port; `OPCODE_HANDLERS` dict keyed by AITD1
   macro enum (77 handlers); stub handlers consume args per FITD arg counts;
   `Trace` helper (opcode lines to file when enabled).
-- `maitd/tracks.py` — LISTTRAK parse (via assets LRU) + track runner:
+- `PyAitD/tracks.py` — LISTTRAK parse (via assets LRU) + track runner:
   position/step evaluation for DO_MOVE/MOVE per FITD track.cpp (track flags
   TL_*: loop, wait, camera track).
-- `maitd/formats.py` (+ parse_objets, parse_vars, parse_defines,
+- `PyAitD/formats.py` (+ parse_objets, parse_vars, parse_defines,
   parse_priority) — pure parsers, golden-tested.
-- `maitd/actors.py` — M2 movement exposed as primitives the VM calls
+- `PyAitD/actors.py` — M2 movement exposed as primitives the VM calls
   (walk_step, set speed via RealValue evaluation port from anim.cpp
   evaluateReal).
-- `maitd/__main__.py` — play loop in FITD order (anim tick → life tick →
+- `PyAitD/__main__.py` — play loop in FITD order (anim tick → life tick →
   camera switch → draw), `--trace FILE`, script-driven input; M2 debug
   direct-input removed.
 

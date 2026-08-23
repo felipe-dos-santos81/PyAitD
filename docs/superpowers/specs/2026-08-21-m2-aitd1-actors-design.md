@@ -64,25 +64,25 @@ VM arrives in M3).
 
 Extends the M1 pipeline. New/changed modules:
 
-- `maitd/formats.py` (+ `parse_body`, `parse_anim`): pure parsers producing
+- `PyAitD/formats.py` (+ `parse_body`, `parse_anim`): pure parsers producing
   `Body`/`Animation` dataclasses; layout per FITD `hqr.cpp`.
-- `maitd/assets.py`: body/anim asset registry — `LISTBODY.PAK`/`LISTANIM.PAK`
+- `PyAitD/assets.py`: body/anim asset registry — `LISTBODY.PAK`/`LISTANIM.PAK`
   loaded once via the M1 LRU; parse-once cache per index.
-- `maitd/anim.py`: per-actor `AnimPlayer` — apply keyframe to group states
+- `PyAitD/anim.py`: per-actor `AnimPlayer` — apply keyframe to group states
   (SetAnimObjet port), advance frames by timestamp at 50Hz, interpolate
   group angles/steps between keyframes (PatchInterAngle/PatchInterStep ports).
-- `maitd/world.py`: camera state + math ports (`set_angle_camera`,
+- `PyAitD/world.py`: camera state + math ports (`set_angle_camera`,
   `set_pos_camera`, `set_projection`, `transform_point`, cos table),
   cover-zone parsing (M1 left them as offsets), `is_in_poly`/`find_best_camera`
   ports, hard-col collision resolution.
-- `maitd/actors.py`: `Actor` dataclass (position, body/anim indices, frame,
+- `PyAitD/actors.py`: `Actor` dataclass (position, body/anim indices, frame,
   group states, ZV box), `spawn_player()`, tank movement with collision.
-- `maitd/mask.py`: `create_aitd1_mask` port — mask-zone polygons rasterized
+- `PyAitD/mask.py`: `create_aitd1_mask` port — mask-zone polygons rasterized
   to a 320x200 numpy bitmap.
-- `maitd/render.py` (extend): 320x200 actor FBO; projected vertices → VBO;
+- `PyAitD/render.py` (extend): 320x200 actor FBO; projected vertices → VBO;
   GL draw in body primitive order (no depth test, painter's algorithm like
   the original); composite background + masked actor layer; upscale.
-- `maitd/__main__.py` (extend): play loop — 50Hz fixed tick (input → move →
+- `PyAitD/__main__.py` (extend): play loop — 50Hz fixed tick (input → move →
   camera switch → anim advance), render on demand; debug keys: arrows walk,
   A/Z cycle animations, R reset position.
 

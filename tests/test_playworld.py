@@ -3,19 +3,19 @@
 import subprocess
 import sys
 
-from maitd.floor import Floor
-from maitd.game import init_game
-from maitd.playworld import play_tick
-from maitd.ui import InputBuffer
+from PyAitD.floor import Floor
+from PyAitD.game import init_game
+from PyAitD.playworld import play_tick
+from PyAitD.ui import InputBuffer
 
 # Runs in a fresh interpreter: pytest (and this module, via InputBuffer) has
 # pygame loaded in-process, so sys.modules is only meaningful out-of-process.
 # A static import walk cannot substitute — it reports pygame reachable through
-# interaction.apply_found_result's deferred `from maitd.ui import FoundResult`.
+# interaction.apply_found_result's deferred `from PyAitD.ui import FoundResult`.
 _PURITY_PROBE = """
-import sys, maitd.playworld
+import sys, PyAitD.playworld
 # the layer rule, then the third-party names a direct import would pull in
-leaked = {"maitd.ui", "maitd.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
+leaked = {"PyAitD.ui", "PyAitD.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
 sys.exit(", ".join(sorted(leaked)) or None)
 """
 
@@ -23,7 +23,7 @@ sys.exit(", ".join(sorted(leaked)) or None)
 def test_playworld_does_not_import_the_presentation_layer():
     out = subprocess.run([sys.executable, "-c", _PURITY_PROBE], capture_output=True, text=True)
     assert out.returncode == 0, (
-        f"maitd.playworld pulled in {out.stderr.strip()} — the tick must stay "
+        f"PyAitD.playworld pulled in {out.stderr.strip()} — the tick must stay "
         f"importable without the presentation layer so it can run headless"
     )
 

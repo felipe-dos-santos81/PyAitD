@@ -4,7 +4,7 @@ import zlib
 
 import pytest
 
-from maitd.pak import Pak, PakError, find_pak
+from PyAitD.pak import Pak, PakError, find_pak
 
 
 def test_entry_counts(data_dir):

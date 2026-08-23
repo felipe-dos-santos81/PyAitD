@@ -2,9 +2,9 @@
 """evalVar port (FITD evalVar.cpp:148, AITD1 path). Owner = life owner actor."""
 import random
 
-from maitd.life import read_s16
-from maitd.realvalue import eval_chrono
-from maitd.world import adjust_zv_between_rooms
+from PyAitD.life import read_s16
+from PyAitD.realvalue import eval_chrono
+from PyAitD.world import adjust_zv_between_rooms
 
 
 def _world_idx(game, slot):

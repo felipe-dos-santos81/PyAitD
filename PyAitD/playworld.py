@@ -5,17 +5,17 @@ Imports no pygame, ModernGL or Renderer, so one 50 Hz logic step can be
 advanced without a window. Callers still reach `ui.py` for an InputBuffer;
 freeing that needs InputBuffer moved out of the presentation layer.
 """
-from maitd.actors import gere_anim
-from maitd.effects import GameMode, LifeFrame
-from maitd.formats import parse_cover_zones
-from maitd.game import (
+from PyAitD.actors import gere_anim
+from PyAitD.effects import GameMode, LifeFrame
+from PyAitD.formats import parse_cover_zones
+from PyAitD.game import (
     AF_ANIMATED, AF_TRIGGER, change_salle, game_step_tick, spawn_stage_actors,
 )
-from maitd.interaction import (
+from PyAitD.interaction import (
     advance_messages, drain_immediate_effects, execute_found_life, gere_dec, run_life,
 )
-from maitd.life import life_gate
-from maitd.world import find_best_camera, is_in_poly
+from PyAitD.life import life_gate
+from PyAitD.world import find_best_camera, is_in_poly
 
 TICK_MS = 20  # 50 Hz logic tick
 

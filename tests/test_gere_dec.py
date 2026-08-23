@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from types import SimpleNamespace
 
-from maitd.formats import Zone
-from maitd.interaction import gere_dec
+from PyAitD.formats import Zone
+from PyAitD.interaction import gere_dec
 
 
 def room(wx, wy, wz, zones=()):
@@ -10,7 +10,7 @@ def room(wx, wy, wz, zones=()):
 
 
 def test_room_zone_rebases_room_coordinates_and_requests_camera_change(monkeypatch, data_dir):
-    from maitd.game import init_game
+    from PyAitD.game import init_game
     game = init_game(data_dir)
     actor_idx = game.current_camera_target_actor
     actor = game.actors[actor_idx]
@@ -28,7 +28,7 @@ def test_room_zone_rebases_room_coordinates_and_requests_camera_change(monkeypat
 
 
 def test_scenario_and_floor_life_zones_write_fitd_fields(monkeypatch, data_dir):
-    from maitd.game import init_game
+    from PyAitD.game import init_game
     game = init_game(data_dir)
     actor = game.actors[0]
     actor.room = 0

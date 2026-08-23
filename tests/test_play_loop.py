@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from maitd.game import init_game
-from maitd.life import life_gate
+from PyAitD.game import init_game
+from PyAitD.life import life_gate
 
 
 def test_life_gate(data_dir):
@@ -21,8 +21,8 @@ def test_life_gate(data_dir):
 
 
 def test_apply_play_input_mapping(data_dir):
-    from maitd.playworld import apply_play_input
-    from maitd.ui import InputBuffer
+    from PyAitD.playworld import apply_play_input
+    from PyAitD.ui import InputBuffer
     game = init_game(data_dir)
     state = InputBuffer(held_joyd=9, action_held=True)
     apply_play_input(game, state)
@@ -32,8 +32,8 @@ def test_apply_play_input_mapping(data_dir):
 
 
 def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tmp_path):
-    import maitd.__main__ as main
-    from maitd.effects import GameMode
+    import PyAitD.__main__ as main
+    from PyAitD.effects import GameMode
 
     calls = []
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -77,8 +77,8 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch,
     # with current_room stale until the next tick's change_salle, so the loop
     # must reuse the previous frame instead of recomputing the scene or
     # indexing floor.rooms[current_room] (IndexError / wrong camera).
-    import maitd.__main__ as main
-    from maitd.effects import GameMode
+    import PyAitD.__main__ as main
+    from PyAitD.effects import GameMode
 
     scene_calls = []
     presented = []
@@ -146,8 +146,8 @@ def test_gere_anim_walk_step(data_dir):
     # (0, 0, 4); each keyframe commit moves the actor +4 in X (beta 0x300:
     # walkStep outputs crossed, animMoveZ = cos*step, animMoveX = -sin*step).
     # First tick is bp=0 (inter), so the first commit lands on tick 21.
-    from maitd.actors import gere_anim
-    from maitd.formats import Animation, Frame
+    from PyAitD.actors import gere_anim
+    from PyAitD.formats import Animation, Frame
 
     game = init_game(data_dir, hero=0)
     actor = game.actors[game.current_camera_target_actor]
@@ -173,8 +173,8 @@ def test_gere_anim_walk_step(data_dir):
 def test_gere_anim_one_shot_rearm(data_dir):
     # FITD anim.cpp:654-660: one-shot (non-repeat) anim wrap with no pending
     # anim clears ANIM_UNINTERRUPTABLE and restarts the anim as ANIM_REPEAT
-    from maitd.actors import gere_anim
-    from maitd.formats import Animation, Frame
+    from PyAitD.actors import gere_anim
+    from PyAitD.formats import Animation, Frame
 
     game = init_game(data_dir, hero=0)
     actor = game.actors[game.current_camera_target_actor]
@@ -197,8 +197,8 @@ def test_gere_anim_one_shot_rearm(data_dir):
 
 def test_depth_sort_far_first():
     # FITD sortActorList: farther actors draw first (painter's algorithm)
-    from maitd.actors import sort_actor_indices
-    from maitd.game import Actor, Game
+    from PyAitD.actors import sort_actor_indices
+    from PyAitD.game import Actor, Game
     game = Game.__new__(Game)
     game.actors = [Actor(index_in_world=-1) for _ in range(4)]
     game.current_room = 0
@@ -210,8 +210,8 @@ def test_depth_sort_far_first():
 
 def test_depth_sort_y_bands():
     # different y bands: compare translateY - 2000 - y (no XZ overlap logic)
-    from maitd.actors import sort_actor_indices
-    from maitd.game import Actor, Game
+    from PyAitD.actors import sort_actor_indices
+    from PyAitD.game import Actor, Game
     game = Game.__new__(Game)
     game.actors = [Actor(index_in_world=-1) for _ in range(4)]
     game.current_room = 0

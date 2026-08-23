@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from maitd.assets import Assets
-from maitd.text import BookToken, parse_book_tokens, parse_system_texts
+from PyAitD.assets import Assets
+from PyAitD.text import BookToken, parse_book_tokens, parse_system_texts
 
 
 def test_system_text_parser_decodes_ids_and_cp437():

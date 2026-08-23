@@ -3,9 +3,9 @@ import struct
 
 import pytest
 
-from maitd.formats import Zone
-from maitd.game import AF_TRIGGER, Actor, Game, init_game
-from maitd.tracks import cap_objet, get_room_link, init_deplacement, process_track
+from PyAitD.formats import Zone
+from PyAitD.game import AF_TRIGGER, Actor, Game, init_game
+from PyAitD.tracks import cap_objet, get_room_link, init_deplacement, process_track
 
 
 def _actor():

@@ -8,19 +8,19 @@ import sys
 
 import pygame
 
-from maitd.actors import anim_player_for, sort_actor_indices
-from maitd.effects import GameMode
-from maitd.floor import Floor
-from maitd.game import init_game, spawn_stage_actors
-from maitd.life import Trace
-from maitd.pak import PakError
+from PyAitD.actors import anim_player_for, sort_actor_indices
+from PyAitD.effects import GameMode
+from PyAitD.floor import Floor
+from PyAitD.game import init_game, spawn_stage_actors
+from PyAitD.life import Trace
+from PyAitD.pak import PakError
 # imported by name, not module-qualified: run() reads play_tick as a module
 # global, which is the patch point tests/test_play_loop.py relies on
-from maitd.playworld import TICK_MS, play_tick
-from maitd.render import Renderer
-from maitd.skel import skin
-from maitd.ui import Command, InputBuffer, ModalSession, event_to_input
-from maitd.world import CameraState
+from PyAitD.playworld import TICK_MS, play_tick
+from PyAitD.render import Renderer
+from PyAitD.skel import skin
+from PyAitD.ui import Command, InputBuffer, ModalSession, event_to_input
+from PyAitD.world import CameraState
 
 DEFAULT_DATA = (
     pathlib.Path(__file__).resolve().parent.parent
@@ -33,7 +33,7 @@ DEFAULT_DATA = (
 
 
 def parse_args(argv):
-    p = argparse.ArgumentParser(prog="maitd", description="AITD1 play viewer (M3b: interaction loop)")
+    p = argparse.ArgumentParser(prog="PyAitD", description="AITD1 play viewer (M3b: interaction loop)")
     p.add_argument("--data", type=pathlib.Path, default=DEFAULT_DATA, help="game data dir")
     p.add_argument("--floor", type=int, default=0, help="floor number (default 0)")
     p.add_argument("--trace", type=pathlib.Path, default=None, help="write per-opcode LIFE trace to FILE")
@@ -80,18 +80,18 @@ def _scene_frame(game, floor, renderer):
 
 
 def _inventory_view(game, session):
-    from maitd.interaction import inventory_actions, inventory_items
+    from PyAitD.interaction import inventory_actions, inventory_items
     object_ids = inventory_items(game)
     selected = object_ids[min(session.inventory.object_cursor, len(object_ids) - 1)]
     return object_ids, inventory_actions(game, selected)
 
 
 def route_command(game, session, command):
-    from maitd.effects import GameMode, OpenInventory, ReadText, ShowFound, ShowPicture
-    from maitd.interaction import (
+    from PyAitD.effects import GameMode, OpenInventory, ReadText, ShowFound, ShowPicture
+    from PyAitD.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
     )
-    from maitd.ui import (
+    from PyAitD.ui import (
         Command, ReadingResult, reading_pages, reduce_found, reduce_inventory,
         reduce_reading,
     )
@@ -135,11 +135,11 @@ def route_command(game, session, command):
 
 
 def route_mouse(game, session, logical_pos):
-    from maitd.effects import OpenInventory, ReadText, ShowFound, ShowPicture
-    from maitd.interaction import (
+    from PyAitD.effects import OpenInventory, ReadText, ShowFound, ShowPicture
+    from PyAitD.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
     )
-    from maitd.ui import (
+    from PyAitD.ui import (
         ReadingResult, hit_test_found, hit_test_inventory, hit_test_reading,
         reading_pages, turn_page,
     )
@@ -179,9 +179,9 @@ def route_mouse(game, session, logical_pos):
 
 
 def _auto_dismiss_picture(game, session):
-    from maitd.effects import ShowPicture
-    from maitd.interaction import apply_reading_result
-    from maitd.ui import ReadingResult
+    from PyAitD.effects import ShowPicture
+    from PyAitD.interaction import apply_reading_result
+    from PyAitD.ui import ReadingResult
     effect = game.active_modal
     if not isinstance(effect, ShowPicture) or effect.delay_units <= 0:
         return True
@@ -193,8 +193,8 @@ def _auto_dismiss_picture(game, session):
 
 
 def render_active_mode(game, session, scene_frame):
-    from maitd.effects import OpenInventory, ReadText, ShowFound, ShowPicture
-    from maitd.ui import (
+    from PyAitD.effects import OpenInventory, ReadText, ShowFound, ShowPicture
+    from PyAitD.ui import (
         overlay_messages, render_found, render_inventory, render_picture,
         render_reading,
     )
@@ -282,7 +282,7 @@ def run(game, trace_path=None):
             cam_idx = room.camera_indices[game.num_camera]
             live = sum(1 for actor in game.actors if actor.index_in_world >= 0)
             pygame.display.set_caption(
-                f"maitd — floor {floor.number} room {game.current_room} "
+                f"PyAitD — floor {floor.number} room {game.current_room} "
                 f"camera {cam_idx} actors {live}"
             )
         clock.tick(60)

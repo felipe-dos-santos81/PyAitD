@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Parsed body/animation asset registry (parse-once caches over the M1 LRU)."""
-from maitd.floor import load_entry
-from maitd.formats import decode_image, decode_palette, parse_anim, parse_body
-from maitd.pak import Pak, find_pak
-from maitd.text import parse_book_tokens, parse_system_texts
+from PyAitD.floor import load_entry
+from PyAitD.formats import decode_image, decode_palette, parse_anim, parse_body
+from PyAitD.pak import Pak, find_pak
+from PyAitD.text import parse_book_tokens, parse_system_texts
 
 BODIES_PAK = "LISTBODY"
 ANIMS_PAK = "LISTANIM"

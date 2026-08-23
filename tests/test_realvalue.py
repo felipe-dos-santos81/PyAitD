@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.realvalue import (
+from PyAitD.realvalue import (
     eval_chrono, give_distance_2d, init_real_value, start_chrono, update_actor_rotation,
 )
-from maitd.game import Actor, RealValue
+from PyAitD.game import Actor, RealValue
 
 
 def test_update_rotation_identity():

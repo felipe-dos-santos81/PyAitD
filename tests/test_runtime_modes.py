@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from maitd.__main__ import route_command, route_mouse
-from maitd.playworld import apply_play_input
-from maitd.effects import GameMode, OpenInventory, ReadText, ShowPicture
-from maitd.game import init_game
-from maitd.ui import Command, InputBuffer, ModalLayout, ModalSession
+from PyAitD.__main__ import route_command, route_mouse
+from PyAitD.playworld import apply_play_input
+from PyAitD.effects import GameMode, OpenInventory, ReadText, ShowPicture
+from PyAitD.game import init_game
+from PyAitD.ui import Command, InputBuffer, ModalLayout, ModalSession
 
 
 def test_play_input_reads_held_state_without_consuming_edges(data_dir):
@@ -46,7 +46,7 @@ def test_mouse_reading_next_changes_page_without_resuming_life(data_dir, monkeyp
     game.open_modal(ReadText(1, 0))
     session = ModalSession()
     monkeypatch.setattr(
-        "maitd.ui.reading_pages", lambda effect, assets: (("one",), ("two",))
+        "PyAitD.ui.reading_pages", lambda effect, assets: (("one",), ("two",))
     )
     logical = ModalLayout.READING_NEXT.center
     assert route_mouse(game, session, logical)
@@ -59,7 +59,7 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     # loop routes one per frame; the leftover must not be routed next frame
     # into the new modal, where OPEN_INVENTORY maps to ACCEPT (would flip the
     # inventory session into action selection).
-    import maitd.__main__ as main
+    import PyAitD.__main__ as main
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     buffer = InputBuffer(commands=deque([Command.OPEN_INVENTORY, Command.OPEN_INVENTORY]))

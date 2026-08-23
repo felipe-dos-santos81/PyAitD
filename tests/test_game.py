@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from maitd.game import NUM_MAX_OBJECT, Game, init_game, game_step_tick, spawn_stage_actors
+from PyAitD.game import NUM_MAX_OBJECT, Game, init_game, game_step_tick, spawn_stage_actors
 
 
 def test_init_golden(data_dir):

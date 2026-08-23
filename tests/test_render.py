@@ -5,10 +5,10 @@ import moderngl
 import numpy as np
 import pygame
 
-from maitd.render import Renderer, fit_quad
-from maitd.render import _ActorLayer
-from maitd.mask import Mask
-from maitd.skel import PrimEntry, RenderResult
+from PyAitD.render import Renderer, fit_quad
+from PyAitD.render import _ActorLayer
+from PyAitD.mask import Mask
+from PyAitD.skel import PrimEntry, RenderResult
 
 
 def test_fit_quad_exact_multiple():

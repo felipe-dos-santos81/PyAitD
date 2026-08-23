@@ -2,10 +2,10 @@
 import numpy as np
 import pygame
 
-from maitd.effects import ReadText, ShowFound, ShowPicture, TimedMessage
-from maitd.game import init_game
-from maitd.text import BookToken
-from maitd.ui import (
+from PyAitD.effects import ReadText, ShowFound, ShowPicture, TimedMessage
+from PyAitD.game import init_game
+from PyAitD.text import BookToken
+from PyAitD.ui import (
     FoundPresenter, ReadingPresenter, layout_book,
     overlay_messages, render_found, render_picture, render_reading,
 )

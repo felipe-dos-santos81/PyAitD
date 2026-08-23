@@ -3,7 +3,7 @@
 import struct
 from dataclasses import dataclass
 
-from maitd.formats import _s16
+from PyAitD.formats import _s16
 
 import numpy as np
 

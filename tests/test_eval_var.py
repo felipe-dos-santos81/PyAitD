@@ -3,9 +3,9 @@ import struct
 
 import pytest
 
-from maitd.eval_var import eval_var
-from maitd.game import init_game
-from maitd.life import VM
+from PyAitD.eval_var import eval_var
+from PyAitD.game import init_game
+from PyAitD.life import VM
 
 
 def _vm(game, *words):
@@ -230,7 +230,7 @@ def test_posrel_not_in_floor(data_dir):
 
 
 def test_adjust_zv_room_shift(data_dir):
-    from maitd.eval_var import _adjust_zv
+    from PyAitD.eval_var import _adjust_zv
 
     game = init_game(data_dir, hero=0)
     rooms = game.rooms_of_floor(game.current_floor)

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from maitd.world import CameraState, is_in_poly, rotate_step, transform_point
+from PyAitD.world import CameraState, is_in_poly, rotate_step, transform_point
 
 
 def test_identity_camera_no_rotation():
@@ -21,7 +21,7 @@ def test_rotate_step_identity():
 
 
 def test_camera_from_room_coords():
-    from maitd.formats import Camera
+    from PyAitD.formats import Camera
     cam = Camera(109, 185, 0, -741, 280, -116, 300, 189, 158)
     state = CameraState.from_camera(cam, world_x=0, world_y=0, world_z=0)
     assert (state.x, state.y, state.z) == (-7410, -2800, 1160)
