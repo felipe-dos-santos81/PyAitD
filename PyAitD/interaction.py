@@ -302,6 +302,49 @@ def point_in_zone(x, y, z, zone):
     return zone.x1 <= x <= zone.x2 and zone.y1 <= y <= zone.y2 and zone.z1 <= z <= zone.z2
 
 
+def apply_click_intent(game, dest_x, dest_z, room, target_object_idx=-1):
+    """Record where the player clicked. A new click replaces any previous one."""
+    from PyAitD.effects import NavIntent
+    game.nav_intent = NavIntent(dest_x, dest_z, room, target_object_idx)
+    game.nav_decision = None
+
+
+def cancel_nav_intent(game):
+    """Drop the current intent. Used on modal entry and on a stop click."""
+    game.nav_intent = None
+    game.nav_decision = None
+    game.nav_arrived_plain = False
+
+
+def dispatch_nav_arrival(game):
+    """Act on a follower arrival. False when a modal was opened (tick suspends)."""
+    from PyAitD.game import AF_FOUNDABLE
+    target = game.nav_arrived_target
+    plain = getattr(game, "nav_arrived_plain", False)
+    game.nav_arrived_target = -1
+    game.nav_arrived_plain = False
+    if game.active_modal is not None:
+        return True
+    if target == -1:
+        if plain:
+            # a bare floor arrival still presses Action once, exactly as the
+            # keyboard action button does; scripts read it via evalVar 0x11
+            game.action = 0x2000
+        return True
+    world = game.world_objects[target]
+    if world.obj_index == -1:
+        return True  # taken or despawned while we walked
+    actor = game.actors[world.obj_index]
+    if actor.object_type & AF_FOUNDABLE:
+        effect = request_found(game, target, parameter=0)
+        if effect is not None:
+            game.open_modal(effect)
+            return False
+        return True
+    game.action = 0x2000
+    return True
+
+
 def gere_dec(game, actor_idx):
     actor = game.actors[actor_idx]
     rooms = game.rooms_of_floor(game.current_floor)

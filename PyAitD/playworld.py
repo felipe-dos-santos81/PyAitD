@@ -12,7 +12,8 @@ from PyAitD.game import (
     AF_ANIMATED, AF_TRIGGER, change_salle, game_step_tick, spawn_stage_actors,
 )
 from PyAitD.interaction import (
-    advance_messages, drain_immediate_effects, execute_found_life, gere_dec, run_life,
+    advance_messages, dispatch_nav_arrival, drain_immediate_effects, execute_found_life,
+    gere_dec, run_life,
 )
 from PyAitD.life import life_gate
 from PyAitD.navigate import decide
@@ -52,6 +53,7 @@ def _apply_mouse_input(game):
     game.local_joyd = decision.joyd if decision is not None else 0
     if decision is not None and decision.arrived:
         game.nav_arrived_target = game.nav_intent.target_object_idx
+        game.nav_arrived_plain = game.nav_intent.target_object_idx == -1
         game.nav_intent = None
         game.nav_decision = None
         game.local_joyd = 0
@@ -112,6 +114,8 @@ def play_tick(game, floor, input_buffer):
         return False
     game.current_floor_data = floor   # the mesh cache needs the loaded Floor
     apply_play_input(game, input_buffer)
+    if not dispatch_nav_arrival(game):
+        return False
     game_step_tick(game)
     in_hand = game.in_hand_table[game.current_inventory]
     if in_hand != -1 and not execute_found_life(game, in_hand):
