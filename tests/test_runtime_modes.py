@@ -302,11 +302,14 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
         return SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])])
 
     def spy_modal_session():
-        calls.append("state reset")
-        return SimpleNamespace(reading=SimpleNamespace(elapsed_ms=0))
+        calls.append("ModalSession reset")
+        # elapsed_ms lives on ModalSession itself (ui.ModalSession), not
+        # nested under .reading -- match that shape even though this test's
+        # restart path returns before reading it.
+        return SimpleNamespace(elapsed_ms=0)
 
     def spy_input_buffer():
-        calls.append("state reset")
+        calls.append("InputBuffer reset")
         return InputBuffer()
 
     def spy_scene_frame(*args):
@@ -347,7 +350,8 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     window = calls[start:scene_at + 1]
     assert window[0] == "restart_session"
     assert window[1] == "Floor"
-    assert "state reset" in window[2:-1]
+    assert "ModalSession reset" in window[2:-1]
+    assert "InputBuffer reset" in window[2:-1]
     assert window[-1] == "_scene_frame"
     assert "play_tick" not in window
     assert "present" not in window

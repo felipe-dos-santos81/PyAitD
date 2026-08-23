@@ -36,13 +36,15 @@ def test_obj222_real_script_hits_and_hero_consumes_same_tick(data_dir):
     hero_idx = game.current_camera_target_actor
     observed = False
     for _ in range(2400):
-        before = game.vars[21]
         play_tick(game, floor, InputBuffer())
         if game.actors[hero_idx].hit_by == enemy_idx:
             observed = True
             assert game.actors[enemy_idx].hit == hero_idx
-            assert game.actors[hero_idx].life in (549, 553)
-            assert game.vars[21] <= before
+            # Measured on real data: var 21 (health) is 20 both before and
+            # after this tick — the decrement lands on a later tick, so the
+            # "hero consumes in the same tick" claim is carried entirely by
+            # this life assertion, not by var 21.
+            assert game.actors[hero_idx].life == 553
             break
     assert observed, "obj222 never published its real scripted melee hit"
 

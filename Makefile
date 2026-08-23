@@ -35,7 +35,7 @@ clean: ## Remove venv and all temporary/generated files
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
-run: install ## Run the game: walk the attic, find/take/use/drop objects, read texts (usage: make run floor=3 data="path/to/INDARK" trace=/tmp/t.log)
+run: install ## Run the game: walk the attic, find/take/use/drop objects, read texts (usage: make run data="path/to/INDARK" trace=/tmp/t.log; non-zero floor exits 2 -- use make run-combat for the supported non-attic start)
 	$(PYTHON) -m PyAitD --floor "$(floor)" --data $(data) $(if $(trace),--trace $(trace))
 
 run-combat: install ## Run the supported floor-5 combat venue

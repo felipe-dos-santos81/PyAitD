@@ -333,14 +333,16 @@ def gere_frappe(game, actor_idx):
     action = actor.anim_action_type
     if action not in HANDLED_ACTIONS:
         raise ValueError(f"actor {actor_idx} has unsupported anim action {action}")
-    if action == WAIT_FRAPPE_ANIM:
-        if actor.anim == actor.anim_action_anim:
+    if action in (WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME):
+        # FITD animAction.cpp:19-24: case WAIT_FRAPPE_ANIM carries an
+        # explicit [[fallthrough]] into case WAIT_FRAPPE_FRAME
+        # (animAction.cpp:25-34) *unconditionally* — not only when the anim
+        # already matched. WAIT_FRAPPE_FRAME's first statement then cancels
+        # the melee (anim_action_type = 0) whenever the anim doesn't match,
+        # so a state-1 actor whose anim never committed is disarmed on the
+        # very next gere_frappe call, not left armed forever.
+        if action == WAIT_FRAPPE_ANIM and actor.anim == actor.anim_action_anim:
             actor.anim_action_type = WAIT_FRAPPE_FRAME
-        # Same-tick fall-through into WAIT_FRAPPE_FRAME below: FITD
-        # animAction.cpp:24 marks this an explicit [[fallthrough]], not a
-        # missing break.
-        action = actor.anim_action_type
-    if action == WAIT_FRAPPE_FRAME:
         if actor.anim != actor.anim_action_anim:
             actor.anim_action_type = 0
             return

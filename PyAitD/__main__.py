@@ -185,12 +185,20 @@ def _inventory_view(game, session):
     return object_ids, inventory_actions(game, selected)
 
 
+def _game_over_ready(session, effect):
+    # LM_GAME_OVER's accessibility gate: input acceptance (_route_game_over_command,
+    # route_mouse) and the "Click to restart" overlay (render_active_mode) must
+    # agree on the same wall-clock wait, so the overlay never invites a click
+    # that the router would still swallow.
+    return session.elapsed_ms >= effect.delay_units * 1000 // 60
+
+
 def _route_game_over_command(game, session, modal_command):
     # LM_GAME_OVER's accessibility gate: ignore ACCEPT/CANCEL (and, via the
     # caller's OPEN_INVENTORY-as-ACCEPT translation, OPEN_INVENTORY too) until
     # the wall-clock wait has elapsed, so a startled keypress cannot restart
     # the session before the player has even registered dying.
-    ready = session.elapsed_ms >= game.active_modal.delay_units * 1000 // 60
+    ready = _game_over_ready(session, game.active_modal)
     if ready and modal_command in (Command.ACCEPT, Command.CANCEL):
         game.restart_requested = True
     return True
@@ -299,7 +307,7 @@ def route_mouse(game, session, logical_pos):
     if isinstance(effect, GameOver):
         # the whole 320x200 logical frame is the target: no hit rectangle, no
         # precision requirement -- any left click once the wait has elapsed
-        ready = session.elapsed_ms >= effect.delay_units * 1000 // 60
+        ready = _game_over_ready(session, effect)
         if ready:
             game.restart_requested = True
         return True
@@ -345,8 +353,7 @@ def render_active_mode(game, session, scene_frame):
     if isinstance(effect, ShowPicture):
         return render_picture(effect, game.assets)
     if isinstance(effect, GameOver):
-        ready = session.elapsed_ms >= effect.delay_units * 1000 // 60
-        return render_game_over(scene_frame, ready)
+        return render_game_over(scene_frame, _game_over_ready(session, effect))
     raise RuntimeError(f"unrenderable modal {type(effect).__name__}")
 
 

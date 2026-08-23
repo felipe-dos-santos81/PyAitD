@@ -37,6 +37,22 @@ def test_melee_waits_for_animation_then_frame(data_dir):
     assert actor.anim_action_type == FRAPPE_OK
 
 
+def test_melee_cancels_on_anim_mismatch_from_wait_frappe_anim(data_dir):
+    # FITD animAction.cpp:19-24: WAIT_FRAPPE_ANIM's case falls through
+    # unconditionally into WAIT_FRAPPE_FRAME, whose first statement cancels
+    # the melee when the anim hasn't committed yet. hit() (main.cpp:4375)
+    # arms state 1 via InitAnim, which writes newAnim, not ANIM — so a
+    # mismatch here is the normal window before the animation commits, and
+    # one gere_frappe call must disarm it rather than leave it armed
+    # forever.
+    game, attacker_idx, _victim_idx = _live_actors(data_dir, 2)
+    actor = game.actors[attacker_idx]
+    actor.anim_action_type = WAIT_FRAPPE_ANIM
+    actor.anim_action_anim = actor.anim + 1  # deliberately mismatched
+    gere_frappe(game, attacker_idx)
+    assert actor.anim_action_type == 0
+
+
 def test_frappe_ok_mismatch_still_hit_tests(monkeypatch, data_dir):
     game, attacker_idx, victim_idx = _live_actors(data_dir, 2)
     attacker = game.actors[attacker_idx]
