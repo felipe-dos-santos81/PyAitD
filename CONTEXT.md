@@ -102,6 +102,16 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 M3b/M3c stubs in `life_ops.py` consume exact FITD arg counts and log under trace
 (audio, inventory, combat, text) — scripts stay desync-free until real semantics land.
 
+## M3b interaction boundary
+
+- `effects.py`: typed immediate/modal effects and resumable LIFE frames.
+- `interaction.py`: found-LIFE, inventory/world transitions, contacts, and GereDec.
+- `ui.py`: command buffering, modal reducers, mouse targets, and 320x200 presenters.
+- `__main__.py`: one event pump, PLAY-only fixed ticks, mode routing, one present.
+- Focused proof: `make prove-m3b`.
+- Full regression: `.venv/bin/pytest -q && make prove`.
+- Manual evidence: `docs/m3b-interaction-proof.md`.
+
 ## Testing conventions
 
 Golden values are pinned from real game data (do not re-derive): 292 world objects,

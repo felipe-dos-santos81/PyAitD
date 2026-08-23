@@ -45,3 +45,14 @@ test: install ## Run the pytest unit test suite
 
 prove: install ## M3a proof: parse-all LIFE/TRACK/tables + headless 60-tick boot
 	$(PYTHON) -m pytest tests/test_prove_m3a.py -q
+
+.PHONY: prove-m3b
+prove-m3b:
+	SDL_VIDEODRIVER=dummy .venv/bin/pytest \
+		tests/test_life_continuation.py \
+		tests/test_interaction.py \
+		tests/test_actor_contacts.py \
+		tests/test_gere_dec.py \
+		tests/test_life_interaction_ops.py \
+		tests/test_runtime_modes.py \
+		tests/test_m3b_attic.py -q
