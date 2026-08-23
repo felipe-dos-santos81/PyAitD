@@ -5,6 +5,9 @@ from PyAitD.world import adjust_zv_between_rooms, room_delta, shifted_zv
 
 INVENTORY_SIZE = 30
 MAX_VISIBLE_ACTIONS = 5
+# FITD gates found-contact on trackMode == 1, meaning "manually controlled".
+# Mode 4 (mouse follower) is equally player-controlled, so it belongs here too.
+PLAYER_TRACK_MODES = (1, 4)
 
 
 def _release_temporary_actor(game, actor_idx):
@@ -217,7 +220,7 @@ def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z
         touched = game.actors[touched_idx]
         touched.col_by = actor_idx
         if touched.object_type & AF_FOUNDABLE:
-            if actor.track_mode == 1 and game.active_modal is None:
+            if actor.track_mode in PLAYER_TRACK_MODES and game.active_modal is None:
                 effect = request_found(game, touched.index_in_world, parameter=0)
                 if effect is not None:
                     game.open_modal(effect)

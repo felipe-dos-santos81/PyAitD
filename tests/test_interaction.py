@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from PyAitD.effects import ShowFound
-from PyAitD.game import init_game
+from PyAitD.game import init_game, AF_FOUNDABLE
 from PyAitD.interaction import (
     _finish_take, choose_inventory_action, inventory_actions, inventory_items,
-    inventory_weight, put_object, remove_from_inventory, request_found,
+    inventory_weight, put_object, remove_from_inventory, request_found, resolve_actor_contacts,
 )
 
 
@@ -65,3 +65,45 @@ def test_inventory_choice_sets_action_and_in_hand_before_found_life(data_dir, mo
     assert game.in_hand_table[0] == 10
     assert game.action == 1 << 2
     assert called == [10]
+
+
+def _foundable_pair(game):
+    hero_idx = game.current_camera_target_actor
+    hero = game.actors[hero_idx]
+    other_idx = next(
+        i for i, a in enumerate(game.actors)
+        if a.index_in_world >= 0 and i != hero_idx
+    )
+    other = game.actors[other_idx]
+    other.object_type |= AF_FOUNDABLE
+    other.room = hero.room
+    other.zv = list(hero.zv)          # overlapping, so contact is guaranteed
+    # Initialize world object's debounce counter to allow request_found to proceed
+    world = game.world_objects[other.index_in_world]
+    world.track_number = 0
+    return hero_idx, hero, other_idx
+
+
+def test_mouse_mode_hero_still_triggers_found_on_contact(data_dir):
+    # the gate was `track_mode == 1`; mode 4 is equally player-controlled
+    game = init_game(data_dir)
+    hero_idx, hero, _other = _foundable_pair(game)
+    hero.track_mode = 4
+    resolve_actor_contacts(game, hero_idx, list(hero.zv), list(hero.zv), 0, 0)
+    assert isinstance(game.active_modal, ShowFound)
+
+
+def test_tank_mode_hero_still_triggers_found_on_contact(data_dir):
+    game = init_game(data_dir)
+    hero_idx, hero, _other = _foundable_pair(game)
+    hero.track_mode = 1
+    resolve_actor_contacts(game, hero_idx, list(hero.zv), list(hero.zv), 0, 0)
+    assert isinstance(game.active_modal, ShowFound)
+
+
+def test_scripted_actor_does_not_trigger_found(data_dir):
+    game = init_game(data_dir)
+    hero_idx, hero, _other = _foundable_pair(game)
+    hero.track_mode = 3          # scripted track: not player-controlled
+    resolve_actor_contacts(game, hero_idx, list(hero.zv), list(hero.zv), 0, 0)
+    assert game.active_modal is None
