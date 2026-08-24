@@ -9,6 +9,8 @@ class GameMode(Enum):
     INVENTORY = auto()
     READING = auto()
     GAME_OVER = auto()
+    CHARACTER_SELECT = auto()
+    SYSTEM_MENU = auto()
 
 
 class AfterLife(Enum):
@@ -48,6 +50,16 @@ class OpenInventory:
 
 
 @dataclass(frozen=True)
+class ChooseCharacter:
+    pass
+
+
+@dataclass(frozen=True)
+class OpenSystemMenu:
+    pass
+
+
+@dataclass(frozen=True)
 class ReadText:
     text_index: int
     kind: int
@@ -68,7 +80,10 @@ class GameOver:
     delay_units: int = 120
 
 
-ModalEffect = ShowFound | OpenInventory | ReadText | ShowPicture | GameOver
+ModalEffect = (
+    ShowFound | OpenInventory | ReadText | ShowPicture | GameOver
+    | ChooseCharacter | OpenSystemMenu
+)
 ImmediateEffect = AddMessage | BeginTake
 
 # the one place a modal effect type is mapped to the mode it puts the loop in
@@ -77,6 +92,8 @@ MODAL_MODE = {
     OpenInventory: GameMode.INVENTORY,
     ReadText: GameMode.READING,
     ShowPicture: GameMode.READING,
+    ChooseCharacter: GameMode.CHARACTER_SELECT,
+    OpenSystemMenu: GameMode.SYSTEM_MENU,
 }
 MODAL_MODE[GameOver] = GameMode.GAME_OVER
 

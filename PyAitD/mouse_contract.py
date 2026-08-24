@@ -81,6 +81,14 @@ MODE_MOUSE_CAPABILITIES = {
         PlayerCapability.RESTART_GAME_OVER,
         PlayerCapability.QUIT,
     }),
+    # shell-only modes: pointer routes land with the shell rendering task;
+    # until then window close is the sole mouse capability
+    GameMode.CHARACTER_SELECT: frozenset({
+        PlayerCapability.QUIT,
+    }),
+    GameMode.SYSTEM_MENU: frozenset({
+        PlayerCapability.QUIT,
+    }),
 }
 
 

@@ -3,7 +3,10 @@ from collections import deque
 
 import pytest
 
-from PyAitD.effects import AddMessage, BeginTake, GameMode, LifeFrame, ShowFound
+from PyAitD.effects import (
+    AddMessage, BeginTake, ChooseCharacter, GameMode, LifeFrame, OpenSystemMenu,
+    ShowFound,
+)
 from PyAitD.game import init_game
 
 
@@ -33,3 +36,14 @@ def test_immediate_effect_is_fifo(data_dir):
     game.emit(BeginTake(12))
     assert list(game.immediate_effects) == [AddMessage(100), BeginTake(12)]
     assert LifeFrame(3, 9).pc == 0
+
+
+@pytest.mark.parametrize(
+    ("effect", "mode"),
+    ((ChooseCharacter(), GameMode.CHARACTER_SELECT),
+     (OpenSystemMenu(), GameMode.SYSTEM_MENU)),
+)
+def test_shell_effects_use_the_existing_modal_mode_mapping(data_dir, effect, mode):
+    game = init_game(data_dir)
+    game.open_modal(effect)
+    assert game.mode is mode

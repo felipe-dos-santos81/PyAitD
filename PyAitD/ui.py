@@ -3,9 +3,15 @@ from collections import deque
 from functools import lru_cache
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from pathlib import Path
 
 import numpy as np
 import pygame
+
+from PyAitD.config import (
+    Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
+)
+from PyAitD.effects import ChooseCharacter, OpenSystemMenu
 
 
 class Command(Enum):
@@ -155,6 +161,111 @@ def reduce_reading(state, command, *, page_count):
             return ReadingResult(True)
         turn_page(state, 1, page_count)
     return None
+
+
+class CharacterPhase(Enum):
+    PORTRAITS = auto()
+    STORY = auto()
+
+
+@dataclass
+class CharacterSelectPresenter:
+    choice: int = 0
+    phase: CharacterPhase = CharacterPhase.PORTRAITS
+
+
+@dataclass(frozen=True)
+class CharacterSelectResult:
+    hero: int | None = None
+    quit: bool = False
+
+
+class SystemMenuPage(Enum):
+    MAIN = auto()
+    CONFIG = auto()
+
+
+@dataclass
+class SystemMenuPresenter:
+    page: SystemMenuPage = SystemMenuPage.MAIN
+    cursor: int = 0
+    capture: str | None = None
+
+
+@dataclass(frozen=True)
+class SystemMenuResult:
+    settings: Settings | None = None
+    close: bool = False
+    quit: bool = False
+    save: bool = False
+
+
+def reduce_character_select(state, command):
+    command = Command.ACCEPT if command is Command.OPEN_INVENTORY else command
+    if command is Command.CANCEL:
+        if state.phase is CharacterPhase.STORY:
+            state.phase = CharacterPhase.PORTRAITS
+            return None
+        return CharacterSelectResult(quit=True)
+    if state.phase is CharacterPhase.PORTRAITS:
+        if command in (Command.LEFT, Command.UP):
+            state.choice = 0
+        elif command in (Command.RIGHT, Command.DOWN):
+            state.choice = 1
+        elif command is Command.ACCEPT:
+            state.phase = CharacterPhase.STORY
+        return None
+    if command is Command.ACCEPT:
+        return CharacterSelectResult(hero=1 if state.choice == 0 else 0)
+    return None
+
+
+def reduce_system_menu(state, command, settings):
+    if state.capture is not None:
+        return None
+    command = Command.ACCEPT if command is Command.OPEN_INVENTORY else command
+    row_count = 3 if state.page is SystemMenuPage.MAIN else 2 + len(REMAPPABLE_CONTROLS)
+    if command is Command.UP:
+        state.cursor = (state.cursor - 1) % row_count
+    elif command is Command.DOWN:
+        state.cursor = (state.cursor + 1) % row_count
+    elif command is Command.CANCEL:
+        if state.page is SystemMenuPage.CONFIG:
+            state.page = SystemMenuPage.MAIN
+            state.cursor = 0
+            return SystemMenuResult(save=True)
+        return SystemMenuResult(close=True, save=True)
+    elif command is Command.ACCEPT and state.page is SystemMenuPage.MAIN:
+        if state.cursor == 0:
+            return SystemMenuResult(close=True, save=True)
+        if state.cursor == 1:
+            state.page = SystemMenuPage.CONFIG
+            state.cursor = 0
+        else:
+            return SystemMenuResult(quit=True, save=True)
+    elif (command is Command.ACCEPT and state.page is SystemMenuPage.CONFIG
+          and state.cursor == row_count - 1):
+        state.page = SystemMenuPage.MAIN
+        state.cursor = 0
+        return SystemMenuResult(save=True)
+    elif command is Command.ACCEPT and state.cursor == 0:
+        return SystemMenuResult(
+            settings=Settings(dict(settings.bindings), not settings.sticky_action),
+        )
+    elif command is Command.ACCEPT:
+        state.capture = REMAPPABLE_CONTROLS[state.cursor - 1].name
+    return None
+
+
+def capture_system_key(state, settings, key_name):
+    if state.capture is None:
+        return None
+    if key_name == "escape":
+        state.capture = None
+        return None
+    control = Control[state.capture]
+    state.capture = None
+    return SystemMenuResult(settings=replace_binding(settings, control, key_name))
 
 
 class PlayLayout:
@@ -375,6 +486,13 @@ class ModalSession:
     found: FoundPresenter = field(default_factory=FoundPresenter)
     inventory: InventoryPresenter = field(default_factory=InventoryPresenter)
     reading: ReadingPresenter = field(default_factory=ReadingPresenter)
+    character: CharacterSelectPresenter = field(default_factory=CharacterSelectPresenter)
+    system_menu: SystemMenuPresenter = field(default_factory=SystemMenuPresenter)
+    settings: Settings = field(default_factory=default_settings)
+    settings_path: Path | None = None
+    settings_error: str | None = None
+    settings_dirty: bool = False
+    pending_hero: int | None = None
     elapsed_ms: int = 0
     last_effect: object = field(default=None, repr=False)
 
@@ -388,6 +506,12 @@ class ModalSession:
         )
         self.inventory = InventoryPresenter()
         self.reading = ReadingPresenter()
+        # shell presenters reset only when their own effect is (re)observed;
+        # settings fields belong to the application session, never to an effect
+        if isinstance(effect, ChooseCharacter):
+            self.character = CharacterSelectPresenter()
+        elif isinstance(effect, OpenSystemMenu):
+            self.system_menu = SystemMenuPresenter()
 
 
 def hit_test_reading(pos, page, page_count):
