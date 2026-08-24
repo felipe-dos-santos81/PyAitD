@@ -377,6 +377,89 @@ def test_opening_wardrobe_resolves_and_routes_as_a_held_push(data_dir):
     assert game.nav_intent.engaged is False
 
 
+def test_latched_push_cursor_survives_pointer_drift(data_dir):
+    # A held push must remain visually unambiguous while the pointer moves
+    # elsewhere; resolving current hover here would advertise another action.
+    from PyAitD.__main__ import _play_cursor_kind
+    from PyAitD.interaction import apply_click_intent
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    apply_click_intent(game, 10, 20, 0, 4, requires_hold=True)
+
+    assert _play_cursor_kind(
+        game, floor, (0, 0), [], InputBuffer(pointer_held=True),
+    ) == "push"
+    assert _play_cursor_kind(game, floor, (0, 0), [], InputBuffer()) == "blocked"
+
+
+def test_mouseup_cancels_only_a_hold_required_intent(data_dir):
+    from PyAitD.interaction import apply_click_intent, cancel_held_nav_intent
+
+    game = init_game(data_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    apply_click_intent(game, 100, 200, hero.room)
+    assert cancel_held_nav_intent(game) is False
+    assert game.nav_intent is not None
+
+    apply_click_intent(game, 100, 200, hero.room, 4, requires_hold=True)
+    assert cancel_held_nav_intent(game) is True
+    assert game.nav_intent is None
+
+
+def test_pointer_invalidation_routes_mouseup_and_focus_loss(data_dir):
+    import PyAitD.__main__ as main
+    from PyAitD.interaction import apply_click_intent
+
+    game = init_game(data_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    for event in (
+        main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1),
+        main.pygame.event.Event(main.pygame.WINDOWFOCUSLOST),
+    ):
+        apply_click_intent(game, 100, 200, hero.room, 4, requires_hold=True)
+        assert main._cancel_pointer_invalidation(game, event) is True
+        assert game.nav_intent is None
+
+
+def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
+    data_dir, monkeypatch,
+):
+    import PyAitD.__main__ as main
+    from PyAitD.interaction import apply_click_intent
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    game = init_game(data_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    apply_click_intent(game, 100, 200, hero.room, 4, requires_hold=True)
+    seen = []
+    event_batches = iter([
+        [main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)],
+        [SimpleNamespace(type=main.pygame.QUIT)],
+    ])
+    times = iter([0, 20, 20])
+    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+        present=lambda image: None, close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
+    monkeypatch.setattr(main, "play_tick", lambda game, *_args: seen.append(game.nav_intent))
+    monkeypatch.setattr(main, "render_active_mode", lambda *_args: frame)
+    monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
+    monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
+    monkeypatch.setattr(main, "_play_cursor_kind", lambda *_args: "blocked")
+    monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *_args: None),
+    )
+
+    assert main.run(game) == 0
+    assert seen == [None]
+
+
 def test_inert_body_intercepts_the_floor_and_stays_blocked(data_dir):
     game = init_game(data_dir)
     floor = Floor(data_dir, game.current_floor)

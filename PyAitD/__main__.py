@@ -259,6 +259,25 @@ def route_play_click(game, session, floor, logical_pos, draw_list):
     )
 
 
+def _cancel_pointer_invalidation(game, event):
+    invalidated = (
+        event.type == pygame.MOUSEBUTTONUP and event.button == 1
+    ) or event.type == pygame.WINDOWFOCUSLOST
+    if not invalidated:
+        return False
+    from PyAitD.interaction import cancel_held_nav_intent
+    return cancel_held_nav_intent(game)
+
+
+def _play_cursor_kind(game, floor, hover, draw_list, input_buffer):
+    intent = getattr(game, "nav_intent", None)
+    if (input_buffer.pointer_held and intent is not None
+            and intent.requires_hold):
+        return "push"
+    kind, _payload = resolve_play_click(game, floor, hover, draw_list)
+    return kind
+
+
 def _is_interactable(game, actor_idx):
     from PyAitD.game import AF_FOUNDABLE
     actor = game.actors[actor_idx]
@@ -681,6 +700,7 @@ def run(game, trace_path=None, session=None):
                 running = capture_running and running
                 continue
             running = event_to_input(event, input_buffer) and running
+            _cancel_pointer_invalidation(game, event)
             if event.type == pygame.MOUSEMOTION:
                 hover = renderer.window_to_logical(event.pos)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -764,7 +784,9 @@ def run(game, trace_path=None, session=None):
                            and game.input_mode is InputMode.MOUSE)
         pygame.mouse.set_visible(not software_cursor)
         if software_cursor:
-            kind, _payload = resolve_play_click(game, floor, hover, draw_list)
+            kind = _play_cursor_kind(
+                game, floor, hover, draw_list, input_buffer,
+            )
             composed = render_cursor(composed, hover, kind)
         renderer.present(composed)
         if game.num_camera != -1:
