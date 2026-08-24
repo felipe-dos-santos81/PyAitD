@@ -215,6 +215,51 @@ def test_approach_refreshes_its_adjacent_destination_when_the_target_moves(data_
     )
 
 
+def test_stationary_target_does_not_replan_away_the_approach_stall(data_dir):
+    from PyAitD.interaction import hold_action_approach
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.current_floor_data = floor
+    hero_idx = game.current_camera_target_actor
+    hero = game.actors[hero_idx]
+    actor_idx = game.world_objects[4].obj_index
+    dx, dz = -3550 - hero.room_x, 3000 - hero.room_z
+    hero.room_x += dx
+    hero.world_x += dx
+    hero.zv[0] += dx
+    hero.zv[1] += dx
+    hero.room_z += dz
+    hero.world_z += dz
+    hero.zv[4] += dz
+    hero.zv[5] += dz
+    payload = hold_action_approach(game, floor, hero_idx, actor_idx)
+    assert payload == (-3550, 3850, 0, 4)
+    game.nav_intent = NavIntent(*payload, requires_hold=True)
+    buffer = InputBuffer(pointer_held=True)
+    apply_play_input(game, buffer)
+    intent = game.nav_intent
+    assert intent is not None and intent.engaged is False
+    intent.waypoints = [(-3550, 3850)]
+    intent.path_room = 0
+    intent.stall_target = (-3550, 3850)
+    intent.stall_best = 850
+    intent.stall_ticks = 298
+
+    hero.room_x += 1
+    hero.world_x += 1
+    hero.zv[0] += 1
+    hero.zv[1] += 1
+    apply_play_input(game, buffer)
+    assert game.nav_intent is intent
+    assert (intent.dest_x, intent.dest_z) == (-3550, 3850)
+    assert intent.stall_ticks == 299
+
+    apply_play_input(game, buffer)
+    assert game.nav_intent is None
+    assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+
+
 def test_active_push_suppresses_the_verified_pending_walk_request(data_dir):
     from PyAitD.life_ops import ANIM_REPEAT
 

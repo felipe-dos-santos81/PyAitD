@@ -95,6 +95,14 @@ def _refresh_held_target(game, hero, mesh):
         return False
     target = game.actors[actor_idx]
     if not intent.engaged:
+        target_pose = (
+            target.room, target.room_x, target.room_y, target.room_z,
+            target.beta, tuple(target.zv),
+        )
+        previous_pose = intent.approach_target_pose
+        if previous_pose == target_pose:
+            return True
+        intent.approach_target_pose = target_pose
         payload = hold_action_approach(
             game, game.current_floor_data,
             game.current_camera_target_actor, actor_idx,
@@ -103,7 +111,9 @@ def _refresh_held_target(game, hero, mesh):
             cancel_nav_intent(game)
             return False
         dest_x, dest_z, room, _world_idx = payload
-        if (intent.dest_x, intent.dest_z, intent.room) != (dest_x, dest_z, room):
+        target_moved = previous_pose is not None
+        if (target_moved
+                or (intent.dest_x, intent.dest_z, intent.room) != (dest_x, dest_z, room)):
             intent.dest_x, intent.dest_z, intent.room = dest_x, dest_z, room
             intent.waypoints = None
             intent.path_room = -1

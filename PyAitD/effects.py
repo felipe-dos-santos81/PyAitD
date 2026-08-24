@@ -126,6 +126,7 @@ class NavIntent:
     stall_target: tuple = None
     stall_best: int = 0
     stall_ticks: int = 0
+    approach_target_pose: tuple = None
 
 
 @dataclass
