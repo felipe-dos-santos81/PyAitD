@@ -14,9 +14,11 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 ```bash
 make run                     # play (windowed); make run trace=/tmp/t.log writes per-opcode LIFE trace
 make run-combat              # play the supported floor-5 combat venue (the only non-attic start)
-make test                    # pytest suite (405 passed, 1 xfailed, 1 skipped)
+make run-mouse-combat        # deterministic object-38 mouse combat proof start
+make test                    # pytest suite — authoritative gate
 make prove                   # M3a proof: parse-all 563 scripts/45 tracks/tables + headless 60-tick play_tick boot
 make prove-combat            # M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
+make prove-mouse-only        # M3e contract + real-data attic/combat/restart mouse journeys
 ```
 
 ## Where we are
@@ -29,6 +31,7 @@ make prove-combat            # M3c proof: venue, real enemy damage, player arms,
 | M3b | Interaction: inventory (TAKE/FOUND/IN_HAND), action button, text MESSAGE rendering | done |
 | M3c | Combat: HIT/FIRE/THROW animActions, floor-5 combat venue, multi-floor `FloorStart`, the real death script → GAME_OVER → restart | done (one open ruling: the restart boundary after the death cinematic, `docs/m3c-combat-proof.md`) |
 | M3d | Mouse-only point-and-click input | done |
+| M3e | Mouse reachability: HUD inventory, clicked force-2 throw, exhaustive mouse contract | done |
 | M4 | Menus, audio, save/load, ending/completability | later |
 
 Design docs live in `docs/superpowers/specs/` and `docs/superpowers/plans/`
@@ -59,6 +62,7 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `navmesh.py` | Walkable grid from cover zones (FITD `is_in_poly` vectorised) + A* |
 | `picking.py` | Screen->world: floor homography fitted from the real projection, actor bbox hit-test |
 | `navigate.py` | Mouse follower: NavIntent -> one tick of steering + mirrored joyd |
+| `mouse_contract.py` | Pygame-free declaration of current player capabilities, per-mode one-button routes, and reviewed legacy command replacements |
 | `__main__.py` | Process shell: event pump, fixed-step accumulator, `_scene_frame` view assembly, modal routing, one present per frame |
 
 ## Fidelity notes (hard-won)
@@ -149,6 +153,28 @@ action runner.
   re-scans the new room's zones in the same call (one-tick delay on chained
   crossings); modal result records live in `ui.py` though locked ownership
   puts them in `effects.py`; `op_special` still carries an M3b stub label.
+
+## M3e mouse-reachability boundary
+
+- `tracks.face_toward` is an instantaneous clicked-attack adapter; ordinary
+  `_turn_toward` interpolation and its existing callers remain unchanged.
+- `interaction.attack_in_hand` stops navigation, faces in the hero's room
+  frame, and delegates action 32 through `choose_inventory_action`.
+- `game.activate_world_object` is shared by normal active-list regeneration
+  and throw release so a released projectile exists before later LIFE reads.
+- `scenario.enter_mouse_combat_fixture` owns the deterministic object-38
+  automated/manual proof start; the M3c `enter_combat_venue` remains unchanged.
+- `__main__.resolve_play_click` is the one HUD/attack/target/walk/blocked
+  resolver used by both hover and click routing.
+- `playworld._push_into_target` re-aims an arrived click at a non-foundable
+  object that has a `found_life`, so the final step collides with the object
+  and the scripted found fires from the collision (FITD anim.cpp:381: the
+  attic lamp's found requires HARD_COL, unreachable via M3d's approach snap).
+- It applies to every non-foundable `found_life` object, not just the lamp —
+  an accepted out-of-plan addition from M3e review, not drift.
+- Focused proof: `make prove-mouse-only`; manual evidence:
+  `docs/m3e-mouse-only-proof.md`.
+- This milestone does not claim complete-game mouse play; M4 owns that gate.
 
 ## Testing conventions
 
