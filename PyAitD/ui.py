@@ -272,6 +272,26 @@ class PlayLayout:
     INVENTORY = pygame.Rect(4, 4, 28, 20)
 
 
+class CharacterLayout:
+    PORTRAITS = (
+        pygame.Rect(10, 10, 140, 181),
+        pygame.Rect(170, 10, 140, 181),
+    )
+    STORY = pygame.Rect(0, 0, 320, 200)
+
+
+class SystemMenuLayout:
+    MAIN_ROWS = tuple(pygame.Rect(48, 45 + i * 42, 224, 32) for i in range(3))
+    CONFIG_ROWS = tuple(
+        pygame.Rect(16, 8 + i * 20, 288, 20)
+        for i in range(2 + len(REMAPPABLE_CONTROLS))
+    )
+
+    @classmethod
+    def rows(cls, page):
+        return cls.MAIN_ROWS if page is SystemMenuPage.MAIN else cls.CONFIG_ROWS
+
+
 class ModalLayout:
     FOUND_LEAVE = pygame.Rect(28, 154, 120, 30)
     FOUND_TAKE = pygame.Rect(172, 154, 120, 30)
@@ -301,6 +321,46 @@ def _button(surface, rect, label, selected=False):
     pygame.draw.rect(surface, (245, 226, 178), rect, width=2, border_radius=3)
     glyph = _font(18).render(label, True, (20, 16, 12) if selected else (250, 242, 216))
     surface.blit(glyph, glyph.get_rect(center=rect.center))
+
+
+def draw_big_cadre(surface, sprites, center, size):
+    # FITD AffBigCadre placement (FitdLib/aitdBox.cpp:92-178); pygame clips the
+    # full-screen cadre at the surface edge, matching FITD's 320x200 SetClip.
+    x, y = center
+    width, height = size
+    left, top = x - width // 2, y - height // 2
+    right, bottom = x + width // 2, y + height // 2
+    sprite = tuple(_to_surface(image) for image in sprites)
+    current_x, current_y = left, top
+    surface.blit(sprite[0], (current_x, current_y))
+    while True:
+        current_x += 20
+        if right - 20 <= current_x:
+            break
+        surface.blit(sprite[4], (current_x, current_y))
+    surface.blit(sprite[1], (current_x, current_y))
+    current_x = left
+    while True:
+        current_y += 20
+        if bottom - 20 <= current_y:
+            break
+        surface.blit(sprite[6], (current_x, current_y))
+    current_x, current_y = right - 8, top + 20
+    while bottom - 20 > current_y:
+        surface.blit(sprite[7], (current_x, current_y))
+        current_y += 20
+    current_x = left
+    surface.blit(sprite[2], (current_x, current_y))
+    while True:
+        current_x += 20
+        if right - 20 <= current_x:
+            break
+        surface.blit(sprite[5], (current_x, current_y + 12))
+    surface.blit(sprite[3], (current_x, current_y))
+    surface.blit(sprite[8], (x - 20, current_y + 12))
+    interior = pygame.Rect(left + 8, top + 8, width - 16, height - 16)
+    surface.fill((0, 0, 0), interior)
+    return interior
 
 
 def layout_book(tokens, font, width, max_lines):
@@ -435,6 +495,54 @@ def render_inventory(presenter, assets, scene_frame, object_names, action_names)
     return _to_frame(surface)
 
 
+def render_character_select(presenter, assets):
+    # FITD character select: resource 10 background, cadre around the hovered
+    # portrait (left choice 0 = Emily hero 1, right choice 1 = Carnby hero 0);
+    # STORY copies the opposite half of resource 14 plus book text 20/21.
+    base = assets.resource_screen(10)
+    surface = _to_surface(base.copy())
+    center = ((80, 100), (240, 100))[presenter.choice]
+    draw_big_cadre(surface, assets.cadre_bank(), center, (160, 200))
+    portrait = CharacterLayout.PORTRAITS[presenter.choice]
+    surface.blit(_to_surface(base[portrait.top:portrait.bottom,
+                                  portrait.left:portrait.right]), portrait.topleft)
+    if presenter.phase is CharacterPhase.PORTRAITS:
+        return _to_frame(surface)
+    intro = _to_surface(assets.resource_screen(14))
+    if presenter.choice == 0:
+        surface.blit(intro, (160, 0), pygame.Rect(160, 0, 160, 200))
+        entry, text_x = 21, 165
+    else:
+        surface.blit(intro, (0, 0), pygame.Rect(0, 0, 160, 200))
+        entry, text_x = 20, 5
+    font = _font(15)
+    page = layout_book(assets.book_tokens(entry), font, 150, 12)[0]
+    y = 5
+    for text, centered in page:
+        glyph = font.render(text, True, (43, 31, 22))
+        x = text_x + (150 - glyph.get_width()) // 2 if centered else text_x
+        surface.blit(glyph, (x, y))
+        y += 15
+    return _to_frame(surface)
+
+
+def render_system_menu(presenter, settings, assets):
+    surface = pygame.Surface((320, 200))
+    draw_big_cadre(surface, assets.cadre_bank(), (160, 100), (320, 200))
+    if presenter.page is SystemMenuPage.MAIN:
+        labels = ["Return to Game", "Configuration", "Quit"]
+    else:
+        labels = [f"Sticky Action: {'On' if settings.sticky_action else 'Off'}"]
+        for control in REMAPPABLE_CONTROLS:
+            labels.append(f"{control.name}: {', '.join(settings.bindings[control.name])}")
+        labels.append("Back to Menu")
+        if presenter.capture is not None:
+            labels[presenter.cursor] = f"{presenter.capture}: press a key..."
+    for index, (rect, label) in enumerate(zip(SystemMenuLayout.rows(presenter.page), labels)):
+        _button(surface, rect, label, selected=index == presenter.cursor)
+    return _to_frame(surface)
+
+
 def render_game_over(scene_frame, ready):
     # LM_GAME_OVER's wall-clock wait (life.cpp:2438-2450) freezes the last PLAY
     # frame -- locked, this returns the caller's frame untouched, byte-identical,
@@ -461,6 +569,22 @@ def hit_test_found(pos):
         return FoundResult.LEAVE
     if ModalLayout.FOUND_TAKE.collidepoint(pos):
         return FoundResult.TAKE
+    return None
+
+
+def hit_test_character(pos, presenter):
+    if presenter.phase is CharacterPhase.STORY:
+        return 0 if CharacterLayout.STORY.collidepoint(pos) else None
+    for choice, rect in enumerate(CharacterLayout.PORTRAITS):
+        if rect.collidepoint(pos):
+            return choice
+    return None
+
+
+def hit_test_system_menu(pos, presenter):
+    for index, rect in enumerate(SystemMenuLayout.rows(presenter.page)):
+        if rect.collidepoint(pos):
+            return index
     return None
 
 

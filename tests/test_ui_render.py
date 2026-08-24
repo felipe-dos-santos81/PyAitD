@@ -1,14 +1,20 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import numpy as np
 import pygame
+import pytest
 
+from PyAitD.assets import Assets
+from PyAitD.config import default_settings
 from PyAitD.effects import ReadText, ShowFound, ShowPicture, TimedMessage
 from PyAitD.game import init_game
 from PyAitD.text import BookToken
 from PyAitD.ui import (
-    FoundPresenter, ReadingPresenter, layout_book,
-    overlay_messages, render_cursor, render_found, render_game_over, render_picture,
-    render_play_hud, render_reading,
+    CharacterLayout, CharacterPhase, CharacterSelectPresenter,
+    FoundPresenter, ReadingPresenter, SystemMenuPage, SystemMenuPresenter,
+    draw_big_cadre, layout_book,
+    overlay_messages, render_character_select, render_cursor, render_found,
+    render_game_over, render_picture, render_play_hud, render_reading,
+    render_system_menu,
 )
 
 
@@ -88,3 +94,55 @@ def test_game_over_locked_frame_is_identical_and_ready_frame_is_overlayed():
     assert np.array_equal(locked, source)
     assert not np.array_equal(ready, source)
     assert np.array_equal(source, locked)
+
+
+def test_big_cadre_pins_fitd_interior_and_ring(data_dir):
+    surface = pygame.Surface((320, 200))
+    surface.fill((0, 0, 0))
+    interior = draw_big_cadre(surface, Assets(data_dir).cadre_bank(), (160, 100), (320, 200))
+    assert interior == pygame.Rect(8, 8, 304, 184)
+    frame = pygame.surfarray.array3d(surface).swapaxes(0, 1)
+    assert np.count_nonzero(frame) > 0, "the cadre ring drew nothing"
+    inside = frame[interior.top:interior.bottom, interior.left:interior.right]
+    assert np.count_nonzero(inside) == 0, "the cadre interior must stay black"
+
+
+def test_character_portraits_restore_art_inside_fitd_cadre(data_dir):
+    assets = Assets(data_dir)
+    base = assets.resource_screen(10)
+    frame = render_character_select(CharacterSelectPresenter(choice=0), assets)
+    left = CharacterLayout.PORTRAITS[0]
+    assert np.array_equal(frame[left.top:left.bottom, left.left:left.right],
+                          base[left.top:left.bottom, left.left:left.right])
+    assert not np.array_equal(frame, base)
+
+
+@pytest.mark.parametrize(
+    ("choice", "hero", "copied"),
+    ((0, 1, pygame.Rect(160, 0, 160, 200)),
+     (1, 0, pygame.Rect(0, 0, 160, 200))),
+)
+def test_story_composes_the_opposite_intro_half_and_expected_text(
+    data_dir, choice, hero, copied,
+):
+    assets = Assets(data_dir)
+    presenter = CharacterSelectPresenter(choice=choice, phase=CharacterPhase.STORY)
+    frame = render_character_select(presenter, assets)
+    intro = assets.resource_screen(14)
+    # Compare a margin outside the text column; the copied half remains exact.
+    margin = pygame.Rect(copied.left, 0, 4, 200)
+    assert np.array_equal(
+        frame[margin.top:margin.bottom, margin.left:margin.right],
+        intro[margin.top:margin.bottom, margin.left:margin.right],
+    )
+    assert int(frame.sum()) > 0
+    assert (1 if choice == 0 else 0) == hero
+
+
+@pytest.mark.parametrize("page", tuple(SystemMenuPage))
+def test_system_menu_is_a_logical_rgb_frame(data_dir, page):
+    frame = render_system_menu(
+        SystemMenuPresenter(page=page), default_settings(), Assets(data_dir),
+    )
+    assert frame.shape == (200, 320, 3)
+    assert frame.dtype == np.uint8

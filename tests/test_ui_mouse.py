@@ -2,8 +2,11 @@
 import pygame
 
 from PyAitD.ui import (
+    CharacterLayout, CharacterPhase, CharacterSelectPresenter,
     FoundResult, InventoryPresenter, ModalLayout, PlayLayout, ReadingResult,
-    hit_test_found, hit_test_inventory, hit_test_reading,
+    SystemMenuLayout, SystemMenuPage, SystemMenuPresenter,
+    hit_test_character, hit_test_found, hit_test_inventory, hit_test_reading,
+    hit_test_system_menu,
 )
 
 
@@ -43,3 +46,25 @@ def test_reading_hit_tests_respect_page_bounds():
     assert hit_test_reading(ModalLayout.READING_PREV.center, 1, 2) == ReadingResult(False, -1)
     assert hit_test_reading(ModalLayout.READING_NEXT.center, 1, 2) is None
     assert hit_test_reading(ModalLayout.READING_NEXT.center, 0, 2) == ReadingResult(False, 1)
+
+
+def test_character_portraits_match_fitd_and_have_exclusive_edges():
+    assert CharacterLayout.PORTRAITS == (
+        pygame.Rect(10, 10, 140, 181), pygame.Rect(170, 10, 140, 181),
+    )
+    for choice, rect in enumerate(CharacterLayout.PORTRAITS):
+        assert hit_test_character(rect.topleft, CharacterSelectPresenter()) == choice
+        assert hit_test_character((rect.right - 1, rect.bottom - 1), CharacterSelectPresenter()) == choice
+        assert hit_test_character((rect.right, rect.bottom - 1), CharacterSelectPresenter()) is None
+
+
+def test_story_whole_frame_confirms_and_menu_rows_are_large():
+    story = CharacterSelectPresenter(phase=CharacterPhase.STORY)
+    assert hit_test_character((0, 0), story) == 0
+    assert hit_test_character((319, 199), story) == 0
+    for page in SystemMenuPage:
+        presenter = SystemMenuPresenter(page=page)
+        rows = SystemMenuLayout.rows(page)
+        assert all(rect.width >= 224 and rect.height >= 20 for rect in rows)
+        for index, rect in enumerate(rows):
+            assert hit_test_system_menu(rect.center, presenter) == index
