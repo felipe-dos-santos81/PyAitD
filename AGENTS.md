@@ -10,7 +10,8 @@ update it when a milestone lands.
 make test          # .venv/bin/pytest -q — the gate
 make prove         # parse-all + headless real-script boot (real data)
 make prove-m3b     # focused interaction suite, runs headless itself
-make run           # play; floor=N data="..." trace=/tmp/t.log optional
+make prove-shell   # M4a1 shell/config/mouse-contract + real-loop journeys
+make run           # play via character select; floor=0 debug bypass, data="..." trace=/tmp/t.log optional
 ```
 
 Any test touching rendering/pygame needs `SDL_VIDEODRIVER=dummy`. After
@@ -49,9 +50,11 @@ the test suite is the only gate. Never mass-reformat.
 
 - `# SPDX-License-Identifier: GPL-2.0-only` first line of every Python file.
 - Layer boundary: `playworld.py`/`life_ops.py`/`interaction.py`/`effects.py`
-  never touch pygame/rendering/events; `ui.py` never mutates world/actor/
-  inventory/LIFE state; `__main__.py` owns the single event pump and one
-  present per frame. `tests/test_playworld.py` enforces the playworld half.
+  never touch pygame/rendering/events; `config.py` is pygame-free settings
+  schema/persistence; `ui.py` never mutates world/actor/inventory/LIFE state;
+  `__main__.py` owns the single event pump, the settings lifecycle, game/floor
+  replacement, and one present per frame. Settings live on `ModalSession`,
+  never `Game`. `tests/test_playworld.py` enforces the playworld half.
 - `ponytail:` comments mark deliberate simplifications with upgrade path —
   respect them, don't silently remove.
 - Workflow is brainstorm → spec → plan → TDD under `docs/superpowers/`
