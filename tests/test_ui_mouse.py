@@ -1,8 +1,19 @@
 # SPDX-License-Identifier: GPL-2.0-only
+import pygame
+
 from PyAitD.ui import (
-    FoundResult, InventoryPresenter, ModalLayout, ReadingResult,
+    FoundResult, InventoryPresenter, ModalLayout, PlayLayout, ReadingResult,
     hit_test_found, hit_test_inventory, hit_test_reading,
 )
+
+
+def test_inventory_hud_target_has_pinned_exclusive_edges():
+    rect = PlayLayout.INVENTORY
+    assert rect == pygame.Rect(4, 4, 28, 20)
+    assert rect.collidepoint(rect.left, rect.top)
+    assert rect.collidepoint(rect.right - 1, rect.bottom - 1)
+    assert not rect.collidepoint(rect.right, rect.bottom - 1)
+    assert not rect.collidepoint(rect.right - 1, rect.bottom)
 
 
 def test_found_buttons_are_large_and_single_clickable():

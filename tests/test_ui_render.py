@@ -8,7 +8,7 @@ from PyAitD.text import BookToken
 from PyAitD.ui import (
     FoundPresenter, ReadingPresenter, layout_book,
     overlay_messages, render_cursor, render_found, render_game_over, render_picture,
-    render_reading,
+    render_play_hud, render_reading,
 )
 
 
@@ -55,11 +55,23 @@ def test_cursor_marks_the_frame_without_mutating_the_input():
     assert int(frame.sum()) == 0
 
 
-def test_cursor_kinds_differ():
+def test_play_hud_draws_only_when_available_without_mutating_input():
+    source = np.zeros((200, 320, 3), dtype=np.uint8)
+    unavailable = render_play_hud(source, inventory_available=False)
+    available = render_play_hud(source, inventory_available=True)
+    assert unavailable is source
+    assert np.array_equal(unavailable, source)
+    assert not np.array_equal(available, source)
+    assert int(source.sum()) == 0
+
+
+def test_all_pointer_kinds_have_distinct_pixel_output():
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    walk = render_cursor(frame, (160, 100), "walk")
-    blocked = render_cursor(frame, (160, 100), "blocked")
-    assert not np.array_equal(walk, blocked)
+    rendered = {
+        kind: render_cursor(frame, (160, 100), kind)
+        for kind in ("inventory", "attack", "target", "walk", "blocked")
+    }
+    assert len({image.tobytes() for image in rendered.values()}) == 5
 
 
 def test_cursor_outside_the_surface_is_a_no_op():

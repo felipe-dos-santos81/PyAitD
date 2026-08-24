@@ -157,6 +157,10 @@ def reduce_reading(state, command, *, page_count):
     return None
 
 
+class PlayLayout:
+    INVENTORY = pygame.Rect(4, 4, 28, 20)
+
+
 class ModalLayout:
     FOUND_LEAVE = pygame.Rect(28, 154, 120, 30)
     FOUND_TAKE = pygame.Rect(172, 154, 120, 30)
@@ -269,6 +273,14 @@ def overlay_messages(frame, messages, assets):
         surface.blit(shadow, rect.move(1, 1))
         surface.blit(glyph, rect)
         y -= 16
+    return _to_frame(surface)
+
+
+def render_play_hud(frame, *, inventory_available):
+    if not inventory_available:
+        return frame
+    surface = _to_surface(frame.copy())
+    _button(surface, PlayLayout.INVENTORY, "INV", selected=True)
     return _to_frame(surface)
 
 
@@ -391,6 +403,8 @@ def hit_test_reading(pos, page, page_count):
 _CURSOR_COLORS = {
     "walk": (200, 230, 170),
     "target": (255, 220, 130),
+    "attack": (255, 96, 72),
+    "inventory": (120, 210, 255),
     "blocked": (190, 90, 80),
 }
 
@@ -402,7 +416,14 @@ def render_cursor(frame, logical_pos, kind):
     surface = _to_surface(frame.copy())
     color = _CURSOR_COLORS.get(kind, _CURSOR_COLORS["walk"])
     x, y = int(logical_pos[0]), int(logical_pos[1])
-    if kind == "target":
+    if kind == "inventory":
+        pygame.draw.rect(surface, color, pygame.Rect(x - 5, y - 4, 11, 9), width=2)
+        pygame.draw.line(surface, color, (x - 2, y - 6), (x + 2, y - 6), width=2)
+    elif kind == "attack":
+        pygame.draw.circle(surface, color, (x, y), 6, width=1)
+        pygame.draw.line(surface, color, (x - 8, y), (x + 8, y), width=1)
+        pygame.draw.line(surface, color, (x, y - 8), (x, y + 8), width=1)
+    elif kind == "target":
         pygame.draw.rect(surface, color, pygame.Rect(x - 5, y - 5, 11, 11), width=1)
     elif kind == "blocked":
         pygame.draw.line(surface, color, (x - 4, y - 4), (x + 4, y + 4))
