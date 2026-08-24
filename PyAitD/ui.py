@@ -12,6 +12,7 @@ from PyAitD.config import (
     Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
 )
 from PyAitD.effects import ChooseCharacter, OpenSystemMenu
+from PyAitD.text import BookToken
 
 
 class Command(Enum):
@@ -362,6 +363,10 @@ class ModalLayout:
     READING_NEXT = pygame.Rect(216, 164, 96, 28)
 
 
+class SettingsNoticeLayout:
+    DISMISS = pygame.Rect(72, 154, 176, 34)
+
+
 @lru_cache(maxsize=8)
 def _font(size=16):
     if not pygame.font.get_init():
@@ -516,6 +521,23 @@ def render_play_hud(frame, *, inventory_available):
     return _to_frame(surface)
 
 
+def render_settings_notice(frame, message):
+    if message is None:
+        return frame
+    surface = _to_surface(frame.copy())
+    shade = pygame.Surface((320, 200), flags=pygame.SRCALPHA)
+    shade.fill((0, 0, 0, 190))
+    surface.blit(shade, (0, 0))
+    title = _font(20).render("Settings error", True, (255, 220, 170))
+    surface.blit(title, title.get_rect(center=(160, 38)))
+    lines = layout_book((BookToken("text", message),), _font(15), 276, 5)[0]
+    for index, (text, _centered) in enumerate(lines):
+        glyph = _font(15).render(text, True, (255, 255, 255))
+        surface.blit(glyph, glyph.get_rect(center=(160, 65 + index * 16)))
+    _button(surface, SettingsNoticeLayout.DISMISS, "Dismiss", selected=True)
+    return _to_frame(surface)
+
+
 def reading_pages(effect, assets):
     pages = assets.book_pages.get(effect.text_index)
     if pages is None:
@@ -647,6 +669,10 @@ def hit_test_system_menu(pos, presenter):
         if rect.collidepoint(pos):
             return index
     return None
+
+
+def hit_test_settings_notice(pos):
+    return SettingsNoticeLayout.DISMISS.collidepoint(pos)
 
 
 def hit_test_inventory(pos, presenter, object_ids, action_ids):

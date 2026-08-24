@@ -20,6 +20,10 @@ class PlayerCapability(Enum):
     ATTACK_TARGET = auto()
     RESTART_GAME_OVER = auto()
     QUIT = auto()
+    SELECT_CHARACTER = auto()
+    CONFIRM_STORY_PAGE = auto()
+    MENU_ACTIVATE = auto()
+    DISMISS_SETTINGS_ERROR = auto()
 
 
 @dataclass(frozen=True)
@@ -50,6 +54,18 @@ CAPABILITY_ROUTES = {
     PlayerCapability.ATTACK_TARGET: MouseRoute("left_click", "armed combat actor", frozenset({GameMode.PLAY})),
     PlayerCapability.RESTART_GAME_OVER: MouseRoute("left_click", "game-over frame", frozenset({GameMode.GAME_OVER})),
     PlayerCapability.QUIT: MouseRoute("window_close", "window close control", ALL_MODES),
+    PlayerCapability.SELECT_CHARACTER: MouseRoute(
+        "left_click", "character portrait", frozenset({GameMode.CHARACTER_SELECT}),
+    ),
+    PlayerCapability.CONFIRM_STORY_PAGE: MouseRoute(
+        "left_click", "character story page", frozenset({GameMode.CHARACTER_SELECT}),
+    ),
+    PlayerCapability.MENU_ACTIVATE: MouseRoute(
+        "left_click", "system menu row", frozenset({GameMode.SYSTEM_MENU}),
+    ),
+    PlayerCapability.DISMISS_SETTINGS_ERROR: MouseRoute(
+        "left_click", "settings error Dismiss button", ALL_MODES,
+    ),
 }
 
 
@@ -59,34 +75,42 @@ MODE_MOUSE_CAPABILITIES = {
         PlayerCapability.INTERACT_WITH_OBJECT,
         PlayerCapability.OPEN_INVENTORY,
         PlayerCapability.ATTACK_TARGET,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),
     GameMode.FOUND: frozenset({
         PlayerCapability.TAKE_FOUND_OBJECT,
         PlayerCapability.LEAVE_FOUND_OBJECT,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),
     GameMode.INVENTORY: frozenset({
         PlayerCapability.SELECT_INVENTORY_OBJECT,
         PlayerCapability.SELECT_INVENTORY_ACTION,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),
     GameMode.READING: frozenset({
         PlayerCapability.PAGE_READING,
         PlayerCapability.CLOSE_READING,
         PlayerCapability.DISMISS_PICTURE,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),
     GameMode.GAME_OVER: frozenset({
         PlayerCapability.RESTART_GAME_OVER,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),
-    # shell-only modes: pointer routes land with the shell rendering task;
-    # until then window close is the sole mouse capability
     GameMode.CHARACTER_SELECT: frozenset({
+        PlayerCapability.SELECT_CHARACTER,
+        PlayerCapability.CONFIRM_STORY_PAGE,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),
     GameMode.SYSTEM_MENU: frozenset({
+        PlayerCapability.MENU_ACTIVATE,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),
 }
@@ -123,3 +147,11 @@ LEGACY_COMMAND_REPLACEMENTS["TOGGLE_INPUT_MODE"] = LegacyCommandDecision(
     None,
     "this command deliberately leaves the mouse scheme; it is not a missing mouse route",
 )
+
+
+KEYBOARD_ONLY_DECISIONS = {
+    "REMAP_CAPTURE": LegacyCommandDecision(
+        None,
+        "a keyboard remap must capture one physical key; menu entry, cancel, and all other configuration decisions remain mouse reachable",
+    ),
+}

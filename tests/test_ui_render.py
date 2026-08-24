@@ -14,7 +14,7 @@ from PyAitD.ui import (
     draw_big_cadre, layout_book,
     overlay_messages, render_character_select, render_cursor, render_found,
     render_game_over, render_picture, render_play_hud, render_reading,
-    render_system_menu,
+    render_settings_notice, render_system_menu,
 )
 
 
@@ -137,6 +137,14 @@ def test_story_composes_the_opposite_intro_half_and_expected_text(
     )
     assert int(frame.sum()) > 0
     assert (1 if choice == 0 else 0) == hero
+
+
+def test_settings_notice_overlays_without_mutating_the_mode_frame():
+    source = np.zeros((200, 320, 3), dtype=np.uint8)
+    result = render_settings_notice(source, "Could not load settings from /x: corrupt")
+    assert np.count_nonzero(source) == 0
+    assert result.shape == source.shape
+    assert not np.array_equal(result, source)
 
 
 @pytest.mark.parametrize("page", tuple(SystemMenuPage))

@@ -19,8 +19,9 @@ from PyAitD.playworld import play_tick
 from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
 from PyAitD.ui import InputBuffer, ModalLayout, PlayLayout
 from PyAitD.mouse_contract import (
-    CAPABILITY_ROUTES, COMMAND_MOUSE_CAPABILITIES,
-    LEGACY_COMMAND_REPLACEMENTS, MODE_MOUSE_CAPABILITIES, PlayerCapability,
+    ALL_MODES, CAPABILITY_ROUTES, COMMAND_MOUSE_CAPABILITIES,
+    KEYBOARD_ONLY_DECISIONS, LEGACY_COMMAND_REPLACEMENTS,
+    MODE_MOUSE_CAPABILITIES, PlayerCapability,
 )
 from PyAitD.ui import Command
 
@@ -54,6 +55,37 @@ def test_every_mode_declares_exactly_the_routes_available_in_it():
             if mode in route.modes
         )
         assert MODE_MOUSE_CAPABILITIES[mode] == derived
+
+
+def test_shell_modes_and_the_settings_notice_fulfill_the_mouse_contract():
+    # the two shell modes land their pointer routes with the shell rendering
+    # task: the derived-route equality above must pin them explicitly
+    assert MODE_MOUSE_CAPABILITIES[GameMode.CHARACTER_SELECT] == frozenset({
+        PlayerCapability.SELECT_CHARACTER,
+        PlayerCapability.CONFIRM_STORY_PAGE,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
+        PlayerCapability.QUIT,
+    })
+    assert MODE_MOUSE_CAPABILITIES[GameMode.SYSTEM_MENU] == frozenset({
+        PlayerCapability.MENU_ACTIVATE,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
+        PlayerCapability.QUIT,
+    })
+    # the settings notice is mode-independent: its Dismiss target is one
+    # left click away in every mode
+    assert CAPABILITY_ROUTES[PlayerCapability.DISMISS_SETTINGS_ERROR].modes == ALL_MODES
+    for mode in GameMode:
+        assert PlayerCapability.DISMISS_SETTINGS_ERROR in MODE_MOUSE_CAPABILITIES[mode]
+
+
+def test_remap_capture_is_the_only_keyboard_only_decision():
+    assert set(KEYBOARD_ONLY_DECISIONS) == {"REMAP_CAPTURE"}
+    decision = KEYBOARD_ONLY_DECISIONS["REMAP_CAPTURE"]
+    assert decision.replacement is None
+    assert decision.reason == (
+        "a keyboard remap must capture one physical key; menu entry, cancel, "
+        "and all other configuration decisions remain mouse reachable"
+    )
 
 
 def test_every_command_has_a_mouse_capability_or_reviewed_legacy_decision():

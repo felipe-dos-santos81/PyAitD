@@ -4,9 +4,10 @@ import pygame
 from PyAitD.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
     FoundResult, InventoryPresenter, ModalLayout, PlayLayout, ReadingResult,
-    SystemMenuLayout, SystemMenuPage, SystemMenuPresenter,
+    SettingsNoticeLayout, SystemMenuLayout, SystemMenuPage,
+    SystemMenuPresenter,
     hit_test_character, hit_test_found, hit_test_inventory, hit_test_reading,
-    hit_test_system_menu,
+    hit_test_settings_notice, hit_test_system_menu,
 )
 
 
@@ -46,6 +47,14 @@ def test_reading_hit_tests_respect_page_bounds():
     assert hit_test_reading(ModalLayout.READING_PREV.center, 1, 2) == ReadingResult(False, -1)
     assert hit_test_reading(ModalLayout.READING_NEXT.center, 1, 2) is None
     assert hit_test_reading(ModalLayout.READING_NEXT.center, 0, 2) == ReadingResult(False, 1)
+
+
+def test_settings_notice_has_one_large_exclusive_dismiss_target():
+    rect = SettingsNoticeLayout.DISMISS
+    assert rect.width >= 160 and rect.height >= 30
+    assert hit_test_settings_notice(rect.topleft)
+    assert hit_test_settings_notice((rect.right - 1, rect.bottom - 1))
+    assert not hit_test_settings_notice((rect.right, rect.bottom - 1))
 
 
 def test_character_portraits_match_fitd_and_have_exclusive_edges():

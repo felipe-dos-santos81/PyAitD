@@ -24,7 +24,8 @@ from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
 from PyAitD.skel import skin
 from PyAitD.ui import (
     Command, InputBuffer, ModalSession, configure_input, event_to_input,
-    render_cursor, render_play_hud, reset_input,
+    hit_test_settings_notice, render_cursor, render_play_hud,
+    render_settings_notice, reset_input,
 )
 from PyAitD.world import CameraState
 
@@ -673,6 +674,11 @@ def run(game, trace_path=None, session=None):
                 hover = renderer.window_to_logical(event.pos)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 logical = renderer.window_to_logical(event.pos)
+                if session.settings_error is not None and hit_test_settings_notice(logical):
+                    # the notice's Dismiss gets first refusal: the click clears
+                    # only the error, never the mode or effect underneath
+                    session.settings_error = None
+                    continue
                 if game.active_modal is None and game.mode is GameMode.PLAY:
                     # keyboard mode swallows play clicks; the cursor is hidden
                     # there too, so nothing advertises a click that does nothing
@@ -685,7 +691,13 @@ def run(game, trace_path=None, session=None):
         was_play = game.mode is GameMode.PLAY
         if input_buffer.commands:
             command = input_buffer.commands.popleft()
-            running = route_command(game, session, command, input_buffer) and running
+            if (session.settings_error is not None
+                    and command in (Command.ACCEPT, Command.OPEN_INVENTORY)):
+                # same first refusal as the Dismiss click: ACCEPT and
+                # OPEN_INVENTORY activate the notice instead of the mode
+                session.settings_error = None
+            else:
+                running = route_command(game, session, command, input_buffer) and running
         replaced = _hero_branch(game, renderer, session)
         if replaced is None:
             replaced = _restart_branch(game, renderer, session)
@@ -729,6 +741,9 @@ def run(game, trace_path=None, session=None):
         composed = render_active_mode(game, session, scene_frame)
         available = inventory_hud_available(game)
         composed = render_play_hud(composed, inventory_available=available)
+        # the settings notice is mode-independent: after the HUD and before
+        # the software cursor, so its Dismiss target is visually topmost
+        composed = render_settings_notice(composed, session.settings_error)
         # Exactly one visible cursor: the software cursor draws only for
         # PLAY + mouse + no modal, so the OS pointer owns every other state
         # (modals with buttons, keyboard mode). Toggled per frame.

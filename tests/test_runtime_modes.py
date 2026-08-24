@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from collections import deque
+import itertools
 from types import SimpleNamespace
 
 import numpy as np
@@ -22,9 +23,130 @@ from PyAitD.game import init_game
 from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter, Command,
-    InputBuffer, ModalLayout, ModalSession, SystemMenuLayout, SystemMenuPage,
-    SystemMenuPresenter,
+    InputBuffer, ModalLayout, ModalSession, SettingsNoticeLayout,
+    SystemMenuLayout, SystemMenuPage, SystemMenuPresenter,
 )
+
+
+def _left_click(pos):
+    return pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=tuple(pos))
+
+
+def _run_notice_script(monkeypatch, game, session, next_events, draw_list=()):
+    # Same headless run() harness as the modal-entry/restart tests above,
+    # with a caller-supplied session so the settings notice can be staged.
+    import PyAitD.__main__ as main
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    ticks = itertools.count(0, 20)
+    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+        window_to_logical=lambda pos: pos,
+        present=lambda image: None,
+        close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, list(draw_list)))
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "play_tick", lambda *args: True)
+    monkeypatch.setattr(main.pygame.event, "get", next_events)
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(ticks))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
+    )
+    monkeypatch.setattr(main.pygame.display, "set_caption", lambda *args: None)
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda *args: None)
+    assert main.run(game, session=session) == 0
+
+
+def test_settings_notice_dismiss_click_has_first_refusal_in_play(data_dir, monkeypatch):
+    game = init_game(data_dir)
+    session = ModalSession(settings_error="Could not load settings from /x: corrupt")
+    lamp_idx = 13
+    actor_idx = game.world_objects[lamp_idx].obj_index
+    observed = {}
+    state = {"frames": 0}
+
+    def next_events():
+        state["frames"] += 1
+        frames = state["frames"]
+        assert frames < 10, "PLAY notice script exceeded its budget"
+        if frames == 1:
+            # outside the Dismiss rect the click passes straight through to
+            # the lamp target, and the notice stays up
+            return [_left_click((150, 100))]
+        if frames == 2:
+            observed["passthrough"] = (session.settings_error, game.nav_intent)
+            return [_left_click(SettingsNoticeLayout.DISMISS.center)]
+        if frames == 3:
+            observed["dismissed"] = (
+                session.settings_error, game.mode, game.active_modal,
+                game.nav_intent,
+            )
+            return [pygame.event.Event(pygame.QUIT)]
+        return []
+
+    _run_notice_script(
+        monkeypatch, game, session, next_events,
+        draw_list=[(actor_idx, (100, 60, 200, 160))],
+    )
+    error, intent = observed["passthrough"]
+    assert error == "Could not load settings from /x: corrupt"
+    assert intent is not None, "a click outside Dismiss must reach the mode"
+    assert observed["dismissed"] == (None, GameMode.PLAY, None, intent)
+
+
+def test_settings_notice_first_refusal_in_character_select(data_dir, monkeypatch):
+    game = init_game(data_dir)
+    game.open_modal(ChooseCharacter())
+    effect = game.active_modal
+    session = ModalSession(settings_error="Could not load settings from /x: corrupt")
+    observed = {}
+    state = {"frames": 0}
+
+    def next_events():
+        state["frames"] += 1
+        frames = state["frames"]
+        assert frames < 12, "character-select notice script exceeded its budget"
+        if frames == 1:
+            return [pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN)]
+        if frames == 2:
+            observed["open_inventory"] = (
+                session.settings_error, session.character.phase,
+            )
+            session.settings_error = "again"
+            return [pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE)]
+        if frames == 3:
+            observed["accept"] = (session.settings_error, session.character.phase)
+            session.settings_error = "again"
+            return [pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT)]
+        if frames == 4:
+            # a direction command passes through to the selector and leaves
+            # the notice up
+            observed["direction"] = (
+                session.settings_error, session.character.choice,
+            )
+            return [_left_click(CharacterLayout.PORTRAITS[0].center)]
+        if frames == 5:
+            # a click outside Dismiss also passes through, selecting the hero
+            observed["outside_click"] = (
+                session.settings_error, session.character.phase,
+            )
+            return [_left_click(SettingsNoticeLayout.DISMISS.center)]
+        if frames == 6:
+            observed["dismissed"] = (
+                session.settings_error, session.character.phase,
+                session.pending_hero,
+            )
+            return [pygame.event.Event(pygame.QUIT)]
+        return []
+
+    _run_notice_script(monkeypatch, game, session, next_events)
+    assert observed["open_inventory"] == (None, CharacterPhase.PORTRAITS)
+    assert observed["accept"] == (None, CharacterPhase.PORTRAITS)
+    assert observed["direction"] == ("again", 1)
+    assert observed["outside_click"] == ("again", CharacterPhase.STORY)
+    assert observed["dismissed"] == (None, CharacterPhase.STORY, None)
+    assert game.active_modal is effect
+    assert game.mode is GameMode.CHARACTER_SELECT
 
 
 def test_character_routes_reach_story_back_and_pending_hero(data_dir):
