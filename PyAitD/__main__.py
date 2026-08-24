@@ -674,7 +674,8 @@ def run(game, trace_path=None, session=None):
                 hover = renderer.window_to_logical(event.pos)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 logical = renderer.window_to_logical(event.pos)
-                if session.settings_error is not None and hit_test_settings_notice(logical):
+                if (session.settings_error is not None and logical is not None
+                        and hit_test_settings_notice(logical)):
                     # the notice's Dismiss gets first refusal: the click clears
                     # only the error, never the mode or effect underneath
                     session.settings_error = None
@@ -694,7 +695,7 @@ def run(game, trace_path=None, session=None):
             if (session.settings_error is not None
                     and command in (Command.ACCEPT, Command.OPEN_INVENTORY)):
                 # same first refusal as the Dismiss click: ACCEPT and
-                # OPEN_INVENTORY activate the notice instead of the mode
+                # OPEN_INVENTORY dismiss the notice instead of reaching the mode
                 session.settings_error = None
             else:
                 running = route_command(game, session, command, input_buffer) and running

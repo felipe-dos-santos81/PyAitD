@@ -468,6 +468,42 @@ def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
     assert len(save_calls) == 1, "the Back boundary saves exactly once"
 
 
+def test_letterbox_click_does_not_crash_or_dismiss_the_notice(
+    data_dir, monkeypatch, tmp_path,
+):
+    # window_to_logical returns None for clicks outside the 320x200 view
+    # (letterbox/pillar bands); the notice pre-check must None-guard like
+    # route_mouse and resolve_play_click do, and a None click hits no target
+    path = tmp_path / "settings.json"
+    path.write_text("{ definitely not json", encoding="utf-8")
+    session = load_runtime_session(path)
+    assert session.settings_error is not None
+
+    game = init_game(data_dir)
+    game.open_modal(ChooseCharacter())
+
+    monkeypatch.setattr(
+        _HeadlessRenderer, "window_to_logical", lambda _self, _pos: None,
+    )
+
+    state = {"frames": 0}
+
+    def next_events():
+        state["frames"] += 1
+        assert state["frames"] < 200, "letterbox journey exceeded its budget"
+        if state["frames"] == 1:
+            return [_left_click((0, 0))]
+        if state["frames"] == 2:
+            # no exception, and the None click did NOT dismiss the notice
+            assert session.settings_error is not None
+            assert game.mode is GameMode.CHARACTER_SELECT
+            assert session.character.phase is CharacterPhase.PORTRAITS
+            return [_quit()]
+        return []
+
+    _run_shell(monkeypatch, game, session, next_events)
+
+
 def test_death_restart_keeps_live_settings_and_drops_input_transients(
     data_dir, tmp_path, monkeypatch,
 ):
