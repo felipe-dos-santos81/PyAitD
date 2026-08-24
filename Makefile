@@ -1,15 +1,15 @@
 # Makefile for PyAitD — Alone in the Dark 1 engine reimplementation
-# Targets: env → run → test → prove → prove-m3b → clean
+# Targets: env → run → test → prove → prove-m3b → prove-shell → clean
 SERVICE = PyAitD
 
 # Variables
 VENV_DIR = .venv
 PYTHON = $(VENV_DIR)/bin/python
 PIP = $(VENV_DIR)/bin/pip
-floor ?= 0
+floor ?=
 data ?= "Alone in the Dark 1.app/Contents/Resources/game/INDARK"
 
-.PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-mouse prove-mouse-only prove-combat clean
+.PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-combat clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -35,8 +35,8 @@ clean: ## Remove venv and all temporary/generated files
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
-run: install ## Run the game: walk the attic, find/take/use/drop objects, read texts (usage: make run data="path/to/INDARK" trace=/tmp/t.log; non-zero floor exits 2 -- use make run-combat for the supported non-attic start)
-	$(PYTHON) -m PyAitD --floor "$(floor)" --data $(data) $(if $(trace),--trace $(trace))
+run: install ## Run the game through character selection (use floor=0 for the attic debug bypass)
+	$(PYTHON) -m PyAitD $(if $(floor),--floor "$(floor)") --data $(data) $(if $(trace),--trace $(trace))
 
 run-combat: install ## Run the supported floor-5 combat venue
 	$(PYTHON) -m PyAitD --combat-venue --data $(data) $(if $(trace),--trace $(trace))
@@ -61,6 +61,13 @@ prove-m3b: install ## M3b proof: focused interaction suite headless (continuatio
 		tests/test_life_interaction_ops.py \
 		tests/test_runtime_modes.py \
 		tests/test_m3b_attic.py -q
+
+prove-shell: install ## M4a1 proof: shell, configuration, mouse contract, and real-loop journeys
+	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy $(PYTHON) -m pytest \
+		tests/test_config.py tests/test_assets.py tests/test_effects.py \
+		tests/test_ui_input.py tests/test_ui_reducers.py tests/test_ui_mouse.py \
+		tests/test_ui_render.py tests/test_runtime_modes.py tests/test_main.py \
+		tests/test_mouse_only.py tests/test_shell_journeys.py -q
 
 prove-mouse: install ## M3d proof: build the navmesh for every camera-visible room, every floor (usage: make prove-mouse data="path/to/INDARK")
 	$(PYTHON) tools/prove_mouse.py $(data)

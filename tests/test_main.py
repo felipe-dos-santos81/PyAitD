@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import json
 import pathlib
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -108,6 +109,20 @@ def test_main_mouse_combat_fixture_runs_its_own_setup(monkeypatch, tmp_path):
         "--mouse-combat-fixture", "--data", str(tmp_path),
     ]) == 0
     assert calls == [("mouse fixture", game), ("run", game)]
+
+
+def test_make_run_uses_shell_by_default_and_floor_zero_only_when_explicit():
+    plain = subprocess.run(
+        ["make", "-n", "run"], capture_output=True, text=True, check=True,
+    ).stdout
+    explicit = subprocess.run(
+        ["make", "-n", "run", "floor=0"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    plain_run = next(line for line in plain.splitlines() if " -m PyAitD " in line)
+    explicit_run = next(line for line in explicit.splitlines() if " -m PyAitD " in line)
+    assert "--floor" not in plain_run
+    assert '--floor "0"' in explicit_run
 
 
 def test_unknown_pygame_key_falls_back_to_defaults_with_a_path_named_notice(tmp_path):

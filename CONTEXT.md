@@ -12,13 +12,14 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 ## Commands
 
 ```bash
-make run                     # play (windowed); make run trace=/tmp/t.log writes per-opcode LIFE trace
+make run                     # play (windowed) through character selection; floor=0 for the attic debug bypass, trace=/tmp/t.log writes per-opcode LIFE trace
 make run-combat              # play the supported floor-5 combat venue
 make run-mouse-combat        # deterministic object-38 mouse combat proof start
 make test                    # pytest suite — authoritative gate
 make prove                   # M3a proof: parse-all 563 scripts/45 tracks/tables + headless 60-tick play_tick boot
 make prove-combat            # M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
 make prove-mouse-only        # M3e contract + real-data attic/combat/restart mouse journeys
+make prove-shell             # M4a1 proof: shell, configuration, mouse contract, real-loop journeys
 ```
 
 ## Where we are
@@ -32,6 +33,7 @@ make prove-mouse-only        # M3e contract + real-data attic/combat/restart mou
 | M3c | Combat: HIT/FIRE/THROW animActions, floor-5 combat venue, multi-floor `FloorStart`, the real death script → GAME_OVER → restart | done (one open ruling: the restart boundary after the death cinematic, `docs/m3c-combat-proof.md`) |
 | M3d | Mouse-only point-and-click input | done |
 | M3e | Mouse reachability: HUD inventory, clicked force-2 throw, exhaustive mouse contract | done |
+| M4a1 | Shell: character select, system menu, remappable controls, sticky Action, settings persistence, settings notice overlay | automated gates green (`make prove-shell`); windowed accessibility pass pending (`docs/m4a1-shell-proof.md`) |
 | M4 | Menus, audio, save/load, ending/completability | later |
 
 Design docs live in `docs/superpowers/specs/` and `docs/superpowers/plans/`
@@ -63,6 +65,7 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `picking.py` | Screen->world: floor homography fitted from the real projection, actor bbox hit-test |
 | `navigate.py` | Mouse follower: NavIntent -> one tick of steering + mirrored joyd |
 | `mouse_contract.py` | Pygame-free declaration of current player capabilities, per-mode one-button routes, and reviewed legacy command replacements |
+| `config.py` | Pygame-free settings schema (v1), platform settings path, validated load, atomic save |
 | `__main__.py` | Process shell: event pump, fixed-step accumulator, `_scene_frame` view assembly, modal routing, one present per frame |
 
 ## Fidelity notes (hard-won)
@@ -175,6 +178,29 @@ action runner.
 - Focused proof: `make prove-mouse-only`; manual evidence:
   `docs/m3e-mouse-only-proof.md`.
 - This milestone does not claim complete-game mouse play; M4 owns that gate.
+
+## M4a1 shell boundary
+
+- `config.py` owns the pygame-free settings schema (v1: bindings for eight
+  controls, CANCEL fixed to Escape, sticky flag), the platform settings path,
+  and the atomic store (temp file + fsync + `os.replace`).
+- `ui.py` owns the compiled pygame bindings, transient input state
+  (held/action/sticky/commands), the modal presenters and reducers, all shell
+  drawing, and the hit geometry (`CharacterLayout`/`SystemMenuLayout`/
+  `SettingsNoticeLayout`).
+- `__main__.py` owns the application session (`ModalSession` settings fields),
+  the persistence policy (load once at boot, save at dirty boundaries), raw
+  remap capture (consumes the captured KEYDOWN exclusively), the event pump,
+  settings-notice first refusal, and the atomic game/floor/session/input
+  replacement (`_hero_branch`/`_restart_branch` + one tuple assignment).
+- `Game` owns no settings; settings never enter world state.
+- Normal boot stages floor zero but never ticks or presents PLAY before
+  character confirmation; explicit `--floor 0`, `--combat-venue`, and
+  `--mouse-combat-fixture` bypass the selector.
+- Focused proof: `make prove-shell`; evidence (automated run, windowed pass
+  pending): `docs/m4a1-shell-proof.md`.
+- The three-row MAIN menu (Return/Configuration/Quit) is the stable host into
+  which M4a2 inserts Save/Load.
 
 ## Testing conventions
 
