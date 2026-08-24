@@ -1,9 +1,10 @@
 # Alone in the Dark 1 — M3e Mouse Reachability and Combat Design
 
 Date: 2026-08-23
-Status: Draft — revised after review
+Status: Approved — planning input
 Reference: FITD (`/Users/felipe.dos.santos/code/theirs/FITD`, GPLv2) —
-`inventory.cpp`, `mainLoop.cpp`, `main.cpp`, `track.cpp`, `animAction.cpp`
+`inventory.cpp`, `mainLoop.cpp`, `main.cpp`, `track.cpp`, `animAction.cpp`;
+port activation path: `game.py`, `playworld.py`, `anim_action.py`
 Builds on: M3b (interaction and inventory), M3c (combat runner and venue),
 M3d (point-and-click movement and interaction)
 
@@ -92,13 +93,32 @@ Action 32 is therefore the only measured player combat action. The name
 “throw” is inferred from behavior; code depends only on the id and observed
 state.
 
-Selecting action 32 in the inventory already begins the throw. A fresh
-real-data probe of object 13 at the venue found that action 23 leaves object 13
-in hand and in inventory without arming combat, while action 32 arms the hero's
-`WAIT_ANIM_THROW` and lets the found LIFE change the in-hand id afterward. The
-combat journey therefore selects action 23 first, returns to PLAY, and then
-clicks the enemy; the enemy click selects action 32 through the same inventory-
-action path. It must not describe action 32 as an equip-only operation.
+Selecting action 32 in the inventory already begins the throw. Fresh real-data
+probes found that action 23 leaves an object in hand and in inventory without
+arming combat, while action 32 arms the hero's `WAIT_ANIM_THROW`. Object 13 is
+not a valid proof projectile: its measured force is zero and its release cube
+is blocked at the unmodified venue. Real object 38 exposes both actions, arms
+force 2, and completes a hit when the deterministic fixture places the hero at
+`(-7400, -4010, -1000)` and world object 222 at
+`(-7400, -4010, -1250)`. The combat journey therefore uses object 38, selects
+action 23 first, returns to PLAY, and then clicks the enemy; the enemy click
+selects action 32 through the same inventory-action path. It must not describe
+action 32 as an equip-only operation.
+
+### A thrown object needs one narrow activation repair
+
+At the release frame, `_prepare_throw` moves the carried world object into the
+current stage and room. The port defers `spawn_stage_actors` until the end of
+the tick, but a later LIFE in the same tick can evaluate an actor-only property
+of that object while `obj_index == -1`; the real object-38 journey raises before
+launch. Calling the whole active-list regeneration in the middle of the actor
+pass would have a wide ordering impact.
+
+M3e instead extracts the existing single-object initialization body from
+`spawn_stage_actors` as `activate_world_object(game, object_idx)`. The normal
+active-list loop delegates to it, and `_prepare_throw` calls it immediately
+after publishing the released object's stage/room/flags. No collision, damage,
+LIFE, or animation-action rule changes.
 
 ### The supported target proxy is venue-scoped
 
@@ -145,6 +165,8 @@ facing adaptation; it does not alter FITD's ordinary interpolated movement.
    commands/modes; real journeys catch routes that exist only on paper.
 7. **Documented fixture boundaries.** Do not pretend the current engine can
    travel naturally from the attic to the floor-5 debug venue.
+8. **Separate manual combat start.** Keep `make run-combat` unchanged for M3c;
+   add `make run-mouse-combat` for the deterministic object-38 mouse proof.
 
 ## Pointer architecture
 
@@ -223,7 +245,9 @@ game state.
 
 `__main__.inventory_hud_available(game)` is the shared policy used by drawing,
 resolution, and click routing. It is true only for mouse-controlled PLAY with
-no modal, status-screen permission, and at least one inventory item.
+no modal, a valid camera and hero, status-screen permission, and at least one
+inventory item. The camera/hero guards keep a transition frame from drawing a
+HUD target that the resolver must reject.
 
 The logical rectangle is scaled by the existing 320x200 presentation path.
 Hit-testing uses `Rect.collidepoint`; its right and bottom edges are exclusive,
@@ -315,13 +339,19 @@ depends on unfinished M4c paths. M3e uses three real-data journeys instead.
    lamp, run ticks until the real found modal, click Take, open inventory from
    the HUD, select the lamp, and select a real non-combat action. No `Command`
    is injected by the test.
-2. **Combat venue.** Start through `enter_combat_venue`. Before the audited
-   input sequence begins, a test-only fixture places real object 13 in the
-   inventory using the same state postconditions as a completed take. Mouse
-   clicks open the HUD, select action 23 to put object 13 in hand,
-   return to PLAY, and click world object 222. From that point, only the real
-   found LIFE, opcode, action runner, spawn, and collision paths may arm and
-   publish the throw.
+2. **Combat venue.** Start through
+   `scenario.enter_mouse_combat_fixture`, which first enters `COMBAT_VENUE`,
+   then places real object 38 in the inventory using the same state
+   postconditions as a completed take, relocates the hero to
+   `(-7400, -4010, -1000)`, and relocates world object 222 to
+   `(-7400, -4010, -1250)`. It freezes only the target's LIFE/track movement so
+   the proof measures the player's force-2 throw rather than an enemy hit that
+   overwrites `hit_force` before release. The helper is the shared setup for
+   the automated journey and `make run-mouse-combat`; `make run-combat` keeps
+   its existing real-enemy behavior. Mouse clicks open the HUD, select action
+   23 to put object 38 in hand, return to PLAY, and click world object 222.
+   From that point, only the real found LIFE, opcode, action runner, activation,
+   and collision paths may arm and publish the throw.
 3. **Death and restart.** Use the existing real enemy/death journey. After the
    game-over delay, a synthetic left click requests restart through the real
    event-pump branch. No restart command is injected directly.
@@ -399,7 +429,7 @@ posting emulated system events, so no event-test library is needed.
   asserts it equals `{32}` within the stated 20-tick observation window.
 - The attic, combat, and death/restart journeys follow the fixture rules above.
 - Combat asserts hero `WAIT_ANIM_THROW`, then thrown-actor `THROW_OBJECT`, then
-  victim `hit_by == thrown_actor_idx` and the real published force.
+  victim `hit_by == thrown_actor_idx` and the measured published force `2`.
 - Existing M3d tests remain unchanged except for mechanical `ModalSession`
   arguments required by the expanded PLAY router.
 
@@ -420,7 +450,7 @@ route before it is made green.
 ## Manual windowed evidence
 
 Extend the existing M3d/M3b proof rather than claiming automation proves motor
-accessibility. Using `make run` and `make run-combat`, record:
+accessibility. Using `make run` and `make run-mouse-combat`, record:
 
 - single-button completion of found, HUD inventory, object/action selection,
   reading, combat click, game-over restart, and window close;
