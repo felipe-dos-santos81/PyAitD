@@ -9,7 +9,7 @@ PIP = $(VENV_DIR)/bin/pip
 floor ?= 0
 data ?= "Alone in the Dark 1.app/Contents/Resources/game/INDARK"
 
-.PHONY: help install run run-combat test prove prove-m3b prove-mouse prove-combat clean
+.PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-mouse prove-mouse-only prove-combat clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -41,6 +41,9 @@ run: install ## Run the game: walk the attic, find/take/use/drop objects, read t
 run-combat: install ## Run the supported floor-5 combat venue
 	$(PYTHON) -m PyAitD --combat-venue --data $(data) $(if $(trace),--trace $(trace))
 
+run-mouse-combat: install ## Run the deterministic object-38 mouse combat proof fixture
+	$(PYTHON) -m PyAitD --mouse-combat-fixture --data $(data) $(if $(trace),--trace $(trace))
+
 # ── Development ──────────────────────────────────────────────────────────────
 
 test: install ## Run the pytest unit test suite
@@ -61,6 +64,9 @@ prove-m3b: install ## M3b proof: focused interaction suite headless (continuatio
 
 prove-mouse: install ## M3d proof: build the navmesh for every camera-visible room, every floor (usage: make prove-mouse data="path/to/INDARK")
 	$(PYTHON) tools/prove_mouse.py $(data)
+
+prove-mouse-only: install ## M3e proof: exhaustive one-button contract + real-data attic, combat, and restart journeys
+	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy $(PYTHON) -m pytest tests/test_mouse_only.py -q
 
 prove-combat: install ## M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
 	$(PYTHON) tools/prove_combat.py $(data)

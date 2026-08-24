@@ -10,6 +10,7 @@ def test_parse_args_defaults():
     assert args.floor == 0
     assert args.data is not None
     assert args.combat_venue is False
+    assert args.mouse_combat_fixture is False
 
 
 def test_parse_args_overrides():
@@ -43,3 +44,26 @@ def test_main_combat_venue_calls_enter_combat_venue_once_before_run(monkeypatch,
     main.main(["--combat-venue", "--data", str(tmp_path)])
 
     assert calls == [("venue", game), ("run", game)]
+
+
+def test_parse_args_has_a_separate_mouse_combat_start():
+    args = parse_args(["--mouse-combat-fixture"])
+    assert args.mouse_combat_fixture is True
+    assert args.combat_venue is False
+
+
+def test_main_mouse_combat_fixture_runs_its_own_setup(monkeypatch, tmp_path):
+    import PyAitD.__main__ as main
+
+    game = SimpleNamespace()
+    calls = []
+    monkeypatch.setattr(main, "init_game", lambda data: game)
+    monkeypatch.setattr(
+        main, "enter_mouse_combat_fixture",
+        lambda g: calls.append(("mouse fixture", g)),
+    )
+    monkeypatch.setattr(main, "run", lambda g, trace: calls.append(("run", g)) or 0)
+    assert main.main([
+        "--mouse-combat-fixture", "--data", str(tmp_path),
+    ]) == 0
+    assert calls == [("mouse fixture", game), ("run", game)]

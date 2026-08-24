@@ -39,6 +39,38 @@ def apply_play_input(game, input_buffer):
     game.action = 0x2000 if game.local_click else 0
 
 
+def _push_into_target(game):
+    """Re-aim an arrived target click at the object itself for the final push.
+
+    FITD fires scripted founds from the collision itself: anim.cpp:381 sets
+    HARD_COL from a type-9 hard col's parameter, and watchers such as the
+    attic lamp's life 7 call FOUND when the hero grinds into the furniture.
+    The snapped approach cell stops one agent-radius short of every hard col,
+    so a click that ended there could never reach those scripts. Steer into
+    the object instead and let the engine's own collision clamp the hero
+    against it — the mouse equivalent of holding the walk key. Foundable
+    objects keep the contact-free dispatch at the approach cell, and a second
+    arrival at the object's own point dispatches normally, so the push always
+    terminates in a dispatch, a modal, or the stall give-up.
+    """
+    from PyAitD.game import AF_FOUNDABLE
+    intent = game.nav_intent
+    if intent.target_object_idx == -1:
+        return False
+    target = game.world_objects[intent.target_object_idx]
+    if target.obj_index == -1 or target.found_life == -1:
+        return False
+    actor = game.actors[target.obj_index]
+    if actor.object_type & AF_FOUNDABLE:
+        return False
+    if (intent.dest_x, intent.dest_z) == (actor.room_x, actor.room_z):
+        return False
+    intent.dest_x, intent.dest_z = actor.room_x, actor.room_z
+    intent.room = actor.room
+    intent.waypoints = None
+    return True
+
+
 def _apply_mouse_input(game):
     # The follower decision is made here, in the input snapshot, so the tick
     # order stays exactly FITD's mainLoop order and the mouse is a peer of the
@@ -57,6 +89,10 @@ def _apply_mouse_input(game):
     game.nav_decision = decision
     game.local_joyd = decision.joyd if decision is not None else 0
     if decision is not None and (decision.arrived or decision.abandoned):
+        if decision.arrived and not decision.abandoned and _push_into_target(game):
+            game.nav_decision = None
+            game.local_joyd = 0
+            return
         if decision.arrived:
             game.nav_arrived_target = game.nav_intent.target_object_idx
         game.nav_intent = None

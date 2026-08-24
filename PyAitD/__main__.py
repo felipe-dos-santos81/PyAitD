@@ -19,7 +19,7 @@ from PyAitD.picking import actor_bbox
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.playworld import TICK_MS, play_tick
 from PyAitD.render import Renderer
-from PyAitD.scenario import enter_combat_venue
+from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
 from PyAitD.skel import skin
 from PyAitD.ui import (
     Command, InputBuffer, ModalSession, event_to_input, render_cursor,
@@ -42,9 +42,14 @@ def parse_args(argv):
     p.add_argument("--data", type=pathlib.Path, default=DEFAULT_DATA, help="game data dir")
     p.add_argument("--floor", type=int, default=0, help="floor number (default 0)")
     p.add_argument("--trace", type=pathlib.Path, default=None, help="write per-opcode LIFE trace to FILE")
-    p.add_argument(
+    starts = p.add_mutually_exclusive_group()
+    starts.add_argument(
         "--combat-venue", action="store_true",
         help="start at the supported floor-5 combat venue",
+    )
+    starts.add_argument(
+        "--mouse-combat-fixture", action="store_true",
+        help="start with the deterministic object-38 mouse combat proof fixture",
     )
     return p.parse_args(argv)
 
@@ -568,11 +573,13 @@ def main(argv=None):
     if args.floor != 0:
         print(
             "error: non-zero --floor has no safe room/coordinate mapping; "
-            "use --combat-venue",
+            "use --combat-venue or --mouse-combat-fixture",
             file=sys.stderr,
         )
         return 2
-    if args.combat_venue:
+    if args.mouse_combat_fixture:
+        enter_mouse_combat_fixture(game)
+    elif args.combat_venue:
         enter_combat_venue(game)
     return run(game, args.trace)
 
