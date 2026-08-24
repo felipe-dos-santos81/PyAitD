@@ -703,3 +703,46 @@ def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
     # once at renderer creation — modals must get it back the frame they open.
     assert calls.count(("visible", False)) == 2
     assert calls[-2:] == [("visible", True), "close"]
+
+
+def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, monkeypatch):
+    # Staging-game rule: a normal boot loads floor zero but must never tick or
+    # present PLAY before character confirmation -- every presented frame
+    # comes from render_character_select, never from the staged scene array.
+    import PyAitD.__main__ as main
+    from PyAitD.effects import ChooseCharacter
+    from PyAitD.ui import CharacterSelectPresenter, render_character_select
+
+    calls = []
+    presented = []
+    sentinel = np.full((200, 320, 3), 255, dtype=np.uint8)
+    event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])
+    times = iter([0, 0, 0])
+
+    monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(
+        number=0, rooms=[SimpleNamespace(camera_indices=[0])],
+    ))
+    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+        present=presented.append, close=lambda: None,
+    ))
+    monkeypatch.setattr(
+        main, "play_tick", lambda *args: calls.append("tick") or True,
+    )
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (sentinel, []))
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda value: None)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
+    )
+
+    game = init_game(data_dir)
+    game.open_modal(ChooseCharacter())
+    assert main.run(game) == 0
+
+    assert "tick" not in calls, "the staging game must never tick PLAY"
+    assert presented, "the selector must present its own frame"
+    expected = render_character_select(CharacterSelectPresenter(), game.assets)
+    for frame in presented:
+        assert not np.array_equal(frame, sentinel), "staged scene leaked to screen"
+        assert np.array_equal(frame, expected)

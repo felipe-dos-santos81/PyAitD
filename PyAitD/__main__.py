@@ -9,7 +9,8 @@ import sys
 import pygame
 
 from PyAitD.actors import anim_player_for, sort_actor_indices
-from PyAitD.effects import GameMode, InputMode
+from PyAitD.config import default_settings, load_settings, settings_path
+from PyAitD.effects import ChooseCharacter, GameMode, InputMode
 from PyAitD.floor import Floor
 from PyAitD.game import enter_floor_start, init_game
 from PyAitD.life import Trace
@@ -22,8 +23,8 @@ from PyAitD.render import Renderer
 from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
 from PyAitD.skel import skin
 from PyAitD.ui import (
-    Command, InputBuffer, ModalSession, event_to_input, render_cursor,
-    render_play_hud,
+    Command, InputBuffer, ModalSession, configure_input, event_to_input,
+    render_cursor, render_play_hud,
 )
 from PyAitD.world import CameraState
 
@@ -40,7 +41,7 @@ DEFAULT_DATA = (
 def parse_args(argv):
     p = argparse.ArgumentParser(prog="PyAitD", description="AITD1 play viewer (M3b: interaction loop)")
     p.add_argument("--data", type=pathlib.Path, default=DEFAULT_DATA, help="game data dir")
-    p.add_argument("--floor", type=int, default=0, help="floor number (default 0)")
+    p.add_argument("--floor", type=int, default=None, help="floor number (default: character select on floor 0)")
     p.add_argument("--trace", type=pathlib.Path, default=None, help="write per-opcode LIFE trace to FILE")
     starts = p.add_mutually_exclusive_group()
     starts.add_argument(
@@ -52,6 +53,37 @@ def parse_args(argv):
         help="start with the deterministic object-38 mouse combat proof fixture",
     )
     return p.parse_args(argv)
+
+
+def load_runtime_session(path):
+    # JSON-only boot step: no pygame initialization here -- pygame key names
+    # are validated later by configure_session_input, once the Renderer owns
+    # the initialized pygame runtime.
+    settings, error = load_settings(path)
+    return ModalSession(settings=settings, settings_path=path, settings_error=error)
+
+
+def configure_session_input(session, input_buffer):
+    try:
+        configure_input(input_buffer, session.settings)
+    except ValueError as exc:
+        session.settings = default_settings()
+        session.settings_error = (
+            f"Could not load settings from {session.settings_path}: {exc}"
+        )
+        configure_input(input_buffer, session.settings)
+
+
+def replacement_session(session):
+    # Hero confirmation and death restart both replace the game: only the
+    # application-session fields (settings and their persistence state) carry
+    # over; every modal presenter starts fresh.
+    return ModalSession(
+        settings=session.settings,
+        settings_path=session.settings_path,
+        settings_error=session.settings_error,
+        settings_dirty=session.settings_dirty,
+    )
 
 
 def _scene_frame(game, floor, renderer):
@@ -278,6 +310,15 @@ def route_command(game, session, command):
 
     session.reset_for(game.active_modal)
     modal_command = Command.ACCEPT if command is Command.OPEN_INVENTORY else command
+    if isinstance(game.active_modal, ChooseCharacter):
+        from PyAitD.ui import reduce_character_select
+        result = reduce_character_select(session.character, modal_command)
+        if result is not None:
+            if result.hero is not None:
+                session.pending_hero = result.hero
+            if result.quit:
+                return False
+        return True
     if isinstance(game.active_modal, ShowFound):
         result = reduce_found(
             session.found, modal_command,
@@ -311,18 +352,32 @@ def route_command(game, session, command):
 
 
 def route_mouse(game, session, logical_pos):
-    from PyAitD.effects import GameOver, OpenInventory, ReadText, ShowFound, ShowPicture
+    from PyAitD.effects import (
+        ChooseCharacter, GameOver, OpenInventory, ReadText, ShowFound, ShowPicture,
+    )
     from PyAitD.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
     )
     from PyAitD.ui import (
-        ReadingResult, hit_test_found, hit_test_inventory, hit_test_reading,
-        reading_pages, turn_page,
+        CharacterPhase, ReadingResult, hit_test_character, hit_test_found,
+        hit_test_inventory, hit_test_reading, reading_pages, turn_page,
     )
     if logical_pos is None or game.active_modal is None:
         return True
     effect = game.active_modal
     session.reset_for(effect)
+    if isinstance(effect, ChooseCharacter):
+        hit = hit_test_character(logical_pos, session.character)
+        if hit is None:
+            return True
+        if session.character.phase is CharacterPhase.PORTRAITS:
+            session.character.choice = hit
+            session.character.phase = CharacterPhase.STORY
+        else:
+            # the story page confirms on click: left half is Emily (hero 1),
+            # right half is Carnby (hero 0) -- reduce_character_select's map
+            session.pending_hero = 1 if logical_pos[0] < 160 else 0
+        return True
     if isinstance(effect, ShowFound):
         result = hit_test_found(logical_pos)
         if result is not None:
@@ -376,15 +431,20 @@ def _auto_dismiss_picture(game, session):
 
 
 def render_active_mode(game, session, scene_frame):
-    from PyAitD.effects import GameOver, OpenInventory, ReadText, ShowFound, ShowPicture
+    from PyAitD.effects import (
+        ChooseCharacter, GameOver, OpenInventory, ReadText, ShowFound, ShowPicture,
+    )
     from PyAitD.ui import (
-        overlay_messages, render_found, render_game_over, render_inventory,
-        render_picture, render_reading,
+        overlay_messages, render_character_select, render_found,
+        render_game_over, render_inventory, render_picture, render_reading,
     )
     effect = game.active_modal
     if effect is None:
         return overlay_messages(scene_frame, game.messages, game.assets)
     session.reset_for(effect)
+    if isinstance(effect, ChooseCharacter):
+        # the selector owns the whole frame; the staged PLAY scene is never shown
+        return render_character_select(session.character, game.assets)
     if isinstance(effect, ShowFound):
         world = game.world_objects[effect.object_idx]
         return render_found(effect, session.found, game.assets, game.assets.system_text(world.found_name))
@@ -424,7 +484,33 @@ def restart_session(old_game):
     return new_game
 
 
-def _restart_branch(game, renderer):
+def _hero_branch(game, renderer, session):
+    # Atomic hero replacement: confirming a character rebuilds game, floor,
+    # session, and input buffer in one tuple, so run() resumes on the new
+    # game with a single assignment plus `continue` -- no PLAY tick and no
+    # stale present can slip through for the staging game.
+    if session.pending_hero is None:
+        return None
+    try:
+        new_game = init_game(game._data_dir, hero=session.pending_hero)
+        new_floor = Floor(new_game._data_dir, new_game.current_floor)
+    except PakError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return (None, None, None, None, 0, [], None, None, None, 2)
+    new_game.trace = game.trace
+    new_session = replacement_session(session)
+    input_buffer = InputBuffer()
+    configure_session_input(new_session, input_buffer)
+    new_game.num_camera = new_game.new_num_camera
+    new_game.flag_init_view = 0
+    scene_frame, draw_list = _scene_frame(new_game, new_floor, renderer)
+    return (
+        new_game, new_floor, new_session, input_buffer, 0,
+        draw_list, None, scene_frame, pygame.time.get_ticks(), 0,
+    )
+
+
+def _restart_branch(game, renderer, session):
     # The atomic replace-game-and-floor step run() inlines each frame: a
     # successful restart hands back every loop local that referenced the old
     # game, so a single tuple assignment plus `continue` is enough to resume
@@ -439,8 +525,9 @@ def _restart_branch(game, renderer):
         return (None, None, None, None, 0, [], None, None, None, 2)
     game = new_game
     floor = new_floor
-    session = ModalSession()
+    session = replacement_session(session)
     input_buffer = InputBuffer()
+    configure_session_input(session, input_buffer)
     accumulator = 0
     draw_list = []
     hover = None
@@ -454,7 +541,7 @@ def _restart_branch(game, renderer):
     )
 
 
-def run(game, trace_path=None):
+def run(game, trace_path=None, session=None):
     # M3b play loop: one event pump, fixed-step PLAY ticks, one present/frame
     try:
         floor = Floor(game._data_dir, game.current_floor)
@@ -465,7 +552,9 @@ def run(game, trace_path=None):
     renderer = Renderer()
     clock = pygame.time.Clock()
     input_buffer = InputBuffer()
-    session = ModalSession()
+    if session is None:
+        session = ModalSession()
+    configure_session_input(session, input_buffer)
     running = True
     exit_status = 0
     last = pygame.time.get_ticks()
@@ -498,14 +587,16 @@ def run(game, trace_path=None):
             if game.mode is GameMode.PLAY and command is Command.CANCEL:
                 running = False
             else:
-                route_command(game, session, command)
-        restarted = _restart_branch(game, renderer)
-        if restarted is not None:
+                running = route_command(game, session, command) and running
+        replaced = _hero_branch(game, renderer, session)
+        if replaced is None:
+            replaced = _restart_branch(game, renderer, session)
+        if replaced is not None:
             (
                 new_game, new_floor, new_session, new_input_buffer,
                 new_accumulator, new_draw_list, new_hover, new_scene_frame,
                 new_last, exit_status,
-            ) = restarted
+            ) = replaced
             if exit_status:
                 running = False
                 break
@@ -577,7 +668,7 @@ def main(argv=None):
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    if args.floor != 0:
+    if args.floor not in (None, 0):
         print(
             "error: non-zero --floor has no safe room/coordinate mapping; "
             "use --combat-venue or --mouse-combat-fixture",
@@ -588,7 +679,16 @@ def main(argv=None):
         enter_mouse_combat_fixture(game)
     elif args.combat_venue:
         enter_combat_venue(game)
-    return run(game, args.trace)
+    debug_start = (
+        args.floor is not None or args.combat_venue or args.mouse_combat_fixture
+    )
+    if not debug_start:
+        # Normal boot stages floor zero but opens the character selector
+        # before run(); PLAY never ticks or presents until _hero_branch
+        # replaces the staging game with the confirmed hero's game.
+        game.open_modal(ChooseCharacter())
+    session = load_runtime_session(settings_path())
+    return run(game, args.trace, session=session)
 
 
 if __name__ == "__main__":

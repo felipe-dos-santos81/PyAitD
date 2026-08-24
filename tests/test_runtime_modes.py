@@ -4,14 +4,133 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from PyAitD.__main__ import restart_session, route_command, route_mouse
+from PyAitD.__main__ import (
+    replacement_session, restart_session, route_command, route_mouse,
+)
+from PyAitD.config import Settings, default_settings
 from PyAitD.playworld import apply_play_input
 from PyAitD.effects import (
-    GameMode, InputMode, NavDecision, NavIntent, OpenInventory, ReadText, ShowPicture,
+    ChooseCharacter, GameMode, InputMode, NavDecision, NavIntent, OpenInventory,
+    ReadText, ShowPicture,
 )
 from PyAitD.game import init_game
 from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
-from PyAitD.ui import Command, InputBuffer, ModalLayout, ModalSession
+from PyAitD.ui import (
+    CharacterLayout, CharacterPhase, CharacterSelectPresenter, Command,
+    InputBuffer, ModalLayout, ModalSession, SystemMenuPresenter,
+)
+
+
+def test_character_routes_reach_story_back_and_pending_hero(data_dir):
+    game = init_game(data_dir)
+    game.open_modal(ChooseCharacter())
+    session = ModalSession()
+    assert route_command(game, session, Command.ACCEPT)
+    assert session.character.phase is CharacterPhase.STORY
+    assert route_command(game, session, Command.CANCEL)
+    assert session.character.phase is CharacterPhase.PORTRAITS
+    assert route_mouse(game, session, CharacterLayout.PORTRAITS[1].center)
+    assert session.character.phase is CharacterPhase.STORY
+    assert route_mouse(game, session, (160, 100))
+    assert session.pending_hero == 0
+
+
+def test_character_quit_at_portraits_returns_false(data_dir):
+    # CANCEL at the portrait phase is the selector's quit result -- run() must
+    # see False and stop; CANCEL at the story phase only steps back.
+    game = init_game(data_dir)
+    game.open_modal(ChooseCharacter())
+    session = ModalSession()
+    assert route_command(game, session, Command.CANCEL) is False
+    assert session.pending_hero is None
+
+
+def test_replacement_session_carries_only_application_settings(tmp_path):
+    settings = Settings(default_settings().bindings, True)
+    old = ModalSession(settings=settings, settings_path=tmp_path / "settings.json",
+                       settings_error="named error", settings_dirty=True)
+    old.character.choice = 1
+    new = replacement_session(old)
+    assert (new.settings, new.settings_path, new.settings_error, new.settings_dirty) == (
+        settings, old.settings_path, "named error", True,
+    )
+    assert new.character == CharacterSelectPresenter()
+    assert new.system_menu == SystemMenuPresenter()
+
+
+def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, monkeypatch):
+    import PyAitD.__main__ as main
+
+    staging = init_game(data_dir)
+    staging.open_modal(ChooseCharacter())
+    staging.trace = object()
+    session = ModalSession(settings_error="named error", settings_dirty=True)
+    session.pending_hero = 1
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    init_calls, floor_calls, ticked = [], [], []
+    real_init_game = main.init_game
+
+    def spy_init_game(data, hero=0):
+        init_calls.append((data, hero))
+        return real_init_game(data, hero=hero)
+
+    monkeypatch.setattr(main, "init_game", spy_init_game)
+    monkeypatch.setattr(
+        main, "Floor",
+        lambda *args: floor_calls.append(args) or SimpleNamespace(number=0),
+    )
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, ["draw"]))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 4321)
+    monkeypatch.setattr(main, "play_tick", lambda *args: ticked.append(1))
+
+    result = main._hero_branch(staging, SimpleNamespace(), session)
+
+    assert result is not None
+    (new_game, new_floor, new_session, new_buffer, accumulator,
+     draw_list, hover, scene_frame, last, exit_status) = result
+    assert init_calls == [(staging._data_dir, 1)]
+    assert new_game is not staging
+    assert new_game.trace is staging.trace
+    assert floor_calls == [(new_game._data_dir, new_game.current_floor)]
+    assert isinstance(new_buffer, InputBuffer) and new_buffer.bindings is not None
+    assert (new_session.settings_error, new_session.settings_dirty) == (
+        "named error", True,
+    )
+    assert new_session.pending_hero is None
+    assert (accumulator, draw_list, hover, scene_frame, last, exit_status) == (
+        0, ["draw"], None, frame, 4321, 0,
+    )
+    assert ticked == [], "the old staging game must not be ticked"
+
+
+def test_hero_branch_is_inert_without_a_pending_hero(data_dir):
+    import PyAitD.__main__ as main
+    game = init_game(data_dir)
+    assert main._hero_branch(game, SimpleNamespace(), ModalSession()) is None
+
+
+def test_restart_branch_carries_application_settings(data_dir, monkeypatch):
+    import PyAitD.__main__ as main
+
+    game = init_game(data_dir, hero=1)
+    game.restart_requested = True
+    session = ModalSession(settings_error="named error", settings_dirty=True)
+    session.character.choice = 1
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(number=0))
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
+
+    result = main._restart_branch(game, SimpleNamespace(), session)
+
+    assert result is not None
+    new_session, new_buffer = result[2], result[3]
+    assert (new_session.settings_error, new_session.settings_dirty) == (
+        "named error", True,
+    )
+    assert new_session.character == CharacterSelectPresenter()
+    assert isinstance(new_buffer, InputBuffer) and new_buffer.bindings is not None
 
 
 def test_inventory_hud_availability_is_the_complete_shared_policy(data_dir):
@@ -122,11 +241,21 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     import PyAitD.__main__ as main
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    buffer = InputBuffer(commands=deque([Command.OPEN_INVENTORY, Command.OPEN_INVENTORY]))
+    buffer = InputBuffer()
     session = ModalSession()
     event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])
     times = iter([0, 0, 0])
 
+    # run() now configures the session's input buffer before the loop, and
+    # configuring resets (clears) queued commands -- so the two edges are
+    # seeded right after that boot step, still before the first pump.
+    real_configure = main.configure_session_input
+
+    def seed_after_configure(session, input_buffer):
+        real_configure(session, input_buffer)
+        input_buffer.commands.extend([Command.OPEN_INVENTORY, Command.OPEN_INVENTORY])
+
+    monkeypatch.setattr(main, "configure_session_input", seed_after_configure)
     monkeypatch.setattr(main, "InputBuffer", lambda: buffer)
     monkeypatch.setattr(main, "ModalSession", lambda: session)
     monkeypatch.setattr(
@@ -335,12 +464,14 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
         calls.append("Floor")
         return SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])])
 
-    def spy_modal_session():
+    real_modal_session = main.ModalSession
+
+    def spy_modal_session(*args, **kwargs):
         calls.append("ModalSession reset")
-        # elapsed_ms lives on ModalSession itself (ui.ModalSession), not
-        # nested under .reading -- match that shape even though this test's
-        # restart path returns before reading it.
-        return SimpleNamespace(elapsed_ms=0)
+        # restart now rebuilds the session via replacement_session (carrying
+        # application settings) and configures the fresh input buffer from
+        # it, so the spy must produce a fully functional session.
+        return real_modal_session(*args, **kwargs)
 
     def spy_input_buffer():
         calls.append("InputBuffer reset")
