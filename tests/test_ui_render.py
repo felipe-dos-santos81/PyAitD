@@ -80,6 +80,14 @@ def test_all_pointer_kinds_have_distinct_pixel_output():
     assert len({image.tobytes() for image in rendered.values()}) == 5
 
 
+def test_push_cursor_is_a_sixth_distinct_pointer():
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    kinds = ("inventory", "attack", "target", "push", "walk", "blocked")
+    rendered = {kind: render_cursor(frame, (160, 100), kind) for kind in kinds}
+
+    assert len({image.tobytes() for image in rendered.values()}) == len(kinds)
+
+
 def test_cursor_outside_the_surface_is_a_no_op():
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     assert np.array_equal(render_cursor(frame, None, "walk"), frame)

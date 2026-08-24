@@ -347,17 +347,45 @@ def test_a_click_on_an_actor_becomes_a_target_intent(data_dir):
     game = init_game(data_dir)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
-    # the actor must be a valid click target (found-able or touch-scripted);
-    # not every actor in the draw list is interactable (e.g. plain scenery).
+    # The draw list only contains body-bearing actors. The target itself must
+    # be interactable; plain scenery is handled as a blocked occluder.
     other_idx = next(
         i for i, a in enumerate(game.actors)
-        if a.index_in_world >= 0 and i != game.current_camera_target_actor
+        if a.index_in_world >= 0 and a.body_num != -1
+        and i != game.current_camera_target_actor
         and _is_interactable(game, i)
     )
     draw_list = [(other_idx, (100, 60, 200, 160))]
     route_play_click(game, ModalSession(), floor, (150, 100), draw_list)
     assert game.nav_intent is not None
     assert game.nav_intent.target_object_idx == game.actors[other_idx].index_in_world
+
+
+def test_opening_wardrobe_resolves_and_routes_as_a_held_push(data_dir):
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    actor_idx = game.world_objects[4].obj_index
+    draw = [(actor_idx, (100, 60, 200, 160))]
+
+    kind, payload = resolve_play_click(game, floor, (150, 100), draw)
+
+    assert kind == "push"
+    assert payload[3] == 4
+    route_play_click(game, ModalSession(), floor, (150, 100), draw)
+    assert game.nav_intent.requires_hold is True
+    assert game.nav_intent.engaged is False
+
+
+def test_inert_body_intercepts_the_floor_and_stays_blocked(data_dir):
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    actor_idx = game.world_objects[8].obj_index
+
+    assert resolve_play_click(
+        game, floor, (150, 100), [(actor_idx, (100, 60, 200, 160))],
+    ) == ("blocked", None)
 
 
 def test_a_click_on_nothing_leaves_the_intent_alone(data_dir):
@@ -657,7 +685,7 @@ def test_topmost_union_uses_one_pick_actor_call(data_dir, monkeypatch):
     hero_idx = game.current_camera_target_actor
     candidates = [
         i for i, actor in enumerate(game.actors)
-        if actor.index_in_world >= 0 and i != hero_idx
+        if actor.index_in_world >= 0 and actor.body_num != -1 and i != hero_idx
     ][:2]
     game.actors[candidates[0]].object_type |= AF_FOUNDABLE
     game.actors[candidates[1]].object_type |= AF_ANIMATED

@@ -747,6 +747,7 @@ _CURSOR_COLORS = {
     "walk": (200, 230, 170),
     "target": (255, 220, 130),
     "attack": (255, 96, 72),
+    "push": (255, 178, 56),
     "inventory": (120, 210, 255),
     "blocked": (190, 90, 80),
 }
@@ -768,6 +769,12 @@ def render_cursor(frame, logical_pos, kind):
         pygame.draw.line(surface, color, (x, y - 8), (x, y + 8), width=1)
     elif kind == "target":
         pygame.draw.rect(surface, color, pygame.Rect(x - 5, y - 5, 11, 11), width=1)
+    elif kind == "push":
+        pygame.draw.line(surface, color, (x - 7, y), (x + 7, y), width=2)
+        pygame.draw.line(surface, color, (x - 7, y), (x - 3, y - 3), width=2)
+        pygame.draw.line(surface, color, (x - 7, y), (x - 3, y + 3), width=2)
+        pygame.draw.line(surface, color, (x + 7, y), (x + 3, y - 3), width=2)
+        pygame.draw.line(surface, color, (x + 7, y), (x + 3, y + 3), width=2)
     elif kind == "blocked":
         pygame.draw.line(surface, color, (x - 4, y - 4), (x + 4, y + 4))
         pygame.draw.line(surface, color, (x - 4, y + 4), (x + 4, y - 4))

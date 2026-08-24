@@ -141,26 +141,29 @@ def inventory_hud_available(game):
 
 
 def _pointer_actor_targets(game, draw_list, hero_idx):
-    """Union rule: draw-list candidates a click may target — interactable OR
-    combat target, never the hero."""
-    from PyAitD.interaction import is_combat_target
+    """Live, body-bearing world actors under the pointer, never the hero."""
     return [
         (idx, box) for idx, box in draw_list
         if idx != hero_idx
-        and (_is_interactable(game, idx) or is_combat_target(game, idx))
+        and game.actors[idx].index_in_world >= 0
+        and game.actors[idx].body_num != -1
     ]
 
 
 def resolve_play_click(game, floor, logical_pos, draw_list):
-    """Resolve inventory, attack, target, walk, or blocked plus its payload.
+    """Resolve inventory, attack, target, push, walk, or blocked plus its payload.
 
     One resolver behind both the cursor and the click, so hover feedback cannot
     advertise something different from what clicking does. kind is "inventory"
     (the HUD button), "attack" (a combat target with a usable in-hand weapon),
-    "target" (an interactable object), "walk" (a floor point we can head for)
-    or "blocked" (nothing to do, payload None).
+    "target" (an interactable object), "push" (a hold-required scripted
+    actor), "walk" (a floor point we can head for), or "blocked" (nothing to
+    do, payload None).
     """
-    from PyAitD.interaction import combat_action_for, is_combat_target
+    from PyAitD.interaction import (
+        combat_action_for, hold_action_approach, is_combat_target,
+        is_hold_action_target,
+    )
     from PyAitD.navmesh import agent_extent, approach_cell, nearest_walkable
     from PyAitD.picking import pick_actor, pick_floor_any_room
     from PyAitD.ui import PlayLayout
@@ -189,6 +192,11 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
             return ("blocked", None)
         return ("attack", actor_idx)
     if actor_idx is not None:
+        if not _is_interactable(game, actor_idx):
+            if not is_hold_action_target(game, actor_idx):
+                return ("blocked", None)
+            payload = hold_action_approach(game, floor, hero_idx, actor_idx)
+            return ("push", payload) if payload is not None else ("blocked", None)
         target = game.actors[actor_idx]
         dest_x, dest_z = target.room_x, target.room_z
         # An object's own cell is essentially never walkable (the hard col
@@ -245,7 +253,10 @@ def route_play_click(game, session, floor, logical_pos, draw_list):
     if kind == "blocked":
         return
     dest_x, dest_z, room, object_idx = payload
-    apply_click_intent(game, dest_x, dest_z, room, target_object_idx=object_idx)
+    apply_click_intent(
+        game, dest_x, dest_z, room, target_object_idx=object_idx,
+        requires_hold=(kind == "push"),
+    )
 
 
 def _is_interactable(game, actor_idx):
