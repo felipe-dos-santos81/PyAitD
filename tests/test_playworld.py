@@ -190,7 +190,7 @@ def test_latched_world_target_cancels_if_slot_points_at_another_eligible_actor(
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
 
 
-def test_approach_refreshes_its_adjacent_destination_when_the_target_moves(data_dir):
+def test_approach_replans_after_its_snapshotted_target_moves(data_dir):
     from PyAitD.interaction import hold_action_approach
 
     game = init_game(data_dir)
@@ -203,16 +203,37 @@ def test_approach_refreshes_its_adjacent_destination_when_the_target_moves(data_
     assert payload is not None
     old_x, old_z, room, world_idx = payload
     game.nav_intent = NavIntent(old_x, old_z, room, world_idx, requires_hold=True)
+    buffer = InputBuffer(pointer_held=True)
+    apply_play_input(game, buffer)
+    intent = game.nav_intent
+    assert intent is not None and intent.engaged is False
+    old_pose = intent.approach_target_pose
+    old_waypoints = list(intent.waypoints)
+    assert old_pose is not None and old_waypoints
+    intent.stall_target = (123, 456)
+    intent.stall_best = 1
+    intent.stall_ticks = 299
+
+    old_target_x = target.room_x
+    old_zv = tuple(target.zv)
     target.room_x += 100
     target.world_x += 100
     target.zv[0] += 100
     target.zv[1] += 100
-    apply_play_input(game, InputBuffer(pointer_held=True))
-    assert game.nav_intent is not None and game.nav_intent.engaged is False
-    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == (old_x + 100, old_z)
-    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) != (
-        target.room_x, target.room_z,
+    apply_play_input(game, buffer)
+    assert game.nav_intent is intent and intent.engaged is False
+    assert (intent.dest_x, intent.dest_z) == (old_x + 100, old_z)
+    assert intent.approach_target_pose == (
+        target.room, old_target_x + 100, target.room_y, target.room_z,
+        target.beta, (old_zv[0] + 100, old_zv[1] + 100, *old_zv[2:]),
     )
+    assert intent.approach_target_pose != old_pose
+    assert intent.path_room == room
+    assert intent.waypoints and intent.waypoints != old_waypoints
+    assert intent.waypoints[-1] == (old_x + 100, old_z)
+    assert intent.stall_target == intent.waypoints[0]
+    assert intent.stall_best > 1
+    assert intent.stall_ticks == 0
 
 
 def test_stationary_target_does_not_replan_away_the_approach_stall(data_dir):
