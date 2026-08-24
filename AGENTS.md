@@ -10,6 +10,7 @@ update it when a milestone lands.
 make test          # .venv/bin/pytest -q — the gate
 make prove         # parse-all + headless real-script boot (real data)
 make prove-m3b     # focused interaction suite, runs headless itself
+make prove-mouse-only # one-button contract + real mouse journeys, including held pushing
 make prove-shell   # M4a1 shell/config/mouse-contract + real-loop journeys
 make run           # play via character select; floor=0 debug bypass, data="..." trace=/tmp/t.log optional
 ```
@@ -55,6 +56,14 @@ the test suite is the only gate. Never mass-reformat.
   `__main__.py` owns the single event pump, the settings lifecycle, game/floor
   replacement, and one present per frame. Settings live on `ModalSession`,
   never `Game`. `tests/test_playworld.py` enforces the playworld half.
+- Held mouse actions latch one world object, never publish global Action, and
+  cancel on mouse-up or focus loss before animation/collision. Existing LIFE
+  and collision code alone move pushable scenery. Keep the both-protagonist
+  journey in `tests/test_mouse_only.py` and run `make prove-mouse-only` after
+  changing pointer, navigation, animation, modal, or collision behavior.
+- Known open regression: mouse-driven inventory entry during an active held
+  push can retain the intent until mouse-up. Fix modal-entry cancellation and
+  add a real-loop regression before claiming modal takeover is atomic.
 - `ponytail:` comments mark deliberate simplifications with upgrade path —
   respect them, don't silently remove.
 - Workflow is brainstorm → spec → plan → TDD under `docs/superpowers/`

@@ -1,5 +1,5 @@
 # Makefile for PyAitD — Alone in the Dark 1 engine reimplementation
-# Targets: env → run → test → prove → prove-m3b → prove-shell → clean
+# Targets: env → run → test → proof suites → clean
 SERVICE = PyAitD
 
 # Variables
@@ -72,7 +72,7 @@ prove-shell: install ## M4a1 proof: shell, configuration, mouse contract, and re
 prove-mouse: install ## M3d proof: build the navmesh for every camera-visible room, every floor (usage: make prove-mouse data="path/to/INDARK")
 	$(PYTHON) tools/prove_mouse.py $(data)
 
-prove-mouse-only: install ## M3e proof: exhaustive one-button contract + real-data attic, combat, and restart journeys
+prove-mouse-only: install ## M3e proof: one-button contract + real-data attic, combat, restart, and held-push journeys
 	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy $(PYTHON) -m pytest tests/test_mouse_only.py -q
 
 prove-combat: install ## M3c proof: venue, real enemy damage, player arms, game over (pytest gate)

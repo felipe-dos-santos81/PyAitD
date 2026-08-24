@@ -23,8 +23,10 @@ make run                # boots into character selection (floor=0 bypasses it fo
 
 Pick Emily or Carnby by mouse or keyboard, then play. Mouse (default):
 left-click the floor to walk there, left-click an object to approach and use
-it. Tab switches to the keyboard scheme (arrows/WASD walk, Space acts) and
-back. Menus accept both throughout.
+it. Pushable scenery shows an amber opposed-arrow cursor: press and hold the
+left button to approach and push, then release to stop immediately. Moving the
+pointer while holding does not change the target. Tab switches to the keyboard
+scheme (arrows/WASD walk, Space acts) and back. Menus accept both throughout.
 
 Keyboard: arrows/WASD walk, Space acts, Enter or I opens inventory,
 Esc cancels — while playing it opens the system menu (Return / Configuration
@@ -47,11 +49,16 @@ make prove-mouse-only   # one-button accessibility contract + journeys (M3e)
 make prove-shell        # shell, configuration, mouse contract, real-loop journeys (M4a1)
 ```
 
+Windowed single-button accessibility still requires manual verification. Known
+limitation: opening inventory by mouse during an active held push can retain the
+push until mouse-up; release the button before opening inventory.
+
 ## Status
 
 M1 data layer, M2 actors, M3a LIFE script VM, M3b interaction, M3c combat,
-M3d/M3e mouse-only input, and M4a1 shell (character select, system menu,
-remappable controls, settings persistence) are done: the game boots into an
+M3d/M3e mouse-only input (including held scenery pushing), and M4a1 shell
+(character select, system menu, remappable controls, settings persistence) are
+done: the game boots into an
 asset-faithful character selector and the attic is fully interactive by
 mouse or keyboard. Next: M4a2 save/load, M4b audio/sequences, M4c ending.
 See `CONTEXT.md` for the architecture map and `docs/superpowers/` for specs

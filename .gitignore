@@ -1,8 +1,8 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-.venv/
-*.app/
+.venv
+*.app
 .DS_Store
 .superpowers/
 .worktrees/
