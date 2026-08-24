@@ -1,12 +1,104 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from PyAitD.actors import check_object_col
-from PyAitD.effects import ShowFound
-from PyAitD.game import init_game, AF_FOUNDABLE
+from PyAitD.effects import NavIntent, ShowFound
+from PyAitD.game import AF_ANIMATED, init_game, AF_FOUNDABLE
 from PyAitD.interaction import (
-    _finish_take, apply_click_intent, cancel_nav_intent, choose_inventory_action,
+    COMBAT_ACTIONS, _finish_take, apply_click_intent, attack_in_hand,
+    cancel_nav_intent, choose_inventory_action, combat_action_for,
     dispatch_nav_arrival, inventory_actions, inventory_items, inventory_weight,
-    put_object, remove_from_inventory, request_found, resolve_actor_contacts,
+    is_combat_target, put_object, remove_from_inventory, request_found,
+    resolve_actor_contacts,
 )
+from PyAitD.world import room_delta
+
+
+def _armed_attack_fixture(game):
+    # Floor 0 has a single room; the cross-room branch below targets room 7,
+    # so use floor 1 (8 rooms in the real ETAGE data) for room_delta to resolve.
+    game.current_floor = 1
+    hero_idx = game.current_camera_target_actor
+    hero = game.actors[hero_idx]
+    target_idx = next(
+        i for i, actor in enumerate(game.actors)
+        if actor.index_in_world >= 0 and i != hero_idx
+    )
+    target = game.actors[target_idx]
+    target.object_type |= AF_ANIMATED
+    _finish_take(game, 38)
+    game.in_hand_table[game.current_inventory] = 38
+    return hero, target_idx, target
+
+
+def test_attack_stops_faces_in_hero_room_and_delegates(data_dir, monkeypatch):
+    game = init_game(data_dir)
+    hero, target_idx, target = _armed_attack_fixture(game)
+    hero.room, hero.room_x, hero.room_z = 0, 400, -200
+    target.room, target.room_x, target.room_z = 7, 300, 500
+    hero.speed = 4
+    game.nav_intent = NavIntent(100, 200, hero.room)
+    game.nav_decision = object()
+    faced = []
+    chosen = []
+    monkeypatch.setattr(
+        "PyAitD.tracks.face_toward",
+        lambda actor, x, z: faced.append((actor, x, z)),
+    )
+    monkeypatch.setattr(
+        "PyAitD.interaction.choose_inventory_action",
+        lambda g, obj, action: chosen.append((g, obj, action)) or True,
+    )
+
+    assert attack_in_hand(game, target_idx) is True
+
+    dx, _dy, dz = room_delta(game, hero.room, target.room)
+    assert faced == [(hero, target.room_x + dx, target.room_z - dz)]
+    assert chosen == [(game, 38, 32)]
+    assert hero.speed == 0
+    assert game.nav_intent is None and game.nav_decision is None
+
+
+def test_invalid_attack_is_a_mutation_free_no_op(data_dir, monkeypatch):
+    game = init_game(data_dir)
+    hero, target_idx, _target = _armed_attack_fixture(game)
+    game.in_hand_table[game.current_inventory] = -1
+    hero.speed = 4
+    game.nav_intent = NavIntent(100, 200, hero.room)
+    before = (hero.beta, hero.speed, game.nav_intent, game.nav_decision)
+    monkeypatch.setattr(
+        "PyAitD.interaction.choose_inventory_action",
+        lambda *args: (_ for _ in ()).throw(AssertionError("must not delegate")),
+    )
+    assert attack_in_hand(game, target_idx) is False
+    assert (hero.beta, hero.speed, game.nav_intent, game.nav_decision) == before
+
+
+def test_combat_target_is_a_live_animated_non_hero(data_dir):
+    game = init_game(data_dir)
+    hero_idx = game.current_camera_target_actor
+    target_idx = next(
+        i for i, actor in enumerate(game.actors)
+        if actor.index_in_world >= 0 and i != hero_idx
+    )
+    target = game.actors[target_idx]
+    target.object_type |= AF_ANIMATED
+    assert is_combat_target(game, target_idx)
+    assert not is_combat_target(game, hero_idx)
+    target.index_in_world = -1
+    assert not is_combat_target(game, target_idx)
+
+
+def test_combat_action_requires_an_idle_held_inventory_object(data_dir):
+    game = init_game(data_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    _finish_take(game, 38)
+    assert COMBAT_ACTIONS == frozenset({32})
+    assert combat_action_for(game, 38) == 32
+    hero.anim_action_type = 6
+    assert combat_action_for(game, 38) is None
+    hero.anim_action_type = 0
+    remove_from_inventory(game, 38)
+    assert combat_action_for(game, 38) is None
+    assert combat_action_for(game, -1) is None
 
 
 def test_take_keeps_first_item_at_zero_and_inserts_later_items_at_one(data_dir):

@@ -7,6 +7,8 @@ from PyAitD.world import adjust_zv_between_rooms, room_delta, shifted_zv
 
 INVENTORY_SIZE = 30
 MAX_VISIBLE_ACTIONS = 5
+# Inventory action text ids that arm combat (32 == "Fight" bit 9 of found_flag).
+COMBAT_ACTIONS = frozenset({32})
 # FITD gates found-contact on trackMode == 1, meaning "manually controlled".
 # Mode 4 (mouse follower) is equally player-controlled, so it belongs here too.
 PLAYER_TRACK_MODES = (1, 4)
@@ -156,6 +158,29 @@ def inventory_weight(game):
 def inventory_actions(game, object_idx):
     flags = game.world_objects[object_idx].found_flag
     return tuple(23 + bit for bit in range(11) if flags & (1 << bit))[:MAX_VISIBLE_ACTIONS]
+
+
+def is_combat_target(game, actor_idx):
+    from PyAitD.game import AF_ANIMATED
+    if actor_idx < 0 or actor_idx >= len(game.actors):
+        return False
+    if actor_idx == game.current_camera_target_actor:
+        return False
+    actor = game.actors[actor_idx]
+    return actor.index_in_world >= 0 and bool(actor.object_type & AF_ANIMATED)
+
+
+def combat_action_for(game, object_idx):
+    if object_idx not in inventory_items(game):
+        return None
+    hero_idx = game.current_camera_target_actor
+    if hero_idx == -1 or game.actors[hero_idx].anim_action_type != 0:
+        return None
+    return next(
+        (action for action in inventory_actions(game, object_idx)
+         if action in COMBAT_ACTIONS),
+        None,
+    )
 
 
 def request_found(game, object_idx, parameter):
@@ -344,6 +369,33 @@ def cancel_nav_intent(game):
     """Drop the current intent. Used on modal entry and on a stop click."""
     game.nav_intent = None
     game.nav_decision = None
+
+
+def attack_in_hand(game, target_actor_idx):
+    # Imported lazily so tests can monkeypatch PyAitD.tracks.face_toward and
+    # this module stays free of track-system imports at module load time.
+    from PyAitD.tracks import face_toward
+
+    hero_idx = game.current_camera_target_actor
+    if hero_idx == -1 or not is_combat_target(game, target_actor_idx):
+        return False
+    object_idx = game.in_hand_table[game.current_inventory]
+    action_id = combat_action_for(game, object_idx)
+    if action_id is None:
+        return False
+
+    hero = game.actors[hero_idx]
+    target = game.actors[target_actor_idx]
+    target_x, target_z = target.room_x, target.room_z
+    if hero.room != target.room:
+        dx, _dy, dz = room_delta(game, hero.room, target.room)
+        target_x += dx
+        target_z -= dz
+
+    cancel_nav_intent(game)
+    hero.speed = 0
+    face_toward(hero, target_x, target_z)
+    return choose_inventory_action(game, object_idx, action_id)
 
 
 def dispatch_nav_arrival(game):
