@@ -374,9 +374,11 @@ def route_mouse(game, session, logical_pos):
             session.character.choice = hit
             session.character.phase = CharacterPhase.STORY
         else:
-            # the story page confirms on click: left half is Emily (hero 1),
-            # right half is Carnby (hero 0) -- reduce_character_select's map
-            session.pending_hero = 1 if logical_pos[0] < 160 else 0
+            # the story page is a whole-frame confirm; the hero comes from the
+            # selected portrait, not the click position -- the same mapping
+            # reduce_character_select uses (choice 0 left Emily -> hero 1,
+            # choice 1 right Carnby -> hero 0)
+            session.pending_hero = 1 if session.character.choice == 0 else 0
         return True
     if isinstance(effect, ShowFound):
         result = hit_test_found(logical_pos)

@@ -3,6 +3,7 @@ from collections import deque
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from PyAitD.__main__ import (
     replacement_session, restart_session, route_command, route_mouse,
@@ -43,6 +44,26 @@ def test_character_quit_at_portraits_returns_false(data_dir):
     session = ModalSession()
     assert route_command(game, session, Command.CANCEL) is False
     assert session.pending_hero is None
+
+
+@pytest.mark.parametrize("portrait, opposite_half, hero", (
+    (0, (300, 100), 1),  # left portrait (Emily, choice 0) -> hero 1
+    (1, (20, 100), 0),   # right portrait (Carnby, choice 1) -> hero 0
+))
+def test_story_click_confirms_the_selected_portrait_not_the_click_side(
+    data_dir, portrait, opposite_half, hero,
+):
+    # hit_test_character treats the story page as a whole-frame confirm, so
+    # the click's x position carries no left/right meaning; the hero must come
+    # from the selected portrait, agreeing with the keyboard path.
+    game = init_game(data_dir)
+    game.open_modal(ChooseCharacter())
+    session = ModalSession()
+    assert route_mouse(game, session, CharacterLayout.PORTRAITS[portrait].center)
+    assert session.character.phase is CharacterPhase.STORY
+    assert session.character.choice == portrait
+    assert route_mouse(game, session, opposite_half)
+    assert session.pending_hero == hero
 
 
 def test_replacement_session_carries_only_application_settings(tmp_path):
