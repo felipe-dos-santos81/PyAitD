@@ -679,5 +679,7 @@ def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
     game.inventory_count[0] = 1
     assert main.run(game) == 0
     assert calls.index("hud") < calls.index("cursor") < calls.index("present")
-    assert calls[0] == ("visible", False)
-    assert ("visible", True) in calls
+    # PLAY + mouse + no modal: the OS pointer is hidden once per frame, not
+    # once at renderer creation — modals must get it back the frame they open.
+    assert calls.count(("visible", False)) == 2
+    assert calls[-2:] == [("visible", True), "close"]

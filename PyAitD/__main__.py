@@ -108,6 +108,8 @@ def inventory_hud_available(game):
 
 
 def _pointer_actor_targets(game, draw_list, hero_idx):
+    """Union rule: draw-list candidates a click may target — interactable OR
+    combat target, never the hero."""
     from PyAitD.interaction import is_combat_target
     return [
         (idx, box) for idx, box in draw_list
@@ -461,7 +463,6 @@ def run(game, trace_path=None):
         return 2
     game.trace = Trace(trace_path) if trace_path else None
     renderer = Renderer()
-    pygame.mouse.set_visible(False)
     clock = pygame.time.Clock()
     input_buffer = InputBuffer()
     session = ModalSession()
@@ -539,8 +540,14 @@ def run(game, trace_path=None):
         composed = render_active_mode(game, session, scene_frame)
         available = inventory_hud_available(game)
         composed = render_play_hud(composed, inventory_available=available)
-        if (game.mode is GameMode.PLAY and game.active_modal is None
-                and game.input_mode is InputMode.MOUSE):
+        # Exactly one visible cursor: the software cursor draws only for
+        # PLAY + mouse + no modal, so the OS pointer owns every other state
+        # (modals with buttons, keyboard mode). Toggled per frame.
+        software_cursor = (game.mode is GameMode.PLAY
+                           and game.active_modal is None
+                           and game.input_mode is InputMode.MOUSE)
+        pygame.mouse.set_visible(not software_cursor)
+        if software_cursor:
             kind, _payload = resolve_play_click(game, floor, hover, draw_list)
             composed = render_cursor(composed, hover, kind)
         renderer.present(composed)
