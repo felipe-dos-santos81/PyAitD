@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from PyAitD.floor import Floor
 from PyAitD.game import init_game
@@ -423,8 +424,22 @@ def test_pointer_invalidation_routes_mouseup_and_focus_loss(data_dir):
         assert game.nav_intent is None
 
 
+@pytest.mark.parametrize(
+    ("event_factory", "expected_input"),
+    [
+        (
+            lambda pygame: pygame.event.Event(pygame.MOUSEBUTTONUP, button=1),
+            (False, True, 8, True),
+        ),
+        (
+            lambda pygame: pygame.event.Event(pygame.WINDOWFOCUSLOST),
+            (False, False, 0, False),
+        ),
+    ],
+    ids=("primary-mouseup", "focus-loss"),
+)
 def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
-    data_dir, monkeypatch,
+    data_dir, monkeypatch, event_factory, expected_input,
 ):
     import PyAitD.__main__ as main
     from PyAitD.interaction import apply_click_intent
@@ -433,9 +448,10 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     game = init_game(data_dir)
     hero = game.actors[game.current_camera_target_actor]
     apply_click_intent(game, 100, 200, hero.room, 4, requires_hold=True)
+    input_buffer = InputBuffer(pointer_held=True, action_held=True, held_joyd=8)
     seen = []
     event_batches = iter([
-        [main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)],
+        [event_factory(main.pygame)],
         [SimpleNamespace(type=main.pygame.QUIT)],
     ])
     times = iter([0, 20, 20])
@@ -443,11 +459,18 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
         present=lambda image: None, close=lambda: None,
     ))
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
-    monkeypatch.setattr(main, "play_tick", lambda game, *_args: seen.append(game.nav_intent))
+    monkeypatch.setattr(
+        main, "play_tick",
+        lambda game, _floor, state: seen.append((
+            game.nav_intent, state.pointer_held, state.action_held,
+            state.held_joyd, state.focused,
+        )),
+    )
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: frame)
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
     monkeypatch.setattr(main, "_play_cursor_kind", lambda *_args: "blocked")
+    monkeypatch.setattr(main, "InputBuffer", lambda: input_buffer)
     monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
@@ -457,7 +480,7 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     )
 
     assert main.run(game) == 0
-    assert seen == [None]
+    assert seen == [(None, *expected_input)]
 
 
 def test_inert_body_intercepts_the_floor_and_stays_blocked(data_dir):
