@@ -166,6 +166,14 @@ def _left_up(pos):
     )
 
 
+def _effective_position(actor):
+    return (
+        actor.room_x + actor.step_x,
+        actor.room_y + actor.step_y,
+        actor.room_z + actor.step_z,
+    )
+
+
 def _run_scripted_mouse(monkeypatch, game, draw_list, next_events):
     import PyAitD.__main__ as main
 
@@ -204,14 +212,16 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, monkeypatch, hero_
         world.obj_index, wardrobe.index_in_world, wardrobe.body_num,
         wardrobe.life, world.stage, world.room, world.found_life,
     ) == (3, 4, 2, 1, 0, 0, -1)
-    wardrobe_start = (wardrobe.room_x, wardrobe.room_z)
+    wardrobe_start = _effective_position(wardrobe)
     state = {
         "phase": "hover", "frames": 0,
-        "hero_start": (hero.room_x, hero.room_z), "released_at": None,
+        "hero_start": _effective_position(hero),
+        "released_at": None, "released_zv": None,
         "still_frames": 0, "hover_push_seen": False,
-        "drift_cursor_seen": False, "engaged_seen": False,
-        "push_anim_seen": False, "movable_seen": False,
-        "hero_push_released_at": None, "wardrobe_released_at": None,
+        "drift_cursor_seen": False, "engaged_samples": 0,
+        "movable_seen": False,
+        "hero_push_released_at": None, "hero_push_released_zv": None,
+        "wardrobe_released_at": None, "wardrobe_released_zv": None,
     }
 
     real_play_tick = main.play_tick
@@ -225,23 +235,38 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, monkeypatch, hero_
             assert intent is not None and intent.requires_hold
             assert intent.target_object_idx == 4
             assert world.obj_index == 3
+        if state["phase"] in {"released", "push_released"}:
+            expected_position = (
+                state["released_at"] if state["phase"] == "released"
+                else state["hero_push_released_at"]
+            )
+            expected_zv = (
+                state["released_zv"] if state["phase"] == "released"
+                else state["hero_push_released_zv"]
+            )
+            assert _effective_position(hero) == expected_position
+            assert tuple(hero.zv) == expected_zv
         result = real_play_tick(current_game, current_floor, input_buffer)
         if held:
             assert input_buffer.action_held is False
             assert current_game.action == current_game.local_click == 0
             intent = current_game.nav_intent
             if intent is not None and intent.engaged:
-                state["engaged_seen"] = True
-                state["push_anim_seen"] |= hero.anim == PLAYER_PUSH_ANIM
+                assert hero.anim == PLAYER_PUSH_ANIM
+                state["engaged_samples"] += 1
         if state["phase"] in {"released", "push_released"}:
-            assert (hero.room_x, hero.room_z) == (
+            assert _effective_position(hero) == (
                 state["released_at"] if state["phase"] == "released"
                 else state["hero_push_released_at"]
             )
+            assert tuple(hero.zv) == (
+                state["released_zv"] if state["phase"] == "released"
+                else state["hero_push_released_zv"]
+            )
+            assert (hero.step_x, hero.step_y, hero.step_z) == (0, 0, 0)
             if state["phase"] == "push_released":
-                assert (wardrobe.room_x, wardrobe.room_z) == (
-                    state["wardrobe_released_at"]
-                )
+                assert _effective_position(wardrobe) == state["wardrobe_released_at"]
+                assert tuple(wardrobe.zv) == state["wardrobe_released_zv"]
         return result
 
     real_cursor_kind = main._play_cursor_kind
@@ -272,17 +297,21 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, monkeypatch, hero_
                 pygame.MOUSEMOTION, pos=(150, 100), rel=(0, 0), buttons=(0, 0, 0),
             )]
         if (state["phase"] == "approaching"
-                and (hero.room_x, hero.room_z) != state["hero_start"]):
+                and _effective_position(hero) != state["hero_start"]):
+            assert game.nav_intent is not None and not game.nav_intent.engaged
             state["phase"] = "drifted"
             return [pygame.event.Event(
                 pygame.MOUSEMOTION, pos=(10, 10), rel=(-140, -90), buttons=(1, 0, 0),
             )]
         if state["phase"] == "drifted" and state["drift_cursor_seen"]:
+            assert game.nav_intent is not None and not game.nav_intent.engaged
             state["phase"] = "released"
-            state["released_at"] = (hero.room_x, hero.room_z)
+            state["released_at"] = _effective_position(hero)
+            state["released_zv"] = tuple(hero.zv)
             return [_left_up((10, 10))]
         if state["phase"] == "released":
-            assert (hero.room_x, hero.room_z) == state["released_at"]
+            assert _effective_position(hero) == state["released_at"]
+            assert tuple(hero.zv) == state["released_zv"]
             state["still_frames"] += 1
             if state["still_frames"] == 5:
                 state["phase"] = "holding"
@@ -290,17 +319,22 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, monkeypatch, hero_
         if state["phase"] == "holding":
             state["movable_seen"] |= bool(wardrobe.object_type & AF_MOVABLE)
             assert game.action == game.local_click == 0
-            if (wardrobe.room_x, wardrobe.room_z) != wardrobe_start:
+            if (_effective_position(wardrobe) != wardrobe_start
+                    and state["engaged_samples"] >= 3):
                 assert game.nav_intent is not None and game.nav_intent.engaged
                 assert hero.anim == PLAYER_PUSH_ANIM
                 state["phase"] = "push_released"
-                state["hero_push_released_at"] = (hero.room_x, hero.room_z)
-                state["wardrobe_released_at"] = (wardrobe.room_x, wardrobe.room_z)
+                state["hero_push_released_at"] = _effective_position(hero)
+                state["hero_push_released_zv"] = tuple(hero.zv)
+                state["wardrobe_released_at"] = _effective_position(wardrobe)
+                state["wardrobe_released_zv"] = tuple(wardrobe.zv)
                 state["still_frames"] = 0
                 return [_left_up((10, 10))]
         if state["phase"] == "push_released":
-            assert (hero.room_x, hero.room_z) == state["hero_push_released_at"]
-            assert (wardrobe.room_x, wardrobe.room_z) == state["wardrobe_released_at"]
+            assert _effective_position(hero) == state["hero_push_released_at"]
+            assert tuple(hero.zv) == state["hero_push_released_zv"]
+            assert _effective_position(wardrobe) == state["wardrobe_released_at"]
+            assert tuple(wardrobe.zv) == state["wardrobe_released_zv"]
             state["still_frames"] += 1
             if state["still_frames"] == 5:
                 return [pygame.event.Event(pygame.QUIT)]
@@ -313,10 +347,9 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, monkeypatch, hero_
     )
     assert state["hover_push_seen"] is True
     assert state["drift_cursor_seen"] is True
-    assert state["engaged_seen"] is True
-    assert state["push_anim_seen"] is True
+    assert state["engaged_samples"] >= 3
     assert state["movable_seen"] is True
-    assert (wardrobe.room_x, wardrobe.room_z) != wardrobe_start
+    assert _effective_position(wardrobe) != wardrobe_start
     assert game.nav_intent is None
     assert game.action == game.local_click == game.local_joyd == 0
 

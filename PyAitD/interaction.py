@@ -448,17 +448,10 @@ def cancel_nav_intent(game):
     hero.speed = 0
     hero.direction = 0
     hero.rotate.num_steps = 0
-    # GereAnim keeps sub-frame displacement in step_* and renders it as part
-    # of the actor position.  A stand request would otherwise commit that old
-    # held-navigation step on the tick after mouse-up.  Roll the collision box
-    # back with the discarded displacement so release is an atomic stop.
-    hero.zv[0] -= hero.step_x
-    hero.zv[1] -= hero.step_x
-    hero.zv[2] -= hero.step_y
-    hero.zv[3] -= hero.step_y
-    hero.zv[4] -= hero.step_z
-    hero.zv[5] -= hero.step_z
-    hero.step_x = hero.step_y = hero.step_z = 0
+    # GereAnim owns the pending step: when it applies this stand transition it
+    # commits step_x/step_z into the base coordinates without moving the ZV
+    # again (FITD anim.cpp:238-253).  Leaving the step intact preserves the
+    # actor's already-rendered effective position across release.
     init_anim(hero, PLAYER_STAND_ANIM, 0, PLAYER_STAND_ANIM)
     hero.new_anim = PLAYER_STAND_ANIM
 
