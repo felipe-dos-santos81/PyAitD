@@ -3,22 +3,27 @@ from collections import deque
 from types import SimpleNamespace
 
 import numpy as np
+import pygame
 import pytest
 
 from PyAitD.__main__ import (
-    replacement_session, restart_session, route_command, route_mouse,
+    _capture_keydown, replacement_session, restart_session, route_command,
+    route_mouse,
 )
-from PyAitD.config import Settings, default_settings
+from PyAitD.config import (
+    REMAPPABLE_CONTROLS, Control, Settings, default_settings, load_settings,
+)
 from PyAitD.playworld import apply_play_input
 from PyAitD.effects import (
     ChooseCharacter, GameMode, InputMode, NavDecision, NavIntent, OpenInventory,
-    ReadText, ShowPicture,
+    OpenSystemMenu, ReadText, ShowPicture,
 )
 from PyAitD.game import init_game
 from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter, Command,
-    InputBuffer, ModalLayout, ModalSession, SystemMenuPresenter,
+    InputBuffer, ModalLayout, ModalSession, SystemMenuLayout, SystemMenuPage,
+    SystemMenuPresenter,
 )
 
 
@@ -309,6 +314,194 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     assert isinstance(game.active_modal, OpenInventory)
     assert session.inventory.choosing_action is False
     assert list(buffer.commands) == []
+
+
+def test_escape_in_play_opens_system_menu_instead_of_quitting(data_dir):
+    game = init_game(data_dir)
+    session = ModalSession()
+    state = InputBuffer(held_joyd=9, action_held=True, sticky_armed=True,
+                        action_pulse=True, commands=deque([Command.UP]))
+    assert route_command(game, session, Command.CANCEL, state)
+    assert isinstance(game.active_modal, OpenSystemMenu)
+    assert game.mode is GameMode.SYSTEM_MENU
+
+
+def test_system_menu_mouse_activates_configuration_and_return(data_dir):
+    game = init_game(data_dir)
+    game.open_modal(OpenSystemMenu())
+    session = ModalSession()
+    state = InputBuffer()
+    assert route_mouse(
+        game, session, SystemMenuLayout.MAIN_ROWS[1].center, state,
+    )
+    assert session.system_menu.page is SystemMenuPage.CONFIG
+    assert route_mouse(
+        game, session, SystemMenuLayout.CONFIG_ROWS[-1].center, state,
+    )
+    assert session.system_menu.page is SystemMenuPage.MAIN
+    session.system_menu.page = SystemMenuPage.MAIN
+    assert route_mouse(
+        game, session, SystemMenuLayout.MAIN_ROWS[0].center, state,
+    )
+    assert game.mode is GameMode.PLAY
+
+
+def test_configuration_saves_once_when_leaving_and_applies_immediately(data_dir, tmp_path):
+    game = init_game(data_dir)
+    game.open_modal(OpenSystemMenu())
+    session = ModalSession(settings_path=tmp_path / "settings.json")
+    state = InputBuffer()
+    session.system_menu.page = SystemMenuPage.CONFIG
+    session.system_menu.cursor = 0
+    assert route_command(game, session, Command.ACCEPT, state)
+    assert session.settings.sticky_action is True
+    assert state.sticky_action is True
+    assert session.settings_dirty is True
+    assert route_command(game, session, Command.CANCEL, state)
+    assert session.system_menu.page is SystemMenuPage.MAIN
+    assert session.settings_dirty is False
+    loaded, error = load_settings(session.settings_path)
+    assert error is None and loaded.sticky_action is True
+
+
+def test_failed_quit_save_stays_in_menu_with_live_settings(data_dir, tmp_path, monkeypatch):
+    game = init_game(data_dir)
+    game.open_modal(OpenSystemMenu())
+    session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
+    session.settings = Settings(dict(session.settings.bindings), True)
+    session.system_menu.cursor = 2
+    monkeypatch.setattr("PyAitD.__main__.save_settings", lambda *args: "Could not save settings to target: read only")
+    assert route_command(game, session, Command.ACCEPT, InputBuffer()) is True
+    assert game.mode is GameMode.SYSTEM_MENU
+    assert session.settings.sticky_action is True
+    assert session.settings_dirty is True
+    assert "read only" in session.settings_error
+
+
+def test_clean_quit_saves_nothing_and_returns_false(data_dir, tmp_path):
+    game = init_game(data_dir)
+    game.open_modal(OpenSystemMenu())
+    session = ModalSession(settings_path=tmp_path / "settings.json")
+    session.system_menu.cursor = 2
+    assert route_command(game, session, Command.ACCEPT, InputBuffer()) is False
+    assert not session.settings_path.exists()
+
+
+def test_dirty_quit_saves_once_then_returns_false(data_dir, tmp_path):
+    game = init_game(data_dir)
+    game.open_modal(OpenSystemMenu())
+    session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
+    session.system_menu.cursor = 2
+    assert route_command(game, session, Command.ACCEPT, InputBuffer()) is False
+    loaded, error = load_settings(session.settings_path)
+    assert error is None
+
+
+def test_failed_return_closes_to_play_and_keeps_the_named_error(data_dir, tmp_path, monkeypatch):
+    game = init_game(data_dir)
+    game.open_modal(OpenSystemMenu())
+    session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
+    session.system_menu.cursor = 0
+    monkeypatch.setattr("PyAitD.__main__.save_settings", lambda *args: "Could not save settings to target: read only")
+    assert route_command(game, session, Command.ACCEPT, InputBuffer()) is True
+    assert game.mode is GameMode.PLAY
+    assert session.settings_dirty is True
+    assert "read only" in session.settings_error
+
+
+def test_successful_save_does_not_clear_an_existing_notice(data_dir, tmp_path):
+    game = init_game(data_dir)
+    game.open_modal(OpenSystemMenu())
+    session = ModalSession(
+        settings_path=tmp_path / "settings.json",
+        settings_error="old notice", settings_dirty=True,
+    )
+    assert route_command(game, session, Command.CANCEL, InputBuffer()) is True
+    assert game.mode is GameMode.PLAY
+    assert session.settings_error == "old notice"
+    loaded, error = load_settings(session.settings_path)
+    assert error is None
+
+
+def test_raw_capture_replaces_binding_without_activating_the_same_row(data_dir):
+    game = init_game(data_dir)
+    game.open_modal(OpenSystemMenu())
+    session = ModalSession()
+    session.system_menu.page = SystemMenuPage.CONFIG
+    session.system_menu.cursor = 1 + REMAPPABLE_CONTROLS.index(Control.ACTION)
+    session.system_menu.capture = "ACTION"
+    state = InputBuffer()
+    handled, running = _capture_keydown(
+        pygame.event.Event(pygame.KEYDOWN, key=pygame.K_q, repeat=False),
+        game, session, state,
+    )
+    assert (handled, running) == (True, True)
+    assert session.settings.bindings["ACTION"] == ("q",)
+    assert session.system_menu.capture is None
+    assert list(state.commands) == []
+
+
+def test_capture_escape_cancels_and_repeat_is_swallowed(data_dir):
+    game = init_game(data_dir)
+    game.open_modal(OpenSystemMenu())
+    session = ModalSession()
+    session.system_menu.capture = "ACTION"
+    state = InputBuffer()
+    repeat = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_q, repeat=True)
+    assert _capture_keydown(repeat, game, session, state) == (True, True)
+    assert session.system_menu.capture == "ACTION"
+    escape = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, repeat=False)
+    assert _capture_keydown(escape, game, session, state) == (True, True)
+    assert session.system_menu.capture is None
+    assert session.settings == default_settings()
+
+
+def test_opening_the_system_menu_drains_held_and_queued_input(data_dir):
+    game = init_game(data_dir)
+    session = ModalSession()
+    state = InputBuffer(held_joyd=9, action_held=True, sticky_armed=True,
+                        action_pulse=True, commands=deque([Command.UP]))
+    assert route_command(game, session, Command.CANCEL, state)
+    assert game.mode is GameMode.SYSTEM_MENU
+    assert (state.held_joyd, state.action_held, state.sticky_armed,
+            state.action_pulse, list(state.commands)) == (0, False, False, False, [])
+
+
+def test_leaving_the_system_menu_cannot_replay_input_into_the_first_play_tick(data_dir):
+    game = init_game(data_dir)
+    game.input_mode = InputMode.KEYBOARD
+    game.open_modal(OpenSystemMenu())
+    session = ModalSession()
+    state = InputBuffer(held_joyd=9, action_held=True, sticky_armed=True,
+                        action_pulse=True, commands=deque([Command.ACCEPT, Command.UP]))
+    assert route_command(game, session, Command.CANCEL, state)
+    assert game.mode is GameMode.PLAY
+    assert (state.held_joyd, state.action_held, state.sticky_armed,
+            state.action_pulse, list(state.commands)) == (0, False, False, False, [])
+    apply_play_input(game, state)
+    assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+
+
+def test_quitting_from_the_system_menu_drains_the_input_buffer(data_dir):
+    game = init_game(data_dir)
+    game.open_modal(OpenSystemMenu())
+    session = ModalSession()
+    session.system_menu.cursor = 2
+    state = InputBuffer(held_joyd=9, action_held=True, sticky_armed=True,
+                        action_pulse=True, commands=deque([Command.ACCEPT]))
+    assert route_command(game, session, Command.ACCEPT, state) is False
+    assert (state.held_joyd, state.action_held, state.sticky_armed,
+            state.action_pulse, list(state.commands)) == (0, False, False, False, [])
+
+
+def test_toggle_input_mode_drains_held_and_queued_input(data_dir):
+    game = init_game(data_dir)
+    session = ModalSession()
+    state = InputBuffer(held_joyd=9, action_held=True, sticky_armed=True,
+                        action_pulse=True, commands=deque([Command.UP]))
+    assert route_command(game, session, Command.TOGGLE_INPUT_MODE, state)
+    assert (state.held_joyd, state.action_held, state.sticky_armed,
+            state.action_pulse, list(state.commands)) == (0, False, False, False, [])
 
 
 def test_game_starts_in_mouse_mode_with_no_intent(data_dir):

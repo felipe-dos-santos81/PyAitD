@@ -107,6 +107,51 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
     assert calls == ["tick"] * 5 + ["present", "present"]
 
 
+def test_escape_opens_the_system_menu_and_pauses_play_ticks(data_dir, monkeypatch):
+    # Escape in PLAY opens the paused system menu instead of quitting: no
+    # fixed-step tick runs while the menu is up, and the loop still presents
+    # exactly once per frame.
+    import PyAitD.__main__ as main
+
+    calls = []
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    escape = SimpleNamespace(type=main.pygame.KEYDOWN, key=main.pygame.K_ESCAPE)
+    event_batches = iter(
+        [[escape], [], [], [SimpleNamespace(type=main.pygame.QUIT)]]
+    )
+    times = iter([0] * 8)
+
+    monkeypatch.setattr(
+        main, "Floor",
+        lambda *args: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
+    )
+    monkeypatch.setattr(
+        main, "Renderer",
+        lambda: SimpleNamespace(
+            present=lambda image: calls.append("present"), close=lambda: None,
+        ),
+    )
+    monkeypatch.setattr(
+        main, "play_tick", lambda *args: calls.append("tick") or True
+    )
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(
+        main.pygame.mouse, "set_visible", lambda value: None
+    )
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
+    )
+
+    game = init_game(data_dir)
+    assert main.run(game) == 0
+    assert game.mode is GameMode.SYSTEM_MENU
+    assert "tick" not in calls, "PLAY ticks must pause while the menu is open"
+    assert calls == ["present"] * 4
+
+
 def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch, tmp_path):
     # M3a draw_ready gate: a floor/room-change tick leaves num_camera == -1
     # with current_room stale until the next tick's change_salle, so the loop

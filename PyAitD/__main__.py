@@ -9,7 +9,7 @@ import sys
 import pygame
 
 from PyAitD.actors import anim_player_for, sort_actor_indices
-from PyAitD.config import default_settings, load_settings, settings_path
+from PyAitD.config import default_settings, load_settings, save_settings, settings_path
 from PyAitD.effects import ChooseCharacter, GameMode, InputMode
 from PyAitD.floor import Floor
 from PyAitD.game import enter_floor_start, init_game
@@ -24,7 +24,7 @@ from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
 from PyAitD.skel import skin
 from PyAitD.ui import (
     Command, InputBuffer, ModalSession, configure_input, event_to_input,
-    render_cursor, render_play_hud,
+    render_cursor, render_play_hud, reset_input,
 )
 from PyAitD.world import CameraState
 
@@ -283,14 +283,68 @@ def _route_game_over_command(game, session, modal_command):
     return True
 
 
-def route_command(game, session, command):
-    from PyAitD.effects import GameMode, GameOver, OpenInventory, ReadText, ShowFound, ShowPicture
+def _save_session_settings(session):
+    if not session.settings_dirty:
+        return True
+    if session.settings_path is None:
+        session.settings_dirty = False
+        return True
+    error = save_settings(session.settings, session.settings_path)
+    if error is not None:
+        session.settings_error = error
+        return False
+    session.settings_dirty = False
+    return True
+
+
+def _apply_system_result(game, session, input_buffer, result):
+    if result is None:
+        return True
+    if result.settings is not None:
+        session.settings = result.settings
+        session.settings_dirty = True
+        configure_input(input_buffer, session.settings)
+    saved = _save_session_settings(session) if result.save else True
+    if result.quit and not saved:
+        return True
+    if result.close:
+        reset_input(input_buffer)
+        game.close_modal()
+    if result.quit:
+        reset_input(input_buffer)
+        return False
+    return True
+
+
+def _capture_keydown(event, game, session, input_buffer):
+    from PyAitD.effects import OpenSystemMenu
+    from PyAitD.ui import canonical_key_name, capture_system_key
+    if (not isinstance(game.active_modal, OpenSystemMenu)
+            or session.system_menu.capture is None
+            or event.type != pygame.KEYDOWN):
+        return False, True
+    if bool(getattr(event, "repeat", False)):
+        return True, True
+    try:
+        name = canonical_key_name(event.key)
+        result = capture_system_key(session.system_menu, session.settings, name)
+    except ValueError as exc:
+        session.settings_error = f"Could not bind pygame key {event.key}: {exc}"
+        return True, True
+    return True, _apply_system_result(game, session, input_buffer, result)
+
+
+def route_command(game, session, command, input_buffer=None):
+    from PyAitD.effects import (
+        GameMode, GameOver, OpenInventory, OpenSystemMenu, ReadText, ShowFound,
+        ShowPicture,
+    )
     from PyAitD.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
     )
     from PyAitD.ui import (
         Command, ReadingResult, reading_pages, reduce_found, reduce_inventory,
-        reduce_reading,
+        reduce_reading, reduce_system_menu,
     )
     if command is Command.TOGGLE_INPUT_MODE:
         from PyAitD.interaction import cancel_nav_intent, sync_player_track_mode
@@ -299,17 +353,34 @@ def route_command(game, session, command):
         )
         cancel_nav_intent(game)
         sync_player_track_mode(game)
+        if input_buffer is not None:
+            reset_input(input_buffer)
         return True
 
     if game.mode is GameMode.PLAY:
+        if command is Command.CANCEL:
+            game.open_modal(OpenSystemMenu())
+            session.reset_for(game.active_modal)
+            if input_buffer is not None:
+                reset_input(input_buffer)
+            return True
         if command is Command.OPEN_INVENTORY and game.status_screen_allowed:
             if game.inventory_count[game.current_inventory]:
                 game.open_modal(OpenInventory())
                 session.reset_for(game.active_modal)
         return True
 
-    session.reset_for(game.active_modal)
     modal_command = Command.ACCEPT if command is Command.OPEN_INVENTORY else command
+    if isinstance(game.active_modal, OpenSystemMenu):
+        # the presenter resets where the menu is opened (the PLAY CANCEL
+        # branch above), not per dispatch: a staged page/cursor/capture must
+        # survive every routed command until the menu closes
+        result = reduce_system_menu(
+            session.system_menu, modal_command, session.settings,
+        )
+        return _apply_system_result(game, session, input_buffer, result)
+
+    session.reset_for(game.active_modal)
     if isinstance(game.active_modal, ChooseCharacter):
         from PyAitD.ui import reduce_character_select
         result = reduce_character_select(session.character, modal_command)
@@ -351,20 +422,33 @@ def route_command(game, session, command):
     raise RuntimeError(f"unroutable modal {type(game.active_modal).__name__}")
 
 
-def route_mouse(game, session, logical_pos):
+def route_mouse(game, session, logical_pos, input_buffer=None):
     from PyAitD.effects import (
-        ChooseCharacter, GameOver, OpenInventory, ReadText, ShowFound, ShowPicture,
+        ChooseCharacter, GameOver, OpenInventory, OpenSystemMenu, ReadText,
+        ShowFound, ShowPicture,
     )
     from PyAitD.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
     )
     from PyAitD.ui import (
         CharacterPhase, ReadingResult, hit_test_character, hit_test_found,
-        hit_test_inventory, hit_test_reading, reading_pages, turn_page,
+        hit_test_inventory, hit_test_reading, hit_test_system_menu,
+        reading_pages, reduce_system_menu, turn_page,
     )
     if logical_pos is None or game.active_modal is None:
         return True
     effect = game.active_modal
+    if isinstance(effect, OpenSystemMenu):
+        # same presenter lifetime as route_command: reset at open, never per
+        # click, so a staged page/cursor/capture survives mouse routing
+        hit = hit_test_system_menu(logical_pos, session.system_menu)
+        if hit is None:
+            return True
+        session.system_menu.cursor = hit
+        result = reduce_system_menu(
+            session.system_menu, Command.ACCEPT, session.settings,
+        )
+        return _apply_system_result(game, session, input_buffer, result)
     session.reset_for(effect)
     if isinstance(effect, ChooseCharacter):
         hit = hit_test_character(logical_pos, session.character)
@@ -434,15 +518,21 @@ def _auto_dismiss_picture(game, session):
 
 def render_active_mode(game, session, scene_frame):
     from PyAitD.effects import (
-        ChooseCharacter, GameOver, OpenInventory, ReadText, ShowFound, ShowPicture,
+        ChooseCharacter, GameOver, OpenInventory, OpenSystemMenu, ReadText,
+        ShowFound, ShowPicture,
     )
     from PyAitD.ui import (
         overlay_messages, render_character_select, render_found,
         render_game_over, render_inventory, render_picture, render_reading,
+        render_system_menu,
     )
     effect = game.active_modal
     if effect is None:
         return overlay_messages(scene_frame, game.messages, game.assets)
+    if isinstance(effect, OpenSystemMenu):
+        # same presenter lifetime as route_command: reset at open, never per
+        # render, so a staged page/cursor/capture survives to the screen
+        return render_system_menu(session.system_menu, session.settings, game.assets)
     session.reset_for(effect)
     if isinstance(effect, ChooseCharacter):
         # the selector owns the whole frame; the staged PLAY scene is never shown
@@ -569,6 +659,15 @@ def run(game, trace_path=None, session=None):
     scene_frame, draw_list = _scene_frame(game, floor, renderer)
     while running:
         for event in pygame.event.get():
+            # raw key capture owns KEYDOWN while the system menu is binding:
+            # the event never reaches event_to_input, mouse routing, or the
+            # menu reducer; KEYUP and focus events keep the ordinary path
+            captured, capture_running = _capture_keydown(
+                event, game, session, input_buffer,
+            )
+            if captured:
+                running = capture_running and running
+                continue
             running = event_to_input(event, input_buffer) and running
             if event.type == pygame.MOUSEMOTION:
                 hover = renderer.window_to_logical(event.pos)
@@ -579,17 +678,14 @@ def run(game, trace_path=None, session=None):
                     # there too, so nothing advertises a click that does nothing
                     route_play_click(game, session, floor, logical, draw_list)
                 else:
-                    running = route_mouse(game, session, logical) and running
+                    running = route_mouse(game, session, logical, input_buffer) and running
         now = pygame.time.get_ticks()
         elapsed = min(now - last, 250)
         last = now
         was_play = game.mode is GameMode.PLAY
         if input_buffer.commands:
             command = input_buffer.commands.popleft()
-            if game.mode is GameMode.PLAY and command is Command.CANCEL:
-                running = False
-            else:
-                running = route_command(game, session, command) and running
+            running = route_command(game, session, command, input_buffer) and running
         replaced = _hero_branch(game, renderer, session)
         if replaced is None:
             replaced = _restart_branch(game, renderer, session)
@@ -627,7 +723,7 @@ def run(game, trace_path=None, session=None):
             # same pump (route_command or a found-contact in play_tick) must
             # not reach the new modal, where OPEN_INVENTORY maps to ACCEPT.
             # Already-modal frames keep theirs: freshly queued, must route.
-            input_buffer.commands.clear()
+            reset_input(input_buffer)
             from PyAitD.interaction import cancel_nav_intent
             cancel_nav_intent(game)
         composed = render_active_mode(game, session, scene_frame)
