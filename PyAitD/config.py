@@ -67,7 +67,8 @@ def validate_settings(payload):
 
 
 def replace_binding(settings, control, key_name):
-    if control is Control.CANCEL or not key_name:
+    if (control is Control.CANCEL or not key_name
+            or key_name in settings.bindings[Control.CANCEL.name]):
         raise ValueError("CANCEL is fixed and key names must be non-empty")
     bindings = {
         name: tuple(key for key in keys if key != key_name)

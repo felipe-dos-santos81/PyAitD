@@ -51,6 +51,13 @@ def test_replace_binding_rejects_cancel_and_empty_key():
         replace_binding(default_settings(), Control.ACTION, "")
 
 
+def test_replace_binding_refuses_to_steal_cancels_escape():
+    settings = default_settings()
+    with pytest.raises(ValueError):
+        replace_binding(settings, Control.ACTION, "escape")
+    assert settings.bindings["CANCEL"] == ("escape",)
+
+
 def test_settings_paths_are_platform_specific(tmp_path):
     assert settings_path(platform="darwin", home=tmp_path) == (
         tmp_path / "Library" / "Application Support" / "PyAitD" / "settings.json"
