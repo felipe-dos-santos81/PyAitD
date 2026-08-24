@@ -42,6 +42,8 @@ def test_nav_intent_defaults_to_a_non_held_approach():
     intent = NavIntent(10, 20, 0)
     assert intent.requires_hold is False
     assert intent.engaged is False
+    assert intent.origin_floor is None
+    assert intent.origin_room is None
 
 
 @pytest.mark.parametrize(

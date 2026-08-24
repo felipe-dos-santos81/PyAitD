@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
+import pytest
+
 from PyAitD.actors import check_object_col
 from PyAitD import interaction
 from PyAitD.effects import NavIntent, ShowFound
@@ -96,6 +98,14 @@ def test_real_wardrobe_is_a_hold_action_target_but_inert_scenery_is_not(data_dir
     inert_idx = game.world_objects[8].obj_index
     assert is_hold_action_target(game, wardrobe_idx) is True
     assert is_hold_action_target(game, inert_idx) is False
+
+
+def test_hold_action_target_rejects_an_out_of_range_world_backlink(data_dir):
+    game = init_game(data_dir)
+    wardrobe_idx = game.world_objects[4].obj_index
+    game.actors[wardrobe_idx].index_in_world = len(game.world_objects)
+
+    assert is_hold_action_target(game, wardrobe_idx) is False
 
 
 def test_hold_action_approach_is_outside_the_wardrobe_footprint(data_dir):
@@ -260,6 +270,34 @@ def test_cancel_held_intent_stops_and_rearms_stand_idempotently(data_dir):
     assert (hero.speed, hero.direction, hero.rotate.num_steps) == (0, 0, 0)
     assert hero.new_anim == PLAYER_STAND_ANIM
     assert interaction.cancel_held_nav_intent(game) is False
+
+
+@pytest.mark.parametrize(
+    "protected_request", ("current", "pending"),
+    ids=("current-uninterruptible", "pending-uninterruptible"),
+)
+def test_cancel_held_intent_forces_one_coherent_stand_request(
+        data_dir, protected_request,
+):
+    from PyAitD.life_ops import ANIM_REPEAT, ANIM_UNINTERRUPTABLE
+
+    game = init_game(data_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    hero.anim = 5
+    hero.anim_type = ANIM_REPEAT
+    hero.new_anim = 99
+    hero.new_anim_type = ANIM_REPEAT
+    hero.new_anim_info = 77
+    if protected_request == "current":
+        hero.anim_type = ANIM_UNINTERRUPTABLE
+    else:
+        hero.new_anim_type = ANIM_UNINTERRUPTABLE
+    apply_click_intent(game, 100, 200, hero.room, 4, requires_hold=True)
+
+    assert interaction.cancel_held_nav_intent(game) is True
+    assert (hero.new_anim, hero.new_anim_type, hero.new_anim_info) == (
+        PLAYER_STAND_ANIM, 0, PLAYER_STAND_ANIM,
+    )
 
 
 def test_arrival_at_a_foundable_target_opens_that_object_s_prompt(data_dir):

@@ -483,6 +483,62 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     assert seen == [(None, *expected_input)]
 
 
+def test_run_ignores_a_second_world_down_while_the_push_is_still_held(
+        data_dir, monkeypatch,
+):
+    import PyAitD.__main__ as main
+    from PyAitD.interaction import is_hold_action_target
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    game = init_game(data_dir)
+    wardrobe_idx = game.world_objects[4].obj_index
+    replacement_idx = game.world_objects[6].obj_index
+    assert is_hold_action_target(game, replacement_idx) is True
+    draw_list = [
+        (wardrobe_idx, (100, 60, 200, 160)),
+        (replacement_idx, (220, 60, 280, 160)),
+    ]
+    event_batches = iter([
+        [
+            main.pygame.event.Event(
+                main.pygame.MOUSEBUTTONDOWN, button=1, pos=(150, 100),
+            ),
+            main.pygame.event.Event(
+                main.pygame.MOUSEBUTTONDOWN, button=1, pos=(250, 100),
+            ),
+        ],
+        [main.pygame.event.Event(main.pygame.QUIT)],
+    ])
+    times = iter([0, 20, 20])
+    seen = []
+    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+        window_to_logical=lambda pos: pos,
+        present=lambda _image: None,
+        close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "_scene_frame", lambda *_args: (frame, draw_list))
+    monkeypatch.setattr(
+        main, "play_tick",
+        lambda current_game, _floor, state: seen.append((
+            current_game.nav_intent.target_object_idx, state.pointer_held,
+        )),
+    )
+    monkeypatch.setattr(main, "render_active_mode", lambda *_args: frame)
+    monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
+    monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
+    monkeypatch.setattr(main, "render_cursor", lambda image, *_args: image)
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
+    monkeypatch.setattr(main.pygame.display, "set_caption", lambda *_args: None)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *_args: None),
+    )
+
+    assert main.run(game) == 0
+    assert seen == [(4, True)]
+
+
 def test_inert_body_intercepts_the_floor_and_stays_blocked(data_dir):
     game = init_game(data_dir)
     floor = Floor(data_dir, game.current_floor)
@@ -822,6 +878,22 @@ def test_hud_click_opens_inventory_without_navigation(data_dir):
     assert game.nav_intent is None
 
 
+def test_inventory_click_keeps_priority_over_an_active_held_push(data_dir):
+    from PyAitD.interaction import apply_click_intent
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    _finish_take(game, 38)
+    apply_click_intent(game, 100, 200, 0, 4, requires_hold=True)
+
+    route_play_click(
+        game, ModalSession(), floor, PlayLayout.INVENTORY.center, [],
+    )
+
+    assert game.mode is GameMode.INVENTORY
+
+
 def test_attack_click_delegates_actor_index(data_dir, monkeypatch):
     game = init_game(data_dir)
     enter_combat_venue(game)
@@ -841,6 +913,50 @@ def test_attack_click_delegates_actor_index(data_dir, monkeypatch):
     )
     assert calls == [(game, enemy_idx)]
     assert game.nav_intent is None
+
+
+def test_attack_click_keeps_priority_over_an_active_held_push(data_dir, monkeypatch):
+    from PyAitD.interaction import apply_click_intent
+
+    game = init_game(data_dir)
+    enter_combat_venue(game)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    _finish_take(game, 38)
+    game.in_hand_table[game.current_inventory] = 38
+    enemy_idx = game.world_objects[222].obj_index
+    apply_click_intent(game, 100, 200, 0, 4, requires_hold=True)
+    calls = []
+    monkeypatch.setattr(
+        "PyAitD.interaction.attack_in_hand",
+        lambda g, idx: calls.append((g, idx)) or True,
+    )
+
+    route_play_click(
+        game, ModalSession(), floor, (150, 100),
+        [(enemy_idx, (100, 60, 200, 160))],
+    )
+
+    assert calls == [(game, enemy_idx)]
+
+
+def test_world_down_routes_normally_after_a_held_push_is_cancelled(data_dir):
+    from PyAitD.interaction import apply_click_intent, cancel_held_nav_intent
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    replacement_idx = game.world_objects[6].obj_index
+    apply_click_intent(game, 100, 200, 0, 4, requires_hold=True)
+    assert cancel_held_nav_intent(game) is True
+
+    route_play_click(
+        game, ModalSession(), floor, (250, 100),
+        [(replacement_idx, (220, 60, 280, 160))],
+    )
+
+    assert game.nav_intent is not None
+    assert game.nav_intent.target_object_idx == 6
 
 
 def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(

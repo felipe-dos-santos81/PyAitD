@@ -190,6 +190,81 @@ def test_latched_world_target_cancels_if_slot_points_at_another_eligible_actor(
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
 
 
+@pytest.mark.parametrize("engaged", (False, True), ids=("approach", "engaged"))
+def test_held_intent_cancels_an_out_of_range_actor_world_backlink(
+        data_dir, engaged,
+):
+    from PyAitD.interaction import hold_action_approach
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.current_floor_data = floor
+    world = game.world_objects[4]
+    target = game.actors[world.obj_index]
+    if engaged:
+        payload = (target.room_x, target.room_z, target.room, 4)
+    else:
+        payload = hold_action_approach(
+            game, floor, game.current_camera_target_actor, world.obj_index,
+        )
+        assert payload is not None
+    game.nav_intent = NavIntent(
+        *payload, requires_hold=True, engaged=engaged,
+        waypoints=[(payload[0], payload[1])], path_room=payload[2],
+    )
+    target.index_in_world = len(game.world_objects)
+
+    apply_play_input(game, InputBuffer(pointer_held=True))
+
+    assert game.nav_intent is None
+    assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("engaged", (False, True), ids=("approach", "engaged"))
+@pytest.mark.parametrize("transition", ("room", "floor"))
+def test_held_intent_cancels_when_hero_and_target_leave_the_route_origin_together(
+        data_dir, monkeypatch, engaged, transition,
+):
+    from PyAitD.interaction import apply_click_intent, hold_action_approach
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.current_floor_data = floor
+    hero_idx = game.current_camera_target_actor
+    hero = game.actors[hero_idx]
+    world = game.world_objects[4]
+    target = game.actors[world.obj_index]
+    if engaged:
+        payload = (target.room_x, target.room_z, target.room, 4)
+    else:
+        payload = hold_action_approach(game, floor, hero_idx, world.obj_index)
+        assert payload is not None
+    apply_click_intent(
+        game, *payload[:3], target_object_idx=payload[3], requires_hold=True,
+    )
+    intent = game.nav_intent
+    intent.engaged = engaged
+    intent.waypoints = [(payload[0], payload[1])]
+    intent.path_room = payload[2]
+
+    if transition == "room":
+        mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
+        assert mesh is not None
+        monkeypatch.setattr(
+            type(game.nav_meshes), "mesh_for", lambda *_args, **_kwargs: mesh,
+        )
+        hero.room += 1
+        target.room += 1
+    else:
+        game.current_floor += 1
+        world.stage += 1
+
+    apply_play_input(game, InputBuffer(pointer_held=True))
+
+    assert game.nav_intent is None
+    assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+
+
 def test_approach_replans_after_its_snapshotted_target_moves(data_dir):
     from PyAitD.interaction import hold_action_approach
 

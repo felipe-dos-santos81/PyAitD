@@ -250,6 +250,9 @@ def route_play_click(game, session, floor, logical_pos, draw_list):
     if kind == "attack":
         attack_in_hand(game, payload)
         return
+    intent = game.nav_intent
+    if intent is not None and intent.requires_hold:
+        return
     if kind == "blocked":
         return
     dest_x, dest_z, room, object_idx = payload

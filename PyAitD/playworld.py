@@ -88,8 +88,9 @@ def _refresh_held_target(game, hero, mesh):
         return False
     world = game.world_objects[world_idx]
     actor_idx = world.obj_index
-    if (actor_idx == -1 or not is_hold_action_target(game, actor_idx)
+    if (not 0 <= actor_idx < len(game.actors)
             or game.actors[actor_idx].index_in_world != world_idx
+            or not is_hold_action_target(game, actor_idx)
             or game.actors[actor_idx].room != hero.room):
         cancel_nav_intent(game)
         return False
@@ -238,6 +239,15 @@ def _apply_mouse_input(game, input_buffer):
         cancel_nav_intent(game)
         return
     hero = game.actors[hero_idx]
+    if intent.requires_hold:
+        if intent.origin_floor is None:
+            intent.origin_floor = game.current_floor
+        if intent.origin_room is None:
+            intent.origin_room = hero.room
+        if (game.current_floor != intent.origin_floor
+                or hero.room != intent.origin_room):
+            cancel_nav_intent(game)
+            return
     mesh = game.nav_meshes.mesh_for(game.current_floor_data, hero.room, agent_extent(hero))
     if intent.requires_hold:
         if not _refresh_held_target(game, hero, mesh):

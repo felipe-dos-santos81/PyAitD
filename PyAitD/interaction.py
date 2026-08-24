@@ -179,7 +179,8 @@ def is_hold_action_target(game, actor_idx):
     if actor_idx == game.current_camera_target_actor:
         return False
     actor = game.actors[actor_idx]
-    if actor.index_in_world < 0 or actor.body_num == -1 or not (actor.dyn_flags & 1):
+    if (not 0 <= actor.index_in_world < len(game.world_objects)
+            or actor.body_num == -1 or not (actor.dyn_flags & 1)):
         return False
     world = game.world_objects[actor.index_in_world]
     if world.obj_index != actor_idx or world.stage != game.current_floor:
@@ -420,9 +421,18 @@ def apply_click_intent(
 ):
     """Record where the player clicked. A new click replaces any previous one."""
     from PyAitD.effects import NavIntent
+    hero_idx = game.current_camera_target_actor
+    origin_room = None
+    if requires_hold:
+        origin_room = (
+            game.actors[hero_idx].room
+            if 0 <= hero_idx < len(game.actors) else room
+        )
     game.nav_intent = NavIntent(
         dest_x, dest_z, room, target_object_idx,
         requires_hold=requires_hold,
+        origin_floor=game.current_floor if requires_hold else None,
+        origin_room=origin_room,
     )
     game.nav_decision = None
 
@@ -453,7 +463,9 @@ def cancel_nav_intent(game):
     # again (FITD anim.cpp:238-253).  Leaving the step intact preserves the
     # actor's already-rendered effective position across release.
     init_anim(hero, PLAYER_STAND_ANIM, 0, PLAYER_STAND_ANIM)
-    hero.new_anim = PLAYER_STAND_ANIM
+    hero.new_anim, hero.new_anim_type, hero.new_anim_info = (
+        PLAYER_STAND_ANIM, 0, PLAYER_STAND_ANIM,
+    )
 
 
 def cancel_held_nav_intent(game):
