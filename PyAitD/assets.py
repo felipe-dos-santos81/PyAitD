@@ -5,8 +5,10 @@ from PyAitD.formats import decode_image, decode_palette, parse_anim, parse_body
 from PyAitD.pak import Pak, find_pak
 from PyAitD.text import parse_book_tokens, parse_system_texts
 
-BODIES_PAK = "LISTBODY"
-ANIMS_PAK = "LISTANIM"
+BODY_ARCHIVES = ("LISTBODY", "LISTBOD2")
+ANIM_ARCHIVES = ("LISTANIM", "LISTANI2")
+BODIES_PAK = BODY_ARCHIVES[0]
+ANIMS_PAK = ANIM_ARCHIVES[0]
 LIFES_PAK = "LISTLIFE"
 TRACKS_PAK = "LISTTRAK"
 TEXT_PAK = "ENGLISH"
@@ -15,9 +17,13 @@ GAME_PALETTE_ENTRY = 3
 
 
 class Assets:
-    def __init__(self, data_dir):
-        self._bodies_pak = str(find_pak(data_dir, BODIES_PAK))
-        self._anims_pak = str(find_pak(data_dir, ANIMS_PAK))
+    def __init__(self, data_dir, hero=0):
+        if hero not in (0, 1):
+            raise ValueError(f"hero must be 0 or 1, got {hero}")
+        self.body_archive_name = BODY_ARCHIVES[hero]
+        self.anim_archive_name = ANIM_ARCHIVES[hero]
+        self._bodies_pak = str(find_pak(data_dir, self.body_archive_name))
+        self._anims_pak = str(find_pak(data_dir, self.anim_archive_name))
         self._lifes_pak = str(find_pak(data_dir, LIFES_PAK))
         self._tracks_pak = str(find_pak(data_dir, TRACKS_PAK))
         self.num_bodies = Pak(self._bodies_pak).count

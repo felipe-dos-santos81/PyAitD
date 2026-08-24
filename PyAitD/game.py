@@ -120,7 +120,7 @@ class Game:
     def __init__(self, data_dir, hero=0):
         self._data_dir = data_dir
         self._rooms_by_floor = {}
-        self.assets = Assets(data_dir)
+        self.assets = Assets(data_dir, hero=hero)
         self.world_objects = parse_objets((data_dir / "OBJETS.ITD").read_bytes())
         self.actors = [Actor() for _ in range(NUM_MAX_OBJECT)]
         self.cvars = parse_defines((data_dir / "DEFINES.ITD").read_bytes())

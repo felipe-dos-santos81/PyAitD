@@ -102,3 +102,17 @@ def test_activate_world_object_initializes_one_released_item(data_dir):
     assert world.obj_index == actor_idx
     assert game.actors[actor_idx].index_in_world == 38
     assert activate_world_object(game, 38) == actor_idx
+
+
+@pytest.mark.parametrize("hero", (0, 1))
+def test_both_heroes_share_fitd_initial_state_except_cvar_and_archives(data_dir, hero):
+    game = init_game(data_dir, hero=hero)
+    actor = game.actors[game.current_camera_target_actor]
+    assert game.cvars[8] == hero
+    assert (
+        game.current_floor, game.current_room, game.current_camera_target_actor,
+        actor.index_in_world, actor.body_num, actor.anim, actor.life, actor.life_mode,
+        actor.room_x, actor.room_y, actor.room_z,
+    ) == (0, 0, 1, 1, 12, 4, 549, 0, 3231, 0, -1548)
+    assert game.inventory_count == [0, 0]
+    assert game.in_hand_table == [-1, -1]
