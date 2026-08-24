@@ -1,7 +1,7 @@
 # Alone in the Dark 1 — M4a1 Shell and Configuration Design
 
 Date: 2026-08-24
-Status: Draft — review corrections applied; awaiting approval
+Status: Approved — implementation planning authorized
 Reference: FITD (`/Users/felipe.dos.santos/code/theirs/FITD`, GPLv2) —
 `AITD1.cpp`, `startupMenu.cpp`, `systemMenu.cpp`, `aitdBox.cpp`, `main.cpp`,
 `input.cpp`; port: `__main__.py`, `ui.py`, `effects.py`, `assets.py`,
@@ -177,8 +177,11 @@ saveable `Game` state.
   Action or Inventory/Confirm activates, left-click hit-tests and activates a
   row, and Esc exits to PLAY. Quit closes cleanly when settings are clean or
   save succeeds (OS cursor restored, renderer closed, exit 0).
-- **Configuration page:** Sticky-action toggle row plus one row per remappable
-  `Control`. Activating a remap row enters capture state ("press a key…"). The
+- **Configuration page:** Sticky-action toggle row, one row per remappable
+  `Control`, and a final **Back to Menu** navigation row so a single-button
+  player can leave Configuration. Back is not a remappable CANCEL control;
+  Escape remains the fixed keyboard shortcut. Activating a remap row enters
+  capture state ("press a key…"). The
   next non-repeat KEYDOWN replaces that control's complete binding list with
   the captured key. Binding an already-bound key removes it from the previous
   control. CANCEL is the one fixed control: Escape always cancels capture and
@@ -343,6 +346,7 @@ in every mode.
 
 ## Planning boundary
 
-This document defines the M4a1 behavior and verification contracts only.
-After review approval, write one task-level TDD implementation plan for
-M4a1. Do not fold M4a2 persistence, M4b media, or M4c closure into that plan.
+This document defines the M4a1 behavior and verification contracts only. The
+approved task-level TDD plan is
+`docs/superpowers/plans/2026-08-24-m4a1-shell-and-configuration.md`. Do not fold
+M4a2 persistence, M4b media, or M4c closure into that plan.
