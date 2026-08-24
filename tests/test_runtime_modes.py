@@ -14,6 +14,34 @@ from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.ui import Command, InputBuffer, ModalLayout, ModalSession
 
 
+def test_inventory_hud_availability_is_the_complete_shared_policy(data_dir):
+    from PyAitD.__main__ import inventory_hud_available
+
+    game = init_game(data_dir)
+    game.num_camera = game.new_num_camera
+    game.inventory_table[0][0] = 38
+    game.inventory_count[0] = 1
+    assert inventory_hud_available(game)
+
+    mutations = (
+        ("input_mode", InputMode.KEYBOARD),
+        ("status_screen_allowed", 0),
+        ("num_camera", -1),
+        ("current_camera_target_actor", -1),
+    )
+    for field, value in mutations:
+        old = getattr(game, field)
+        setattr(game, field, value)
+        assert not inventory_hud_available(game), field
+        setattr(game, field, old)
+
+    game.inventory_count[0] = 0
+    assert not inventory_hud_available(game)
+    game.inventory_count[0] = 1
+    game.open_modal(OpenInventory())
+    assert not inventory_hud_available(game)
+
+
 def test_play_input_reads_held_state_without_consuming_edges(data_dir):
     game = init_game(data_dir)
     # this asserts the keyboard mapping specifically; mouse is the default
@@ -112,6 +140,9 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     monkeypatch.setattr(main, "play_tick", lambda *args: True)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
     monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(
+        main.pygame.mouse, "set_visible", lambda value: None
+    )
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
     monkeypatch.setattr(
@@ -291,6 +322,9 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
         num_camera=-1, new_num_camera=0, flag_init_view=2, current_room=0,
         actors=[], active_modal=None, input_mode=InputMode.MOUSE,
         restart_requested=False,
+        current_camera_target_actor=-1,
+        inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
+        current_inventory=0, status_screen_allowed=1,
     )
 
     def spy_restart_session(game):
@@ -336,6 +370,9 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     monkeypatch.setattr(
         main, "Renderer",
         lambda: SimpleNamespace(present=spy_present, close=lambda: None),
+    )
+    monkeypatch.setattr(
+        main.pygame.mouse, "set_visible", lambda value: None
     )
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))

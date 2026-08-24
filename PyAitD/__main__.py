@@ -21,7 +21,10 @@ from PyAitD.playworld import TICK_MS, play_tick
 from PyAitD.render import Renderer
 from PyAitD.scenario import enter_combat_venue
 from PyAitD.skel import skin
-from PyAitD.ui import Command, InputBuffer, ModalSession, event_to_input, render_cursor
+from PyAitD.ui import (
+    Command, InputBuffer, ModalSession, event_to_input, render_cursor,
+    render_play_hud,
+)
 from PyAitD.world import CameraState
 
 DEFAULT_DATA = (
@@ -87,37 +90,64 @@ def _scene_frame(game, floor, renderer):
     ), draw_list
 
 
-def _interactable_targets(game, draw_list, hero_idx):
-    """Draw-list entries a click may target: interactables, never the hero."""
+def inventory_hud_available(game):
+    return (
+        game.mode is GameMode.PLAY
+        and game.active_modal is None
+        and game.input_mode is InputMode.MOUSE
+        and game.num_camera != -1
+        and game.current_camera_target_actor != -1
+        and bool(game.status_screen_allowed)
+        and bool(game.inventory_count[game.current_inventory])
+    )
+
+
+def _pointer_actor_targets(game, draw_list, hero_idx):
+    from PyAitD.interaction import is_combat_target
     return [
         (idx, box) for idx, box in draw_list
-        if idx != hero_idx and _is_interactable(game, idx)
+        if idx != hero_idx
+        and (_is_interactable(game, idx) or is_combat_target(game, idx))
     ]
 
 
 def resolve_play_click(game, floor, logical_pos, draw_list):
-    """What a left click at logical_pos means: (kind, apply_click_intent args).
+    """Resolve inventory, attack, target, walk, or blocked plus its payload.
 
     One resolver behind both the cursor and the click, so hover feedback cannot
-    advertise something different from what clicking does. kind is "target" (an
-    interactable object), "walk" (a floor point we can head for) or "blocked"
-    (nothing to do, args None).
+    advertise something different from what clicking does. kind is "inventory"
+    (the HUD button), "attack" (a combat target with a usable in-hand weapon),
+    "target" (an interactable object), "walk" (a floor point we can head for)
+    or "blocked" (nothing to do, payload None).
     """
+    from PyAitD.interaction import combat_action_for, is_combat_target
     from PyAitD.navmesh import agent_extent, approach_cell, nearest_walkable
     from PyAitD.picking import pick_actor, pick_floor_any_room
+    from PyAitD.ui import PlayLayout
     from PyAitD.world import room_delta
+
     if (logical_pos is None or game.active_modal is not None
             or game.input_mode is not InputMode.MOUSE or game.num_camera == -1):
         return ("blocked", None)
     hero_idx = game.current_camera_target_actor
     if hero_idx == -1:
         return ("blocked", None)
+    if (inventory_hud_available(game)
+            and PlayLayout.INVENTORY.collidepoint(logical_pos)):
+        return ("inventory", None)
+
     hero = game.actors[hero_idx]
     agent = agent_extent(hero)
-
     actor_idx = pick_actor(
-        logical_pos, _interactable_targets(game, draw_list, hero_idx),
+        logical_pos, _pointer_actor_targets(game, draw_list, hero_idx),
     )
+    if actor_idx is not None and is_combat_target(game, actor_idx):
+        object_idx = game.in_hand_table[game.current_inventory]
+        if combat_action_for(game, object_idx) is None:
+            # a combat target without an available combat action is blocked,
+            # never a fall-through to a floor walk
+            return ("blocked", None)
+        return ("attack", actor_idx)
     if actor_idx is not None:
         target = game.actors[actor_idx]
         dest_x, dest_z = target.room_x, target.room_z
@@ -138,7 +168,10 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
             spot = approach_cell(mesh, dest_x, dest_z, from_x, from_z)
             if spot is not None:
                 dest_x, dest_z = spot
-        return ("target", (dest_x, dest_z, target.room, target.index_in_world))
+        return (
+            "target",
+            (dest_x, dest_z, target.room, target.index_in_world),
+        )
 
     picked = pick_floor_any_room(
         logical_pos, floor, hero.room, game.num_camera, hero.world_y,
@@ -158,13 +191,20 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
     return ("walk", (dest_x, dest_z, dest_room, -1))
 
 
-def route_play_click(game, floor, logical_pos, draw_list):
-    """A left click during PLAY: pick an object, else a floor point, else nothing."""
-    from PyAitD.interaction import apply_click_intent
-    kind, args = resolve_play_click(game, floor, logical_pos, draw_list)
+def route_play_click(game, session, floor, logical_pos, draw_list):
+    """Route one resolved PLAY click; HUD and world share the resolver."""
+    from PyAitD.interaction import apply_click_intent, attack_in_hand
+
+    kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
+    if kind == "inventory":
+        route_command(game, session, Command.OPEN_INVENTORY)
+        return
+    if kind == "attack":
+        attack_in_hand(game, payload)
+        return
     if kind == "blocked":
         return
-    dest_x, dest_z, room, object_idx = args
+    dest_x, dest_z, room, object_idx = payload
     apply_click_intent(game, dest_x, dest_z, room, target_object_idx=object_idx)
 
 
@@ -416,6 +456,7 @@ def run(game, trace_path=None):
         return 2
     game.trace = Trace(trace_path) if trace_path else None
     renderer = Renderer()
+    pygame.mouse.set_visible(False)
     clock = pygame.time.Clock()
     input_buffer = InputBuffer()
     session = ModalSession()
@@ -439,7 +480,7 @@ def run(game, trace_path=None):
                 if game.active_modal is None and game.mode is GameMode.PLAY:
                     # keyboard mode swallows play clicks; the cursor is hidden
                     # there too, so nothing advertises a click that does nothing
-                    route_play_click(game, floor, logical, draw_list)
+                    route_play_click(game, session, floor, logical, draw_list)
                 else:
                     running = route_mouse(game, session, logical) and running
         now = pygame.time.get_ticks()
@@ -491,9 +532,11 @@ def run(game, trace_path=None):
             from PyAitD.interaction import cancel_nav_intent
             cancel_nav_intent(game)
         composed = render_active_mode(game, session, scene_frame)
+        available = inventory_hud_available(game)
+        composed = render_play_hud(composed, inventory_available=available)
         if (game.mode is GameMode.PLAY and game.active_modal is None
                 and game.input_mode is InputMode.MOUSE):
-            kind, _args = resolve_play_click(game, floor, hover, draw_list)
+            kind, _payload = resolve_play_click(game, floor, hover, draw_list)
             composed = render_cursor(composed, hover, kind)
         renderer.present(composed)
         if game.num_camera != -1:
@@ -510,6 +553,7 @@ def run(game, trace_path=None):
         clock.tick(60)
     if game.trace is not None:
         game.trace.close()
+    pygame.mouse.set_visible(True)
     renderer.close()
     return exit_status
 

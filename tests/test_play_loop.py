@@ -65,6 +65,9 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
     )
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
     monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(
+        main.pygame.mouse, "set_visible", lambda value: None
+    )
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
     monkeypatch.setattr(
@@ -76,6 +79,9 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
         num_camera=-1, new_num_camera=0, flag_init_view=0, current_room=0,
         actors=[], active_modal=None, input_mode=InputMode.MOUSE,
         restart_requested=False,
+        current_camera_target_actor=-1,
+        inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
+        current_inventory=0, status_screen_allowed=1,
     )
     assert main.run(game) == 0
     assert calls == ["tick"] * 5 + ["present", "present"]
@@ -116,6 +122,9 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch,
     monkeypatch.setattr(main, "play_tick", tick)
     monkeypatch.setattr(main, "_scene_frame", scene_frame)
     monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(
+        main.pygame.mouse, "set_visible", lambda value: None
+    )
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
     monkeypatch.setattr(
@@ -127,6 +136,9 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch,
         num_camera=0, new_num_camera=0, flag_init_view=0, current_room=0,
         actors=[], active_modal=None, input_mode=InputMode.MOUSE,
         restart_requested=False,
+        current_camera_target_actor=-1,
+        inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
+        current_inventory=0, status_screen_allowed=1,
     )
     assert main.run(game) == 0
     assert len(scene_calls) == 1  # only the pre-loop frame, reused after
@@ -232,6 +244,11 @@ def test_depth_sort_y_bands():
 
 
 from PyAitD.__main__ import _is_interactable, resolve_play_click, route_play_click
+from PyAitD.effects import GameMode
+from PyAitD.game import AF_ANIMATED, AF_FOUNDABLE
+from PyAitD.interaction import _finish_take
+from PyAitD.scenario import enter_combat_venue
+from PyAitD.ui import ModalSession, PlayLayout
 
 
 def _state_for(floor, room_idx, cam_slot):
@@ -256,7 +273,7 @@ def test_a_floor_click_becomes_a_walk_intent(data_dir):
         _state_for(floor, hero.room, game.num_camera),
         hero.room_x + 1500, hero.world_y, hero.room_z,
     )
-    route_play_click(game, floor, (int(screen[0]), int(screen[1])), [])
+    route_play_click(game, ModalSession(), floor, (int(screen[0]), int(screen[1])), [])
     assert game.nav_intent is not None
     assert game.nav_intent.target_object_idx == -1
 
@@ -273,7 +290,7 @@ def test_a_click_on_an_actor_becomes_a_target_intent(data_dir):
         and _is_interactable(game, i)
     )
     draw_list = [(other_idx, (100, 60, 200, 160))]
-    route_play_click(game, floor, (150, 100), draw_list)
+    route_play_click(game, ModalSession(), floor, (150, 100), draw_list)
     assert game.nav_intent is not None
     assert game.nav_intent.target_object_idx == game.actors[other_idx].index_in_world
 
@@ -282,7 +299,7 @@ def test_a_click_on_nothing_leaves_the_intent_alone(data_dir):
     game = init_game(data_dir)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
-    route_play_click(game, floor, (2, 2), [])
+    route_play_click(game, ModalSession(), floor, (2, 2), [])
     assert game.nav_intent is None
 
 
@@ -334,7 +351,7 @@ def test_clicking_floor_zero_s_interactable_walks_there_and_dispatches(data_dir)
     assert box is not None, "the interactable must be on screen to be clickable"
     click = ((box[0] + box[2]) // 2, (box[1] + box[3]) // 2)
 
-    route_play_click(game, floor, click, [entry])
+    route_play_click(game, ModalSession(), floor, click, [entry])
     intent = game.nav_intent
     assert intent is not None and intent.target_object_idx == game.actors[target_idx].index_in_world
     target = game.actors[target_idx]
@@ -383,7 +400,7 @@ def test_a_play_click_is_ignored_in_keyboard_mode(data_dir):
 
     game.input_mode = InputMode.KEYBOARD
     assert resolve_play_click(game, floor, click, [])[0] == "blocked"
-    route_play_click(game, floor, click, [])
+    route_play_click(game, ModalSession(), floor, click, [])
     assert game.nav_intent is None
 
 
@@ -398,11 +415,12 @@ def test_the_cursor_and_the_click_come_from_one_resolution(data_dir):
     game.num_camera = game.new_num_camera
     points = [(x, y) for x in range(10, 320, 23) for y in range(20, 200, 17)]
     seen = set()
+    session = ModalSession()
     for point in points:
         kind, args = resolve_play_click(game, floor, point, [])
         seen.add(kind)
         game.nav_intent = None
-        route_play_click(game, floor, point, [])
+        route_play_click(game, session, floor, point, [])
         if kind == "blocked":
             assert game.nav_intent is None, f"{point}: cursor said blocked, click walked"
         else:
@@ -514,3 +532,152 @@ def test_a_same_room_target_passes_the_hero_position_unchanged(data_dir):
         navmesh_module.approach_cell = original
 
     assert seen.get("from") == (hero.room_x, hero.room_z)
+
+
+def test_inventory_hud_wins_before_world_resolution(data_dir, monkeypatch):
+    import PyAitD.picking as picking
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    _finish_take(game, 38)
+    monkeypatch.setattr(
+        picking,
+        "pick_floor_any_room",
+        lambda *args: (_ for _ in ()).throw(AssertionError("HUD leaked to world picking")),
+    )
+    assert resolve_play_click(
+        game, floor, PlayLayout.INVENTORY.center, [],
+    ) == ("inventory", None)
+
+
+def test_inventory_hud_right_edge_is_world_not_hud(data_dir, monkeypatch):
+    import PyAitD.picking as picking
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    _finish_take(game, 38)
+    calls = []
+    monkeypatch.setattr(
+        picking, "pick_floor_any_room",
+        lambda *args: calls.append(args) or None,
+    )
+    point = (PlayLayout.INVENTORY.right, PlayLayout.INVENTORY.centery)
+    assert resolve_play_click(game, floor, point, []) == ("blocked", None)
+    assert len(calls) == 1
+
+
+def test_combat_actor_resolves_attack_or_blocked_not_walk(data_dir):
+    game = init_game(data_dir)
+    enter_combat_venue(game)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    enemy_idx = game.world_objects[222].obj_index
+    draw_list = [(enemy_idx, (100, 60, 200, 160))]
+    point = (150, 100)
+
+    assert resolve_play_click(game, floor, point, draw_list) == ("blocked", None)
+    _finish_take(game, 38)
+    game.in_hand_table[game.current_inventory] = 38
+    assert resolve_play_click(game, floor, point, draw_list) == ("attack", enemy_idx)
+
+
+def test_topmost_union_uses_one_pick_actor_call(data_dir, monkeypatch):
+    import PyAitD.picking as picking
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    hero_idx = game.current_camera_target_actor
+    candidates = [
+        i for i, actor in enumerate(game.actors)
+        if actor.index_in_world >= 0 and i != hero_idx
+    ][:2]
+    game.actors[candidates[0]].object_type |= AF_FOUNDABLE
+    game.actors[candidates[1]].object_type |= AF_ANIMATED
+    _finish_take(game, 38)
+    game.in_hand_table[game.current_inventory] = 38
+    seen = []
+    monkeypatch.setattr(
+        picking,
+        "pick_actor",
+        lambda point, entries: seen.append(tuple(entries)) or candidates[1],
+    )
+    kind, payload = resolve_play_click(
+        game, floor, (150, 100),
+        [(candidates[0], (0, 0, 10, 10)), (candidates[1], (0, 0, 10, 10))],
+    )
+    assert (kind, payload) == ("attack", candidates[1])
+    assert [idx for idx, _box in seen[0]] == candidates
+
+
+def test_hud_click_opens_inventory_without_navigation(data_dir):
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    _finish_take(game, 38)
+    session = ModalSession()
+    route_play_click(game, session, floor, PlayLayout.INVENTORY.center, [])
+    assert game.mode is GameMode.INVENTORY
+    assert game.nav_intent is None
+
+
+def test_attack_click_delegates_actor_index(data_dir, monkeypatch):
+    game = init_game(data_dir)
+    enter_combat_venue(game)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    _finish_take(game, 38)
+    game.in_hand_table[game.current_inventory] = 38
+    enemy_idx = game.world_objects[222].obj_index
+    calls = []
+    monkeypatch.setattr(
+        "PyAitD.interaction.attack_in_hand",
+        lambda g, idx: calls.append((g, idx)) or True,
+    )
+    route_play_click(
+        game, ModalSession(), floor, (150, 100),
+        [(enemy_idx, (100, 60, 200, 160))],
+    )
+    assert calls == [(game, enemy_idx)]
+    assert game.nav_intent is None
+
+
+def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
+    data_dir, monkeypatch,
+):
+    import PyAitD.__main__ as main
+
+    calls = []
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])
+    times = iter([0, 0, 0])
+    monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(
+        number=0, rooms=[SimpleNamespace(camera_indices=[0])],
+    ))
+    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+        present=lambda image: calls.append("present"), close=lambda: calls.append("close"),
+    ))
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(
+        main, "render_play_hud",
+        lambda image, **kwargs: calls.append("hud") or image,
+    )
+    monkeypatch.setattr(
+        main, "render_cursor",
+        lambda image, *args: calls.append("cursor") or image,
+    )
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda value: calls.append(("visible", value)))
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None))
+
+    game = init_game(data_dir)
+    game.inventory_table[0][0] = 38
+    game.inventory_count[0] = 1
+    assert main.run(game) == 0
+    assert calls.index("hud") < calls.index("cursor") < calls.index("present")
+    assert calls[0] == ("visible", False)
+    assert ("visible", True) in calls
