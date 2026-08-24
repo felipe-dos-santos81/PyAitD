@@ -25,6 +25,7 @@ class Command(Enum):
 class InputBuffer:
     held_joyd: int = 0
     action_held: bool = False
+    pointer_held: bool = False
     focused: bool = True
     commands: deque = field(default_factory=deque)
     bindings: dict | None = None
@@ -73,6 +74,7 @@ def compile_bindings(settings):
 def reset_input(state):
     state.held_joyd = 0
     state.action_held = False
+    state.pointer_held = False
     state.sticky_armed = False
     state.action_pulse = False
     state.commands.clear()
@@ -93,6 +95,12 @@ def event_to_input(event, state):
         return True
     if event.type == pygame.WINDOWFOCUSGAINED:
         state.focused = True
+        return True
+    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+        state.pointer_held = True
+        return True
+    if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+        state.pointer_held = False
         return True
     # bindings=None keeps the pre-settings defaults and never touches
     # pygame.key before initialization; a compiled table is used as-is, even

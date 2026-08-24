@@ -429,8 +429,36 @@ def apply_click_intent(
 
 def cancel_nav_intent(game):
     """Drop the current intent. Used on modal entry and on a stop click."""
+    intent = game.nav_intent
+    held = intent is not None and intent.requires_hold
     game.nav_intent = None
     game.nav_decision = None
+    game.nav_arrived_target = -1
+    game.local_joyd = 0
+    game.local_click = 0
+    game.local_key = 0
+    game.action = 0
+    if not held:
+        return
+    hero_idx = game.current_camera_target_actor
+    if hero_idx == -1:
+        return
+    from PyAitD.life_ops import init_anim
+    hero = game.actors[hero_idx]
+    hero.speed = 0
+    hero.direction = 0
+    hero.rotate.num_steps = 0
+    init_anim(hero, PLAYER_STAND_ANIM, 0, PLAYER_STAND_ANIM)
+    hero.new_anim = PLAYER_STAND_ANIM
+
+
+def cancel_held_nav_intent(game):
+    """Cancel a held navigation intent without disturbing ordinary clicks."""
+    intent = game.nav_intent
+    if intent is None or not intent.requires_hold:
+        return False
+    cancel_nav_intent(game)
+    return True
 
 
 def attack_in_hand(game, target_actor_idx):

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from PyAitD.actors import check_object_col
+from PyAitD import interaction
 from PyAitD.effects import NavIntent, ShowFound
 from PyAitD.floor import Floor
 from PyAitD.game import AF_ANIMATED, init_game, AF_FOUNDABLE
@@ -8,7 +9,7 @@ from PyAitD.interaction import (
     cancel_nav_intent, choose_inventory_action, combat_action_for,
     dispatch_nav_arrival, inventory_actions, inventory_items, inventory_weight,
     hold_action_approach, is_combat_target, is_hold_action_target, put_object,
-    remove_from_inventory, request_found,
+    PLAYER_STAND_ANIM, remove_from_inventory, request_found,
     resolve_actor_contacts,
 )
 from PyAitD.world import room_delta
@@ -241,6 +242,24 @@ def test_cancel_clears_intent_and_decision(data_dir):
     game.nav_decision = object()
     cancel_nav_intent(game)
     assert game.nav_intent is None and game.nav_decision is None
+
+
+def test_cancel_held_intent_stops_and_rearms_stand_idempotently(data_dir):
+    game = init_game(data_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    apply_click_intent(game, 100, 200, hero.room, 4, requires_hold=True)
+    game.nav_arrived_target = 4
+    game.local_joyd = 1
+    game.local_click = 1
+    game.action = 0x2000
+    hero.speed = 4
+    hero.direction = 1
+    assert interaction.cancel_held_nav_intent(game) is True
+    assert (game.nav_intent, game.nav_decision) == (None, None)
+    assert (game.nav_arrived_target, game.local_joyd, game.local_click, game.action) == (-1, 0, 0, 0)
+    assert (hero.speed, hero.direction, hero.rotate.num_steps) == (0, 0, 0)
+    assert hero.new_anim == PLAYER_STAND_ANIM
+    assert interaction.cancel_held_nav_intent(game) is False
 
 
 def test_arrival_at_a_foundable_target_opens_that_object_s_prompt(data_dir):
