@@ -6,14 +6,15 @@ from types import SimpleNamespace
 
 import numpy as np
 import pygame
+import pytest
 
 from PyAitD.anim_action import HANDLED_ACTIONS, THROW_OBJECT, WAIT_ANIM_THROW
 from PyAitD.effects import GameMode
 from PyAitD.floor import Floor
-from PyAitD.game import AF_ANIMATED, init_game
+from PyAitD.game import AF_ANIMATED, AF_MOVABLE, init_game
 from PyAitD.interaction import (
     COMBAT_ACTIONS, _finish_take, choose_inventory_action, inventory_actions,
-    inventory_items,
+    inventory_items, PLAYER_PUSH_ANIM,
 )
 from PyAitD.playworld import play_tick
 from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
@@ -150,8 +151,18 @@ class _HeadlessRenderer:
 
 
 def _left_click(pos):
+    return _left_down(pos)
+
+
+def _left_down(pos):
     return pygame.event.Event(
         pygame.MOUSEBUTTONDOWN, button=1, pos=tuple(pos),
+    )
+
+
+def _left_up(pos):
+    return pygame.event.Event(
+        pygame.MOUSEBUTTONUP, button=1, pos=tuple(pos),
     )
 
 
@@ -170,6 +181,144 @@ def _run_scripted_mouse(monkeypatch, game, draw_list, next_events):
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda *args: None)
     assert main.run(game) == 0
     assert renderer.presented > 0
+
+
+@pytest.mark.parametrize("hero_id", (0, 1))
+def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, monkeypatch, hero_id):
+    import PyAitD.__main__ as main
+
+    game = init_game(data_dir, hero=hero_id)
+    floor = Floor(data_dir, game.current_floor)
+    # Opening LIFE performs an unrelated begin_take(object 2), which publishes
+    # Action 0x800 on its first boot tick.  Complete that real bootstrap before
+    # measuring the held path; do not hide an Action emitted while held.
+    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, InputBuffer())
+    assert game.action == game.local_click == 0
+    game.timer = 300
+
+    hero = game.actors[game.current_camera_target_actor]
+    world = game.world_objects[4]
+    wardrobe = game.actors[world.obj_index]
+    assert (
+        world.obj_index, wardrobe.index_in_world, wardrobe.body_num,
+        wardrobe.life, world.stage, world.room, world.found_life,
+    ) == (3, 4, 2, 1, 0, 0, -1)
+    wardrobe_start = (wardrobe.room_x, wardrobe.room_z)
+    state = {
+        "phase": "hover", "frames": 0,
+        "hero_start": (hero.room_x, hero.room_z), "released_at": None,
+        "still_frames": 0, "hover_push_seen": False,
+        "drift_cursor_seen": False, "engaged_seen": False,
+        "push_anim_seen": False, "movable_seen": False,
+        "hero_push_released_at": None, "wardrobe_released_at": None,
+    }
+
+    real_play_tick = main.play_tick
+
+    def observe_play_tick(current_game, current_floor, input_buffer):
+        held = input_buffer.pointer_held
+        if held:
+            assert input_buffer.action_held is False
+            assert current_game.action == current_game.local_click == 0
+            intent = current_game.nav_intent
+            assert intent is not None and intent.requires_hold
+            assert intent.target_object_idx == 4
+            assert world.obj_index == 3
+        result = real_play_tick(current_game, current_floor, input_buffer)
+        if held:
+            assert input_buffer.action_held is False
+            assert current_game.action == current_game.local_click == 0
+            intent = current_game.nav_intent
+            if intent is not None and intent.engaged:
+                state["engaged_seen"] = True
+                state["push_anim_seen"] |= hero.anim == PLAYER_PUSH_ANIM
+        if state["phase"] in {"released", "push_released"}:
+            assert (hero.room_x, hero.room_z) == (
+                state["released_at"] if state["phase"] == "released"
+                else state["hero_push_released_at"]
+            )
+            if state["phase"] == "push_released":
+                assert (wardrobe.room_x, wardrobe.room_z) == (
+                    state["wardrobe_released_at"]
+                )
+        return result
+
+    real_cursor_kind = main._play_cursor_kind
+
+    def observe_cursor_kind(current_game, current_floor, hover, draw_list, input_buffer):
+        kind = real_cursor_kind(
+            current_game, current_floor, hover, draw_list, input_buffer,
+        )
+        if state["phase"] == "hover" and hover == (150, 100):
+            state["hover_push_seen"] = kind == "push"
+        if (input_buffer.pointer_held and hover == (10, 10)
+                and current_game.nav_intent is not None):
+            assert kind == "push"
+            state["drift_cursor_seen"] = True
+        return kind
+
+    monkeypatch.setattr(main, "play_tick", observe_play_tick)
+    monkeypatch.setattr(main, "_play_cursor_kind", observe_cursor_kind)
+
+    def next_events():
+        state["frames"] += 1
+        assert state["frames"] < 5000, "wardrobe hold journey exceeded its budget"
+        if state["phase"] == "hover":
+            if state["hover_push_seen"]:
+                state["phase"] = "approaching"
+                return [_left_down((150, 100))]
+            return [pygame.event.Event(
+                pygame.MOUSEMOTION, pos=(150, 100), rel=(0, 0), buttons=(0, 0, 0),
+            )]
+        if (state["phase"] == "approaching"
+                and (hero.room_x, hero.room_z) != state["hero_start"]):
+            state["phase"] = "drifted"
+            return [pygame.event.Event(
+                pygame.MOUSEMOTION, pos=(10, 10), rel=(-140, -90), buttons=(1, 0, 0),
+            )]
+        if state["phase"] == "drifted" and state["drift_cursor_seen"]:
+            state["phase"] = "released"
+            state["released_at"] = (hero.room_x, hero.room_z)
+            return [_left_up((10, 10))]
+        if state["phase"] == "released":
+            assert (hero.room_x, hero.room_z) == state["released_at"]
+            state["still_frames"] += 1
+            if state["still_frames"] == 5:
+                state["phase"] = "holding"
+                return [_left_down((150, 100))]
+        if state["phase"] == "holding":
+            state["movable_seen"] |= bool(wardrobe.object_type & AF_MOVABLE)
+            assert game.action == game.local_click == 0
+            if (wardrobe.room_x, wardrobe.room_z) != wardrobe_start:
+                assert game.nav_intent is not None and game.nav_intent.engaged
+                assert hero.anim == PLAYER_PUSH_ANIM
+                state["phase"] = "push_released"
+                state["hero_push_released_at"] = (hero.room_x, hero.room_z)
+                state["wardrobe_released_at"] = (wardrobe.room_x, wardrobe.room_z)
+                state["still_frames"] = 0
+                return [_left_up((10, 10))]
+        if state["phase"] == "push_released":
+            assert (hero.room_x, hero.room_z) == state["hero_push_released_at"]
+            assert (wardrobe.room_x, wardrobe.room_z) == state["wardrobe_released_at"]
+            state["still_frames"] += 1
+            if state["still_frames"] == 5:
+                return [pygame.event.Event(pygame.QUIT)]
+        return []
+
+    _run_scripted_mouse(
+        monkeypatch, game,
+        [(world.obj_index, (100, 60, 200, 160))],
+        next_events,
+    )
+    assert state["hover_push_seen"] is True
+    assert state["drift_cursor_seen"] is True
+    assert state["engaged_seen"] is True
+    assert state["push_anim_seen"] is True
+    assert state["movable_seen"] is True
+    assert (wardrobe.room_x, wardrobe.room_z) != wardrobe_start
+    assert game.nav_intent is None
+    assert game.action == game.local_click == game.local_joyd == 0
 
 
 def test_mouse_journey_attic_take_hud_inventory_action(data_dir, monkeypatch):

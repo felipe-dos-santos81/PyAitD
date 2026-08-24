@@ -18,7 +18,7 @@ make run-mouse-combat        # deterministic object-38 mouse combat proof start
 make test                    # pytest suite — authoritative gate
 make prove                   # M3a proof: parse-all 563 scripts/45 tracks/tables + headless 60-tick play_tick boot
 make prove-combat            # M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
-make prove-mouse-only        # M3e contract + real-data attic/combat/restart mouse journeys
+make prove-mouse-only        # mouse contract + real-data attic/combat/restart/hold-push journeys
 make prove-shell             # M4a1 proof: shell, configuration, mouse contract, real-loop journeys
 ```
 
@@ -34,6 +34,7 @@ make prove-shell             # M4a1 proof: shell, configuration, mouse contract,
 | M3d | Mouse-only point-and-click input | done |
 | M3e | Mouse reachability: HUD inventory, clicked force-2 throw, exhaustive mouse contract | done |
 | M4a1 | Shell: character select, system menu, remappable controls, sticky Action, settings persistence, settings notice overlay | automated gates green (`make prove-shell`); windowed accessibility pass pending (`docs/m4a1-shell-proof.md`) |
+| Mouse hold-to-push | Held approach/engage for scripted movable furniture | automated gates green; windowed accessibility pass pending (`docs/mouse-hold-push-proof.md`) |
 | M4 | Menus, audio, save/load, ending/completability | later |
 
 Design docs live in `docs/superpowers/specs/` and `docs/superpowers/plans/`
@@ -201,6 +202,18 @@ action runner.
   pending): `docs/m4a1-shell-proof.md`.
 - The three-row MAIN menu (Return/Configuration/Quit) is the stable host into
   which M4a2 inserts Save/Load.
+
+## Mouse hold-to-push boundary
+
+- `NavIntent` latches a world-object index and distinguishes held approach from
+  engaged contact; transient actor slots are resolved again every tick.
+- Engagement projects AITD1 player animation 5 while ordinary follower output
+  supplies forward contact. LIFE 1 enables the opening wardrobe's `AF_MOVABLE`;
+  `resolve_actor_contacts` alone moves it.
+- Mouse release, focus loss, modal entry, target/floor/room invalidation, and
+  bounded stall share idempotent cancellation. Pushing never asserts Action.
+- Focused proof: `make prove-mouse-only`; evidence:
+  `docs/mouse-hold-push-proof.md`.
 
 ## Testing conventions
 
