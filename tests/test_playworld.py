@@ -88,20 +88,19 @@ def test_mouse_mode_mirrors_the_follower_joystick(data_dir):
 
 
 @pytest.mark.parametrize("hero_id", (0, 1))
-def test_held_wardrobe_engages_retargets_and_never_asserts_action(data_dir, hero_id):
+def test_engaged_wardrobe_retargets_and_never_asserts_action(data_dir, hero_id):
     game = init_game(data_dir, hero=hero_id)
     floor = Floor(data_dir, game.current_floor)
     hero = game.actors[game.current_camera_target_actor]
     target = game.actors[game.world_objects[4].obj_index]
     game.current_floor_data = floor
     game.nav_intent = NavIntent(
-        hero.room_x, hero.room_z, hero.room, 4,
-        requires_hold=True, engaged=False,
-        waypoints=[(hero.room_x, hero.room_z)], path_room=hero.room,
+        target.room_x, target.room_z, target.room, 4,
+        requires_hold=True, engaged=True,
+        waypoints=[(target.room_x, target.room_z)], path_room=target.room,
     )
     buf = InputBuffer(pointer_held=True)
     apply_play_input(game, buf)
-    assert game.nav_intent.engaged is True
     assert game.action == game.local_click == 0
     old = (target.room_x, target.room_z)
     target.room_x += 20
@@ -126,27 +125,159 @@ def test_held_intent_cancels_when_release_is_observed(data_dir):
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
 
 
-@pytest.mark.parametrize("invalidation", ("despawn", "room", "floor"))
-def test_engaged_intent_cancels_when_the_live_target_is_invalid(data_dir, invalidation):
+@pytest.mark.parametrize("engaged", (False, True), ids=("approach", "engaged"))
+@pytest.mark.parametrize("invalidation", ("despawn", "room", "floor", "eligibility"))
+def test_held_intent_cancels_when_the_live_target_is_invalid(
+        data_dir, engaged, invalidation,
+):
+    from PyAitD.interaction import hold_action_approach
+
     game = init_game(data_dir)
     floor = Floor(data_dir, game.current_floor)
     game.current_floor_data = floor
     world = game.world_objects[4]
     target = game.actors[world.obj_index]
+    if engaged:
+        payload = (target.room_x, target.room_z, target.room, 4)
+    else:
+        payload = hold_action_approach(
+            game, floor, game.current_camera_target_actor, world.obj_index,
+        )
+        assert payload is not None
     game.nav_intent = NavIntent(
-        target.room_x, target.room_z, target.room, 4,
-        requires_hold=True, engaged=True, waypoints=[(target.room_x, target.room_z)],
-        path_room=target.room,
+        *payload, requires_hold=True, engaged=engaged,
+        waypoints=[(payload[0], payload[1])], path_room=payload[2],
     )
     if invalidation == "despawn":
         world.obj_index = -1
     elif invalidation == "room":
         target.room += 1
-    else:
+    elif invalidation == "floor":
         game.current_floor += 1
+    else:
+        target.body_num = -1
     apply_play_input(game, InputBuffer(pointer_held=True))
     assert game.nav_intent is None
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("engaged", (False, True), ids=("approach", "engaged"))
+def test_latched_world_target_cancels_if_slot_points_at_another_eligible_actor(
+        data_dir, engaged,
+):
+    from PyAitD.interaction import hold_action_approach, is_hold_action_target
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.current_floor_data = floor
+    hero_idx = game.current_camera_target_actor
+    world = game.world_objects[4]
+    target = game.actors[world.obj_index]
+    if engaged:
+        payload = (target.room_x, target.room_z, target.room, 4)
+    else:
+        payload = hold_action_approach(game, floor, hero_idx, world.obj_index)
+        assert payload is not None
+    game.nav_intent = NavIntent(
+        *payload, requires_hold=True, engaged=engaged,
+        waypoints=[(payload[0], payload[1])], path_room=payload[2],
+    )
+    replacement_idx = game.world_objects[6].obj_index
+    assert is_hold_action_target(game, replacement_idx) is True
+    world.obj_index = replacement_idx
+    apply_play_input(game, InputBuffer(pointer_held=True))
+    assert game.nav_intent is None
+    assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+
+
+def test_approach_refreshes_its_adjacent_destination_when_the_target_moves(data_dir):
+    from PyAitD.interaction import hold_action_approach
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.current_floor_data = floor
+    hero_idx = game.current_camera_target_actor
+    actor_idx = game.world_objects[4].obj_index
+    target = game.actors[actor_idx]
+    payload = hold_action_approach(game, floor, hero_idx, actor_idx)
+    assert payload is not None
+    old_x, old_z, room, world_idx = payload
+    game.nav_intent = NavIntent(old_x, old_z, room, world_idx, requires_hold=True)
+    target.room_x += 100
+    target.world_x += 100
+    target.zv[0] += 100
+    target.zv[1] += 100
+    apply_play_input(game, InputBuffer(pointer_held=True))
+    assert game.nav_intent is not None and game.nav_intent.engaged is False
+    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == (old_x + 100, old_z)
+    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) != (
+        target.room_x, target.room_z,
+    )
+
+
+def test_active_push_suppresses_the_verified_pending_walk_request(data_dir):
+    from PyAitD.life_ops import ANIM_REPEAT
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.current_floor_data = floor
+    hero = game.actors[game.current_camera_target_actor]
+    target = game.actors[game.world_objects[4].obj_index]
+    game.nav_intent = NavIntent(
+        target.room_x, target.room_z, target.room, 4,
+        requires_hold=True, engaged=True,
+        waypoints=[(target.room_x, target.room_z)], path_room=target.room,
+    )
+    hero.anim = PLAYER_PUSH_ANIM
+    hero.new_anim = 254
+    hero.new_anim_type = ANIM_REPEAT
+    hero.new_anim_info = -1
+    apply_play_input(game, InputBuffer(pointer_held=True))
+    assert (hero.new_anim, hero.new_anim_type, hero.new_anim_info) == (-1, 0, -1)
+
+
+def test_active_push_preserves_an_unrelated_uninterruptible_animation_request(data_dir):
+    from PyAitD.life_ops import ANIM_UNINTERRUPTABLE
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.current_floor_data = floor
+    hero = game.actors[game.current_camera_target_actor]
+    target = game.actors[game.world_objects[4].obj_index]
+    game.nav_intent = NavIntent(
+        target.room_x, target.room_z, target.room, 4,
+        requires_hold=True, engaged=True,
+        waypoints=[(target.room_x, target.room_z)], path_room=target.room,
+    )
+    hero.anim = PLAYER_PUSH_ANIM
+    hero.new_anim = 99
+    hero.new_anim_type = ANIM_UNINTERRUPTABLE
+    hero.new_anim_info = 77
+    apply_play_input(game, InputBuffer(pointer_held=True))
+    assert (hero.new_anim, hero.new_anim_type, hero.new_anim_info) == (
+        99, ANIM_UNINTERRUPTABLE, 77,
+    )
+
+
+def test_stale_off_route_collision_witness_does_not_redirect_contact(data_dir):
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.current_floor_data = floor
+    hero_idx = game.current_camera_target_actor
+    target_idx = game.world_objects[4].obj_index
+    target = game.actors[target_idx]
+    stale = game.actors[game.world_objects[6].obj_index]
+    stale.col_by = hero_idx
+    game.nav_intent = NavIntent(
+        target.room_x, target.room_z, target.room, 4,
+        requires_hold=True, engaged=True,
+        waypoints=[(target.room_x, target.room_z)], path_room=target.room,
+    )
+    apply_play_input(game, InputBuffer(pointer_held=True))
+    assert game.nav_decision is not None
+    assert (game.nav_decision.target_x, game.nav_decision.target_z) == (
+        target.room_x, target.room_z,
+    )
 
 
 @pytest.mark.parametrize("hero_id", (0, 1))
