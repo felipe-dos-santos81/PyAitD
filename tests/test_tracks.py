@@ -6,7 +6,9 @@ import pytest
 from PyAitD.effects import NavDecision
 from PyAitD.formats import Zone
 from PyAitD.game import AF_TRIGGER, Actor, Game, init_game
-from PyAitD.tracks import cap_objet, get_room_link, init_deplacement, process_track
+from PyAitD.tracks import (
+    cap_objet, face_toward, get_room_link, init_deplacement, process_track,
+)
 
 
 def _actor():
@@ -262,3 +264,35 @@ def test_manual_mode_is_untouched_by_the_new_branch():
     game._last_time_forward = 0
     process_track(game, actor)
     assert actor.speed == 4
+
+
+@pytest.mark.parametrize(
+    "target",
+    ((0, 1000), (1000, 0), (0, -1000), (-1000, 0),
+     (700, 700), (700, -700), (-700, 700), (-700, -700),
+     (123, 987), (-821, 349)),
+)
+def test_face_toward_converges_from_every_beta(target):
+    for beta in range(1024):
+        actor = _actor()
+        actor.beta = beta
+        actor.rotate.num_steps = 60
+        face_toward(actor, *target)
+        assert cap_objet(
+            actor.room_x + actor.step_x,
+            actor.room_z + actor.step_z,
+            actor.beta,
+            *target,
+        ) == 0
+        assert actor.direction == 0
+        assert actor.rotate.num_steps == 0
+
+
+def test_face_toward_raises_at_its_bound(monkeypatch):
+    actor = _actor()
+    monkeypatch.setattr("PyAitD.tracks.cap_objet", lambda *args: 1)
+    with pytest.raises(
+        RuntimeError,
+        match=r"beta=0 target=\(100, 200\) did not converge in 256 steps",
+    ):
+        face_toward(actor, 100, 200)

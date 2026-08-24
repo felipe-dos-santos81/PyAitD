@@ -49,6 +49,28 @@ def cap_objet(x1, z1, beta, x2, z2):
     return (result_max + result_min + 1) >> 1
 
 
+def face_toward(actor, x, z, *, max_steps=256):
+    """Instantly face a clicked point without changing track interpolation."""
+    for _ in range(max_steps):
+        direction = cap_objet(
+            actor.room_x + actor.step_x,
+            actor.room_z + actor.step_z,
+            actor.beta,
+            x,
+            z,
+        )
+        if direction == 0:
+            actor.direction = 0
+            actor.rotate.num_steps = 0
+            return
+        actor.direction = direction
+        actor.beta = (actor.beta - direction * 4) & 0x3FF
+    raise RuntimeError(
+        f"face_toward beta={actor.beta} target={(x, z)} "
+        f"did not converge in {max_steps} steps"
+    )
+
+
 def gere_manual_rot(actor, param, joyd, timer):
     for bit, direction in ((4, 1), (8, -1)):
         if not joyd & bit:
