@@ -7,7 +7,7 @@ update it when a milestone lands.
 ## Commands
 
 ```bash
-make test          # .venv/bin/pytest -q — the gate (238 passed, 1 skipped)
+make test          # .venv/bin/pytest -q — the gate
 make prove         # parse-all + headless real-script boot (real data)
 make prove-m3b     # focused interaction suite, runs headless itself
 make run           # play; floor=N data="..." trace=/tmp/t.log optional

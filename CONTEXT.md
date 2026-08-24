@@ -13,7 +13,7 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 
 ```bash
 make run                     # play (windowed); make run trace=/tmp/t.log writes per-opcode LIFE trace
-make run-combat              # play the supported floor-5 combat venue (the only non-attic start)
+make run-combat              # play the supported floor-5 combat venue
 make run-mouse-combat        # deterministic object-38 mouse combat proof start
 make test                    # pytest suite — authoritative gate
 make prove                   # M3a proof: parse-all 563 scripts/45 tracks/tables + headless 60-tick play_tick boot

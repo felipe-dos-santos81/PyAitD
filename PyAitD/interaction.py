@@ -388,6 +388,8 @@ def attack_in_hand(game, target_actor_idx):
     target = game.actors[target_actor_idx]
     target_x, target_z = target.room_x, target.room_z
     if hero.room != target.room:
+        # track.cpp:265-273 (FITD follow mode) converts the target into the
+        # hero's room space: target_x += dx, target_z -= dz.
         dx, _dy, dz = room_delta(game, hero.room, target.room)
         target_x += dx
         target_z -= dz
