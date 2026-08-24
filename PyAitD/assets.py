@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Parsed body/animation asset registry (parse-once caches over the M1 LRU)."""
+import numpy as np
+
 from PyAitD.floor import load_entry
 from PyAitD.formats import decode_image, decode_palette, parse_anim, parse_body
 from PyAitD.pak import Pak, find_pak
@@ -38,6 +40,7 @@ class Assets:
         self._book_tokens = {}
         self.book_pages = {}  # ui-layer wrapped page layout, keyed by text entry
         self._resource_screens = {}
+        self._cadre_sprites = None
         self._game_palette = decode_palette(load_entry(self._resource_pak, GAME_PALETTE_ENTRY))
 
     def body(self, index):
@@ -83,9 +86,35 @@ class Assets:
             self._resource_screens[entry] = decode_image(raw[:64000], self._game_palette)
         return self._resource_screens[entry]
 
+    def cadre_bank(self):
+        # ITD_RESS entry 4: nine u16 LE offsets, each sprite = 4-byte prefix,
+        # u16 width, u16 height, then width*height palette indices
+        # (FitdLib/aitdBox.cpp AffCadre/AffBigCadre sprite layout)
+        if self._cadre_sprites is not None:
+            return self._cadre_sprites
+        raw = load_entry(self._resource_pak, 4)
+        if len(raw) < 18:
+            raise ValueError("ITD_RESS.PAK: entry 4 has a short cadre offset table")
+        sprites = []
+        for index in range(9):
+            offset = int.from_bytes(raw[index * 2:index * 2 + 2], "little")
+            dimensions = offset + 4
+            if dimensions + 4 > len(raw):
+                raise ValueError(f"ITD_RESS.PAK: entry 4 sprite {index} dimensions out of range")
+            width = int.from_bytes(raw[dimensions:dimensions + 2], "little")
+            height = int.from_bytes(raw[dimensions + 2:dimensions + 4], "little")
+            end = dimensions + 4 + width * height
+            if width == 0 or height == 0 or end > len(raw):
+                raise ValueError(f"ITD_RESS.PAK: entry 4 sprite {index} pixels out of range")
+            indexed = np.frombuffer(raw[dimensions + 4:end], dtype=np.uint8).reshape(height, width)
+            sprites.append(np.ascontiguousarray(self._game_palette[indexed]))
+        self._cadre_sprites = tuple(sprites)
+        return self._cadre_sprites
+
     def clear(self):
         self._bodies.clear()
         self._anims.clear()
         self._book_tokens.clear()
         self.book_pages.clear()
         self._resource_screens.clear()
+        self._cadre_sprites = None
