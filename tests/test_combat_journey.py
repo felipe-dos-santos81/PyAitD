@@ -18,7 +18,7 @@ from PyAitD.anim_action import (
 )
 from PyAitD.effects import GameMode, GameOver
 from PyAitD.floor import Floor
-from PyAitD.game import AF_ANIMATED, init_game, relocate_actor, spawn_stage_actors
+from PyAitD.game import AF_ANIMATED, init_game, relocate_actor
 from PyAitD.life import process_life
 from PyAitD.playworld import TICK_MS, play_tick
 from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
@@ -214,10 +214,10 @@ def test_player_throw_executes_setup_launch_and_flight(data_dir, monkeypatch):
     _execute_words(game, hero_idx, [76, 4, 0, 0, object_idx, 1, 14, 4, 11])
     monkeypatch.setattr("PyAitD.anim_action.check_hard_col", lambda *args: [])
     gere_frappe(game, hero_idx)
-    spawn_stage_actors(game)
-    game.flag_genere_aff_list = 0
-    gere_frappe(game, hero_idx)
     thrown_idx = game.world_objects[object_idx].obj_index
+    assert thrown_idx != -1, "throw release must activate its own world object"
+    assert game.actors[thrown_idx].index_in_world == object_idx
+    gere_frappe(game, hero_idx)
     assert game.actors[thrown_idx].anim_action_type == THROW_OBJECT
     monkeypatch.setattr("PyAitD.anim_action.check_object_col", lambda *args: (victim_idx,))
     monkeypatch.setattr("PyAitD.anim_action.throw_stopped_at", lambda *args: None)

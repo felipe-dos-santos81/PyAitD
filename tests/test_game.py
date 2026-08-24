@@ -83,3 +83,22 @@ def test_spawn_does_not_touch_found_flag(data_dir):
     for a in game.actors:
         if a.index_in_world != -1:
             assert game.world_objects[a.index_in_world].found_flag & 0x4000 == 0
+
+
+def test_activate_world_object_initializes_one_released_item(data_dir):
+    from PyAitD.game import activate_world_object
+    from PyAitD.interaction import _finish_take
+
+    game = init_game(data_dir)
+    _finish_take(game, 38)
+    world = game.world_objects[38]
+    world.stage = game.current_floor
+    world.room = game.current_room
+    assert world.obj_index == -1
+
+    actor_idx = activate_world_object(game, 38)
+
+    assert actor_idx != -1
+    assert world.obj_index == actor_idx
+    assert game.actors[actor_idx].index_in_world == 38
+    assert activate_world_object(game, 38) == actor_idx

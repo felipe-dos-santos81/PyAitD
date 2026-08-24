@@ -9,7 +9,7 @@ from PyAitD.anim_action import (
     gere_frappe, refresh_hot_point, throw_stopped_at,
 )
 from PyAitD.formats import Zone
-from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_MOVABLE, AF_SPECIAL, init_game, spawn_stage_actors
+from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_MOVABLE, AF_SPECIAL, init_game
 from PyAitD.skel import hot_point as skel_hot_point
 
 
@@ -198,13 +198,17 @@ def test_refresh_hot_point_uses_zero_states_when_actor_has_no_anim(monkeypatch, 
     assert tuple(actor.hot_point) == expected
 
 
-def test_throw_setup_requests_normal_spawn_then_launches(data_dir, monkeypatch):
+def test_throw_setup_activates_released_object_then_launches(data_dir, monkeypatch):
     game = init_game(data_dir)
     thrower_idx = game.current_camera_target_actor
     thrower = game.actors[thrower_idx]
     object_idx = 13
     world = game.world_objects[object_idx]
     world.body = 1
+    # A thrown object comes from inventory, not the stage: detach the actor
+    # init_game spawned so state 6 must activate the object itself.
+    game.actors[world.obj_index].index_in_world = -1
+    world.obj_index = -1
     thrower.anim_action_type = WAIT_ANIM_THROW
     thrower.anim_action_anim = thrower.anim
     thrower.anim_action_frame = thrower.frame
@@ -214,15 +218,14 @@ def test_throw_setup_requests_normal_spawn_then_launches(data_dir, monkeypatch):
     monkeypatch.setattr("PyAitD.anim_action.check_hard_col", lambda *args: [])
     # init_game's own spawn pass already leaves flag_genere_aff_list == 1
     # (it just spawned the whole stage), so reset it here — otherwise the
-    # assertion below would pass even if state 6 never touched the flag.
+    # assertion below would pass even if activation never touched the flag.
     game.flag_genere_aff_list = 0
     gere_frappe(game, thrower_idx)
     assert thrower.anim_action_type == WAIT_FRAME_THROW
     assert game.flag_genere_aff_list == 1
+    assert world.obj_index != -1
     assert (world.stage, world.room) == (thrower.stage, thrower.room)
 
-    spawn_stage_actors(game)
-    game.flag_genere_aff_list = 0
     gere_frappe(game, thrower_idx)
     thrown = game.actors[world.obj_index]
     assert thrower.anim_action_type == 0

@@ -478,9 +478,32 @@ def put_at_objet(game, obj_idx, obj_idx_to_put_at):
     remove_from_inventory(game, obj_idx)
 
 
+def activate_world_object(game, world_idx):
+    """Initialize one staged world object, or return its existing actor."""
+    from PyAitD.tracks import init_deplacement
+
+    obj = game.world_objects[world_idx]
+    if obj.obj_index != -1:
+        return obj.obj_index
+    obj.obj_index = add_actor(game, world_idx)
+    if obj.obj_index == -1:
+        return -1
+
+    actor = game.actors[obj.obj_index]
+    if game.current_world_target == world_idx:
+        game.current_camera_target_actor = obj.obj_index
+    actor.dyn_flags = (obj.flags & 0x20) // 0x20
+    actor.life = obj.life
+    actor.life_mode = obj.life_mode
+    actor.index_in_world = world_idx
+    init_deplacement(actor, obj.track_mode, obj.track_number)
+    actor.position_in_track = obj.position_in_track
+    game.flag_genere_aff_list = 1
+    return obj.obj_index
+
+
 def spawn_stage_actors(game):
     # GenereActiveList port (main.cpp:1990-2130)
-    from PyAitD.tracks import init_deplacement  # tracks imports game
     for i, actor in enumerate(game.actors):
         if actor.index_in_world == -1:
             continue
@@ -515,18 +538,7 @@ def spawn_stage_actors(game):
             # ponytail: life_mode 2 passes unconditionally (FITD: isInViewList), M4+
         # ponytail: life == -1 passes unconditionally (FITD: isInViewList), M4+
 
-        obj.obj_index = add_actor(game, i)
-        if obj.obj_index != -1:
-            actor = game.actors[obj.obj_index]
-            if game.current_world_target == i:
-                game.current_camera_target_actor = obj.obj_index
-            actor.dyn_flags = (obj.flags & 0x20) // 0x20  # recheck
-            actor.life = obj.life
-            actor.life_mode = obj.life_mode
-            actor.index_in_world = i
-            init_deplacement(actor, obj.track_mode, obj.track_number)
-            actor.position_in_track = obj.position_in_track
-            game.flag_genere_aff_list = 1
+        activate_world_object(game, i)
 
 
 def change_salle(game, room):
