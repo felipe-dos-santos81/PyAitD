@@ -56,6 +56,21 @@ def test_reaching_the_final_waypoint_reports_arrival():
     assert decision.joyd == 0, "an arrived follower presses nothing"
 
 
+def test_contact_steering_advances_inside_the_ordinary_arrival_radius():
+    intent = NavIntent(200, 0, 0, waypoints=[(200, 0)])
+    intent.path_room = 0
+    game = _Game(intent)
+    actor = _actor(0, 0)
+    assert decide(game, actor, None).arrived is True
+    decision = decide(game, actor, None, stop_at_destination=False)
+    assert decision.advance is True
+    assert decision.joyd & 1
+    for _tick in range(STALL_TICKS):
+        decision = decide(game, actor, None, stop_at_destination=False)
+    assert decision.arrived is True
+    assert decision.advance is False
+
+
 def test_intermediate_waypoints_are_consumed_in_order():
     intent = NavIntent(dest_x=9000, dest_z=0, room=0, waypoints=[(10, 0), (9000, 0)])
     # Simulates a tick after the initial repath already ran (path_room already

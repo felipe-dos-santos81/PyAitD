@@ -57,7 +57,7 @@ def _repath(game, actor, mesh):
     intent.waypoints = [goal]
 
 
-def decide(game, actor, mesh):
+def decide(game, actor, mesh, *, stop_at_destination=True):
     """One tick of follower output, or None when there is nothing to follow."""
     intent = game.nav_intent
     if intent is None:
@@ -80,7 +80,7 @@ def decide(game, actor, mesh):
     # the link would halt the hero in the doorway and dispatch as if it had
     # reached the click. gere_dec crosses us over; _repath then aims at the
     # real destination.
-    if (intent.room == actor.room
+    if (stop_at_destination and intent.room == actor.room
             and len(intent.waypoints) == 1 and distance < ARRIVE_DISTANCE):
         return NavDecision(0, target_x, target_z, advance=False, arrived=True)
     if _stalled(intent, target_x, target_z, distance):

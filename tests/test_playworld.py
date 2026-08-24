@@ -3,9 +3,12 @@
 import subprocess
 import sys
 
+import pytest
+
 from PyAitD.anim_action import WAIT_FRAPPE_ANIM
 from PyAitD.floor import Floor
 from PyAitD.game import init_game
+from PyAitD.interaction import PLAYER_PUSH_ANIM
 from PyAitD.playworld import _anim_pass, play_tick
 from PyAitD.ui import InputBuffer
 
@@ -82,6 +85,106 @@ def test_mouse_mode_mirrors_the_follower_joystick(data_dir):
     apply_play_input(game, InputBuffer())
     assert game.nav_decision is not None
     assert game.local_joyd & 1, "scripts reading evalVar 0x13 must see movement"
+
+
+@pytest.mark.parametrize("hero_id", (0, 1))
+def test_held_wardrobe_engages_retargets_and_never_asserts_action(data_dir, hero_id):
+    game = init_game(data_dir, hero=hero_id)
+    floor = Floor(data_dir, game.current_floor)
+    hero = game.actors[game.current_camera_target_actor]
+    target = game.actors[game.world_objects[4].obj_index]
+    game.current_floor_data = floor
+    game.nav_intent = NavIntent(
+        hero.room_x, hero.room_z, hero.room, 4,
+        requires_hold=True, engaged=False,
+        waypoints=[(hero.room_x, hero.room_z)], path_room=hero.room,
+    )
+    buf = InputBuffer(pointer_held=True)
+    apply_play_input(game, buf)
+    assert game.nav_intent.engaged is True
+    assert game.action == game.local_click == 0
+    old = (target.room_x, target.room_z)
+    target.room_x += 20
+    target.room_z += 30
+    apply_play_input(game, buf)
+    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == (old[0] + 20, old[1] + 30)
+    assert hero.new_anim == PLAYER_PUSH_ANIM
+
+
+def test_held_intent_cancels_when_release_is_observed(data_dir):
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.current_floor_data = floor
+    target = game.actors[game.world_objects[4].obj_index]
+    game.nav_intent = NavIntent(
+        target.room_x, target.room_z, target.room, 4,
+        requires_hold=True, engaged=True, waypoints=[(target.room_x, target.room_z)],
+        path_room=target.room,
+    )
+    apply_play_input(game, InputBuffer(pointer_held=False))
+    assert game.nav_intent is None
+    assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("invalidation", ("despawn", "room", "floor"))
+def test_engaged_intent_cancels_when_the_live_target_is_invalid(data_dir, invalidation):
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.current_floor_data = floor
+    world = game.world_objects[4]
+    target = game.actors[world.obj_index]
+    game.nav_intent = NavIntent(
+        target.room_x, target.room_z, target.room, 4,
+        requires_hold=True, engaged=True, waypoints=[(target.room_x, target.room_z)],
+        path_room=target.room,
+    )
+    if invalidation == "despawn":
+        world.obj_index = -1
+    elif invalidation == "room":
+        target.room += 1
+    else:
+        game.current_floor += 1
+    apply_play_input(game, InputBuffer(pointer_held=True))
+    assert game.nav_intent is None
+    assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("hero_id", (0, 1))
+def test_real_wardrobe_moves_only_after_life_enables_it(data_dir, hero_id):
+    from PyAitD.game import AF_MOVABLE
+    from PyAitD.interaction import hold_action_approach
+
+    game = init_game(data_dir, hero=hero_id)
+    floor = Floor(data_dir, game.current_floor)
+    # The real opening scripts perform an unrelated begin_take(object 2) on
+    # their first pass, which sets Action 0x800 for that boot tick.  Complete
+    # that bootstrap before measuring the held-push interval.
+    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, InputBuffer())
+    assert game.action == game.local_click == 0
+    hero_idx = game.current_camera_target_actor
+    actor_idx = game.world_objects[4].obj_index
+    payload = hold_action_approach(game, floor, hero_idx, actor_idx)
+    assert payload is not None
+    dest_x, dest_z, room, world_idx = payload
+    game.nav_intent = NavIntent(
+        dest_x, dest_z, room, world_idx, requires_hold=True,
+    )
+    wardrobe = game.actors[actor_idx]
+    start = (wardrobe.room_x, wardrobe.room_z)
+    buffer = InputBuffer(pointer_held=True)
+    movable_seen = False
+    action_seen = 0
+    for _tick in range(2500):
+        play_tick(game, floor, buffer)
+        action_seen |= game.action | game.local_click
+        movable_seen |= bool(wardrobe.object_type & AF_MOVABLE)
+        if (wardrobe.room_x, wardrobe.room_z) != start:
+            assert movable_seen is True
+            break
+    assert (wardrobe.room_x, wardrobe.room_z) != start
+    assert action_seen == 0
+    assert game.nav_intent is not None and game.nav_intent.engaged
 
 
 def test_hero_walks_to_a_clicked_destination_and_arrives(data_dir):

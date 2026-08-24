@@ -17,7 +17,7 @@ from PyAitD.interaction import (
     gere_dec, run_life, sync_player_track_mode,
 )
 from PyAitD.life import life_gate
-from PyAitD.navigate import decide
+from PyAitD.navigate import WAYPOINT_DISTANCE, decide
 from PyAitD.navmesh import agent_extent
 from PyAitD.world import find_best_camera, is_in_poly
 
@@ -31,7 +31,7 @@ def apply_play_input(game, input_buffer):
     sync_player_track_mode(game)
     if game.input_mode is InputMode.MOUSE:
         input_buffer.action_pulse = False
-        _apply_mouse_input(game)
+        _apply_mouse_input(game, input_buffer)
         return
     game.nav_decision = None
     game.local_joyd = input_buffer.held_joyd if input_buffer.focused else 0
@@ -74,7 +74,72 @@ def _push_into_target(game):
     return True
 
 
-def _apply_mouse_input(game):
+def _refresh_held_target(game, hero):
+    from PyAitD.interaction import (
+        PLAYER_PUSH_ANIM, cancel_nav_intent, is_hold_action_target,
+    )
+    from PyAitD.life_ops import init_anim
+
+    intent = game.nav_intent
+    world_idx = intent.target_object_idx
+    if not 0 <= world_idx < len(game.world_objects):
+        cancel_nav_intent(game)
+        return False
+    world = game.world_objects[world_idx]
+    actor_idx = world.obj_index
+    if (actor_idx == -1 or not is_hold_action_target(game, actor_idx)
+            or game.actors[actor_idx].room != hero.room):
+        cancel_nav_intent(game)
+        return False
+    target = game.actors[actor_idx]
+    point = (target.room_x, target.room_z)
+    if (intent.dest_x, intent.dest_z, intent.room) != (*point, target.room):
+        intent.stall_target = None
+        intent.stall_best = 0
+        intent.stall_ticks = 0
+    intent.dest_x, intent.dest_z, intent.room = point[0], point[1], target.room
+    if intent.waypoints is not None and len(intent.waypoints) > 1:
+        intent.waypoints[-1] = point
+    else:
+        detour = _held_contact_detour(game, hero, actor_idx, point)
+        intent.waypoints = [detour, point] if detour is not None else [point]
+    intent.path_room = hero.room
+    init_anim(hero, PLAYER_PUSH_ANIM, 1, -1)
+    if hero.anim == PLAYER_PUSH_ANIM and hero.new_anim != PLAYER_PUSH_ANIM:
+        # The player's LIFE queues its ordinary forward animation after the
+        # animation pass.  Keep an already-active push pose advancing instead
+        # of alternating back to walk and resetting both animations every tick.
+        hero.new_anim = -1
+        hero.new_anim_type = 0
+        hero.new_anim_info = -1
+    return True
+
+
+def _held_contact_detour(game, hero, target_idx, point):
+    """One clearance waypoint when a non-target actor blocks contact."""
+    hero_idx = game.current_camera_target_actor
+    blocker = next((
+        actor for idx, actor in enumerate(game.actors)
+        if idx != target_idx and actor.index_in_world >= 0
+        and actor.room == hero.room and actor.col_by == hero_idx
+    ), None)
+    if blocker is None:
+        return None
+    here_x = hero.room_x + hero.step_x
+    here_z = hero.room_z + hero.step_z
+    half = agent_extent(hero)[0]
+    margin = half + WAYPOINT_DISTANCE + 1
+    x0, x1, _y0, _y1, z0, z1 = blocker.zv
+    if abs(point[0] - here_x) >= abs(point[1] - here_z):
+        centre_z = (z0 + z1) // 2
+        detour_z = z1 + margin if point[1] >= centre_z else z0 - margin
+        return (here_x, detour_z)
+    centre_x = (x0 + x1) // 2
+    detour_x = x1 + margin if point[0] >= centre_x else x0 - margin
+    return (detour_x, here_z)
+
+
+def _apply_mouse_input(game, input_buffer):
     # The follower decision is made here, in the input snapshot, so the tick
     # order stays exactly FITD's mainLoop order and the mouse is a peer of the
     # keyboard rather than a bolt-on.
@@ -82,25 +147,45 @@ def _apply_mouse_input(game):
     game.local_click = 0
     game.action = 0
     hero_idx = game.current_camera_target_actor
-    if hero_idx == -1 or game.nav_intent is None:
+    intent = game.nav_intent
+    if hero_idx == -1 or intent is None:
         game.nav_decision = None
         game.local_joyd = 0
         return
+    from PyAitD.interaction import cancel_nav_intent
+    if intent.requires_hold and (not input_buffer.focused or not input_buffer.pointer_held):
+        cancel_nav_intent(game)
+        return
     hero = game.actors[hero_idx]
+    if intent.requires_hold and intent.engaged:
+        if not _refresh_held_target(game, hero):
+            return
     mesh = game.nav_meshes.mesh_for(game.current_floor_data, hero.room, agent_extent(hero))
-    decision = decide(game, hero, mesh)
+    decision = decide(
+        game, hero, mesh, stop_at_destination=not intent.engaged,
+    )
     game.nav_decision = decision
     game.local_joyd = decision.joyd if decision is not None else 0
-    if decision is not None and (decision.arrived or decision.abandoned):
-        if decision.arrived and not decision.abandoned and _push_into_target(game):
-            game.nav_decision = None
-            game.local_joyd = 0
+    if decision is None or not (decision.arrived or decision.abandoned):
+        return
+    if intent.requires_hold:
+        if decision.arrived and not decision.abandoned and not intent.engaged:
+            intent.engaged = True
+            if _refresh_held_target(game, hero):
+                game.nav_decision = None
+                game.local_joyd = 0
             return
-        if decision.arrived:
-            game.nav_arrived_target = game.nav_intent.target_object_idx
-        game.nav_intent = None
+        cancel_nav_intent(game)
+        return
+    if decision.arrived and not decision.abandoned and _push_into_target(game):
         game.nav_decision = None
         game.local_joyd = 0
+        return
+    if decision.arrived:
+        game.nav_arrived_target = intent.target_object_idx
+    game.nav_intent = None
+    game.nav_decision = None
+    game.local_joyd = 0
 
 
 def _run_actor_action(game, index, actor, flags):
