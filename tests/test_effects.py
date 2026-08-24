@@ -5,7 +5,7 @@ import pytest
 
 from PyAitD.effects import (
     AddMessage, BeginTake, ChooseCharacter, GameMode, LifeFrame, OpenSystemMenu,
-    ShowFound,
+    NavIntent, ShowFound,
 )
 from PyAitD.game import init_game
 
@@ -36,6 +36,12 @@ def test_immediate_effect_is_fifo(data_dir):
     game.emit(BeginTake(12))
     assert list(game.immediate_effects) == [AddMessage(100), BeginTake(12)]
     assert LifeFrame(3, 9).pc == 0
+
+
+def test_nav_intent_defaults_to_a_non_held_approach():
+    intent = NavIntent(10, 20, 0)
+    assert intent.requires_hold is False
+    assert intent.engaged is False
 
 
 @pytest.mark.parametrize(

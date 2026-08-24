@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from PyAitD.actors import check_object_col
 from PyAitD.effects import NavIntent, ShowFound
+from PyAitD.floor import Floor
 from PyAitD.game import AF_ANIMATED, init_game, AF_FOUNDABLE
 from PyAitD.interaction import (
     COMBAT_ACTIONS, _finish_take, apply_click_intent, attack_in_hand,
     cancel_nav_intent, choose_inventory_action, combat_action_for,
     dispatch_nav_arrival, inventory_actions, inventory_items, inventory_weight,
-    is_combat_target, put_object, remove_from_inventory, request_found,
+    hold_action_approach, is_combat_target, is_hold_action_target, put_object,
+    remove_from_inventory, request_found,
     resolve_actor_contacts,
 )
 from PyAitD.world import room_delta
@@ -85,6 +87,27 @@ def test_combat_target_is_a_live_animated_non_hero(data_dir):
     assert not is_combat_target(game, hero_idx)
     target.index_in_world = -1
     assert not is_combat_target(game, target_idx)
+
+
+def test_real_wardrobe_is_a_hold_action_target_but_inert_scenery_is_not(data_dir):
+    game = init_game(data_dir)
+    wardrobe_idx = game.world_objects[4].obj_index
+    inert_idx = game.world_objects[8].obj_index
+    assert is_hold_action_target(game, wardrobe_idx) is True
+    assert is_hold_action_target(game, inert_idx) is False
+
+
+def test_hold_action_approach_is_outside_the_wardrobe_footprint(data_dir):
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    hero_idx = game.current_camera_target_actor
+    wardrobe_idx = game.world_objects[4].obj_index
+    result = hold_action_approach(game, floor, hero_idx, wardrobe_idx)
+    assert result is not None
+    x, z, room, world_idx = result
+    wardrobe = game.actors[wardrobe_idx]
+    assert (room, world_idx) == (wardrobe.room, 4)
+    assert (x, z) != (wardrobe.room_x, wardrobe.room_z)
 
 
 def test_combat_action_requires_an_idle_held_inventory_object(data_dir):

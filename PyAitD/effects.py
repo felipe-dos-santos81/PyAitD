@@ -117,6 +117,8 @@ class NavIntent:
     dest_z: int
     room: int
     target_object_idx: int = -1
+    requires_hold: bool = False
+    engaged: bool = False
     waypoints: list = None
     path_room: int = -1
     # give-up bookkeeping (navigate._stalled): the steering target we are

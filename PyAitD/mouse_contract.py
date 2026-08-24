@@ -18,6 +18,7 @@ class PlayerCapability(Enum):
     CLOSE_READING = auto()
     DISMISS_PICTURE = auto()
     ATTACK_TARGET = auto()
+    HOLD_PUSH_OBJECT = auto()
     RESTART_GAME_OVER = auto()
     QUIT = auto()
     SELECT_CHARACTER = auto()
@@ -52,6 +53,9 @@ CAPABILITY_ROUTES = {
     PlayerCapability.CLOSE_READING: MouseRoute("left_click", "Close button", frozenset({GameMode.READING})),
     PlayerCapability.DISMISS_PICTURE: MouseRoute("left_click", "picture", frozenset({GameMode.READING})),
     PlayerCapability.ATTACK_TARGET: MouseRoute("left_click", "armed combat actor", frozenset({GameMode.PLAY})),
+    PlayerCapability.HOLD_PUSH_OBJECT: MouseRoute(
+        "left_hold", "push-capable scripted actor", frozenset({GameMode.PLAY}),
+    ),
     PlayerCapability.RESTART_GAME_OVER: MouseRoute("left_click", "game-over frame", frozenset({GameMode.GAME_OVER})),
     PlayerCapability.QUIT: MouseRoute("window_close", "window close control", ALL_MODES),
     PlayerCapability.SELECT_CHARACTER: MouseRoute(
@@ -75,6 +79,7 @@ MODE_MOUSE_CAPABILITIES = {
         PlayerCapability.INTERACT_WITH_OBJECT,
         PlayerCapability.OPEN_INVENTORY,
         PlayerCapability.ATTACK_TARGET,
+        PlayerCapability.HOLD_PUSH_OBJECT,
         PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),

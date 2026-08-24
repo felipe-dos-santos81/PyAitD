@@ -9,6 +9,8 @@ INVENTORY_SIZE = 30
 MAX_VISIBLE_ACTIONS = 5
 # Inventory action text ids that arm combat (32 == "Fight" bit 9 of found_flag).
 COMBAT_ACTIONS = frozenset({32})
+PLAYER_STAND_ANIM = 4
+PLAYER_PUSH_ANIM = 5
 # FITD gates found-contact on trackMode == 1, meaning "manually controlled".
 # Mode 4 (mouse follower) is equally player-controlled, so it belongs here too.
 PLAYER_TRACK_MODES = (1, 4)
@@ -168,6 +170,61 @@ def is_combat_target(game, actor_idx):
         return False
     actor = game.actors[actor_idx]
     return actor.index_in_world >= 0 and bool(actor.object_type & AF_ANIMATED)
+
+
+def is_hold_action_target(game, actor_idx):
+    from PyAitD.game import AF_FOUNDABLE, AF_MOVABLE
+    if actor_idx < 0 or actor_idx >= len(game.actors):
+        return False
+    if actor_idx == game.current_camera_target_actor:
+        return False
+    actor = game.actors[actor_idx]
+    if actor.index_in_world < 0 or actor.body_num == -1 or not (actor.dyn_flags & 1):
+        return False
+    world = game.world_objects[actor.index_in_world]
+    if world.obj_index != actor_idx or world.stage != game.current_floor:
+        return False
+    if actor.object_type & AF_FOUNDABLE:
+        return False
+    return bool(actor.object_type & AF_MOVABLE) or actor.life != -1
+
+
+def hold_action_approach(game, floor, hero_idx, target_idx):
+    from PyAitD.navmesh import agent_extent, nearest_walkable
+
+    if not is_hold_action_target(game, target_idx):
+        return None
+    hero = game.actors[hero_idx]
+    target = game.actors[target_idx]
+    if hero.room != target.room:
+        return None
+    mesh = game.nav_meshes.mesh_for(floor, target.room, agent_extent(hero))
+    if mesh is None:
+        return None
+    half = agent_extent(hero)[0]
+    clearance = half + mesh.step
+    x0, x1, _y0, _y1, z0, z1 = target.zv
+    from_x = hero.room_x + hero.step_x
+    from_z = hero.room_z + hero.step_z
+    clamp = lambda value, low, high: max(low, min(value, high))
+    candidates = (
+        (x0 - clearance, clamp(from_z, z0, z1)),
+        (x1 + clearance, clamp(from_z, z0, z1)),
+        (clamp(from_x, x0, x1), z0 - clearance),
+        (clamp(from_x, x0, x1), z1 + clearance),
+    )
+    walkable = []
+    for x, z in candidates:
+        spot = nearest_walkable(mesh, x, z)
+        if spot is not None:
+            walkable.append(spot)
+    if not walkable:
+        return None
+    x, z = min(
+        walkable,
+        key=lambda point: abs(point[0] - from_x) + abs(point[1] - from_z),
+    )
+    return (x, z, target.room, target.index_in_world)
 
 
 def combat_action_for(game, object_idx):
@@ -358,10 +415,15 @@ def point_in_zone(x, y, z, zone):
     return zone.x1 <= x <= zone.x2 and zone.y1 <= y <= zone.y2 and zone.z1 <= z <= zone.z2
 
 
-def apply_click_intent(game, dest_x, dest_z, room, target_object_idx=-1):
+def apply_click_intent(
+        game, dest_x, dest_z, room, target_object_idx=-1, *, requires_hold=False,
+):
     """Record where the player clicked. A new click replaces any previous one."""
     from PyAitD.effects import NavIntent
-    game.nav_intent = NavIntent(dest_x, dest_z, room, target_object_idx)
+    game.nav_intent = NavIntent(
+        dest_x, dest_z, room, target_object_idx,
+        requires_hold=requires_hold,
+    )
     game.nav_decision = None
 
 

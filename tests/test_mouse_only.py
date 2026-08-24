@@ -21,7 +21,7 @@ from PyAitD.ui import InputBuffer, ModalLayout, PlayLayout
 from PyAitD.mouse_contract import (
     ALL_MODES, CAPABILITY_ROUTES, COMMAND_MOUSE_CAPABILITIES,
     KEYBOARD_ONLY_DECISIONS, LEGACY_COMMAND_REPLACEMENTS,
-    MODE_MOUSE_CAPABILITIES, PlayerCapability,
+    MODE_MOUSE_CAPABILITIES, MouseRoute, PlayerCapability,
 )
 from PyAitD.ui import Command
 
@@ -43,8 +43,16 @@ def test_mouse_contract_is_presentation_free():
 
 def test_every_capability_has_exactly_one_route():
     assert set(CAPABILITY_ROUTES) == set(PlayerCapability)
-    assert all(route.gesture in {"left_click", "window_close"}
+    assert all(route.gesture in {"left_click", "left_hold", "window_close"}
                for route in CAPABILITY_ROUTES.values())
+
+
+def test_hold_push_has_one_declarative_mouse_route():
+    route = CAPABILITY_ROUTES[PlayerCapability.HOLD_PUSH_OBJECT]
+    assert route == MouseRoute(
+        "left_hold", "push-capable scripted actor", frozenset({GameMode.PLAY}),
+    )
+    assert PlayerCapability.HOLD_PUSH_OBJECT in MODE_MOUSE_CAPABILITIES[GameMode.PLAY]
 
 
 def test_every_mode_declares_exactly_the_routes_available_in_it():
