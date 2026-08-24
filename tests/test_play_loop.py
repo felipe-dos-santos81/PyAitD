@@ -39,6 +39,26 @@ def test_apply_play_input_mapping(data_dir):
     assert game.action == 0x2000
 
 
+def test_sticky_action_pulse_is_visible_for_exactly_one_keyboard_tick(data_dir):
+    from PyAitD.effects import InputMode
+    from PyAitD.playworld import apply_play_input
+    game = init_game(data_dir)
+    game.input_mode = InputMode.KEYBOARD
+    state = InputBuffer(action_pulse=True)
+    apply_play_input(game, state)
+    assert (game.local_click, game.action, state.action_pulse) == (1, 0x2000, False)
+    apply_play_input(game, state)
+    assert (game.local_click, game.action, state.action_pulse) == (0, 0, False)
+
+
+def test_mouse_mode_ignores_and_consumes_a_stale_sticky_pulse(data_dir):
+    from PyAitD.playworld import apply_play_input
+    game = init_game(data_dir)
+    state = InputBuffer(action_pulse=True)
+    apply_play_input(game, state)
+    assert state.action_pulse is False
+
+
 def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tmp_path):
     import PyAitD.__main__ as main
     from PyAitD.effects import GameMode, InputMode
@@ -248,7 +268,7 @@ from PyAitD.effects import GameMode
 from PyAitD.game import AF_ANIMATED, AF_FOUNDABLE
 from PyAitD.interaction import _finish_take
 from PyAitD.scenario import enter_combat_venue
-from PyAitD.ui import ModalSession, PlayLayout
+from PyAitD.ui import InputBuffer, ModalSession, PlayLayout
 
 
 def _state_for(floor, room_idx, cam_slot):

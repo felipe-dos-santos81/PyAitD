@@ -26,47 +26,108 @@ class InputBuffer:
     action_held: bool = False
     focused: bool = True
     commands: deque = field(default_factory=deque)
+    bindings: dict | None = None
+    sticky_action: bool = False
+    sticky_armed: bool = False
+    action_pulse: bool = False
 
 
-_DIRECTION = {
-    pygame.K_UP: (Command.UP, 1), pygame.K_w: (Command.UP, 1),
-    pygame.K_DOWN: (Command.DOWN, 2), pygame.K_s: (Command.DOWN, 2),
-    pygame.K_LEFT: (Command.LEFT, 4), pygame.K_a: (Command.LEFT, 4),
-    pygame.K_RIGHT: (Command.RIGHT, 8), pygame.K_d: (Command.RIGHT, 8),
+_DIRECTION_CONTROL = {
+    Control.UP: (Command.UP, 1), Control.DOWN: (Command.DOWN, 2),
+    Control.LEFT: (Command.LEFT, 4), Control.RIGHT: (Command.RIGHT, 8),
 }
+
+_DEFAULT_CONTROL_BY_KEY = {
+    pygame.K_UP: Control.UP, pygame.K_w: Control.UP,
+    pygame.K_DOWN: Control.DOWN, pygame.K_s: Control.DOWN,
+    pygame.K_LEFT: Control.LEFT, pygame.K_a: Control.LEFT,
+    pygame.K_RIGHT: Control.RIGHT, pygame.K_d: Control.RIGHT,
+    pygame.K_SPACE: Control.ACTION,
+    pygame.K_RETURN: Control.INVENTORY_CONFIRM,
+    pygame.K_i: Control.INVENTORY_CONFIRM,
+    pygame.K_ESCAPE: Control.CANCEL,
+    pygame.K_TAB: Control.TOGGLE_INPUT_MODE,
+}
+
+
+def canonical_key_name(key):
+    name = pygame.key.name(key, use_compat=True)
+    if not name or name == "unknown key":
+        raise ValueError(f"pygame key {key} has no stable name")
+    return name
+
+
+def compile_bindings(settings):
+    compiled = {}
+    for control in Control:
+        for name in settings.bindings[control.name]:
+            try:
+                code = pygame.key.key_code(name)
+            except ValueError as exc:
+                raise ValueError(f"unknown pygame key name {name!r}") from exc
+            compiled[code] = control
+    return compiled
+
+
+def reset_input(state):
+    state.held_joyd = 0
+    state.action_held = False
+    state.sticky_armed = False
+    state.action_pulse = False
+    state.commands.clear()
+
+
+def configure_input(state, settings):
+    state.bindings = compile_bindings(settings)
+    state.sticky_action = settings.sticky_action
+    reset_input(state)
 
 
 def event_to_input(event, state):
     if event.type == pygame.QUIT:
         return False
     if event.type == pygame.WINDOWFOCUSLOST:
-        state.held_joyd = 0
-        state.action_held = False
+        reset_input(state)
         state.focused = False
-        state.commands.clear()
-    elif event.type == pygame.WINDOWFOCUSGAINED:
+        return True
+    if event.type == pygame.WINDOWFOCUSGAINED:
         state.focused = True
-    elif event.type == pygame.KEYDOWN:
+        return True
+    # bindings=None keeps the pre-settings defaults and never touches
+    # pygame.key before initialization; a compiled table is used as-is, even
+    # when intentionally empty.
+    table = _DEFAULT_CONTROL_BY_KEY if state.bindings is None else state.bindings
+    if event.type == pygame.KEYDOWN:
         repeated = bool(getattr(event, "repeat", False))
-        if event.key in _DIRECTION:
-            command, bit = _DIRECTION[event.key]
+        control = table.get(event.key)
+        if control in _DIRECTION_CONTROL:
+            command, bit = _DIRECTION_CONTROL[control]
             state.held_joyd |= bit
             if not repeated:
                 state.commands.append(command)
-        elif event.key == pygame.K_SPACE:
-            state.action_held = True
-            if not repeated:
-                state.commands.append(Command.ACCEPT)
-        elif not repeated and event.key in (pygame.K_RETURN, pygame.K_i):
+                if state.sticky_armed:
+                    state.action_pulse = True
+                    state.sticky_armed = False
+        elif control is Control.ACTION:
+            if state.sticky_action:
+                if not repeated:
+                    state.sticky_armed = True
+                    state.commands.append(Command.ACCEPT)
+            else:
+                state.action_held = True
+                if not repeated:
+                    state.commands.append(Command.ACCEPT)
+        elif not repeated and control is Control.INVENTORY_CONFIRM:
             state.commands.append(Command.OPEN_INVENTORY)
-        elif not repeated and event.key == pygame.K_ESCAPE:
+        elif not repeated and control is Control.CANCEL:
             state.commands.append(Command.CANCEL)
-        elif not repeated and event.key == pygame.K_TAB:
+        elif not repeated and control is Control.TOGGLE_INPUT_MODE:
             state.commands.append(Command.TOGGLE_INPUT_MODE)
     elif event.type == pygame.KEYUP:
-        if event.key in _DIRECTION:
-            state.held_joyd &= ~_DIRECTION[event.key][1]
-        elif event.key == pygame.K_SPACE:
+        control = table.get(event.key)
+        if control in _DIRECTION_CONTROL:
+            state.held_joyd &= ~_DIRECTION_CONTROL[control][1]
+        elif control is Control.ACTION:
             state.action_held = False
     return True
 

@@ -30,12 +30,15 @@ def apply_play_input(game, input_buffer):
     # so it is re-asserted here rather than only at init and on the Tab toggle.
     sync_player_track_mode(game)
     if game.input_mode is InputMode.MOUSE:
+        input_buffer.action_pulse = False
         _apply_mouse_input(game)
         return
     game.nav_decision = None
     game.local_joyd = input_buffer.held_joyd if input_buffer.focused else 0
-    game.local_click = 1 if input_buffer.focused and input_buffer.action_held else 0
+    pressed = input_buffer.focused and (input_buffer.action_held or input_buffer.action_pulse)
+    game.local_click = 1 if pressed else 0
     game.local_key = 0
+    input_buffer.action_pulse = False
     game.action = 0x2000 if game.local_click else 0
 
 
