@@ -42,7 +42,14 @@ def _homography(src, dst):
 
 
 def _quad_of(poly_world, state, floor_y):
-    # four extreme, validly-projecting vertices give a well-conditioned fit
+    # Any four non-collinear coplanar points define the same homography (a
+    # pinhole projection of a plane is a genuine projective map), so the
+    # selection exists only for conditioning: farthest-point sampling in
+    # WORLD space (world coords don't suffer near-clip projection blowups)
+    # picks a well-spread quad for any polygon shape. The old heuristic —
+    # vertices nearest the world-bbox extreme corners — collapsed on
+    # L-shaped/hexagonal polygons, where two bbox corners snap to the same
+    # vertex and the polygon was skipped entirely.
     projected = [
         (world, project_floor_point(state, world[0], floor_y, world[1]))
         for world in poly_world
@@ -50,20 +57,18 @@ def _quad_of(poly_world, state, floor_y):
     usable = [(w, s) for w, s in projected if s is not None]
     if len(usable) < 4:
         return None
-    xs = [w[0] for w, _s in usable]
-    zs = [w[1] for w, _s in usable]
-    corners = [
-        (min(xs), min(zs)), (max(xs), min(zs)),
-        (max(xs), max(zs)), (min(xs), max(zs)),
-    ]
-    chosen = []
-    for target in corners:
-        pick = min(
-            usable,
-            key=lambda ws: (ws[0][0] - target[0]) ** 2 + (ws[0][1] - target[1]) ** 2,
+    chosen = [usable[0]]
+    while len(chosen) < 4:
+        pick = max(
+            (ws for ws in usable if ws not in chosen),
+            key=lambda ws: min(
+                (ws[0][0] - c[0][0]) ** 2 + (ws[0][1] - c[0][1]) ** 2
+                for c in chosen
+            ),
+            default=None,
         )
-        if pick in chosen:
-            return None  # degenerate polygon: fewer than four distinct corners
+        if pick is None:
+            return None  # degenerate polygon: fewer than four distinct vertices
         chosen.append(pick)
     return [w for w, _s in chosen], [s for _w, s in chosen]
 
