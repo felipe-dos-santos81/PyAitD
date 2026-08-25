@@ -81,10 +81,12 @@ inventory takeover regression is covered and closed.
 ## Status
 
 M1 data layer, M2 actors, M3a LIFE script VM, M3b interaction, M3c combat,
-M3d/M3e mouse-only input (including held scenery pushing), and M4a1 shell
-(character select, system menu, remappable controls, settings persistence) are
-done: the game boots into an
-asset-faithful character selector and the attic is fully interactive by
-mouse or keyboard. Next: M4a2 save/load, M4b audio/sequences, M4c ending.
+M3d/M3e mouse-only input (including held scenery pushing), M4a1 shell
+(character select, system menu, remappable controls, settings persistence),
+and the enhanced graphics scene layer (integer-scaled internal render target,
+per-vertex shading, filtered backgrounds, override assets) are done: the game
+boots into an asset-faithful character selector and the attic is fully
+interactive by mouse or keyboard. Next: M4a2 save/load, M4b audio/sequences,
+M4c ending.
 See `CONTEXT.md` for the architecture map and `docs/superpowers/` for specs
 and plans.

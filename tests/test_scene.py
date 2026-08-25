@@ -47,7 +47,7 @@ def _distance_scaled_bound(depth, focal2, focal3, world_trunc_bound=8.0):
     world_error * focal / depth. Real game data can put an actor at any
     depth, including close to the camera, so a flat pixel budget would be
     a lie -- this scales with the measured physics instead."""
-    return world_trunc_bound * max(abs(focal2), abs(focal3)) / max(depth, 1.0)
+    return world_trunc_bound * max(abs(focal2), abs(focal3)) / np.maximum(depth, 1.0)
 
 
 # --- data_dir-gated tests (skip without game assets; kept per the brief but
@@ -74,6 +74,18 @@ def test_mask_ids_follow_the_trigger_rule(data_dir):
         assert actor.mask_ids == expected
 
 
+def _on_screen(points):
+    """Matches the on-screen filter test_camera_view_project_parity_scales_with_distance
+    uses when it measures the bound constants below: a vertex whose projection
+    lands nowhere near the 320x200 logical screen is not "visible" in any
+    sense the game cares about, and its rotation-truncation error is
+    unrepresentative (a large lever arm off to the side of the view direction
+    turns a few world units of truncation into a huge on-paper coordinate
+    that the renderer would never draw). Comparing those would be comparing
+    noise the calibration never covered, not a real parity signal."""
+    return (points[:, 0] >= 0) & (points[:, 0] <= 320) & (points[:, 1] >= 0) & (points[:, 1] <= 200)
+
+
 def test_float_projection_parity_with_skin(data_dir):
     # depth<=50 is a hard cull boundary for skel.skin's integer path; the
     # float path's continuous rotation can nudge a vertex's depth across
@@ -83,6 +95,9 @@ def test_float_projection_parity_with_skin(data_dir):
     # itself unstable, using the same distance-scaled tolerance measured in
     # test_camera_view_project_parity_scales_with_distance (see
     # CameraView.project's docstring for why a flat pixel budget is wrong).
+    # That calibration test only ever sampled vertices landing on the
+    # 320x200 logical screen under both paths -- see _on_screen -- so this
+    # applies the same filter to stay within the calibration's domain.
     game, floor = _boot(data_dir)
     frame, _ = build_frame(game, floor, AssetResolver(game.assets))
     checked_any = False
@@ -93,7 +108,7 @@ def test_float_projection_parity_with_skin(data_dir):
         culled_int = logical[:, 0] == -10000.0
         culled_float = projected[:, 0] == -10000.0
         near_boundary = np.abs(logical[:, 2] - 50) < 5
-        agree_visible = (~culled_int) & (~culled_float) & (~near_boundary)
+        agree_visible = (~culled_int) & (~culled_float) & (~near_boundary) & _on_screen(logical) & _on_screen(projected)
         if not agree_visible.any():
             continue
         checked_any = True
@@ -109,7 +124,8 @@ def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir):
     # Despite the name (kept from the brief), the assertion below is the
     # same distance-scaled tolerance as test_float_projection_parity_with_skin
     # -- a flat 0.5px bound is only true far from the camera; see
-    # CameraView.project's docstring.
+    # CameraView.project's docstring. Also restricted to the on-screen
+    # domain the bound was calibrated over -- see _on_screen.
     from PyAitD.geometry import pose_geometry
     from PyAitD.assets import Assets
     assets = Assets(data_dir)
@@ -119,7 +135,7 @@ def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir):
         for cam_idx in room.camera_indices:
             state = CameraState.from_camera(floor.cameras[cam_idx], room.world_x, room.world_y, room.world_z).angles()
             view = CameraView(state)
-            for num in range(min(assets.body_count(), 40)):
+            for num in range(min(assets.num_bodies, 40)):
                 body = assets.body(num)
                 states = [(0, (0, 0, 0))] * len(body.groups)
                 logical = np.array(skin(body, states, (0, 0, 0), state, actor_angles=(0, 0, 0)).points, dtype=np.float64)
@@ -127,7 +143,7 @@ def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir):
                 culled_int = logical[:, 0] == -10000.0
                 culled_float = projected[:, 0] == -10000.0
                 near_boundary = np.abs(logical[:, 2] - 50) < 5
-                agree_visible = (~culled_int) & (~culled_float) & (~near_boundary)
+                agree_visible = (~culled_int) & (~culled_float) & (~near_boundary) & _on_screen(logical) & _on_screen(projected)
                 if not agree_visible.any():
                     continue
                 checked_any = True
