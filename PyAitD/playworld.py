@@ -127,7 +127,7 @@ def _refresh_held_target(game, hero, mesh):
             intent.stall_best = 0
             intent.stall_ticks = 0
         return True
-    point = _held_push_point(intent, hero, target)
+    point = _held_push_point(intent, hero, target, game.current_camera_target_actor)
     if (intent.dest_x, intent.dest_z, intent.room) != (*point, target.room):
         intent.stall_target = None
         intent.stall_best = 0
@@ -152,18 +152,23 @@ def _refresh_held_target(game, hero, mesh):
     return True
 
 
-def _held_push_point(intent, hero, target):
-    """Steer an engaged push straight along one world axis.
+def _held_push_point(intent, hero, target, hero_idx):
+    """Steer an engaged push at the target, then straight into the face it hits.
 
-    Aiming at the target's centre from a corner cell makes the hero slide
-    along the target's face (FITD GereCollision's glisser) until it meets
-    whatever sits beside the target. GereAnim checks hard cols before actor
-    contacts and never rechecks the reduced step (anim.cpp:373-570), so that
-    slide can sink the hero into an adjacent hard col, where every later step
-    is zeroed. Pushing along the axis of the face the hero already overlaps,
-    with the lateral coordinate frozen at engagement, removes the slide.
+    Aiming at the target's centre from a corner cell is a diagonal, so once the
+    hero touches the target FITD GereCollision's glisser slides it along the
+    target's face until it meets whatever sits beside the target. GereAnim
+    checks hard cols before actor contacts and never rechecks the reduced step
+    (anim.cpp:373-570), so that slide can sink the hero into an adjacent hard
+    col, where every later step is zeroed. The centre aim is kept until the
+    engine reports first contact (col_by is written by the previous tick's
+    animation pass and reset only after this snapshot); from then on the push
+    runs along the axis of the touched face with the lateral coordinate
+    frozen, so there is no slide.
     """
     if intent.push_axis is None:
+        if target.col_by != hero_idx:
+            return (target.room_x, target.room_z)
         here_x = hero.room_x + hero.step_x
         here_z = hero.room_z + hero.step_z
         x0, x1, _y0, _y1, z0, z1 = target.zv

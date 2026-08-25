@@ -88,7 +88,10 @@ def test_mouse_mode_mirrors_the_follower_joystick(data_dir):
 
 
 def _push_point(intent, target):
-    """Where an engaged push steers: the target tracked along one axis only."""
+    """Where an engaged push steers: the centre until first contact, then the
+    target tracked along the touched face's axis only."""
+    if intent.push_axis is None:
+        return (target.room_x, target.room_z)
     assert intent.push_axis in ("x", "z") and intent.push_lateral is not None
     if intent.push_axis == "z":
         return (intent.push_lateral, target.room_z)
@@ -675,13 +678,23 @@ def test_held_push_on_the_rocking_horse_never_wedges_the_hero(data_dir):
     assert payload is not None, "fixture: the horse is a hold target"
     apply_click_intent(game, *payload, requires_hold=True)
     buf.pointer_held = True
-    for _ in range(400):
+    horse = game.actors[horse_idx]
+    assert horse.anim == -1, "fixture: the horse starts still"
+    rocked_at = None
+    for tick in range(400):
         play_tick(game, floor, buf)
-        room = floor.rooms[hero.room]
-        assert not check_hard_col(hero.zv, room.hard_cols), "hero sank into a hard col"
+        if rocked_at is None and horse.anim != -1:
+            rocked_at = tick
+    # the push still reaches the horse's face promptly and its LIFE rocks it
+    # (the pre-fix diagonal aim touched at tick 299 and rocked at 300)
+    assert rocked_at is not None and rocked_at <= 320, rocked_at
     buf.pointer_held = False
     play_tick(game, floor, buf)
     assert game.nav_intent is None
+    # a shallow brush with the beam's hard col while turning clears itself;
+    # the pre-fix slide left the hero 99 units deep, where no step can escape
+    room = floor.rooms[hero.room]
+    assert not check_hard_col(hero.zv, room.hard_cols), "hero released inside a hard col"
 
     start_x = hero.room_x + hero.step_x
     mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
