@@ -87,6 +87,14 @@ def test_mouse_mode_mirrors_the_follower_joystick(data_dir):
     assert game.local_joyd & 1, "scripts reading evalVar 0x13 must see movement"
 
 
+def _push_point(intent, target):
+    """Where an engaged push steers: the target tracked along one axis only."""
+    assert intent.push_axis in ("x", "z") and intent.push_lateral is not None
+    if intent.push_axis == "z":
+        return (intent.push_lateral, target.room_z)
+    return (target.room_x, intent.push_lateral)
+
+
 @pytest.mark.parametrize("hero_id", (0, 1))
 def test_engaged_wardrobe_retargets_and_never_asserts_action(data_dir, hero_id):
     game = init_game(data_dir, hero=hero_id)
@@ -102,11 +110,14 @@ def test_engaged_wardrobe_retargets_and_never_asserts_action(data_dir, hero_id):
     buf = InputBuffer(pointer_held=True)
     apply_play_input(game, buf)
     assert game.action == game.local_click == 0
-    old = (target.room_x, target.room_z)
+    old = _push_point(game.nav_intent, target)
     target.room_x += 20
     target.room_z += 30
     apply_play_input(game, buf)
-    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == (old[0] + 20, old[1] + 30)
+    # the push tracks the target along its axis; the lateral stays frozen
+    new = _push_point(game.nav_intent, target)
+    assert new != old
+    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == new
     assert hero.new_anim == PLAYER_PUSH_ANIM
 
 
@@ -416,8 +427,8 @@ def test_stale_off_route_collision_witness_does_not_redirect_contact(data_dir):
     )
     apply_play_input(game, InputBuffer(pointer_held=True))
     assert game.nav_decision is not None
-    assert (game.nav_decision.target_x, game.nav_decision.target_z) == (
-        target.room_x, target.room_z,
+    assert (game.nav_decision.target_x, game.nav_decision.target_z) == _push_point(
+        game.nav_intent, target,
     )
 
 
@@ -641,3 +652,41 @@ def test_a_latched_click_outranks_a_leftover_navigation_intent(data_dir):
 
     assert (game.local_joyd, game.local_click, game.action) == (1, 1, 0x2000)
     assert game.nav_decision is None
+
+
+def test_held_push_on_the_rocking_horse_never_wedges_the_hero(data_dir):
+    # The attic rocking horse (world 6) sits against the right support beam's
+    # type-9 hard col. A held push that steers diagonally at its centre
+    # slides along the horse's face into that hard col; once inside,
+    # gere_collision zeroes every step and the hero can never walk again.
+    from PyAitD.actors import check_hard_col
+    from PyAitD.interaction import apply_click_intent, hold_action_approach
+    from PyAitD.navmesh import agent_extent, nearest_walkable
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    buf = InputBuffer()
+    play_tick(game, floor, buf)
+    play_tick(game, floor, buf)
+    game.timer = 300
+    hero = game.actors[game.current_camera_target_actor]
+    horse_idx = game.world_objects[6].obj_index
+    payload = hold_action_approach(game, floor, game.current_camera_target_actor, horse_idx)
+    assert payload is not None, "fixture: the horse is a hold target"
+    apply_click_intent(game, *payload, requires_hold=True)
+    buf.pointer_held = True
+    for _ in range(400):
+        play_tick(game, floor, buf)
+        room = floor.rooms[hero.room]
+        assert not check_hard_col(hero.zv, room.hard_cols), "hero sank into a hard col"
+    buf.pointer_held = False
+    play_tick(game, floor, buf)
+    assert game.nav_intent is None
+
+    start_x = hero.room_x + hero.step_x
+    mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
+    dest = nearest_walkable(mesh, start_x - 1500, hero.room_z + hero.step_z)
+    apply_click_intent(game, dest[0], dest[1], hero.room)
+    for _ in range(300):
+        play_tick(game, floor, buf)
+    assert start_x - (hero.room_x + hero.step_x) > 500, "hero cannot walk after the push"

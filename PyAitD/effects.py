@@ -129,6 +129,10 @@ class NavIntent:
     approach_target_pose: tuple = None
     origin_floor: int | None = None
     origin_room: int | None = None
+    # engaged held push: the world axis ("x" or "z") the hero pushes along,
+    # and the lateral coordinate frozen when the push engaged
+    push_axis: str | None = None
+    push_lateral: int | None = None
 
 
 @dataclass

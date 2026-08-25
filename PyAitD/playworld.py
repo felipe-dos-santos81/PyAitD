@@ -127,7 +127,7 @@ def _refresh_held_target(game, hero, mesh):
             intent.stall_best = 0
             intent.stall_ticks = 0
         return True
-    point = (target.room_x, target.room_z)
+    point = _held_push_point(intent, hero, target)
     if (intent.dest_x, intent.dest_z, intent.room) != (*point, target.room):
         intent.stall_target = None
         intent.stall_best = 0
@@ -150,6 +150,34 @@ def _refresh_held_target(game, hero, mesh):
         hero.new_anim_type = 0
         hero.new_anim_info = -1
     return True
+
+
+def _held_push_point(intent, hero, target):
+    """Steer an engaged push straight along one world axis.
+
+    Aiming at the target's centre from a corner cell makes the hero slide
+    along the target's face (FITD GereCollision's glisser) until it meets
+    whatever sits beside the target. GereAnim checks hard cols before actor
+    contacts and never rechecks the reduced step (anim.cpp:373-570), so that
+    slide can sink the hero into an adjacent hard col, where every later step
+    is zeroed. Pushing along the axis of the face the hero already overlaps,
+    with the lateral coordinate frozen at engagement, removes the slide.
+    """
+    if intent.push_axis is None:
+        here_x = hero.room_x + hero.step_x
+        here_z = hero.room_z + hero.step_z
+        x0, x1, _y0, _y1, z0, z1 = target.zv
+        overlaps_x = hero.zv[0] < x1 and x0 < hero.zv[1]
+        overlaps_z = hero.zv[4] < z1 and z0 < hero.zv[5]
+        if overlaps_x != overlaps_z:
+            along_z = overlaps_x
+        else:
+            along_z = abs(target.room_z - here_z) >= abs(target.room_x - here_x)
+        intent.push_axis = "z" if along_z else "x"
+        intent.push_lateral = here_x if along_z else here_z
+    if intent.push_axis == "z":
+        return (intent.push_lateral, target.room_z)
+    return (target.room_x, intent.push_lateral)
 
 
 def _held_contact_detour(game, hero, target_idx, point, mesh):
