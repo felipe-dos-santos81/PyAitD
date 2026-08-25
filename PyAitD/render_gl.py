@@ -203,6 +203,7 @@ class GLBackend:
 
         self._bg_tex = None
         self._bg_key = None
+        self._bg_src = None
         self._sphere = icosphere(1)
 
     def release(self):
@@ -217,10 +218,34 @@ class GLBackend:
                 resource.release()
         self._bg_tex = None
         self._bg_key = None
+        self._bg_src = None
 
     # ---- per-frame drawing ----
 
     def draw(self, frame):
+        """Renders `frame` into `.texture`.
+
+        Postcondition: the context's viewport, depth_func and previously-
+        bound framebuffer are restored before returning (best-effort for
+        depth_func, which ModernGL exposes write-only: reset to its own
+        default, "<"), so a caller sharing this `ctx` -- task 8's Renderer
+        -- is not left with our internal FBO or scratch viewport bound.
+        """
+        prev_viewport = self._ctx.viewport
+        prev_fbo = self._ctx.fbo
+        try:
+            self._draw_frame(frame)
+        finally:
+            self._ctx.viewport = prev_viewport
+            self._ctx.depth_func = "<"  # ModernGL's own default
+            # Best-effort: prev_fbo can have been release()'d by another
+            # backend sharing this ctx between when we captured it and now
+            # (moderngl.InvalidObject`d, not cleared) -- restoring a dead
+            # framebuffer isn't recoverable, so just leave ours bound.
+            if prev_fbo is not None and not isinstance(prev_fbo.mglo, moderngl.InvalidObject):
+                prev_fbo.use()
+
+    def _draw_frame(self, frame):
         self._fbo.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
@@ -279,6 +304,11 @@ class GLBackend:
             self._bg_tex.repeat_x = False
             self._bg_tex.repeat_y = False
             self._bg_key = key
+            # Keep the source array alive for as long as its id() is the
+            # cache key: without this reference, `pixels` could be freed
+            # and a same-shaped array could land at the same address,
+            # making a stale key match and serving last frame's texture.
+            self._bg_src = pixels
 
         filter_name = self._options.background_filter
         if filter_name == "nearest":
