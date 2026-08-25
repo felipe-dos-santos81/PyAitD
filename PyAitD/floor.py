@@ -4,6 +4,7 @@ import functools
 
 from PyAitD.formats import camera_offsets, decode_image, decode_palette, parse_cameras, parse_rooms
 from PyAitD.mask import create_aitd1_mask
+from PyAitD.mask_geometry import mask_polygons
 from PyAitD.pak import Pak, find_pak
 
 PALETTE_PAK = "ITD_RESS"
@@ -33,6 +34,7 @@ class Floor:
         self._num_images = Pak(self._images).count
         self._camera_images = {}
         self._masks = {}
+        self._mask_draws = {}
 
     def camera_image(self, camera_idx):
         if not 0 <= camera_idx < self._num_images:
@@ -49,3 +51,12 @@ class Floor:
                 self.camera_raw, self.camera_data_offsets[camera_idx],
             )
         return self._masks[camera_idx]
+
+    def mask_draws(self, camera_idx):
+        # foreground mask polygons in 320x200 screen space; static camera
+        # data, read-only in the render path
+        if camera_idx not in self._mask_draws:
+            self._mask_draws[camera_idx] = mask_polygons(
+                self.camera_raw, self.camera_data_offsets[camera_idx],
+            )
+        return self._mask_draws[camera_idx]
