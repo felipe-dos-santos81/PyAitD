@@ -108,6 +108,98 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
     assert calls == ["tick"] * 5 + ["present", "present"]
 
 
+def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, monkeypatch):
+    import PyAitD.__main__ as main
+
+    source = np.full((200, 320, 3), 80, dtype=np.uint8)
+    presented = []
+    event_batches = iter([[], [main.pygame.event.Event(main.pygame.QUIT)]])
+    times = iter([0, 40, 40])
+    game = init_game(data_dir)
+    hit_actor_idx = game.current_camera_target_actor
+    hit_actor = game.actors[hit_actor_idx]
+    ticks = []
+
+    def publish_then_clear(_game, _floor, _input_buffer):
+        ticks.append(1)
+        hit_actor.hit_by = 17 if len(ticks) == 1 else -1
+
+    monkeypatch.setattr(main, "Floor", lambda *_args: SimpleNamespace(
+        number=0, rooms=[SimpleNamespace(camera_indices=[0])],
+    ))
+    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+        present=lambda image: presented.append(image.copy()), close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "play_tick", publish_then_clear)
+    monkeypatch.setattr(
+        main, "_scene_frame",
+        lambda *_args: (source, [(hit_actor_idx, (100, 60, 200, 160))]),
+    )
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
+    monkeypatch.setattr(main.pygame.display, "set_caption", lambda *_args: None)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *_args: None),
+    )
+
+    assert main.run(game) == 0
+    assert len(ticks) == 2
+    assert hit_actor.hit_by == -1, "the second catch-up tick did not erase the pulse"
+    assert np.any(np.all(presented[0] == (255, 255, 255), axis=2))
+    assert np.any(
+        (presented[0][:, :, 0] == 255)
+        & (presented[0][:, :, 1] <= 64)
+        & (presented[0][:, :, 2] <= 64)
+    ), "the erased hit never reached presentation"
+
+
+def test_run_expires_hit_feedback_instead_of_latching_forever(data_dir, monkeypatch):
+    import PyAitD.__main__ as main
+
+    source = np.full((200, 320, 3), 80, dtype=np.uint8)
+    presented = []
+    event_batches = iter([
+        [], [], [main.pygame.event.Event(main.pygame.QUIT)],
+    ])
+    times = iter([0, 20, 200, 1000])
+    game = init_game(data_dir)
+    hit_actor_idx = game.current_camera_target_actor
+    hit_actor = game.actors[hit_actor_idx]
+    ticks = []
+
+    def publish_once(_game, _floor, _input_buffer):
+        ticks.append(1)
+        hit_actor.hit_by = 17 if len(ticks) == 1 else -1
+
+    monkeypatch.setattr(main, "Floor", lambda *_args: SimpleNamespace(
+        number=0, rooms=[SimpleNamespace(camera_indices=[0])],
+    ))
+    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+        present=lambda image: presented.append(image.copy()), close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "play_tick", publish_once)
+    monkeypatch.setattr(
+        main, "_scene_frame",
+        lambda *_args: (source, [(hit_actor_idx, (100, 60, 200, 160))]),
+    )
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
+    monkeypatch.setattr(main.pygame.display, "set_caption", lambda *_args: None)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *_args: None),
+    )
+
+    assert main.run(game) == 0
+    assert np.any(np.all(presented[1] == (255, 255, 255), axis=2)), (
+        "feedback expired before a later frame could show it"
+    )
+    assert np.array_equal(presented[-1], source), (
+        "feedback was still visible almost a second after the hit"
+    )
+
+
 def test_escape_opens_the_system_menu_and_pauses_play_ticks(data_dir, monkeypatch):
     # Escape in PLAY opens the paused system menu instead of quitting: no
     # fixed-step tick runs while the menu is up, and the loop still presents

@@ -37,6 +37,7 @@ DEFAULT_DATA = (
     / "game"
     / "INDARK"
 )
+HIT_FEEDBACK_MS = 250
 
 
 def parse_args(argv):
@@ -140,13 +141,20 @@ def inventory_hud_available(game):
     )
 
 
-def _hit_feedback_rects(game, draw_list):
-    """Presentation rectangles for visible actors hit in this PLAY tick."""
+def _hit_actor_ids(game):
+    return {
+        actor_idx for actor_idx, actor in enumerate(game.actors)
+        if actor.hit_by != -1
+    }
+
+
+def _hit_feedback_rects(game, draw_list, actor_ids):
+    """Presentation rectangles for latched hit actors still visible in PLAY."""
     if game.mode is not GameMode.PLAY or game.active_modal is not None:
         return ()
     rects = []
     for actor_idx, box in draw_list:
-        if box is None or game.actors[actor_idx].hit_by == -1:
+        if box is None or actor_idx not in actor_ids:
             continue
         x0, y0, x1, y1 = box
         rects.append(pygame.Rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1))
@@ -793,6 +801,9 @@ def run(game, trace_path=None, session=None):
     draw_list = []
     hover = None
     scene_frame, draw_list = _scene_frame(game, floor, renderer)
+    hit_feedback_deadlines = {
+        actor_idx: last + HIT_FEEDBACK_MS for actor_idx in _hit_actor_ids(game)
+    }
     while running:
         for event in pygame.event.get():
             # raw key capture owns KEYDOWN while the system menu is binding:
@@ -864,11 +875,17 @@ def run(game, trace_path=None, session=None):
             accumulator, draw_list, hover, scene_frame, last = (
                 new_accumulator, new_draw_list, new_hover, new_scene_frame, new_last,
             )
+            hit_feedback_deadlines = {
+                actor_idx: last + HIT_FEEDBACK_MS
+                for actor_idx in _hit_actor_ids(game)
+            }
             continue
         if game.mode is GameMode.PLAY:
             accumulator += elapsed
             while accumulator >= TICK_MS and game.mode is GameMode.PLAY:
                 play_tick(game, floor, input_buffer)
+                for actor_idx in _hit_actor_ids(game):
+                    hit_feedback_deadlines[actor_idx] = now + HIT_FEEDBACK_MS
                 if game.mode is not GameMode.PLAY:
                     _take_over_play_input(game, session, input_buffer)
                 accumulator -= TICK_MS
@@ -885,9 +902,15 @@ def run(game, trace_path=None, session=None):
             # cross the boundary inside play_tick.  Command/pointer routes use
             # the same idempotent seam immediately when they open their modal.
             _take_over_play_input(game, session, input_buffer)
+        hit_feedback_deadlines = {
+            actor_idx: deadline
+            for actor_idx, deadline in hit_feedback_deadlines.items()
+            if deadline > now
+        }
         composed = render_active_mode(game, session, scene_frame)
         composed = render_hit_feedback(
-            composed, _hit_feedback_rects(game, draw_list),
+            composed,
+            _hit_feedback_rects(game, draw_list, hit_feedback_deadlines),
         )
         available = inventory_hud_available(game)
         composed = render_play_hud(composed, inventory_available=available)
