@@ -8,7 +8,7 @@ pixel — including the hero's own feet — to None ("blocked").
 """
 import PyAitD.__main__ as main
 from PyAitD.floor import Floor
-from PyAitD.game import init_game
+from PyAitD.game import init_game, relocate_actor
 from PyAitD.picking import _camera_state_global, pick_floor_any_room, project_floor_point
 from PyAitD.playworld import play_tick
 from PyAitD.scenario import enter_mouse_combat_fixture
@@ -18,6 +18,10 @@ from PyAitD.ui import InputBuffer
 def _settled_venue(data_dir):
     game = init_game(data_dir)
     enter_mouse_combat_fixture(game)
+    hero_idx = game.current_camera_target_actor
+    # This floor-picking regression owns camera slot 5 independently of the
+    # manual mouse-combat fixture's now-visible camera-0 lane.
+    relocate_actor(game, hero_idx, 5, 4, -7400, -4010, -1000)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     play_tick(game, floor, InputBuffer())  # one tick: the camera settles

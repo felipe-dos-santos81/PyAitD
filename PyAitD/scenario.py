@@ -8,8 +8,8 @@ from PyAitD.game import FloorStart, enter_floor_start, relocate_actor
 COMBAT_VENUE = FloorStart(5, 4, -7800, -4010, -1000, 0)
 
 MOUSE_COMBAT_OBJECT = 38
-MOUSE_COMBAT_HERO = (-7400, -4010, -1000)
-MOUSE_COMBAT_TARGET = (-7400, -4010, -1250)
+MOUSE_COMBAT_HERO = (5500, -4010, 5250)
+MOUSE_COMBAT_TARGET = (5500, -4010, 5000)
 
 
 def enter_combat_venue(game):

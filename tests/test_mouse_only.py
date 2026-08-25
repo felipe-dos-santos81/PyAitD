@@ -171,6 +171,9 @@ class _HeadlessRenderer:
     def present(self, _frame):
         self.presented += 1
 
+    def compose_scene(self, *_args):
+        return _FRAME
+
     def close(self):
         pass
 
@@ -205,7 +208,8 @@ def _run_scripted_mouse(monkeypatch, game, draw_list, next_events):
     renderer = _HeadlessRenderer()
     ticks = itertools.count(0, 20)
     monkeypatch.setattr(main, "Renderer", lambda: renderer)
-    monkeypatch.setattr(main, "_scene_frame", lambda *args: (_FRAME, draw_list))
+    if draw_list is not None:
+        monkeypatch.setattr(main, "_scene_frame", lambda *args: (_FRAME, draw_list))
     monkeypatch.setattr(main, "render_active_mode", lambda *args: _FRAME)
     monkeypatch.setattr(main.pygame.event, "get", next_events)
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(ticks))
@@ -432,7 +436,30 @@ def test_mouse_journey_attic_take_hud_inventory_action(data_dir, monkeypatch):
     assert game.in_hand_table[0] == lamp_idx
 
 
+def test_mouse_combat_fixture_has_a_real_visible_attack_target_after_equip(data_dir):
+    import PyAitD.__main__ as main
+
+    game = init_game(data_dir)
+    enter_mouse_combat_fixture(game)
+    choose_inventory_action(game, 38, 23)
+    game.num_camera = game.new_num_camera
+    floor = Floor(data_dir, game.current_floor)
+    enemy_idx = game.world_objects[222].obj_index
+
+    _frame, draw_list = main._scene_frame(game, floor, _HeadlessRenderer())
+    target_box = next(box for index, box in draw_list if index == enemy_idx)
+    x0, y0, x1, y1 = target_box
+    assert x1 > x0 and y1 > y0, (
+        f"mouse combat enemy has no visible target: {target_box}"
+    )
+    attack_point = ((x0 + x1) // 2, (y0 + y1) // 2)
+    assert main.resolve_play_click(
+        game, floor, attack_point, draw_list,
+    ) == ("attack", enemy_idx)
+
+
 def test_mouse_journey_inventory_attack_publishes_real_throw(data_dir, monkeypatch):
+    import PyAitD.__main__ as main
     import PyAitD.playworld as playworld_module
 
     game = init_game(data_dir)
@@ -443,8 +470,10 @@ def test_mouse_journey_inventory_attack_publishes_real_throw(data_dir, monkeypat
     enemy_idx = game.world_objects[222].obj_index
     hero = game.actors[hero_idx]
     enemy = game.actors[enemy_idx]
+    floor = Floor(data_dir, game.current_floor)
+    geometry_renderer = _HeadlessRenderer()
 
-    observed = {"wait": False, "flight": False, "hit": None}
+    observed = {"wait": False, "flight": False, "hit": None, "target_box": None}
     original_gere_frappe = playworld_module.gere_frappe
 
     def observe_action(g, actor_idx):
@@ -474,16 +503,26 @@ def test_mouse_journey_inventory_attack_publishes_real_throw(data_dir, monkeypat
             return [_left_click(ModalLayout.INVENTORY_ROWS[0].center)]
         if (state["step"] == "attack" and game.mode is GameMode.PLAY
                 and game.in_hand_table[0] == 38):
+            _frame, draw_list = main._scene_frame(game, floor, geometry_renderer)
+            target_box = next(box for index, box in draw_list if index == enemy_idx)
+            x0, y0, x1, y1 = target_box
+            assert x1 > x0 and y1 > y0, (
+                f"mouse combat enemy has no visible target: {target_box}"
+            )
+            attack_point = ((x0 + x1) // 2, (y0 + y1) // 2)
+            assert main.resolve_play_click(
+                game, floor, attack_point, draw_list,
+            ) == ("attack", enemy_idx)
+            observed["target_box"] = target_box
             state["step"] = "wait"
-            return [_left_click((150, 100))]
+            return [_left_click(attack_point)]
         if observed["hit"] is not None:
             return [pygame.event.Event(pygame.QUIT)]
         return []
 
-    _run_scripted_mouse(
-        monkeypatch, game, [(enemy_idx, (100, 60, 200, 160))], next_events,
-    )
+    _run_scripted_mouse(monkeypatch, game, None, next_events)
     thrown_idx, force = observed["hit"]
+    assert observed["target_box"] is not None
     assert observed["wait"]
     assert observed["flight"]
     assert force == 2

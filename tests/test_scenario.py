@@ -27,8 +27,8 @@ def test_mouse_combat_fixture_is_deterministic_and_does_not_change_m3c_start(dat
     enemy = game.actors[game.world_objects[222].obj_index]
     assert game.floor_start == COMBAT_VENUE
     assert inventory_items(game) == (38,)
-    assert (hero.room_x, hero.room_y, hero.room_z) == (-7400, -4010, -1000)
-    assert (enemy.room_x, enemy.room_y, enemy.room_z) == (-7400, -4010, -1250)
+    assert (hero.room_x, hero.room_y, hero.room_z) == (5500, -4010, 5250)
+    assert (enemy.room_x, enemy.room_y, enemy.room_z) == (5500, -4010, 5000)
     assert (enemy.life, enemy.life_mode, enemy.track_mode, enemy.speed) == (-1, -1, 0, 0)
 
     control = init_game(data_dir)
