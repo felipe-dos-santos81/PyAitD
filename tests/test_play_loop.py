@@ -425,21 +425,40 @@ def test_pointer_invalidation_routes_mouseup_and_focus_loss(data_dir):
 
 
 @pytest.mark.parametrize(
-    ("event_factory", "expected_input"),
+    ("event_factory", "touch", "expected_input"),
     [
         (
-            lambda pygame: pygame.event.Event(pygame.MOUSEBUTTONUP, button=1),
-            (False, True, 8, True),
+            lambda pygame: pygame.event.Event(
+                pygame.MOUSEBUTTONUP, button=1, touch=False,
+            ),
+            False,
+            (False, True, 8, True, False, None),
         ),
         (
             lambda pygame: pygame.event.Event(pygame.WINDOWFOCUSLOST),
-            (False, False, 0, False),
+            False,
+            (False, False, 0, False, False, None),
+        ),
+        (
+            lambda pygame: pygame.event.Event(
+                pygame.MOUSEBUTTONUP, button=1, touch=True,
+            ),
+            True,
+            (False, True, 8, True, False, None),
+        ),
+        (
+            lambda pygame: pygame.event.Event(pygame.WINDOWFOCUSLOST),
+            True,
+            (False, False, 0, False, False, None),
         ),
     ],
-    ids=("primary-mouseup", "focus-loss"),
+    ids=(
+        "physical-mouseup", "physical-focus-loss",
+        "touch-origin-mouseup", "touch-origin-focus-loss",
+    ),
 )
 def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
-    data_dir, monkeypatch, event_factory, expected_input,
+    data_dir, monkeypatch, event_factory, touch, expected_input,
 ):
     import PyAitD.__main__ as main
     from PyAitD.interaction import apply_click_intent
@@ -448,7 +467,13 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     game = init_game(data_dir)
     hero = game.actors[game.current_camera_target_actor]
     apply_click_intent(game, 100, 200, hero.room, 4, requires_hold=True)
-    input_buffer = InputBuffer(pointer_held=True, action_held=True, held_joyd=8)
+    input_buffer = InputBuffer(
+        pointer_held=True,
+        pointer_touch=touch,
+        pointer_pos=(100, 200),
+        action_held=True,
+        held_joyd=8,
+    )
     seen = []
     event_batches = iter([
         [event_factory(main.pygame)],
@@ -463,7 +488,7 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
         main, "play_tick",
         lambda game, _floor, state: seen.append((
             game.nav_intent, state.pointer_held, state.action_held,
-            state.held_joyd, state.focused,
+            state.held_joyd, state.focused, state.pointer_touch, state.pointer_pos,
         )),
     )
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: frame)
