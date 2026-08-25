@@ -845,6 +845,8 @@ def run(game, trace_path=None, session=None):
             accumulator += elapsed
             while accumulator >= TICK_MS and game.mode is GameMode.PLAY:
                 play_tick(game, floor, input_buffer)
+                if game.mode is not GameMode.PLAY:
+                    _take_over_play_input(game, session, input_buffer)
                 accumulator -= TICK_MS
                 if floor.number != game.current_floor:
                     floor = Floor(game._data_dir, game.current_floor)

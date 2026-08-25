@@ -643,7 +643,7 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     (ShowFound(13, False), GameOver(120)),
     ids=("found-contact", "game-over"),
 )
-def test_simulation_raised_modal_takeover_is_clean_before_render(
+def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
         data_dir, monkeypatch, effect,
 ):
     import PyAitD.__main__ as main
@@ -662,7 +662,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_render(
     )
     session = ModalSession(last_effect=effect)
     session.found.hover = FoundResult.LEAVE
-    observed = []
+    boundaries = []
     event_batches = iter([
         [],
         [main.pygame.event.Event(main.pygame.QUIT)],
@@ -672,24 +672,41 @@ def test_simulation_raised_modal_takeover_is_clean_before_render(
     def raise_modal(current_game, _floor, input_buffer):
         input_buffer.commands.append(Command.UP)
         current_game.open_modal(effect)
+        current_game.current_floor = 1
 
-    def assert_clean_before_render(current_game, current_session, _frame):
-        assert current_game.nav_intent is None
-        assert current_game.nav_decision is None
+    def assert_takeover_clean(boundary):
+        assert game.nav_intent is None
+        assert game.nav_decision is None
         assert (
-            current_game.local_joyd, current_game.local_click, current_game.action,
+            game.local_joyd, game.local_click, game.action,
         ) == (0, 0, 0)
         assert not buffer.pointer_held
         assert list(buffer.commands) == []
         if isinstance(effect, ShowFound):
-            assert current_session.found.hover is None
-        observed.append(type(effect))
+            assert session.found.hover is None
+        boundaries.append(boundary)
+
+    def load_floor(_data_dir, number):
+        if game.active_modal is not None:
+            assert_takeover_clean("floor-load")
+        return SimpleNamespace(
+            number=number, rooms=[SimpleNamespace(camera_indices=[0])],
+        )
+
+    def scene_frame(current_game, _floor, _renderer):
+        if current_game.active_modal is not None:
+            assert_takeover_clean("scene-frame")
+        return frame, []
+
+    def assert_clean_before_render(_game, _session, _frame):
+        assert_takeover_clean("modal-render")
         return frame
 
+    monkeypatch.setattr(main, "Floor", load_floor)
     monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
         present=lambda _image: None, close=lambda: None,
     ))
-    monkeypatch.setattr(main, "_scene_frame", lambda *_args: (frame, []))
+    monkeypatch.setattr(main, "_scene_frame", scene_frame)
     monkeypatch.setattr(main, "play_tick", raise_modal)
     monkeypatch.setattr(main, "render_active_mode", assert_clean_before_render)
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
@@ -705,7 +722,9 @@ def test_simulation_raised_modal_takeover_is_clean_before_render(
     )
 
     assert main.run(game, session=session) == 0
-    assert observed == [type(effect), type(effect)]
+    assert boundaries == [
+        "floor-load", "scene-frame", "modal-render", "modal-render",
+    ]
 
 
 def test_escape_in_play_opens_system_menu_instead_of_quitting(data_dir):
