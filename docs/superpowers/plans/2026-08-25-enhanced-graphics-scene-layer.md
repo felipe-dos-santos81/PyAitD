@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Dependencies stay exactly `pygame-ce`, `moderngl`, `numpy` (+ `pytest` dev). No new packages.
-- Every new module except `render_gl.py`, `render.py` and one PNG loader in `asset_resolver.py` must import neither `pygame` nor `moderngl`.
+- Every new module except `render_gl.py`, `render.py`, one PNG loader in `asset_resolver.py`, and `render_soft.py` (which draws with `pygame.draw` onto a `pygame.Surface` — no window, no GL, still headless) must import neither `pygame` nor `moderngl`.
 - `picking.py`, `playworld.py`, `navigate.py`, `tracks.py`, `life*.py`, `anim_action.py` are not modified.
 - `draw_list` entries stay `(actor_index, picking.actor_bbox(skel.skin(...)))` — byte-identical to today.
 - `scale` clamps to 1..8, default 4. `shading` ∈ {`flat`, `lambert`, `smooth`}, default `smooth`. `background_filter` ∈ {`nearest`, `bilinear`, `xbr`}, default `bilinear`.

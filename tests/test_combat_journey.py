@@ -22,7 +22,7 @@ from PyAitD.game import AF_ANIMATED, init_game, relocate_actor
 from PyAitD.life import process_life
 from PyAitD.playworld import TICK_MS, play_tick
 from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
-from PyAitD.ui import InputBuffer, ModalSession, render_game_over
+from PyAitD.ui import InputBuffer, ModalSession, render_game_over, transparent_canvas
 
 
 def _venue(data_dir):
@@ -110,7 +110,8 @@ def test_real_enemy_damage_reaches_game_over_and_fresh_restart(data_dir):
     session = ModalSession()
     session.reset_for(game.active_modal)
     frozen = np.zeros((200, 320, 3), dtype=np.uint8)
-    assert render_game_over(frozen, ready=False) is frozen
+    canvas = transparent_canvas()
+    assert render_game_over(canvas, frozen, ready=False) is canvas
     session.elapsed_ms = 1999
     route_mouse(game, session, (0, 0))
     assert game.restart_requested is False

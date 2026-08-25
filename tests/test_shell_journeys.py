@@ -13,7 +13,7 @@ import pytest
 
 from PyAitD.__main__ import configure_session_input, load_runtime_session
 from PyAitD.config import (
-    Control, Settings, default_settings, replace_binding, save_settings,
+    SCHEMA, Control, Settings, default_settings, replace_binding, save_settings,
 )
 from PyAitD.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu
 from PyAitD.game import init_game
@@ -28,8 +28,9 @@ _FRAME = np.zeros((200, 320, 3), dtype=np.uint8)
 
 
 class _HeadlessRenderer:
-    def __init__(self):
+    def __init__(self, *_args, **_kwargs):
         self.presented = 0
+        self.fallback_notice = None
 
     def window_to_logical(self, pos):
         return pos
@@ -53,7 +54,7 @@ def _run_shell(monkeypatch, game, session, next_events, *, observe_tick=None):
     import PyAitD.__main__ as main
     renderer = _HeadlessRenderer()
     ticks = itertools.count(0, 20)
-    monkeypatch.setattr(main, "Renderer", lambda: renderer)
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: renderer)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (_FRAME, []))
     monkeypatch.setattr(main.pygame.event, "get", next_events)
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(ticks))
@@ -257,7 +258,7 @@ def test_menu_remap_sticky_save_and_reload_journey(data_dir, monkeypatch, tmp_pa
     assert game.input_mode is InputMode.KEYBOARD
 
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["schema"] == 1
+    assert payload["schema"] == SCHEMA
     assert payload["bindings"]["UP"] == ["q"]
     assert payload["sticky_action"] is True
 

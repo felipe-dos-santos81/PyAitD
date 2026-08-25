@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Mask rasterization port of FITD polys.cpp fillpoly + main.cpp createAITD1Mask."""
-import struct
 from dataclasses import dataclass
 
-from PyAitD.formats import _s16
+from PyAitD.mask_geometry import _polygons_bbox, iter_mask_records
 
 import numpy as np
 
@@ -85,44 +84,13 @@ def fill_poly(points, target, value):
 
 def create_aitd1_mask(camera_raw, camera_off):
     masks = []
-    num_viewed = struct.unpack_from("<H", camera_raw, camera_off + 0x12)[0]
-    for viewed in range(num_viewed):
-        vr_off = camera_off + 0x14 + viewed * 0x0C
-        vr_room = struct.unpack_from("<h", camera_raw, vr_off)[0]
-        mask_off = struct.unpack_from("<H", camera_raw, vr_off + 2)[0]
-        base = camera_off + mask_off
-        data2 = camera_raw[base:]
-        num_mask = struct.unpack_from("<h", data2, 0)[0]
-        data = 2  # skip numMask
-        for _ in range(num_mask):
-            num_zones = struct.unpack_from("<H", data2, data)[0]
-            test_rects = tuple(
-                struct.unpack_from("<4h", data2, data + 4 + zone * 8)
-                for zone in range(num_zones)
-            )
-            # FITD: src = data2 + u16(data+2) — the offset value is relative to data2
-            poly_off = struct.unpack_from("<H", data2, data + 2)[0]
-            src = camera_raw[base + poly_off :]
-            num_polys = struct.unpack_from("<H", src, 0)[0]
-            off = 2
-            min_x, max_x, min_y, max_y = 319, 0, 199, 0
-            bitmap = np.zeros((SCREEN_H, SCREEN_W), dtype=np.uint8)
-            for _ in range(num_polys):
-                num_points = struct.unpack_from("<H", src, off)[0]
-                off += 2
-                points = [
-                    (_s16(src, off + k * 4), _s16(src, off + k * 4 + 2))
-                    for k in range(num_points)
-                ]
-                off += num_points * 4
-                fill_poly(points, bitmap, 255)
-                for px, py in points:
-                    min_x, max_x = min(min_x, px), max(max_x, px)
-                    min_y, max_y = min(min_y, py), max(max_y, py)
-            masks.append(Mask(
-                min_x, min_y, max_x, max_y, bitmap,
-                viewed_room=vr_room, test_rects=test_rects,
-            ))
-            # advance to the next mask header after its actor trigger rectangles
-            data += 2 + ((num_zones * 4 + 1) * 2)
+    for vr_room, test_rects, polygons in iter_mask_records(camera_raw, camera_off):
+        bitmap = np.zeros((SCREEN_H, SCREEN_W), dtype=np.uint8)
+        for points in polygons:
+            fill_poly(points, bitmap, 255)
+        min_x, min_y, max_x, max_y = _polygons_bbox(polygons)
+        masks.append(Mask(
+            min_x, min_y, max_x, max_y, bitmap,
+            viewed_room=vr_room, test_rects=test_rects,
+        ))
     return masks

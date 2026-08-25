@@ -11,6 +11,7 @@ import pytest
 from PyAitD.anim_action import (
     FRAPPE_OK, HANDLED_ACTIONS, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME,
 )
+from PyAitD.asset_resolver import AssetResolver
 from PyAitD.effects import GameMode, NavIntent
 from PyAitD.floor import Floor
 from PyAitD.game import AF_ANIMATED, AF_MOVABLE, init_game
@@ -164,8 +165,9 @@ _FRAME = np.zeros((200, 320, 3), dtype=np.uint8)
 
 
 class _HeadlessRenderer:
-    def __init__(self):
+    def __init__(self, *_args, **_kwargs):
         self.presented = 0
+        self.fallback_notice = None
 
     def window_to_logical(self, pos):
         return pos
@@ -209,7 +211,7 @@ def _run_scripted_mouse(monkeypatch, game, draw_list, next_events):
 
     renderer = _HeadlessRenderer()
     ticks = itertools.count(0, 20)
-    monkeypatch.setattr(main, "Renderer", lambda: renderer)
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: renderer)
     if draw_list is not None:
         monkeypatch.setattr(main, "_scene_frame", lambda *args: (_FRAME, draw_list))
     monkeypatch.setattr(main, "render_active_mode", lambda *args: _FRAME)
@@ -448,7 +450,9 @@ def test_mouse_combat_fixture_has_a_real_visible_attack_target_after_equip(data_
     floor = Floor(data_dir, game.current_floor)
     enemy_idx = game.world_objects[222].obj_index
 
-    _frame, draw_list = main._scene_frame(game, floor, _HeadlessRenderer())
+    _frame, draw_list = main._scene_frame(
+        game, floor, _HeadlessRenderer(), AssetResolver(game.assets),
+    )
     target_box = next(box for index, box in draw_list if index == enemy_idx)
     x0, y0, x1, y1 = target_box
     assert x1 > x0 and y1 > y0, (
@@ -511,7 +515,9 @@ def test_mouse_journey_one_click_attack_swings_the_held_saber(data_dir, monkeypa
             return [_left_click(ModalLayout.INVENTORY_ROWS[0].center)]
         if (state["step"] == "attack" and game.mode is GameMode.PLAY
                 and game.in_hand_table[0] == 38):
-            _frame, draw_list = main._scene_frame(game, floor, geometry_renderer)
+            _frame, draw_list = main._scene_frame(
+                game, floor, geometry_renderer, AssetResolver(game.assets),
+            )
             target_box = next(box for index, box in draw_list if index == enemy_idx)
             x0, y0, x1, y1 = target_box
             assert x1 > x0 and y1 > y0, (

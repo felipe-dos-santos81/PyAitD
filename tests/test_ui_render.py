@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
+from types import SimpleNamespace
+
 import numpy as np
 import pygame
 import pytest
@@ -16,6 +18,7 @@ from PyAitD.ui import (
     overlay_messages, render_character_select, render_cursor, render_found,
     render_game_over, render_picture, render_play_hud, render_reading,
     render_inventory, render_settings_notice, render_system_menu,
+    transparent_canvas,
 )
 
 
@@ -118,13 +121,13 @@ def test_cursor_outside_the_surface_is_a_no_op():
 
 def test_game_over_locked_frame_is_identical_and_ready_frame_is_overlayed():
     pygame.font.init()
+    canvas = np.zeros((200, 320, 3), dtype=np.uint8)
     source = np.arange(320 * 200 * 3, dtype=np.uint8).reshape((200, 320, 3))
-    locked = render_game_over(source, ready=False)
-    ready = render_game_over(source, ready=True)
-    assert locked is source
-    assert np.array_equal(locked, source)
+    locked = render_game_over(canvas, source, ready=False)
+    ready = render_game_over(canvas, source, ready=True)
+    assert locked is canvas
+    assert np.array_equal(locked, canvas)
     assert not np.array_equal(ready, source)
-    assert np.array_equal(source, locked)
 
 
 def test_big_cadre_pins_fitd_interior_and_ring(data_dir):
@@ -226,3 +229,64 @@ def test_system_menu_is_a_logical_rgb_frame(data_dir, page):
     )
     assert frame.shape == (200, 320, 3)
     assert frame.dtype == np.uint8
+
+
+def test_configuration_lists_graphics_rows_inside_the_screen():
+    from PyAitD.ui import SystemMenuLayout, config_row_count
+    rows = SystemMenuLayout.rows(SystemMenuPage.CONFIG)
+    assert len(rows) == config_row_count()
+    assert all(r.bottom <= 200 for r in rows)
+    hit = SystemMenuLayout.hit_rows(SystemMenuPage.CONFIG)
+    for a in range(len(hit)):
+        for b in range(a + 1, len(hit)):
+            assert not hit[a].colliderect(hit[b])
+
+
+def test_system_menu_row_label_mismatch_raises_instead_of_hiding_back_to_menu(monkeypatch):
+    # If the row layout and the hand-built label list ever drift in length,
+    # a plain zip() truncates silently: with fewer rows than labels the
+    # trailing "Back to Menu" row simply never gets drawn (invisible, but
+    # reduce_system_menu still treats row_count - 1 as Back, so its hit
+    # target is real -- a fully hidden but clickable row). strict=True turns
+    # that drift into a loud failure instead of a silent, hard-to-notice UI
+    # bug.
+    import PyAitD.ui as ui_module
+
+    monkeypatch.setattr(ui_module.SystemMenuLayout, "MAIN_ROWS", ui_module.SystemMenuLayout.MAIN_ROWS[:-1])
+    fake_sprite = np.zeros((20, 20, 3), dtype=np.uint8)
+    fake_assets = SimpleNamespace(cadre_bank=lambda: (fake_sprite,) * 9)
+
+    with pytest.raises(ValueError):
+        render_system_menu(
+            SystemMenuPresenter(page=SystemMenuPage.MAIN), default_settings(), fake_assets,
+        )
+
+
+def test_transparent_canvas_and_rgba_round_trip():
+    from PyAitD.ui import _to_frame, _to_surface, transparent_canvas
+    canvas = transparent_canvas()
+    assert canvas.shape == (200, 320, 4) and canvas.max() == 0
+    surface = _to_surface(canvas)
+    assert surface.get_flags() & pygame.SRCALPHA
+    back = _to_frame(surface)
+    assert back.shape == (200, 320, 4) and back.max() == 0
+    rgb = np.full((200, 320, 3), 5, np.uint8)
+    assert _to_frame(_to_surface(rgb)).shape == (200, 320, 3)
+
+
+def test_play_hud_and_cursor_keep_the_canvas_transparent_elsewhere():
+    from PyAitD.ui import render_cursor, render_play_hud, transparent_canvas
+    out = render_play_hud(transparent_canvas(), inventory_available=True)
+    out = render_cursor(out, (160, 100), "walk")
+    assert out.shape == (200, 320, 4)
+    assert out[0, 0, 3] == 0                      # untouched corner stays clear
+    assert out[:, :, 3].max() == 255              # something was drawn
+
+
+def test_game_over_not_ready_is_identity_on_the_canvas():
+    from PyAitD.ui import render_game_over, transparent_canvas
+    canvas = transparent_canvas()
+    scene = np.zeros((200, 320, 3), np.uint8)
+    assert render_game_over(canvas, scene, False) is canvas
+    ready = render_game_over(canvas, scene, True)
+    assert ready.shape == (200, 320, 3)

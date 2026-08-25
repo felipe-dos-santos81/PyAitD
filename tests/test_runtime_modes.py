@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from collections import deque
 from copy import deepcopy
+from dataclasses import replace
 import itertools
 from types import SimpleNamespace
 
@@ -9,12 +10,13 @@ import pygame
 import pytest
 
 from PyAitD.__main__ import (
-    _capture_keydown, replacement_session, restart_session, route_command,
-    render_active_mode, route_hover, route_mouse,
+    _apply_system_result, _capture_keydown, replacement_session, restart_session,
+    route_command, render_active_mode, route_hover, route_mouse,
 )
 from PyAitD.config import (
     REMAPPABLE_CONTROLS, Control, Settings, default_settings, load_settings,
 )
+from PyAitD.render_options import RenderOptions
 from PyAitD.playworld import apply_play_input
 from PyAitD.effects import (
     ChooseCharacter, GameMode, GameOver, InputMode, NavDecision, NavIntent, OpenInventory,
@@ -25,7 +27,7 @@ from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter, Command,
     FoundResult, InputBuffer, ModalLayout, ModalSession, ReadingResult, SettingsNoticeLayout,
-    SystemMenuLayout, SystemMenuPage, SystemMenuPresenter,
+    SystemMenuLayout, SystemMenuPage, SystemMenuPresenter, SystemMenuResult,
 )
 
 
@@ -71,6 +73,39 @@ def test_render_active_mode_resets_a_replaced_system_menu_preview(monkeypatch):
     assert session.last_effect is replacement
     assert session.system_menu is not old_presenter
     assert session.system_menu.hover is None
+
+
+def test_render_active_mode_returns_a_transparent_rgba_canvas_with_no_modal():
+    """render_active_mode's no-modal contract (task 9): the return value is
+    the RGBA UI canvas (overlay_messages(transparent_canvas(), ...)), not
+    the opaque scene_frame it used to paint messages onto directly. Asserted
+    on the actual returned array's shape/dtype/content, not a stubbed
+    presenter's return string, so a regression back to the old
+    overlay_messages(scene_frame, ...) call -- which would return a
+    3-channel opaque frame instead -- fails this test."""
+    game = SimpleNamespace(active_modal=None, messages=(), assets=object())
+    session = ModalSession()
+    scene_frame = np.full((200, 320, 3), 77, dtype=np.uint8)
+
+    result = render_active_mode(game, session, scene_frame)
+
+    assert result.shape == (200, 320, 4)
+    assert result.dtype == np.uint8
+    assert result.max() == 0  # no messages: transparent_canvas() untouched
+
+    pygame.font.init()
+
+    class _FakeAssets:
+        def system_text(self, _message_id):
+            return "hello"
+
+    game_with_message = SimpleNamespace(
+        active_modal=None, assets=_FakeAssets(),
+        messages=[SimpleNamespace(message_id=0)],
+    )
+    with_message = render_active_mode(game_with_message, session, scene_frame)
+    assert with_message.shape == (200, 320, 4)
+    assert with_message[:, :, 3].max() > 0  # the message glyph painted real alpha
 
 
 def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_mutation(
@@ -184,7 +219,8 @@ def test_run_routes_motion_once_and_focus_loss_clears_the_modal_preview(data_dir
         [pygame.event.Event(pygame.QUIT)],
     ))
     ticks = itertools.count(0, 20)
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         window_to_logical=lambda pos: positions.append(pos) or pos,
         present=lambda image: None,
         close=lambda: None,
@@ -213,7 +249,8 @@ def _run_notice_script(monkeypatch, game, session, next_events, draw_list=()):
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     ticks = itertools.count(0, 20)
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         window_to_logical=lambda pos: pos,
         present=lambda image: None,
         close=lambda: None,
@@ -418,7 +455,10 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
 
     assert result is not None
     (new_game, new_floor, new_session, new_buffer, accumulator,
-     draw_list, hover, scene_frame, last, exit_status) = result
+     draw_list, hover, scene_frame, last, exit_status, new_resolver) = result
+    from PyAitD.asset_resolver import AssetResolver
+    assert isinstance(new_resolver, AssetResolver)
+    assert new_resolver._assets is new_game.assets
     assert init_calls == [(staging._data_dir, 1)]
     assert new_game is not staging
     assert new_game.trace is staging.trace
@@ -581,6 +621,42 @@ def test_mouse_reading_next_changes_page_without_resuming_life(data_dir, monkeyp
     assert game.mode is GameMode.READING
 
 
+def test_apply_system_result_pushes_a_changed_render_option_to_the_renderer():
+    pygame.init()
+    session = ModalSession()
+    calls = []
+    renderer = SimpleNamespace(set_options=lambda options: calls.append(options))
+    changed = replace(session.settings, render=RenderOptions(scale=6))
+    result = SystemMenuResult(settings=changed)
+
+    assert _apply_system_result(object(), session, InputBuffer(), result, renderer=renderer) is True
+    assert calls == [RenderOptions(scale=6)]
+    assert session.settings.render == RenderOptions(scale=6)
+
+
+def test_apply_system_result_does_not_push_a_non_render_setting_change():
+    pygame.init()
+    session = ModalSession()
+    calls = []
+    renderer = SimpleNamespace(set_options=lambda options: calls.append(options))
+    changed = replace(session.settings, sticky_action=not session.settings.sticky_action)
+    result = SystemMenuResult(settings=changed)
+
+    assert _apply_system_result(object(), session, InputBuffer(), result, renderer=renderer) is True
+    assert calls == []
+    assert session.settings.sticky_action == changed.sticky_action
+
+
+def test_apply_system_result_tolerates_a_missing_renderer():
+    pygame.init()
+    session = ModalSession()
+    changed = replace(session.settings, render=RenderOptions(scale=8))
+    result = SystemMenuResult(settings=changed)
+
+    assert _apply_system_result(object(), session, InputBuffer(), result) is True
+    assert session.settings.render == RenderOptions(scale=8)
+
+
 def test_system_menu_subview_transitions_clear_keyboard_and_mouse_hover(data_dir):
     effect = OpenSystemMenu()
     game = init_game(data_dir)
@@ -695,7 +771,9 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     )
     monkeypatch.setattr(
         main, "Renderer",
-        lambda: SimpleNamespace(present=lambda image: None, close=lambda: None),
+        lambda *_a, **_k: SimpleNamespace(
+            fallback_notice=None, present=lambda image: None, close=lambda: None,
+        ),
     )
     monkeypatch.setattr(main, "play_tick", lambda *args: True)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
@@ -776,7 +854,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
             number=number, rooms=[SimpleNamespace(camera_indices=[0])],
         )
 
-    def scene_frame(current_game, _floor, _renderer):
+    def scene_frame(current_game, _floor, _renderer, *_args):
         if current_game.active_modal is not None:
             assert_takeover_clean("scene-frame")
         return frame, []
@@ -786,7 +864,8 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
         return frame
 
     monkeypatch.setattr(main, "Floor", load_floor)
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         present=lambda _image: None, close=lambda: None,
     ))
     monkeypatch.setattr(main, "_scene_frame", scene_frame)
@@ -1226,7 +1305,7 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
         restart_requested=False,
         current_camera_target_actor=-1,
         inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
-        current_inventory=0, status_screen_allowed=1,
+        current_inventory=0, status_screen_allowed=1, assets=object(),
     )
 
     def spy_restart_session(game):
@@ -1273,7 +1352,9 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     monkeypatch.setattr(main, "render_active_mode", lambda *a: frame)
     monkeypatch.setattr(
         main, "Renderer",
-        lambda: SimpleNamespace(present=spy_present, close=lambda: None),
+        lambda *_a, **_k: SimpleNamespace(
+            fallback_notice=None, present=spy_present, close=lambda: None,
+        ),
     )
     monkeypatch.setattr(
         main.pygame.mouse, "set_visible", lambda value: None

@@ -36,6 +36,7 @@ make prove-shell             # M4a1 proof: shell, configuration, mouse contract,
 | M4a1 | Shell: character select, system menu, remappable controls, sticky Action, settings persistence, settings notice overlay | automated gates green (`make prove-shell`); windowed accessibility pass pending (`docs/m4a1-shell-proof.md`) |
 | Mouse hold-to-push | Held approach/engage for scripted movable furniture | automated gates green; windowed accessibility pass pending (`docs/mouse-hold-push-proof.md`) |
 | Mouse accessibility hardening | Effective targets, optional pure hover, physical/touch parity, target precedence, atomic modal takeover, exhaustive contract gate | done — automated gates green and user-attested windowed standard-mouse/macOS-Accessibility-Keyboard passes for Emily and Carnby (`docs/mouse-accessibility-hardening-proof.md`) |
+| Enhanced graphics scene layer | Higher-resolution actor rendering, per-vertex shading, GPU mask erasure, background upscale filters, asset override directory, GL fallback | automated gates green; windowed attestation pending (`docs/enhanced-graphics-proof.md`) |
 | M4 | Menus, audio, save/load, ending/completability | later |
 
 Design docs live in `docs/superpowers/specs/` and `docs/superpowers/plans/`
@@ -59,7 +60,15 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `actors.py` | Actor fields (tObject port), GereAnim movement/collision port, `sort_actor_indices` (FITD sortActorList) |
 | `anim.py` | AnimPlayer: SetAnimObjet/SetInterAnimObjet keyframe interpolation |
 | `world.py`, `cos_table.py` | Fixed-point rotations, camera transform/projection (M2-verified goldens) |
-| `skel.py`, `mask.py`, `render.py` | Skinning/projection, mask rasterization, ModernGL pipeline (actor FBO → composite → window quad) |
+| `skel.py`, `mask.py` | Skinning/projection (the FITD-faithful integer path, `skin()`), mask bitmap rasterization |
+| `scene.py` | `build_frame(game, floor, resolver) -> (FrameDescription, draw_list)`: per-frame scene description shared by both backends; `CameraView`, a float twin of `skel.skin`'s projection, for the new renderers. `draw_list` stays built from the logical `skin()` bbox — picking, masks and the mouse contract are untouched |
+| `geometry.py` | `pose_geometry(...) -> BodyGeometry`: float posed vertices, per-vertex normals, triangulated/line/point/sphere primitives, shared with `skel.pose_vertices` so pose can never disagree |
+| `mask_geometry.py` | Mask polygons in 320x200 screen space plus their trigger rects, parsed once from the existing mask data |
+| `asset_resolver.py` | `AssetResolver(assets, override_dir=None)`: background/palette lookup, checking an optional override directory first and falling back to the original asset |
+| `render_options.py` | `RenderOptions(scale, shading, background_filter, override_dir)`: validation, clamping, menu-cycle helpers; pygame/GL-free |
+| `render_gl.py` | `GLBackend(ctx, options)`: ModernGL pipeline, per-actor depth, GPU mask-texture erasure, shading modes, background filtering |
+| `render_soft.py` | `SoftwareBackend`: numpy/pygame compositor over the logical projection, used headless and as the GL-failure fallback |
+| `render.py` | `Renderer(options)`: window/context ownership, backend selection and fallback, UI composite, present, `window_to_logical` |
 | `anim_action.py` | GereFrappe action runner: melee (1→10→2), hit-object, firearm volume sweep (4→5), throw setup/launch/flight (6→7→9). Publishes `hit`/`hit_by`/`hit_force` only — never actor `life` |
 | `scenario.py` | `COMBAT_VENUE`/`enter_combat_venue`: the one pinned floor-5 debug venue shared by play, tests and the proof tool |
 | `playworld.py` | PlayWorld tick (mainLoop.cpp:41-281 order): input snapshot → anim/dec pass → LIFE pass → floor/room/camera flags → messages. Free of pygame/GL: `play_tick` runs headless |
@@ -115,6 +124,8 @@ against `AITD1.cpp` — the plan + code are the source of truth).
   play-tick trace turns right, walks forward, and switches local camera 0 -> 3
   at player position (505, -1706); the wrong rendered facing had made navigation
   toward that trigger appear inconsistent.
+- Masks are GPU-rasterised polygons per actor (a mask texture, not hardware
+  stencil: ModernGL has no depth-stencil renderbuffer API).
 
 Remaining stubs in `life_ops.py` consume exact FITD arg counts and log under trace
 (audio, text) — scripts stay desync-free until real semantics land. The combat

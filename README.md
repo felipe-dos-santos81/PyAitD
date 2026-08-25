@@ -39,6 +39,22 @@ click on any large button. Found objects open a Take/Leave prompt; inventory
 exposes the object's own actions; letters and books are readable; pictures
 play full-screen.
 
+The in-game Configuration screen's Graphics rows, and four CLI flags for a
+single session, control the enhanced renderer: `--render-scale N` (1-8, the
+internal render resolution as a multiple of 320x200), `--shading
+{flat,lambert,smooth}` (per-actor lighting), `--background-filter
+{nearest,bilinear,xbr}` (how the original 320x200 backgrounds are upscaled),
+and `--overrides DIR` (a user-supplied replacement asset directory; this repo
+still ships no game data). An override directory holds
+`DIR/backgrounds/floor<NN>/camera<NNN>.png` (any size) per camera and
+`DIR/palette.png` (256 pixels wide) for the palette; a missing override file
+falls back to the original asset silently, while one that exists but fails
+to load logs a warning and falls back — the game never crashes on a bad
+override. CLI flags apply only to the current session and are not persisted;
+the Configuration screen's Graphics rows persist like every other setting.
+If no GL 3.3 context is available, rendering falls back to the software
+backend at scale 1 with a settings notice; the game always runs.
+
 ## Tests
 
 ```bash
@@ -50,6 +66,7 @@ make prove-mouse        # navmesh coverage for every camera-visible room, headle
 make prove-mouse-only   # one-button accessibility contract + journeys (M3e)
 make prove-shell        # shell, configuration, mouse contract, real-loop journeys (M4a1)
 make prove-mouse-accessibility # focused effective-target, hover, touch, and takeover gate
+make prove-graphics     # render attic + combat fixtures at every shading mode to docs/graphics-proof/
 ```
 
 Mouse accessibility hardening is automated by `make prove-mouse-accessibility`

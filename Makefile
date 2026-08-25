@@ -9,7 +9,7 @@ PIP = $(VENV_DIR)/bin/pip
 floor ?=
 data ?= Alone in the Dark 1.app/Contents/Resources/game/INDARK
 
-.PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat clean
+.PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -83,3 +83,6 @@ prove-mouse-accessibility: install ## Mouse accessibility proof: focused input, 
 
 prove-combat: install ## M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
 	$(PYTHON) tools/prove_combat.py "$(data)"
+
+prove-graphics: install ## Enhanced graphics proof: render attic + combat fixtures at scale 4 per shading mode to docs/graphics-proof/
+	$(PYTHON) tools/prove_graphics.py "$(data)"

@@ -3,31 +3,31 @@
 routing, one presentation per frame — freeze-proof replacement for FITD's
 nested blocking modal loops (mainLoop.cpp:41-281)."""
 import argparse
+from dataclasses import replace
 import pathlib
 import sys
 
 import pygame
 
-from PyAitD.actors import anim_player_for, sort_actor_indices
+from PyAitD.asset_resolver import AssetResolver
 from PyAitD.config import default_settings, load_settings, save_settings, settings_path
 from PyAitD.effects import ChooseCharacter, GameMode, InputMode
 from PyAitD.floor import Floor
 from PyAitD.game import enter_floor_start, init_game
 from PyAitD.life import Trace
 from PyAitD.pak import PakError
-from PyAitD.picking import actor_bbox
 # imported by name, not module-qualified: run() reads play_tick as a module
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.playworld import TICK_MS, play_tick
 from PyAitD.render import Renderer
+from PyAitD.render_options import BACKGROUND_FILTERS, SHADING_MODES, validate_render_options
 from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
-from PyAitD.skel import skin
+from PyAitD.scene import build_frame
 from PyAitD.ui import (
     Command, InputBuffer, ModalSession, configure_input, event_to_input,
     hit_test_settings_notice, render_cursor, render_hit_feedback, render_play_hud,
-    render_settings_notice, reset_input,
+    render_settings_notice, reset_input, transparent_canvas,
 )
-from PyAitD.world import CameraState
 
 DEFAULT_DATA = (
     pathlib.Path(__file__).resolve().parent.parent
@@ -59,7 +59,41 @@ def parse_args(argv):
         "--mouse-combat-fixture", action="store_true",
         help="start with the deterministic object-38 mouse combat proof fixture",
     )
+    p.add_argument(
+        "--render-scale", type=int, default=None,
+        help="internal resolution multiple of 320x200 (1-8)",
+    )
+    p.add_argument(
+        "--shading", choices=SHADING_MODES, default=None, help="actor shading mode",
+    )
+    p.add_argument(
+        "--background-filter", choices=BACKGROUND_FILTERS, default=None,
+        help="background upscale filter",
+    )
+    p.add_argument(
+        "--overrides", type=pathlib.Path, default=None, help="asset override directory",
+    )
     return p.parse_args(argv)
+
+
+def apply_render_overrides(settings, args):
+    """Session-only CLI overrides for settings.render: pure, never persisted.
+
+    Built via validate_render_options so an out-of-range --render-scale is
+    clamped the same way a settings-file value would be, rather than being
+    rejected or passed through unclamped.
+    """
+    payload = settings.render.to_payload()
+    if args.render_scale is not None:
+        payload["scale"] = args.render_scale
+    if args.shading is not None:
+        payload["shading"] = args.shading
+    if args.background_filter is not None:
+        payload["background_filter"] = args.background_filter
+    if args.overrides is not None:
+        payload["override_dir"] = str(args.overrides)
+    render, _error = validate_render_options(payload)
+    return replace(settings, render=render)
 
 
 def load_runtime_session(path):
@@ -67,7 +101,14 @@ def load_runtime_session(path):
     # are validated later by configure_session_input, once the Renderer owns
     # the initialized pygame runtime.
     settings, error = load_settings(path)
-    return ModalSession(settings=settings, settings_path=path, settings_error=error)
+    # Captured before main() applies any --render-* / --overrides CLI flags
+    # to session.settings: this is the on-disk baseline a later save must
+    # not let a session-only CLI override clobber. See
+    # _save_session_settings and apply_render_overrides.
+    return ModalSession(
+        settings=settings, settings_path=path, settings_error=error,
+        disk_render=settings.render,
+    )
 
 
 def configure_session_input(session, input_buffer):
@@ -90,48 +131,32 @@ def replacement_session(session):
         settings_path=session.settings_path,
         settings_error=session.settings_error,
         settings_dirty=session.settings_dirty,
+        disk_render=session.disk_render,
+        render_touched=session.render_touched,
     )
 
 
-def _scene_frame(game, floor, renderer):
-    # mainLoop.cpp:270 AllRedraw: M2 render pipeline, every live actor skinned
-    # through the current camera (num_camera is room-relative, FITD InitView).
-    room = floor.rooms[game.current_room]
-    cam_idx = room.camera_indices[game.num_camera]
-    cam = floor.cameras[cam_idx]
-    state = CameraState.from_camera(
-        cam, room.world_x, room.world_y, room.world_z,
-    ).angles()
-    results = []
-    actor_rooms = []
-    actor_zvs = []
-    draw_list = []
-    draw_order = sort_actor_indices(game, state.x, state.y, state.z)
-    for index in draw_order:
-        actor = game.actors[index]
-        body = game.assets.body(actor.body_num)
-        if actor.anim == -1:
-            states = [(0, (0, 0, 0))] * len(body.groups)
-        else:
-            states = anim_player_for(game, index).group_states()
-        results.append(skin(
-            body,
-            states,
-            (
-                actor.world_x + actor.step_x,
-                actor.world_y + actor.step_y,
-                actor.world_z + actor.step_z,
-            ),
-            state,
-            actor_angles=(actor.alpha, actor.beta, actor.gamma),
-        ))
-        draw_list.append((index, actor_bbox(results[-1])))
-        actor_rooms.append(actor.room)
-        actor_zvs.append(actor.zv)
-    return renderer.compose_scene(
-        floor.camera_image(cam_idx), results, floor.masks(cam_idx), floor.palette,
-        actor_rooms, actor_zvs,
-    ), draw_list
+def _scene_frame(game, floor, renderer, resolver):
+    # mainLoop.cpp:270 AllRedraw through the scene layer: build_frame keeps
+    # the logical draw_list; the renderer draws the enhanced frame (its
+    # 320x200 thumbnail, if a presenter or the software path needs one, is
+    # computed lazily by renderer.scene_thumbnail() instead of eagerly here
+    # -- see the finding-1 note on Renderer.compose_scene). `resolver` is
+    # required, not defaulted: a silent `AssetResolver(game.assets)`
+    # fallback here would drop the override directory with no error, the same
+    # silent-degradation failure mode `_resolver_for` exists to avoid below.
+    frame, draw_list = build_frame(game, floor, resolver)
+    return renderer.compose_scene(frame), draw_list
+
+
+def _resolver_for(assets, override_dir):
+    # A hero swap or restart replaces `game` (and so `game.assets`): the old
+    # resolver's cache is keyed off the old assets object and must not be
+    # reused, but the override directory it was configured with still
+    # applies to the new game. `override_dir` is the public
+    # `session.settings.render.override_dir` value -- never read off another
+    # resolver's private state.
+    return AssetResolver(assets, override_dir)
 
 
 def inventory_hud_available(game):
@@ -372,13 +397,43 @@ def _route_game_over_command(game, session, modal_command):
     return True
 
 
+# The only render.RenderOptions fields the CONFIG menu can actually change
+# (SystemMenuPage.CONFIG's Scale/Shading/Filter rows, via cycle_scale /
+# cycle_shading / cycle_filter in ui.reduce_system_menu). `override_dir` has
+# no menu row at all, so it is never in this set and a save can never pick
+# it up from the in-memory, possibly CLI-set, session.settings.render.
+_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter")
+
+
+def _persisted_render(session):
+    """The render payload `_save_session_settings` actually writes: the
+    on-disk baseline (`session.disk_render`, captured before any CLI
+    override was applied) with only the fields the player explicitly
+    changed via a CONFIG menu cycle this session (`session.render_touched`)
+    overlaid on top.
+
+    Without this, saving *any* setting (even one unrelated to rendering,
+    like Sticky Action) would write session.settings.render wholesale --
+    and that field already carries whatever apply_render_overrides baked in
+    from argv at boot, CLI-only override_dir included. apply_render_overrides'
+    docstring promises those overrides are session-only; this is what keeps
+    that promise true past the first save.
+    """
+    overrides = {
+        field_name: getattr(session.settings.render, field_name)
+        for field_name in session.render_touched
+    }
+    return replace(session.disk_render, **overrides)
+
+
 def _save_session_settings(session):
     if not session.settings_dirty:
         return True
     if session.settings_path is None:
         session.settings_dirty = False
         return True
-    error = save_settings(session.settings, session.settings_path)
+    settings_to_save = replace(session.settings, render=_persisted_render(session))
+    error = save_settings(settings_to_save, session.settings_path)
     if error is not None:
         session.settings_error = error
         return False
@@ -386,13 +441,28 @@ def _save_session_settings(session):
     return True
 
 
-def _apply_system_result(game, session, input_buffer, result):
+def _apply_system_result(game, session, input_buffer, result, renderer=None):
     if result is None:
         return True
     if result.settings is not None:
+        old_render, new_render = session.settings.render, result.settings.render
+        render_changed = new_render != old_render
+        if render_changed:
+            # Only a menu render-field cycle can produce a render diff here
+            # (see _MENU_RENDER_FIELDS): record exactly which field(s)
+            # changed so a later save persists only those, not whatever
+            # else happens to be sitting in session.settings.render.
+            touched = set(session.render_touched)
+            touched.update(
+                field_name for field_name in _MENU_RENDER_FIELDS
+                if getattr(old_render, field_name) != getattr(new_render, field_name)
+            )
+            session.render_touched = frozenset(touched)
         session.settings = result.settings
         session.settings_dirty = True
         configure_input(input_buffer, session.settings)
+        if render_changed and renderer is not None:
+            renderer.set_options(session.settings.render)
     saved = _save_session_settings(session) if result.save else True
     if result.quit and not saved:
         return True
@@ -434,7 +504,7 @@ def _take_over_play_input(game, session, input_buffer) -> None:
     route_hover(game, session, None)
 
 
-def route_command(game, session, command, input_buffer=None):
+def route_command(game, session, command, input_buffer=None, renderer=None):
     from PyAitD.effects import (
         GameMode, GameOver, OpenInventory, OpenSystemMenu, ReadText, ShowFound,
         ShowPicture,
@@ -479,7 +549,7 @@ def route_command(game, session, command, input_buffer=None):
         result = reduce_system_menu(
             session.system_menu, modal_command, session.settings,
         )
-        return _apply_system_result(game, session, input_buffer, result)
+        return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
 
     session.reset_for(game.active_modal)
     # A keyboard command makes the owning keyboard cursor authoritative until
@@ -526,7 +596,7 @@ def route_command(game, session, command, input_buffer=None):
     raise RuntimeError(f"unroutable modal {type(game.active_modal).__name__}")
 
 
-def route_mouse(game, session, logical_pos, input_buffer=None):
+def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
     from PyAitD.effects import (
         ChooseCharacter, GameOver, OpenInventory, OpenSystemMenu, ReadText,
         ShowFound, ShowPicture,
@@ -551,7 +621,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None):
             return True
         if session.system_menu.page is SystemMenuPage.KEY_PICK:
             result = pick_system_key(session.system_menu, session.settings, hit)
-            return _apply_system_result(game, session, input_buffer, result)
+            return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
         old_page = session.system_menu.page
         session.system_menu.cursor = hit
         result = reduce_system_menu(
@@ -559,7 +629,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None):
         )
         if session.system_menu.page is not old_page:
             session.system_menu.hover = None
-        return _apply_system_result(game, session, input_buffer, result)
+        return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
     session.reset_for(effect)
     if isinstance(effect, ChooseCharacter):
         hit = hit_test_character(logical_pos, session.character)
@@ -672,7 +742,12 @@ def _auto_dismiss_picture(game, session):
     return True
 
 
-def render_active_mode(game, session, scene_frame):
+def render_active_mode(game, session, renderer):
+    """`renderer` is the live Renderer, not a pre-computed thumbnail: only
+    the two branches below that actually paint a scene thumbnail behind
+    their modal (OpenInventory, GameOver) call `renderer.scene_thumbnail()`,
+    so every other mode (most frames: no modal at all) never pays for it --
+    see the finding-1 note on `Renderer.compose_scene`."""
     from PyAitD.effects import (
         ChooseCharacter, GameOver, OpenInventory, OpenSystemMenu, ReadText,
         ShowFound, ShowPicture,
@@ -684,7 +759,7 @@ def render_active_mode(game, session, scene_frame):
     )
     effect = game.active_modal
     if effect is None:
-        return overlay_messages(scene_frame, game.messages, game.assets)
+        return overlay_messages(transparent_canvas(), game.messages, game.assets)
     # This is the modal lifecycle boundary.  It resets a replacement exactly
     # once before any presenter can render, including the system menu.
     session.reset_for(effect)
@@ -699,7 +774,7 @@ def render_active_mode(game, session, scene_frame):
     if isinstance(effect, OpenInventory):
         object_ids, action_ids = _inventory_view(game, session)
         return render_inventory(
-            session.inventory, game.assets, scene_frame,
+            session.inventory, game.assets, renderer.scene_thumbnail(),
             tuple(game.assets.system_text(game.world_objects[i].found_name) for i in object_ids),
             tuple(game.assets.system_text(i) for i in action_ids),
         )
@@ -708,7 +783,9 @@ def render_active_mode(game, session, scene_frame):
     if isinstance(effect, ShowPicture):
         return render_picture(effect, game.assets)
     if isinstance(effect, GameOver):
-        return render_game_over(scene_frame, _game_over_ready(session, effect))
+        return render_game_over(
+            transparent_canvas(), renderer.scene_thumbnail(), _game_over_ready(session, effect),
+        )
     raise RuntimeError(f"unrenderable modal {type(effect).__name__}")
 
 
@@ -736,7 +813,10 @@ def _hero_branch(game, renderer, session, input_buffer=None):
     # Atomic hero replacement: confirming a character rebuilds game, floor,
     # session, and input buffer in one tuple, so run() resumes on the new
     # game with a single assignment plus `continue` -- no PLAY tick and no
-    # stale present can slip through for the staging game.
+    # stale present can slip through for the staging game. The resolver this
+    # branch builds for its own _scene_frame call is returned too, so run()
+    # can adopt it for later frames instead of building a second one over
+    # the same new_game.assets.
     if session.pending_hero is None:
         return None
     _take_over_play_input(game, session, input_buffer)
@@ -745,17 +825,18 @@ def _hero_branch(game, renderer, session, input_buffer=None):
         new_floor = Floor(new_game._data_dir, new_game.current_floor)
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        return (None, None, None, None, 0, [], None, None, None, 2)
+        return (None, None, None, None, 0, [], None, None, None, 2, None)
     new_game.trace = game.trace
     new_session = replacement_session(session)
     input_buffer = InputBuffer()
     configure_session_input(new_session, input_buffer)
     new_game.num_camera = new_game.new_num_camera
     new_game.flag_init_view = 0
-    scene_frame, draw_list = _scene_frame(new_game, new_floor, renderer)
+    new_resolver = _resolver_for(new_game.assets, session.settings.render.override_dir)
+    scene_frame, draw_list = _scene_frame(new_game, new_floor, renderer, new_resolver)
     return (
         new_game, new_floor, new_session, input_buffer, 0,
-        draw_list, None, scene_frame, pygame.time.get_ticks(), 0,
+        draw_list, None, scene_frame, pygame.time.get_ticks(), 0, new_resolver,
     )
 
 
@@ -764,6 +845,7 @@ def _restart_branch(game, renderer, session, input_buffer=None):
     # successful restart hands back every loop local that referenced the old
     # game, so a single tuple assignment plus `continue` is enough to resume
     # the loop on the new session without a stray tick or a stale present.
+    # Same resolver-reuse note as _hero_branch above.
     if not game.restart_requested:
         return None
     _take_over_play_input(game, session, input_buffer)
@@ -772,7 +854,8 @@ def _restart_branch(game, renderer, session, input_buffer=None):
         new_floor = Floor(new_game._data_dir, new_game.current_floor)
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        return (None, None, None, None, 0, [], None, None, None, 2)
+        return (None, None, None, None, 0, [], None, None, None, 2, None)
+    override_dir = session.settings.render.override_dir
     game = new_game
     floor = new_floor
     session = replacement_session(session)
@@ -783,15 +866,16 @@ def _restart_branch(game, renderer, session, input_buffer=None):
     hover = None
     game.num_camera = game.new_num_camera
     game.flag_init_view = 0
-    scene_frame, draw_list = _scene_frame(game, floor, renderer)
+    new_resolver = _resolver_for(game.assets, override_dir)
+    scene_frame, draw_list = _scene_frame(game, floor, renderer, new_resolver)
     last = pygame.time.get_ticks()
     return (
         game, floor, session, input_buffer, accumulator,
-        draw_list, hover, scene_frame, last, 0,
+        draw_list, hover, scene_frame, last, 0, new_resolver,
     )
 
 
-def run(game, trace_path=None, session=None):
+def run(game, trace_path=None, session=None, resolver=None):
     # M3b play loop: one event pump, fixed-step PLAY ticks, one present/frame
     try:
         floor = Floor(game._data_dir, game.current_floor)
@@ -799,11 +883,14 @@ def run(game, trace_path=None, session=None):
         print(f"error: {exc}", file=sys.stderr)
         return 2
     game.trace = Trace(trace_path) if trace_path else None
-    renderer = Renderer()
-    clock = pygame.time.Clock()
-    input_buffer = InputBuffer()
     if session is None:
         session = ModalSession()
+    renderer = Renderer(session.settings.render)
+    if renderer.fallback_notice and session.settings_error is None:
+        session.settings_error = renderer.fallback_notice
+    resolver = resolver or AssetResolver(game.assets, session.settings.render.override_dir)
+    clock = pygame.time.Clock()
+    input_buffer = InputBuffer()
     configure_session_input(session, input_buffer)
     running = True
     exit_status = 0
@@ -814,7 +901,12 @@ def run(game, trace_path=None, session=None):
         game.flag_init_view = 0
     draw_list = []
     hover = None
-    scene_frame, draw_list = _scene_frame(game, floor, renderer)
+    # Unconditional: this is what makes the very first present() well-defined.
+    # The GL backend's texture (render_gl.py) and the software backend's
+    # cached thumbnail both start undrawn, and present() has no "never drawn"
+    # guard -- compose_scene must run at least once before the loop's first
+    # present(), even on a frame where game.num_camera stays -1 below.
+    scene_frame, draw_list = _scene_frame(game, floor, renderer, resolver)
     hit_feedback_deadlines = {
         actor_idx: last + HIT_FEEDBACK_MS for actor_idx in _hit_actor_ids(game)
     }
@@ -857,7 +949,9 @@ def run(game, trace_path=None, session=None):
                         game, session, floor, logical, draw_list, input_buffer,
                     )
                 else:
-                    running = route_mouse(game, session, logical, input_buffer) and running
+                    running = route_mouse(
+                        game, session, logical, input_buffer, renderer=renderer,
+                    ) and running
         now = pygame.time.get_ticks()
         elapsed = min(now - last, 250)
         last = now
@@ -870,7 +964,9 @@ def run(game, trace_path=None, session=None):
                 # OPEN_INVENTORY dismiss the notice instead of reaching the mode
                 session.settings_error = None
             else:
-                running = route_command(game, session, command, input_buffer) and running
+                running = route_command(
+                    game, session, command, input_buffer, renderer=renderer,
+                ) and running
         replaced = _hero_branch(game, renderer, session, input_buffer)
         if replaced is None:
             replaced = _restart_branch(game, renderer, session, input_buffer)
@@ -878,11 +974,16 @@ def run(game, trace_path=None, session=None):
             (
                 new_game, new_floor, new_session, new_input_buffer,
                 new_accumulator, new_draw_list, new_hover, new_scene_frame,
-                new_last, exit_status,
+                new_last, exit_status, new_resolver,
             ) = replaced
             if exit_status:
                 running = False
                 break
+            # The branch above already built the one resolver this
+            # replacement needs (for the scene_frame it produced); adopt the
+            # same object here instead of building a second one over the same
+            # new_game.assets, so later frames keep its override-PNG cache.
+            resolver = new_resolver
             game, floor, session, input_buffer = (
                 new_game, new_floor, new_session, new_input_buffer,
             )
@@ -906,7 +1007,7 @@ def run(game, trace_path=None, session=None):
                 if floor.number != game.current_floor:
                     floor = Floor(game._data_dir, game.current_floor)
             if game.num_camera != -1:
-                scene_frame, draw_list = _scene_frame(game, floor, renderer)
+                scene_frame, draw_list = _scene_frame(game, floor, renderer, resolver)
         else:
             accumulator = 0
             session.elapsed_ms += elapsed
@@ -921,7 +1022,7 @@ def run(game, trace_path=None, session=None):
             for actor_idx, deadline in hit_feedback_deadlines.items()
             if deadline > now
         }
-        composed = render_active_mode(game, session, scene_frame)
+        composed = render_active_mode(game, session, renderer)
         composed = render_hit_feedback(
             composed,
             _hit_feedback_rects(game, draw_list, hit_feedback_deadlines),
@@ -993,6 +1094,13 @@ def main(argv=None):
         # replaces the staging game with the confirmed hero's game.
         game.open_modal(ChooseCharacter())
     session = load_runtime_session(settings_path())
+    # Session-only: this replaces session.settings in memory, but
+    # session.disk_render (captured above, before this call) stays the
+    # on-disk baseline -- so even a later save triggered by an unrelated
+    # settings change (e.g. toggling Sticky Action in CONFIG) writes back
+    # these CLI values' *un*-overridden originals, not argv. See
+    # _save_session_settings / _persisted_render.
+    session.settings = apply_render_overrides(session.settings, args)
     return run(game, args.trace, session=session)
 
 

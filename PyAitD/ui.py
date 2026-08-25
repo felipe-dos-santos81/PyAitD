@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from collections import deque
 from functools import lru_cache
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from pathlib import Path
 
@@ -12,7 +12,14 @@ from PyAitD.config import (
     Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
 )
 from PyAitD.effects import ChooseCharacter, OpenSystemMenu
+from PyAitD.render_options import RenderOptions, cycle_filter, cycle_scale, cycle_shading
 from PyAitD.text import BookToken
+
+GRAPHICS_ROWS = 3
+
+
+def config_row_count():
+    return 2 + len(REMAPPABLE_CONTROLS) + GRAPHICS_ROWS
 
 
 class Command(Enum):
@@ -336,7 +343,7 @@ def reduce_system_menu(state, command, settings):
     if state.capture is not None:
         return None
     command = Command.ACCEPT if command is Command.OPEN_INVENTORY else command
-    row_count = 3 if state.page is SystemMenuPage.MAIN else 2 + len(REMAPPABLE_CONTROLS)
+    row_count = 3 if state.page is SystemMenuPage.MAIN else config_row_count()
     if command is Command.UP:
         state.cursor = (state.cursor - 1) % row_count
     elif command is Command.DOWN:
@@ -362,8 +369,12 @@ def reduce_system_menu(state, command, settings):
         return SystemMenuResult(save=True)
     elif command is Command.ACCEPT and state.cursor == 0:
         return SystemMenuResult(
-            settings=Settings(dict(settings.bindings), not settings.sticky_action),
+            settings=replace(settings, sticky_action=not settings.sticky_action),
         )
+    elif command is Command.ACCEPT and state.cursor > len(REMAPPABLE_CONTROLS):
+        cycles = (cycle_scale, cycle_shading, cycle_filter)
+        cycle = cycles[state.cursor - 1 - len(REMAPPABLE_CONTROLS)]
+        return SystemMenuResult(settings=replace(settings, render=cycle(settings.render)))
     elif command is Command.ACCEPT:
         state.capture = REMAPPABLE_CONTROLS[state.cursor - 1].name
         state.page = SystemMenuPage.KEY_PICK
@@ -506,8 +517,8 @@ class CharacterLayout:
 class SystemMenuLayout:
     MAIN_ROWS = tuple(pygame.Rect(48, 45 + i * 42, 224, 32) for i in range(3))
     CONFIG_ROWS = tuple(
-        pygame.Rect(16, 8 + i * 20, 288, 20)
-        for i in range(2 + len(REMAPPABLE_CONTROLS))
+        pygame.Rect(16, 4 + i * 16, 288, 16)
+        for i in range(config_row_count())
     )
     # 8 columns x 7 rows of key cells under a one-line header, then a wide
     # Cancel button. The 4 px gaps absorb effective_rects' 2 px padding on
@@ -556,12 +567,29 @@ def _font(size=16):
     return pygame.font.Font(None, size)
 
 
+def transparent_canvas():
+    """The 320x200 RGBA canvas presenters paint on: fully clear until drawn,
+    so the renderer's UI/scene compositor only replaces the pixels a
+    presenter actually touched."""
+    return np.zeros((200, 320, 4), dtype=np.uint8)
+
+
 def _to_surface(frame):
-    return pygame.surfarray.make_surface(np.ascontiguousarray(frame).swapaxes(0, 1))
+    frame = np.ascontiguousarray(frame)
+    if frame.shape[2] == 3:
+        return pygame.surfarray.make_surface(frame.swapaxes(0, 1))
+    surface = pygame.Surface((frame.shape[1], frame.shape[0]), flags=pygame.SRCALPHA)
+    pygame.surfarray.pixels3d(surface)[:] = frame[:, :, :3].swapaxes(0, 1)
+    pygame.surfarray.pixels_alpha(surface)[:] = frame[:, :, 3].swapaxes(0, 1)
+    return surface
 
 
 def _to_frame(surface):
-    return np.ascontiguousarray(pygame.surfarray.array3d(surface).swapaxes(0, 1))
+    rgb = pygame.surfarray.array3d(surface).swapaxes(0, 1)
+    if surface.get_flags() & pygame.SRCALPHA:
+        alpha = pygame.surfarray.array_alpha(surface).swapaxes(0, 1)
+        return np.ascontiguousarray(np.dstack([rgb, alpha]))
+    return np.ascontiguousarray(rgb)
 
 
 def _button(surface, rect, label, selected=False, size=18):
@@ -830,10 +858,15 @@ def render_system_menu(presenter, settings, assets):
         labels = [f"Sticky Action: {'On' if settings.sticky_action else 'Off'}"]
         for control in REMAPPABLE_CONTROLS:
             labels.append(f"{control.name}: {', '.join(settings.bindings[control.name])}")
+        labels.append(f"Scale: {settings.render.scale}x")
+        labels.append(f"Shading: {settings.render.shading.title()}")
+        labels.append(f"Filter: {settings.render.background_filter.title()}")
         labels.append("Back to Menu")
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
-    for index, (rect, label) in enumerate(zip(SystemMenuLayout.rows(presenter.page), labels)):
-        _button(surface, rect, label, selected=index == selection)
+    button_size = 13 if presenter.page is SystemMenuPage.CONFIG else 18
+    rows = zip(SystemMenuLayout.rows(presenter.page), labels, strict=True)
+    for index, (rect, label) in enumerate(rows):
+        _button(surface, rect, label, selected=index == selection, size=button_size)
     return _to_frame(surface)
 
 
@@ -848,12 +881,12 @@ def _render_key_picker(surface, presenter):
     return _to_frame(surface)
 
 
-def render_game_over(scene_frame, ready):
+def render_game_over(canvas, scene_frame, ready):
     # LM_GAME_OVER's wall-clock wait (life.cpp:2438-2450) freezes the last PLAY
-    # frame -- locked, this returns the caller's frame untouched, byte-identical,
+    # frame -- locked, this returns the caller's canvas untouched, byte-identical,
     # not recomposed, so the modal appears to hold the moment of death still.
     if not ready:
-        return scene_frame
+        return canvas
     surface = _to_surface(scene_frame.copy())
     shade = pygame.Surface((320, 200), flags=pygame.SRCALPHA)
     shade.fill((0, 0, 0, 170))
@@ -927,6 +960,14 @@ class ModalSession:
     settings_path: Path | None = None
     settings_error: str | None = None
     settings_dirty: bool = False
+    # The render options as last loaded from (or defaulted for) the settings
+    # file, before any session-only CLI override was applied to `settings`.
+    # A save writes this, with only the render fields the player actually
+    # touched via a CONFIG menu cycle (`render_touched`) overlaid on top --
+    # never a CLI-set value the player never saw a menu row for. See
+    # __main__._save_session_settings.
+    disk_render: RenderOptions = field(default_factory=RenderOptions)
+    render_touched: frozenset = frozenset()
     pending_hero: int | None = None
     elapsed_ms: int = 0
     last_effect: object = field(default=None, repr=False)
