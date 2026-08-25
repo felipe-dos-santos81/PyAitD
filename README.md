@@ -32,6 +32,8 @@ Keyboard: arrows/WASD walk, Space acts, Enter or I opens inventory,
 Esc cancels — while playing it opens the system menu (Return / Configuration
 / Quit). Configuration offers control remapping and sticky Action
 (one-finger sequential Space-then-direction); settings persist per user.
+Choosing a control opens a key picker: press the physical key, or click one
+of the on-screen key cells (or Cancel) so remapping needs no keyboard at all.
 In menus: arrows move, Enter/Space accepts, Esc cancels. Mouse: single left
 click on any large button. Found objects open a Take/Leave prompt; inventory
 exposes the object's own actions; letters and books are readable; pictures

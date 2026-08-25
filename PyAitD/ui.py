@@ -278,6 +278,22 @@ class CharacterSelectResult:
 class SystemMenuPage(Enum):
     MAIN = auto()
     CONFIG = auto()
+    KEY_PICK = auto()
+
+
+# Mouse-only remap surface: every name round-trips through pygame.key.key_code
+# and canonical_key_name, so a picked cell binds exactly like a physical press.
+PICKABLE_KEYS = tuple(
+    [chr(code) for code in range(ord("a"), ord("z") + 1)]
+    + [str(digit) for digit in range(10)]
+    + ["up", "down", "left", "right", "space", "return", "tab", "backspace",
+       "left shift", "right shift", "left ctrl", "right ctrl", "left alt", "right alt"]
+)
+PICKABLE_KEY_LABELS = {
+    "space": "spc", "return": "ret", "backspace": "bksp",
+    "left shift": "lshift", "right shift": "rshift", "left ctrl": "lctrl",
+    "right ctrl": "rctrl", "left alt": "lalt", "right alt": "ralt",
+}
 
 
 @dataclass
@@ -350,18 +366,32 @@ def reduce_system_menu(state, command, settings):
         )
     elif command is Command.ACCEPT:
         state.capture = REMAPPABLE_CONTROLS[state.cursor - 1].name
+        state.page = SystemMenuPage.KEY_PICK
+        state.hover = None
     return None
 
 
 def capture_system_key(state, settings, key_name):
+    """Finish a remap with a physical or picked key; ``escape`` cancels.
+
+    Leaves the key picker either way; the configuration row that was being
+    bound stays selected.
+    """
     if state.capture is None:
         return None
-    if key_name == "escape":
-        state.capture = None
-        return None
-    control = Control[state.capture]
+    control = state.capture
     state.capture = None
-    return SystemMenuResult(settings=replace_binding(settings, control, key_name))
+    state.page = SystemMenuPage.CONFIG
+    state.hover = None
+    if key_name == "escape":
+        return None
+    return SystemMenuResult(settings=replace_binding(settings, Control[control], key_name))
+
+
+def pick_system_key(state, settings, index):
+    """Mouse route for the key picker: cell ``index`` binds, the last cell cancels."""
+    name = "escape" if index >= len(PICKABLE_KEYS) else PICKABLE_KEYS[index]
+    return capture_system_key(state, settings, name)
 
 
 def effective_rects(
@@ -479,10 +509,23 @@ class SystemMenuLayout:
         pygame.Rect(16, 8 + i * 20, 288, 20)
         for i in range(2 + len(REMAPPABLE_CONTROLS))
     )
+    # 8 columns x 7 rows of key cells under a one-line header, then a wide
+    # Cancel button. The 4 px gaps absorb effective_rects' 2 px padding on
+    # each side, so padded cells touch but never overlap -- including on the
+    # diagonals and against the wide Cancel row, which the midpoint partition
+    # does not cover.
+    KEY_PICK_ROWS = tuple(
+        pygame.Rect(10 + (i % 8) * 38, 22 + (i // 8) * 22, 34, 18)
+        for i in range(len(PICKABLE_KEYS))
+    ) + (pygame.Rect(10, 22 + 7 * 22, 300, 18),)
 
     @classmethod
     def rows(cls, page):
-        return cls.MAIN_ROWS if page is SystemMenuPage.MAIN else cls.CONFIG_ROWS
+        if page is SystemMenuPage.MAIN:
+            return cls.MAIN_ROWS
+        if page is SystemMenuPage.CONFIG:
+            return cls.CONFIG_ROWS
+        return cls.KEY_PICK_ROWS
 
     @classmethod
     def hit_rows(cls, page):
@@ -521,10 +564,10 @@ def _to_frame(surface):
     return np.ascontiguousarray(pygame.surfarray.array3d(surface).swapaxes(0, 1))
 
 
-def _button(surface, rect, label, selected=False):
+def _button(surface, rect, label, selected=False, size=18):
     pygame.draw.rect(surface, (214, 190, 142) if selected else (78, 59, 46), rect, border_radius=3)
     pygame.draw.rect(surface, (245, 226, 178), rect, width=2, border_radius=3)
-    glyph = _font(18).render(label, True, (20, 16, 12) if selected else (250, 242, 216))
+    glyph = _font(size).render(label, True, (20, 16, 12) if selected else (250, 242, 216))
     surface.blit(glyph, glyph.get_rect(center=rect.center))
 
 
@@ -779,6 +822,8 @@ def render_character_select(presenter, assets):
 def render_system_menu(presenter, settings, assets):
     surface = pygame.Surface((320, 200))
     draw_big_cadre(surface, assets.cadre_bank(), (160, 100), (320, 200))
+    if presenter.page is SystemMenuPage.KEY_PICK:
+        return _render_key_picker(surface, presenter)
     if presenter.page is SystemMenuPage.MAIN:
         labels = ["Return to Game", "Configuration", "Quit"]
     else:
@@ -786,11 +831,20 @@ def render_system_menu(presenter, settings, assets):
         for control in REMAPPABLE_CONTROLS:
             labels.append(f"{control.name}: {', '.join(settings.bindings[control.name])}")
         labels.append("Back to Menu")
-        if presenter.capture is not None:
-            labels[presenter.cursor] = f"{presenter.capture}: press a key..."
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
     for index, (rect, label) in enumerate(zip(SystemMenuLayout.rows(presenter.page), labels)):
         _button(surface, rect, label, selected=index == selection)
+    return _to_frame(surface)
+
+
+def _render_key_picker(surface, presenter):
+    header = _font(14).render(
+        f"{presenter.capture}: press a key or click one", True, (250, 242, 216),
+    )
+    surface.blit(header, header.get_rect(midtop=(160, 4)))
+    labels = [PICKABLE_KEY_LABELS.get(name, name) for name in PICKABLE_KEYS] + ["Cancel"]
+    for index, (rect, label) in enumerate(zip(SystemMenuLayout.KEY_PICK_ROWS, labels)):
+        _button(surface, rect, label, selected=index == presenter.hover, size=12)
     return _to_frame(surface)
 
 

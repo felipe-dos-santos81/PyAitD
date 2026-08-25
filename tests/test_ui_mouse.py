@@ -168,6 +168,12 @@ def test_story_whole_frame_confirms_and_menu_rows_are_large():
     for page in SystemMenuPage:
         presenter = SystemMenuPresenter(page=page)
         rows = SystemMenuLayout.rows(page)
-        assert all(rect.width >= 224 and rect.height >= 20 for rect in rows)
+        if page is SystemMenuPage.KEY_PICK:
+            # the key picker is a grid: its cells satisfy the effective-size
+            # contract (>= 12x12 logical) rather than the one-column row size
+            hits = SystemMenuLayout.hit_rows(page)
+            assert all(rect.width >= 12 and rect.height >= 12 for rect in hits)
+        else:
+            assert all(rect.width >= 224 and rect.height >= 20 for rect in rows)
         for index, rect in enumerate(rows):
             assert hit_test_system_menu(rect.center, presenter) == index

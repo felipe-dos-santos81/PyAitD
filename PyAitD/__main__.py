@@ -539,6 +539,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None):
         hit_test_inventory, hit_test_reading, hit_test_system_menu,
         reading_pages, reduce_system_menu, turn_page,
     )
+    from PyAitD.ui import SystemMenuPage, pick_system_key
     if logical_pos is None or game.active_modal is None:
         return True
     effect = game.active_modal
@@ -548,6 +549,9 @@ def route_mouse(game, session, logical_pos, input_buffer=None):
         hit = hit_test_system_menu(logical_pos, session.system_menu)
         if hit is None:
             return True
+        if session.system_menu.page is SystemMenuPage.KEY_PICK:
+            result = pick_system_key(session.system_menu, session.settings, hit)
+            return _apply_system_result(game, session, input_buffer, result)
         old_page = session.system_menu.page
         session.system_menu.cursor = hit
         result = reduce_system_menu(

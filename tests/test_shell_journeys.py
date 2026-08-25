@@ -570,3 +570,58 @@ def test_settings_reload_reads_the_file_fresh(tmp_path):
         assert buffer.bindings[pygame.K_q] is Control.UP
         assert pygame.K_w not in buffer.bindings, "the remap steals, not adds"
         assert buffer.sticky_action is True
+
+
+def test_mouse_only_remap_journey_binds_through_the_key_picker(data_dir, monkeypatch, tmp_path):
+    # A pointer-only user rebinds ACTION without any physical key: the control
+    # row opens the picker, hover previews a cell, one click binds it, and the
+    # menu returns to Configuration with the same row selected.
+    from PyAitD.ui import PICKABLE_KEYS
+    game = init_game(data_dir)
+    path = tmp_path / "settings.json"
+    session = load_runtime_session(path)
+    state = {"frames": 0}
+    picker_rows = SystemMenuLayout.rows(SystemMenuPage.KEY_PICK)
+    q_cell = picker_rows[PICKABLE_KEYS.index("q")]
+
+    def next_events():
+        state["frames"] += 1
+        frames = state["frames"]
+        assert frames < 200, "picker journey exceeded its budget"
+        if frames == 1:
+            return [_key(pygame.K_ESCAPE)]
+        if frames == 2:
+            return [_left_click(SystemMenuLayout.MAIN_ROWS[1].center)]
+        if frames == 3:
+            return [_left_click(SystemMenuLayout.CONFIG_ROWS[5].center)]
+        if frames == 4:
+            assert session.system_menu.page is SystemMenuPage.KEY_PICK, "fixture"
+            assert session.system_menu.capture == "ACTION", "fixture"
+            return [pygame.event.Event(pygame.MOUSEMOTION, pos=tuple(q_cell.center))]
+        if frames == 5:
+            assert session.system_menu.hover == PICKABLE_KEYS.index("q")
+            assert session.settings.bindings["ACTION"] == ("space",), "hover never binds"
+            return [_left_click(q_cell.center)]
+        if frames == 6:
+            assert session.system_menu.page is SystemMenuPage.CONFIG
+            assert session.system_menu.cursor == 5
+            assert session.system_menu.capture is None
+            # Cancel path: reopen the picker and click Cancel
+            return [_left_click(SystemMenuLayout.CONFIG_ROWS[5].center)]
+        if frames == 7:
+            return [_left_click(picker_rows[-1].center)]
+        if frames == 8:
+            assert session.system_menu.page is SystemMenuPage.CONFIG
+            return [_left_click(SystemMenuLayout.CONFIG_ROWS[-1].center)]
+        if frames == 9:
+            return [_left_click(SystemMenuLayout.MAIN_ROWS[0].center)]
+        if frames >= 11:
+            return [_quit()]
+        return []
+
+    _run_shell(monkeypatch, game, session, next_events)
+
+    assert session.settings.bindings["ACTION"] == ("q",)
+    assert game.mode is GameMode.PLAY
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["bindings"]["ACTION"] == ["q"]

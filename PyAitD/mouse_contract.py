@@ -24,6 +24,7 @@ class PlayerCapability(Enum):
     SELECT_CHARACTER = auto()
     CONFIRM_STORY_PAGE = auto()
     MENU_ACTIVATE = auto()
+    PICK_REMAP_KEY = auto()
     DISMISS_SETTINGS_ERROR = auto()
 
 
@@ -73,6 +74,9 @@ CAPABILITY_ROUTES = {
     PlayerCapability.MENU_ACTIVATE: MouseRoute(
         "left_click", "system menu row", frozenset({GameMode.SYSTEM_MENU}),
     ),
+    PlayerCapability.PICK_REMAP_KEY: MouseRoute(
+        "left_click", "key-picker cell or Cancel button", frozenset({GameMode.SYSTEM_MENU}),
+    ),
     PlayerCapability.DISMISS_SETTINGS_ERROR: MouseRoute(
         "left_click", "settings error Dismiss button", ALL_MODES,
     ),
@@ -121,6 +125,7 @@ MODE_MOUSE_CAPABILITIES = {
     }),
     GameMode.SYSTEM_MENU: frozenset({
         PlayerCapability.MENU_ACTIVATE,
+        PlayerCapability.PICK_REMAP_KEY,
         PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),
@@ -160,12 +165,9 @@ LEGACY_COMMAND_REPLACEMENTS["TOGGLE_INPUT_MODE"] = LegacyCommandDecision(
 )
 
 
-KEYBOARD_ONLY_DECISIONS = {
-    "REMAP_CAPTURE": LegacyCommandDecision(
-        None,
-        "a keyboard remap must capture one physical key; menu entry, cancel, and all other configuration decisions remain mouse reachable",
-    ),
-}
+# Empty since the remap key picker: a rebind accepts a physical key press or a
+# left click on a picker cell, so no configuration decision is keyboard-only.
+KEYBOARD_ONLY_DECISIONS = {}
 
 
 MOUSE_INTERACTION_DECISIONS = {

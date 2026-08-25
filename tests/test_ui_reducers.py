@@ -100,3 +100,69 @@ def test_configuration_cursor_wraps_across_all_rows():
     assert state.cursor == 2 + len(REMAPPABLE_CONTROLS) - 1
     reduce_system_menu(state, Command.DOWN, default_settings())
     assert state.cursor == 0
+
+
+def test_choosing_a_control_row_opens_the_key_picker():
+    state = SystemMenuPresenter(page=SystemMenuPage.CONFIG)
+    state.cursor = 1 + REMAPPABLE_CONTROLS.index(Control.ACTION)
+    assert reduce_system_menu(state, Command.ACCEPT, default_settings()) is None
+    assert state.capture == "ACTION"
+    assert state.page is SystemMenuPage.KEY_PICK
+
+
+def test_clicking_a_picker_cell_binds_and_returns_to_configuration():
+    from PyAitD.ui import PICKABLE_KEYS, pick_system_key
+    state = SystemMenuPresenter(page=SystemMenuPage.KEY_PICK, capture="ACTION", cursor=5)
+    result = pick_system_key(state, default_settings(), PICKABLE_KEYS.index("q"))
+    assert result.settings.bindings["ACTION"] == ("q",)
+    assert state.capture is None
+    assert state.page is SystemMenuPage.CONFIG
+    assert state.cursor == 5, "the configuration row that was being bound stays selected"
+
+
+def test_picker_cancel_cell_keeps_settings_and_returns_to_configuration():
+    from PyAitD.ui import PICKABLE_KEYS, pick_system_key
+    state = SystemMenuPresenter(page=SystemMenuPage.KEY_PICK, capture="ACTION", cursor=5)
+    assert pick_system_key(state, default_settings(), len(PICKABLE_KEYS)) is None
+    assert state.capture is None
+    assert state.page is SystemMenuPage.CONFIG
+    assert state.cursor == 5
+
+
+def test_physical_capture_also_leaves_the_key_picker():
+    state = SystemMenuPresenter(page=SystemMenuPage.KEY_PICK, capture="ACTION", cursor=5)
+    assert capture_system_key(state, default_settings(), "escape") is None
+    assert state.page is SystemMenuPage.CONFIG
+    state.capture = "ACTION"
+    state.page = SystemMenuPage.KEY_PICK
+    assert capture_system_key(state, default_settings(), "w").settings.bindings["ACTION"] == ("w",)
+    assert state.page is SystemMenuPage.CONFIG
+
+
+def test_picker_ignores_keyboard_menu_commands_while_capturing():
+    state = SystemMenuPresenter(page=SystemMenuPage.KEY_PICK, capture="ACTION", cursor=5)
+    assert reduce_system_menu(state, Command.DOWN, default_settings()) is None
+    assert (state.page, state.cursor, state.capture) == (SystemMenuPage.KEY_PICK, 5, "ACTION")
+
+
+def test_pickable_keys_round_trip_through_pygame_and_fit_the_frame():
+    import pygame
+    from PyAitD.ui import PICKABLE_KEYS, SystemMenuLayout, canonical_key_name
+    pygame.init()
+    try:
+        assert len(set(PICKABLE_KEYS)) == len(PICKABLE_KEYS)
+        for name in PICKABLE_KEYS:
+            assert canonical_key_name(pygame.key.key_code(name)) == name
+        assert "escape" not in PICKABLE_KEYS
+        rows = SystemMenuLayout.rows(SystemMenuPage.KEY_PICK)
+        assert len(rows) == len(PICKABLE_KEYS) + 1, "one cell per key plus Cancel"
+        frame = pygame.Rect(0, 0, 320, 200)
+        assert all(frame.contains(rect) for rect in rows)
+        hit_rows = SystemMenuLayout.hit_rows(SystemMenuPage.KEY_PICK)
+        for index, rect in enumerate(hit_rows):
+            assert rect.width >= 12 and rect.height >= 12
+            assert all(
+                not rect.colliderect(other) for other in hit_rows[index + 1:]
+            ), "effective picker cells never overlap"
+    finally:
+        pygame.quit()

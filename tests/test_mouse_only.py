@@ -103,6 +103,7 @@ def test_shell_modes_and_the_settings_notice_fulfill_the_mouse_contract():
     })
     assert MODE_MOUSE_CAPABILITIES[GameMode.SYSTEM_MENU] == frozenset({
         PlayerCapability.MENU_ACTIVATE,
+        PlayerCapability.PICK_REMAP_KEY,
         PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     })
@@ -113,14 +114,13 @@ def test_shell_modes_and_the_settings_notice_fulfill_the_mouse_contract():
         assert PlayerCapability.DISMISS_SETTINGS_ERROR in MODE_MOUSE_CAPABILITIES[mode]
 
 
-def test_remap_capture_is_the_only_keyboard_only_decision():
-    assert set(KEYBOARD_ONLY_DECISIONS) == {"REMAP_CAPTURE"}
-    decision = KEYBOARD_ONLY_DECISIONS["REMAP_CAPTURE"]
-    assert decision.replacement is None
-    assert decision.reason == (
-        "a keyboard remap must capture one physical key; menu entry, cancel, "
-        "and all other configuration decisions remain mouse reachable"
-    )
+def test_no_operation_remains_keyboard_only():
+    # the remap key picker closed the last keyboard-only decision
+    assert KEYBOARD_ONLY_DECISIONS == {}
+    route = CAPABILITY_ROUTES[PlayerCapability.PICK_REMAP_KEY]
+    assert route.gesture == "left_click"
+    assert route.target == "key-picker cell or Cancel button"
+    assert route.modes == frozenset({GameMode.SYSTEM_MENU})
 
 
 def test_every_command_has_a_mouse_capability_or_reviewed_legacy_decision():

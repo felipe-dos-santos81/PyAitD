@@ -66,7 +66,7 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `navmesh.py` | Walkable grid from cover zones (FITD `is_in_poly` vectorised) + A* |
 | `picking.py` | Screen->world: floor homography fitted from the real projection, actor bbox hit-test |
 | `navigate.py` | Mouse follower: NavIntent -> one tick of steering + mirrored joyd |
-| `mouse_contract.py` | Pygame-free declaration of current player capabilities, per-mode one-button routes, and reviewed legacy command replacements |
+| `mouse_contract.py` | Pygame-free declaration of current player capabilities, per-mode one-button routes, and reviewed legacy command replacements (`KEYBOARD_ONLY_DECISIONS` is empty: remap capture has a clickable key picker) |
 | `config.py` | Pygame-free settings schema (v1), platform settings path, validated load, atomic save |
 | `__main__.py` | Process shell: event pump, fixed-step accumulator, `_scene_frame` view assembly, modal routing, one present per frame |
 
