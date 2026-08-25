@@ -147,26 +147,26 @@ git commit -m "fix: use native melee for mouse attacks"
 - Consumes: the Task 1 reviewed commit and green automated gates.
 - Produces: honest human evidence for Emily and Carnby; no runtime interface.
 
-- [ ] **Step 1: Run a scoped review of Task 1**
+- [x] **Step 1: Run a scoped review of Task 1**
 
 Review only the Task 1 commit against the native-melee spec. Reject any hidden
 throw fallback, persistent `Game` combat latch, missing takeover reset, or
 simulation/UI boundary violation.
 
-- [ ] **Step 2: Run the windowed fixture for Emily and Carnby**
+- [x] **Step 2: Run the windowed fixture for Emily and Carnby**
 
 For each hero: open inventory, select object 38 `Use`, hover obj222, click once,
 and observe a saber swing, white/red outline, force-4 hit, and no saber floor
 drop. Also verify focus loss or opening inventory does not resume an old attack.
 
-- [ ] **Step 3: Update proof and architecture docs only from observed evidence**
+- [x] **Step 3: Update proof and architecture docs only from observed evidence**
 
 Record the tested commit, exact commands, automated counts, hero names, and
 PASS/FAIL observations. Update `CONTEXT.md` to state that target click uses a
 bounded input-local native combat latch while explicit Throw remains an
 inventory action.
 
-- [ ] **Step 4: Run documentation and final gates, then commit**
+- [x] **Step 4: Run documentation and final gates, then commit**
 
 ```bash
 PYAITD_DATA='.../INDARK' SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy make prove-mouse-only

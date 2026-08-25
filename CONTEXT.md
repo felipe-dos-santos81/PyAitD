@@ -13,8 +13,8 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 
 ```bash
 make run                     # play (windowed) through character selection; floor=0 for the attic debug bypass, trace=/tmp/t.log writes per-opcode LIFE trace
-make run-combat              # play the supported floor-5 combat venue
-make run-mouse-combat        # deterministic object-38 mouse combat proof start
+make run-combat              # play the supported floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
+make run-mouse-combat        # deterministic object-38 mouse combat proof start (hero=0 Carnby, hero=1 Emily)
 make test                    # pytest suite — authoritative gate
 make prove                   # M3a proof: parse-all 563 scripts/45 tracks/tables + headless 60-tick play_tick boot
 make prove-combat            # M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
@@ -32,7 +32,7 @@ make prove-shell             # M4a1 proof: shell, configuration, mouse contract,
 | M3b | Interaction: inventory (TAKE/FOUND/IN_HAND), action button, text MESSAGE rendering | done |
 | M3c | Combat: HIT/FIRE/THROW animActions, floor-5 combat venue, multi-floor `FloorStart`, the real death script → GAME_OVER → restart | done (one open ruling: the restart boundary after the death cinematic, `docs/m3c-combat-proof.md`) |
 | M3d | Mouse-only point-and-click input | done |
-| M3e | Mouse reachability: HUD inventory, clicked force-2 throw, exhaustive mouse contract | done |
+| M3e | Mouse reachability: HUD inventory, clicked native melee, exhaustive mouse contract | done (the clicked route was corrected from force-2 throw to native melee; `docs/mouse-accessibility-hardening-proof.md`) |
 | M4a1 | Shell: character select, system menu, remappable controls, sticky Action, settings persistence, settings notice overlay | automated gates green (`make prove-shell`); windowed accessibility pass pending (`docs/m4a1-shell-proof.md`) |
 | Mouse hold-to-push | Held approach/engage for scripted movable furniture | automated gates green; windowed accessibility pass pending (`docs/mouse-hold-push-proof.md`) |
 | Mouse accessibility hardening | Effective targets, optional pure hover, physical/touch parity, target precedence, atomic modal takeover, exhaustive contract gate | done — automated gates green and user-attested windowed standard-mouse/macOS-Accessibility-Keyboard passes for Emily and Carnby (`docs/mouse-accessibility-hardening-proof.md`) |
@@ -163,8 +163,20 @@ action runner.
 
 - `tracks.face_toward` is an instantaneous clicked-attack adapter; ordinary
   `_turn_toward` interpolation and its existing callers remain unchanged.
-- `interaction.attack_in_hand` stops navigation, faces in the hero's room
-  frame, and delegates action 32 through `choose_inventory_action`.
+- `interaction.attack_in_hand` validates the target, stops navigation, and
+  faces in the hero's room frame. It deliberately chooses no inventory action:
+  ENGLISH.PAK text 32 is `Throw`, so delegating to `choose_inventory_action`
+  launched the held object at the floor instead of swinging it.
+- A target click instead arms a bounded input-local native combat latch.
+  `route_play_click` stores the accepted target in the application-owned
+  `InputBuffer`; `playworld._apply_mouse_attack` publishes FITD's ordinary
+  `local_joyd = 1`, `local_click = 1` and `action = 0x2000` on each fixed tick
+  until the melee animation completes, bounded at 100 ticks. The simulation
+  never learns that a mouse exists, and every existing focus, modal,
+  input-mode and restart `reset_input` seam already clears the latch, so no
+  click can resume a swing after a takeover.
+- Explicit inventory `Throw` is unchanged and remains reachable only by
+  choosing that row; throw setup, flight and floor placement are untouched.
 - `game.activate_world_object` is shared by normal active-list regeneration
   and throw release so a released projectile exists before later LIFE reads.
 - `scenario.enter_mouse_combat_fixture` owns the deterministic object-38
