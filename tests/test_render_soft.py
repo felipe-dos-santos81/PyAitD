@@ -109,10 +109,35 @@ def test_draws_a_zixel_point_primitive_as_a_single_pixel():
 
 
 def test_draws_a_big_point_primitive_as_a_two_pixel_block():
-    big_point = PrimEntry(4, 1, [(60, 70, 100)])
+    # type 6 is BigPoint (formats._PRIM_POINT_LIKE); type 4 never occurs --
+    # formats.py's loader raises ValueError for it, so it must not appear
+    # in this test suite as if it were real body data.
+    big_point = PrimEntry(6, 1, [(60, 70, 100)])
     out = SoftwareBackend().draw(_frame([_actor(0, [big_point])]))
     assert tuple(out[70, 60]) == (255, 0, 0)
     assert tuple(out[71, 61]) == (255, 0, 0)
+
+
+def test_draws_poly_family_types_8_9_10_as_filled_polygons_not_scattered_points():
+    # formats.py groups (1, 8, 9, 10) as one poly family, all parsed as
+    # N-point polygons; geometry.POLY_TYPES treats them identically in the
+    # float path. The software backend must match: 8/9/10 must not fall
+    # through to the point/rect default branch.
+    for poly_type in (8, 9, 10):
+        tri = PrimEntry(poly_type, 1, [(10, 10, 100), (30, 10, 100), (10, 30, 100)])
+        out = SoftwareBackend().draw(_frame([_actor(0, [tri])]))
+        assert tuple(out[15, 15]) == (255, 0, 0), f"type {poly_type} did not fill the triangle interior"
+
+
+def test_degenerate_polygon_is_dropped_not_drawn_as_scattered_points():
+    # A poly-family primitive with fewer than 3 points is silently dropped
+    # by render.py's _ActorLayer (its triangle-fan loop emits nothing for
+    # < 3 points); the software backend must match, not fall through to
+    # the point/rect default branch and paint stray pixels.
+    degenerate = PrimEntry(1, 1, [(60, 70, 100), (61, 70, 100)])
+    out = SoftwareBackend().draw(_frame([_actor(0, [degenerate])]))
+    assert tuple(out[70, 60]) == (0, 0, 0)
+    assert tuple(out[70, 61]) == (0, 0, 0)
 
 
 def test_mismatched_background_resolution_is_nearest_resized_to_320x200():
@@ -136,3 +161,12 @@ def test_thumbnail_starts_blank_and_then_reflects_the_last_draw():
     background = np.full((200, 320, 3), 7, np.uint8)
     out = backend.draw(_frame([], background=background))
     assert np.array_equal(backend.thumbnail(), out)
+
+
+def test_thumbnail_is_a_copy_mutating_the_returned_frame_cannot_corrupt_it():
+    backend = SoftwareBackend()
+    background = np.full((200, 320, 3), 7, np.uint8)
+    out = backend.draw(_frame([], background=background))
+    out[:] = 0  # a caller mutating the array draw() handed back
+    assert not np.all(backend.thumbnail() == 0)
+    assert np.array_equal(backend.thumbnail(), np.full((200, 320, 3), 7, np.uint8))

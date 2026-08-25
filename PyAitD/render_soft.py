@@ -7,6 +7,7 @@ depth: the software stand-in for the per-actor depth buffer."""
 import numpy as np
 import pygame
 
+from PyAitD.geometry import POLY_TYPES
 from PyAitD.mask import fill_poly
 
 W, H = 320, 200
@@ -17,7 +18,9 @@ class SoftwareBackend:
         self._last = np.zeros((H, W, 3), dtype=np.uint8)
 
     def thumbnail(self):
-        return self._last
+        # A copy: the caller must not be able to corrupt what a later
+        # thumbnail() call reports by mutating what an earlier one returned.
+        return self._last.copy()
 
     def draw(self, frame):
         background = frame.background.pixels
@@ -38,7 +41,10 @@ class SoftwareBackend:
                     mask_bitmaps[mask_id] = _rasterize(frame.masks[mask_id])
                 visible &= mask_bitmaps[mask_id] == 0
             composite[visible] = rgb[visible]
-        self._last = composite
+        # Store a private snapshot decoupled from the array handed back:
+        # a caller mutating the returned frame in place must not corrupt what
+        # a later thumbnail() reports.
+        self._last = composite.copy()
         return composite
 
 
@@ -48,8 +54,12 @@ def _depth_min(prim):
 
 def _draw_prim(surface, prim, color):
     pts = [(int(p[0]), int(p[1])) for p in prim.points]
-    if prim.type == 1 and len(pts) >= 3:
-        pygame.draw.polygon(surface, color, pts)
+    if prim.type in POLY_TYPES:
+        # Degenerate polygon data (fewer than 3 points) is dropped, matching
+        # render.py's _ActorLayer triangle-fan loop, which emits no
+        # triangles (and thus nothing) for the same case.
+        if len(pts) >= 3:
+            pygame.draw.polygon(surface, color, pts)
     elif prim.type == 0 and len(pts) == 2:
         pygame.draw.line(surface, color, pts[0], pts[1])
     elif prim.type == 3 and pts:
