@@ -40,6 +40,12 @@ class LegacyCommandDecision:
     reason: str
 
 
+@dataclass(frozen=True)
+class MouseInteractionDecision:
+    decision: str
+    reason: str
+
+
 ALL_MODES = frozenset(GameMode)
 CAPABILITY_ROUTES = {
     PlayerCapability.WALK_TO_POINT: MouseRoute("left_click", "walkable floor", frozenset({GameMode.PLAY})),
@@ -158,5 +164,17 @@ KEYBOARD_ONLY_DECISIONS = {
     "REMAP_CAPTURE": LegacyCommandDecision(
         None,
         "a keyboard remap must capture one physical key; menu entry, cancel, and all other configuration decisions remain mouse reachable",
+    ),
+}
+
+
+MOUSE_INTERACTION_DECISIONS = {
+    "hover_preview": MouseInteractionDecision(
+        "presenter_only",
+        "hover previews the current effective target without activating or mutating game state",
+    ),
+    "touch_origin": MouseInteractionDecision(
+        "same_primary_button_route",
+        "touch-origin pointer events are provenance and use the same primary-button route",
     ),
 }

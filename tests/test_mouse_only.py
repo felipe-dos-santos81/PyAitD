@@ -22,7 +22,8 @@ from PyAitD.ui import InputBuffer, ModalLayout, PlayLayout
 from PyAitD.mouse_contract import (
     ALL_MODES, CAPABILITY_ROUTES, COMMAND_MOUSE_CAPABILITIES,
     KEYBOARD_ONLY_DECISIONS, LEGACY_COMMAND_REPLACEMENTS,
-    MODE_MOUSE_CAPABILITIES, MouseRoute, PlayerCapability,
+    MODE_MOUSE_CAPABILITIES, MOUSE_INTERACTION_DECISIONS, MouseRoute,
+    PlayerCapability,
 )
 from PyAitD.ui import Command
 
@@ -44,8 +45,31 @@ def test_mouse_contract_is_presentation_free():
 
 def test_every_capability_has_exactly_one_route():
     assert set(CAPABILITY_ROUTES) == set(PlayerCapability)
-    assert all(route.gesture in {"left_click", "left_hold", "window_close"}
-               for route in CAPABILITY_ROUTES.values())
+    assert all(
+        route.gesture in {"left_click", "left_hold", "window_close"}
+        for route in CAPABILITY_ROUTES.values()
+    )
+
+
+def test_contract_declares_only_the_reviewed_primary_button_gestures():
+    hold_capabilities = {
+        capability
+        for capability, route in CAPABILITY_ROUTES.items()
+        if route.gesture == "left_hold"
+    }
+    assert hold_capabilities == {PlayerCapability.HOLD_PUSH_OBJECT}
+    assert all(
+        forbidden not in route.gesture
+        for forbidden in ("double_click", "drag", "chord")
+        for route in CAPABILITY_ROUTES.values()
+    )
+
+
+def test_contract_declares_hover_and_touch_provenance_decisions():
+    assert set(MOUSE_INTERACTION_DECISIONS) == {"hover_preview", "touch_origin"}
+    assert MOUSE_INTERACTION_DECISIONS["hover_preview"].decision == "presenter_only"
+    assert MOUSE_INTERACTION_DECISIONS["touch_origin"].decision == "same_primary_button_route"
+    assert all(decision.reason for decision in MOUSE_INTERACTION_DECISIONS.values())
 
 
 def test_hold_push_has_one_declarative_mouse_route():
@@ -101,6 +125,7 @@ def test_every_command_has_a_mouse_capability_or_reviewed_legacy_decision():
     declared = set(COMMAND_MOUSE_CAPABILITIES) | set(LEGACY_COMMAND_REPLACEMENTS)
     assert declared == set(Command.__members__)
     assert set(COMMAND_MOUSE_CAPABILITIES).isdisjoint(LEGACY_COMMAND_REPLACEMENTS)
+    assert all(decision.reason for decision in LEGACY_COMMAND_REPLACEMENTS.values())
     assert LEGACY_COMMAND_REPLACEMENTS["TOGGLE_INPUT_MODE"].replacement is None
     assert "leaves the mouse scheme" in LEGACY_COMMAND_REPLACEMENTS[
         "TOGGLE_INPUT_MODE"

@@ -9,7 +9,7 @@ PIP = $(VENV_DIR)/bin/pip
 floor ?=
 data ?= "Alone in the Dark 1.app/Contents/Resources/game/INDARK"
 
-.PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-combat clean
+.PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -74,6 +74,12 @@ prove-mouse: install ## M3d proof: build the navmesh for every camera-visible ro
 
 prove-mouse-only: install ## M3e proof: one-button contract + real-data attic, combat, restart, and held-push journeys
 	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy $(PYTHON) -m pytest tests/test_mouse_only.py -q
+
+prove-mouse-accessibility: install ## Mouse accessibility proof: focused input, UI, loop, shell, and real-data journeys
+	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy $(PYTHON) -m pytest \
+		tests/test_ui_input.py tests/test_ui_reducers.py tests/test_ui_mouse.py \
+		tests/test_ui_render.py tests/test_play_loop.py tests/test_runtime_modes.py \
+		tests/test_main.py tests/test_mouse_only.py tests/test_shell_journeys.py -q
 
 prove-combat: install ## M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
 	$(PYTHON) tools/prove_combat.py $(data)
