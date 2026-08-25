@@ -35,8 +35,8 @@ clean: ## Remove venv and all temporary/generated files
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
-run: install ## Run the game through character selection (use floor=0 for the attic debug bypass)
-	$(PYTHON) -m PyAitD $(if $(floor),--floor "$(floor)") --data "$(data)" $(if $(trace),--trace $(trace))
+run: install ## Run the game through character selection (floor=0 for the attic debug bypass, overrides=DIR for regenerated backgrounds)
+	$(PYTHON) -m PyAitD $(if $(floor),--floor "$(floor)") --data "$(data)" $(if $(trace),--trace $(trace)) $(if $(overrides),--overrides "$(overrides)")
 
 run-combat: install ## Run the supported floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
 	$(PYTHON) -m PyAitD --combat-venue --data "$(data)" $(if $(hero),--hero "$(hero)") $(if $(trace),--trace $(trace))
@@ -90,3 +90,7 @@ prove-graphics: install ## Enhanced graphics proof: render attic + combat fixtur
 export-backgrounds: install ## Export every camera background + guide + manifest to out=DIR for external AI regeneration (floors="0-7", scale=4)
 	@test -n "$(out)" || { echo "usage: make export-backgrounds out=DIR [floors=0-7] [scale=4] [force=1]"; exit 2; }
 	$(PYTHON) tools/export_backgrounds.py "$(data)" --out "$(out)" --floors "$(or $(floors),0-7)" --guide-scale "$(or $(scale),4)" $(if $(force),--force)
+
+check-overrides: install ## Check overrides=DIR the way the game loads it; proof=1 renders original|override side-by-sides to docs/graphics-proof/overrides/
+	@test -n "$(overrides)" || { echo "usage: make check-overrides overrides=DIR [floors=0-7] [proof=1]"; exit 2; }
+	$(PYTHON) tools/check_overrides.py "$(data)" "$(overrides)" --floors "$(or $(floors),0-7)" $(if $(proof),--proof)

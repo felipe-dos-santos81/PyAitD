@@ -8,6 +8,7 @@ import pytest
 
 from PyAitD.asset_resolver import load_png_rgb
 from tests.stub_floor import StubFloor, checker_pixels
+from tools import check_overrides as co
 from tools import export_backgrounds as xb
 
 
@@ -96,3 +97,65 @@ def test_makefile_and_gitignore_mention_export():
     assert "export-backgrounds:" in mk and "export-backgrounds" in mk.split(".PHONY:")[1].split("\n")[0]
     assert "tools/export_backgrounds.py" in mk
     assert "docs/graphics-proof/overrides/" in open(".gitignore").read()
+
+
+def test_check_main_round_trip_reports_zero_regenerated(tmp_path, monkeypatch, capsys):
+    _patch_floors(monkeypatch, {0, 1})
+    monkeypatch.setattr(co, "load_floor", xb.load_floor)
+    out = tmp_path / "ov"
+    assert xb.main([str(tmp_path), "--out", str(out), "--floors", "0-1"]) == 0
+    assert co.main([str(tmp_path), str(out), "--floors", "0-1"]) == 0
+    text = capsys.readouterr().out
+    assert "total: regenerated 0 / original 2 / missing 0 / invalid 0 / aspect 0" in text
+
+
+def test_check_main_counts_regenerated_and_fails_on_invalid(tmp_path, monkeypatch, capsys):
+    _patch_floors(monkeypatch, {0, 1})
+    monkeypatch.setattr(co, "load_floor", xb.load_floor)
+    out = tmp_path / "ov"
+    xb.main([str(tmp_path), "--out", str(out), "--floors", "0-1"])
+    xb.save_png(out / "backgrounds/floor00/camera000.png", checker_pixels(77))
+    assert co.main([str(tmp_path), str(out), "--floors", "0-1"]) == 0
+    assert "regenerated 1 / original 1" in capsys.readouterr().out
+    (out / "backgrounds/floor01/camera000.png").write_bytes(b"not a png")
+    assert co.main([str(tmp_path), str(out), "--floors", "0-1"]) == 1
+    assert "invalid floor 01 camera 000" in capsys.readouterr().out
+
+
+def test_check_main_without_manifest_still_checks(tmp_path, monkeypatch, capsys):
+    _patch_floors(monkeypatch, {0})
+    monkeypatch.setattr(co, "load_floor", xb.load_floor)
+    (tmp_path / "ov").mkdir()
+    assert co.main([str(tmp_path), str(tmp_path / "ov"), "--floors", "0"]) == 0
+    assert "coverage: no manifest" in capsys.readouterr().out
+
+
+def test_check_main_usage_errors(tmp_path):
+    assert co.main([str(tmp_path / "nope"), str(tmp_path)]) == 2
+    assert co.main([str(tmp_path), str(tmp_path / "nope")]) == 2
+
+
+def test_render_proof_writes_side_by_side(gl_ctx, tmp_path, monkeypatch):
+    floor = StubFloor(number=0)
+    ov = tmp_path / "ov"
+    xb.save_png(ov / "backgrounds/floor00/camera000.png", checker_pixels(5))
+    path = co.render_proof(gl_ctx, floor, 0, ov, tmp_path / "proof", scale=4)
+    assert path == tmp_path / "proof" / "floor00-camera000.png"
+    assert load_png_rgb(path).shape == (800, 2 * 1280, 3)
+    assert co.render_proof(gl_ctx, floor, 0, tmp_path / "empty", tmp_path / "proof") is None
+
+
+def test_check_main_proof_without_gl_prints_notice(tmp_path, monkeypatch, capsys):
+    _patch_floors(monkeypatch, {0})
+    monkeypatch.setattr(co, "load_floor", xb.load_floor)
+    monkeypatch.setattr(co, "create_context", lambda: (_ for _ in ()).throw(RuntimeError("no gl")))
+    (tmp_path / "ov").mkdir()
+    assert co.main([str(tmp_path), str(tmp_path / "ov"), "--floors", "0", "--proof", str(tmp_path / "p")]) == 0
+    assert "proof skipped" in capsys.readouterr().err
+
+
+def test_makefile_mentions_check_and_run_overrides():
+    mk = open("Makefile").read()
+    assert "check-overrides:" in mk and "tools/check_overrides.py" in mk
+    run_target = mk.split("\nrun:")[1].split("\n\n")[0]
+    assert "--overrides" in run_target and "$(overrides)" in run_target
