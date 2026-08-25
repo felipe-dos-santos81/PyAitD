@@ -49,6 +49,10 @@ class AssetResolver:
         if path in self._cache:
             return self._cache[path]
         if not path.is_file():
+            # A normal override directory leaves most floor/camera combinations
+            # un-overridden, so a plain absence is expected steady-state, not a
+            # failure: fall back silently, with no log and no failures entry.
+            # Only an override that exists but is unreadable or invalid logs.
             return None
         try:
             pixels = self._load_png(path)
@@ -67,7 +71,7 @@ class AssetResolver:
                 _require_rgb,
             )
             if pixels is not None:
-                return ImageAsset(pixels, True)
+                return ImageAsset(pixels.astype(np.uint8, copy=False), True)
         return ImageAsset(floor.camera_image(cam_idx), False)
 
     def palette(self, floor):

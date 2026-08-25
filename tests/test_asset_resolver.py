@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from PyAitD.asset_resolver import (
-    AssetResolver, ImageAsset, override_background_path, override_palette_path,
+    AssetResolver, ImageAsset, load_png_rgb, override_background_path, override_palette_path,
 )
 
 
@@ -70,3 +70,48 @@ def test_palette_override_must_be_256_wide(tmp_path):
     assert resolver.palette(_floor()).shape == (256, 3) and resolver.palette(_floor())[0].tolist() == [1, 1, 1]
     resolver = AssetResolver(None, tmp_path, load_png=lambda p: np.ones((1, 16, 3), dtype=np.uint8))
     assert resolver.palette(_floor()).tolist() == np.zeros((256, 3), dtype=np.uint8).tolist()
+
+
+def test_greyscale_override_is_rejected_logged_and_falls_back(tmp_path, caplog):
+    path = override_background_path(tmp_path, 3, 0)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"grey")
+    greyscale = np.zeros((200, 320), dtype=np.uint8)  # ndim == 2, no channel axis
+    resolver = AssetResolver(None, tmp_path, load_png=lambda p: greyscale)
+    with caplog.at_level(logging.WARNING, logger="PyAitD.assets"):
+        asset = resolver.background(_floor(), 0)
+    assert not asset.is_override and asset.pixels.shape == (200, 320, 3)
+    assert path in resolver.failures
+    assert sum(r.levelno == logging.WARNING for r in caplog.records) == 1
+
+
+def test_rgba_override_is_rejected_logged_and_falls_back(tmp_path, caplog):
+    path = override_background_path(tmp_path, 3, 0)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"rgba")
+    rgba = np.zeros((200, 320, 4), dtype=np.uint8)  # 4 channels, not the required 3
+    resolver = AssetResolver(None, tmp_path, load_png=lambda p: rgba)
+    with caplog.at_level(logging.WARNING, logger="PyAitD.assets"):
+        asset = resolver.background(_floor(), 0)
+    assert not asset.is_override and asset.pixels.shape == (200, 320, 3)
+    assert path in resolver.failures
+    assert sum(r.levelno == logging.WARNING for r in caplog.records) == 1
+
+
+def test_load_png_rgb_axis_order_and_dtype(tmp_path):
+    import pygame
+    width, height = 5, 3  # deliberately W != H so a transpose bug is detectable
+    surface = pygame.Surface((width, height))
+    surface.fill((10, 20, 30))
+    surface.set_at((width - 1, 0), (200, 150, 50))  # rightmost column, top row
+    surface.set_at((0, height - 1), (5, 250, 100))  # leftmost column, bottom row
+    path = tmp_path / "axis_check.png"
+    pygame.image.save(surface, str(path))
+
+    arr = load_png_rgb(path)
+
+    assert arr.shape == (height, width, 3)
+    assert arr.dtype == np.uint8
+    assert arr[0, 0].tolist() == [10, 20, 30]
+    assert arr[0, width - 1].tolist() == [200, 150, 50]
+    assert arr[height - 1, 0].tolist() == [5, 250, 100]
