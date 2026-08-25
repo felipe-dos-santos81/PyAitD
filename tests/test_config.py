@@ -142,7 +142,7 @@ def test_round_trip_uses_schema_two(tmp_path):
     settings = Settings(EXPECTED, sticky_action=True)
     assert save_settings(settings, path) is None
     assert json.loads(path.read_text()) == {
-        "schema": 2, "sticky_action": True,
+        "schema": SCHEMA, "sticky_action": True,
         "bindings": {name: list(keys) for name, keys in EXPECTED.items()},
         "render": RenderOptions().to_payload(),
     }
@@ -202,7 +202,7 @@ def test_save_writes_schema_2_with_render(tmp_path):
     settings = Settings(EXPECTED, False, RenderOptions(3, "flat", "xbr", None))
     assert save_settings(settings, path) is None
     payload = json.loads(path.read_text())
-    assert payload["schema"] == 2
+    assert payload["schema"] == SCHEMA
     assert payload["render"] == {"scale": 3, "shading": "flat",
                                  "background_filter": "xbr", "override_dir": None}
     assert load_settings(path) == (settings, None)

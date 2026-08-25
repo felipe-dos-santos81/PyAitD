@@ -13,7 +13,7 @@ import pytest
 
 from PyAitD.__main__ import configure_session_input, load_runtime_session
 from PyAitD.config import (
-    Control, Settings, default_settings, replace_binding, save_settings,
+    SCHEMA, Control, Settings, default_settings, replace_binding, save_settings,
 )
 from PyAitD.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu
 from PyAitD.game import init_game
@@ -257,7 +257,7 @@ def test_menu_remap_sticky_save_and_reload_journey(data_dir, monkeypatch, tmp_pa
     assert game.input_mode is InputMode.KEYBOARD
 
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["schema"] == 1
+    assert payload["schema"] == SCHEMA
     assert payload["bindings"]["UP"] == ["q"]
     assert payload["sticky_action"] is True
 
