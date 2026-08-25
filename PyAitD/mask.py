@@ -2,7 +2,7 @@
 """Mask rasterization port of FITD polys.cpp fillpoly + main.cpp createAITD1Mask."""
 from dataclasses import dataclass
 
-from PyAitD.mask_geometry import iter_mask_records
+from PyAitD.mask_geometry import _polygons_bbox, iter_mask_records
 
 import numpy as np
 
@@ -85,13 +85,10 @@ def fill_poly(points, target, value):
 def create_aitd1_mask(camera_raw, camera_off):
     masks = []
     for vr_room, test_rects, polygons in iter_mask_records(camera_raw, camera_off):
-        min_x, max_x, min_y, max_y = 319, 0, 199, 0
         bitmap = np.zeros((SCREEN_H, SCREEN_W), dtype=np.uint8)
         for points in polygons:
             fill_poly(points, bitmap, 255)
-            for px, py in points:
-                min_x, max_x = min(min_x, px), max(max_x, px)
-                min_y, max_y = min(min_y, py), max(max_y, py)
+        min_x, min_y, max_x, max_y = _polygons_bbox(polygons)
         masks.append(Mask(
             min_x, min_y, max_x, max_y, bitmap,
             viewed_room=vr_room, test_rects=test_rects,

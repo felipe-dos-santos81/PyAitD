@@ -53,20 +53,24 @@ def iter_mask_records(camera_raw, camera_off):
             data += 2 + ((num_zones * 4 + 1) * 2)
 
 
+def _polygons_bbox(polygons):
+    min_x, max_x, min_y, max_y = 319, 0, 199, 0
+    for poly in polygons:
+        for px, py in poly:
+            min_x, max_x = min(min_x, px), max(max_x, px)
+            min_y, max_y = min(min_y, py), max(max_y, py)
+    return min_x, min_y, max_x, max_y
+
+
 def mask_polygons(camera_raw, camera_off):
     draws = []
     for index, (viewed_room, test_rects, polygons) in enumerate(
         iter_mask_records(camera_raw, camera_off)
     ):
-        min_x, max_x, min_y, max_y = 319, 0, 199, 0
-        for poly in polygons:
-            for px, py in poly:
-                min_x, max_x = min(min_x, px), max(max_x, px)
-                min_y, max_y = min(min_y, py), max(max_y, py)
         draws.append(MaskDraw(
             index,
             tuple(np.array(poly, dtype=np.int16).reshape(-1, 2) for poly in polygons),
-            (min_x, min_y, max_x, max_y),
+            _polygons_bbox(polygons),
             viewed_room,
             test_rects,
         ))

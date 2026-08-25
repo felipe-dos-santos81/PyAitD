@@ -8,25 +8,73 @@ from PyAitD.mask import create_aitd1_mask, fill_poly
 from PyAitD.mask_geometry import MaskDraw, iter_mask_records, mask_polygons
 
 
+def _pack_polygon_table(polygons):
+    # on-disk layout at the poly_off target: numPolys, then per polygon
+    # numPoints followed by that many (x, y) int16 pairs.
+    parts = [struct.pack("<H", len(polygons))]
+    for poly in polygons:
+        parts.append(struct.pack("<H", len(poly)))
+        for x, y in poly:
+            parts.append(struct.pack("<hh", x, y))
+    return b"".join(parts)
+
+
+def _build_viewed_room_blob(mask_records):
+    # mask_records: [(test_rects, polygons), ...]. Lays out the numMask
+    # header, then each mask's (numZones, polyOff, test_rects) header
+    # back-to-back, then the polygon tables back-to-back -- polyOff points
+    # from a mask header into its slot in the trailing polygon-table block,
+    # exactly like the real camera data iter_mask_records/create_aitd1_mask
+    # walk.
+    header_size = 2  # numMask
+    for test_rects, _ in mask_records:
+        header_size += 4 + len(test_rects) * 8
+    poly_tables = [_pack_polygon_table(polys) for _, polys in mask_records]
+    poly_offsets = []
+    cursor = header_size
+    for table in poly_tables:
+        poly_offsets.append(cursor)
+        cursor += len(table)
+    header_parts = [struct.pack("<h", len(mask_records))]
+    for (test_rects, _), poly_off in zip(mask_records, poly_offsets):
+        header_parts.append(struct.pack("<H", len(test_rects)))
+        header_parts.append(struct.pack("<H", poly_off))
+        for rect in test_rects:
+            header_parts.append(struct.pack("<4h", *rect))
+    return b"".join(header_parts) + b"".join(poly_tables)
+
+
+def _build_camera_raw(viewed_rooms):
+    # viewed_rooms: [(vr_room, mask_records), ...]. Builds a full camera
+    # record buffer (camera_off == 0) with a real viewed-room table and one
+    # mask blob per viewed room, so both iter_mask_records/mask_polygons and
+    # create_aitd1_mask can be pointed at it directly.
+    camera_off = 0
+    num_viewed = len(viewed_rooms)
+    header_len = 0x14 + num_viewed * 0x0C
+    blobs = [_build_viewed_room_blob(records) for _, records in viewed_rooms]
+    buf = bytearray(header_len)
+    struct.pack_into("<H", buf, camera_off + 0x12, num_viewed)
+    offsets = []
+    cursor = header_len
+    for blob in blobs:
+        offsets.append(cursor)
+        cursor += len(blob)
+    for i, (vr_room, _) in enumerate(viewed_rooms):
+        vr_off = camera_off + 0x14 + i * 0x0C
+        struct.pack_into("<h", buf, vr_off, vr_room)
+        struct.pack_into("<H", buf, vr_off + 2, offsets[i])
+    for blob in blobs:
+        buf.extend(blob)
+    return bytes(buf), camera_off
+
+
 def _build_synthetic_camera_raw():
     # One viewed room, one mask record, one zone (test rect), one triangle
-    # polygon -- laid out by hand to match the FITD camera-data mask format
-    # that iter_mask_records walks.
-    camera_off = 0
-    base = 32
-    buf = bytearray(64)
-    struct.pack_into("<H", buf, camera_off + 0x12, 1)  # num_viewed
-    vr_off = camera_off + 0x14
-    struct.pack_into("<h", buf, vr_off, 5)  # viewed_room
-    struct.pack_into("<H", buf, vr_off + 2, base)  # mask_off
-    struct.pack_into("<h", buf, base + 0, 1)  # num_mask
-    struct.pack_into("<H", buf, base + 2, 1)  # num_zones
-    struct.pack_into("<H", buf, base + 4, 14)  # poly_off, relative to base
-    struct.pack_into("<4h", buf, base + 6, 10, 20, 30, 40)  # test_rects[0]
-    struct.pack_into("<H", buf, base + 14, 1)  # num_polys
-    struct.pack_into("<H", buf, base + 16, 3)  # num_points
-    struct.pack_into("<6h", buf, base + 18, 1, 2, 3, 4, 5, 6)  # points
-    return bytes(buf), camera_off
+    # polygon.
+    return _build_camera_raw([
+        (5, [([(10, 20, 30, 40)], [[(1, 2), (3, 4), (5, 6)]])]),
+    ])
 
 
 def test_iter_mask_records_walks_a_synthetic_record():
@@ -54,6 +102,88 @@ def test_mask_polygons_wraps_synthetic_record_in_a_maskdraw():
     assert poly.dtype == np.int16
     assert poly.shape == (3, 2)
     assert poly.tolist() == [[1, 2], [3, 4], [5, 6]]
+
+
+# Two viewed rooms, two mask records per room, with differing zone counts
+# (1, 2, 0, 3) and differing polygon vertex counts (4, {4,3}, 3, none) --
+# chosen to exercise the record-advance arithmetic in iter_mask_records
+# (`data += 2 + ((num_zones * 4 + 1) * 2)`) and the per-viewed-room table
+# stride (`vr_off = camera_off + 0x14 + viewed * 0x0C`) across boundaries a
+# single-record fixture can't reach. All expected values below are
+# transcribed by hand from this literal fixture, not derived by calling the
+# code under test.
+_MULTI_RECORD_VIEWED_ROOMS = [
+    (5, [
+        ([(1, 2, 3, 4)], [[(0, 0), (5, 0), (5, 5), (0, 5)]]),
+        (
+            [(10, 20, 30, 40), (50, 60, 70, 80)],
+            [
+                [(20, 20), (25, 20), (25, 25), (20, 25)],
+                [(60, 10), (65, 10), (65, 15)],
+            ],
+        ),
+    ]),
+    (9, [
+        ([], [[(100, 150), (110, 150), (105, 160)]]),
+        ([(0, 0, 1, 1), (2, 2, 3, 3), (4, 4, 5, 5)], []),
+    ]),
+]
+
+_MULTI_RECORD_EXPECTED = [
+    (5, ((1, 2, 3, 4),), [[(0, 0), (5, 0), (5, 5), (0, 5)]]),
+    (
+        5,
+        ((10, 20, 30, 40), (50, 60, 70, 80)),
+        [[(20, 20), (25, 20), (25, 25), (20, 25)], [(60, 10), (65, 10), (65, 15)]],
+    ),
+    (9, (), [[(100, 150), (110, 150), (105, 160)]]),
+    (9, ((0, 0, 1, 1), (2, 2, 3, 3), (4, 4, 5, 5)), []),
+]
+
+_MULTI_RECORD_EXPECTED_BBOX = [
+    (0, 0, 5, 5),
+    (20, 10, 65, 25),
+    (100, 150, 110, 160),
+    (319, 199, 0, 0),  # no polygons: default min/max never touched
+]
+
+
+def test_iter_mask_records_walks_multiple_viewed_rooms_and_records():
+    camera_raw, camera_off = _build_camera_raw(_MULTI_RECORD_VIEWED_ROOMS)
+    records = list(iter_mask_records(camera_raw, camera_off))
+    assert records == _MULTI_RECORD_EXPECTED
+
+
+def test_mask_polygons_matches_hand_computed_records_and_bboxes():
+    camera_raw, camera_off = _build_camera_raw(_MULTI_RECORD_VIEWED_ROOMS)
+    draws = mask_polygons(camera_raw, camera_off)
+    assert [d.id for d in draws] == [0, 1, 2, 3]
+    for draw, (room, test_rects, polygons), bbox in zip(
+        draws, _MULTI_RECORD_EXPECTED, _MULTI_RECORD_EXPECTED_BBOX
+    ):
+        assert draw.viewed_room == room
+        assert draw.test_rects == test_rects
+        assert draw.bbox == bbox
+        actual_polygons = [[tuple(pt) for pt in poly.tolist()] for poly in draw.polygons]
+        assert actual_polygons == polygons
+        for poly in draw.polygons:
+            assert poly.dtype == np.int16 and poly.ndim == 2 and poly.shape[1] == 2
+
+
+def test_create_aitd1_mask_matches_hand_computed_bitmaps_and_bboxes():
+    camera_raw, camera_off = _build_camera_raw(_MULTI_RECORD_VIEWED_ROOMS)
+    masks = create_aitd1_mask(camera_raw, camera_off)
+    assert len(masks) == len(_MULTI_RECORD_EXPECTED)
+    for mask, (room, test_rects, polygons), bbox in zip(
+        masks, _MULTI_RECORD_EXPECTED, _MULTI_RECORD_EXPECTED_BBOX
+    ):
+        assert mask.viewed_room == room
+        assert mask.test_rects == test_rects
+        assert (mask.x1, mask.y1, mask.x2, mask.y2) == bbox
+        expected_bitmap = np.zeros((200, 320), dtype=np.uint8)
+        for points in polygons:
+            fill_poly(points, expected_bitmap, 255)
+        assert np.array_equal(mask.bitmap, expected_bitmap)
 
 
 def test_polygons_rasterize_to_the_bitmap_masks(data_dir):
