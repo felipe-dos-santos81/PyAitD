@@ -229,6 +229,17 @@ def test_system_menu_is_a_logical_rgb_frame(data_dir, page):
     assert frame.dtype == np.uint8
 
 
+def test_configuration_lists_graphics_rows_inside_the_screen():
+    from PyAitD.ui import SystemMenuLayout, config_row_count
+    rows = SystemMenuLayout.rows(SystemMenuPage.CONFIG)
+    assert len(rows) == config_row_count()
+    assert all(r.bottom <= 200 for r in rows)
+    hit = SystemMenuLayout.hit_rows(SystemMenuPage.CONFIG)
+    for a in range(len(hit)):
+        for b in range(a + 1, len(hit)):
+            assert not hit[a].colliderect(hit[b])
+
+
 def test_transparent_canvas_and_rgba_round_trip():
     from PyAitD.ui import _to_frame, _to_surface, transparent_canvas
     canvas = transparent_canvas()

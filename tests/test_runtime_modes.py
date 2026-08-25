@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from collections import deque
 from copy import deepcopy
+from dataclasses import replace
 import itertools
 from types import SimpleNamespace
 
@@ -9,12 +10,13 @@ import pygame
 import pytest
 
 from PyAitD.__main__ import (
-    _capture_keydown, replacement_session, restart_session, route_command,
-    render_active_mode, route_hover, route_mouse,
+    _apply_system_result, _capture_keydown, replacement_session, restart_session,
+    route_command, render_active_mode, route_hover, route_mouse,
 )
 from PyAitD.config import (
     REMAPPABLE_CONTROLS, Control, Settings, default_settings, load_settings,
 )
+from PyAitD.render_options import RenderOptions
 from PyAitD.playworld import apply_play_input
 from PyAitD.effects import (
     ChooseCharacter, GameMode, GameOver, InputMode, NavDecision, NavIntent, OpenInventory,
@@ -25,7 +27,7 @@ from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter, Command,
     FoundResult, InputBuffer, ModalLayout, ModalSession, ReadingResult, SettingsNoticeLayout,
-    SystemMenuLayout, SystemMenuPage, SystemMenuPresenter,
+    SystemMenuLayout, SystemMenuPage, SystemMenuPresenter, SystemMenuResult,
 )
 
 
@@ -617,6 +619,42 @@ def test_mouse_reading_next_changes_page_without_resuming_life(data_dir, monkeyp
     assert route_mouse(game, session, logical)
     assert session.reading.page == 1
     assert game.mode is GameMode.READING
+
+
+def test_apply_system_result_pushes_a_changed_render_option_to_the_renderer():
+    pygame.init()
+    session = ModalSession()
+    calls = []
+    renderer = SimpleNamespace(set_options=lambda options: calls.append(options))
+    changed = replace(session.settings, render=RenderOptions(scale=6))
+    result = SystemMenuResult(settings=changed)
+
+    assert _apply_system_result(object(), session, InputBuffer(), result, renderer=renderer) is True
+    assert calls == [RenderOptions(scale=6)]
+    assert session.settings.render == RenderOptions(scale=6)
+
+
+def test_apply_system_result_does_not_push_a_non_render_setting_change():
+    pygame.init()
+    session = ModalSession()
+    calls = []
+    renderer = SimpleNamespace(set_options=lambda options: calls.append(options))
+    changed = replace(session.settings, sticky_action=not session.settings.sticky_action)
+    result = SystemMenuResult(settings=changed)
+
+    assert _apply_system_result(object(), session, InputBuffer(), result, renderer=renderer) is True
+    assert calls == []
+    assert session.settings.sticky_action == changed.sticky_action
+
+
+def test_apply_system_result_tolerates_a_missing_renderer():
+    pygame.init()
+    session = ModalSession()
+    changed = replace(session.settings, render=RenderOptions(scale=8))
+    result = SystemMenuResult(settings=changed)
+
+    assert _apply_system_result(object(), session, InputBuffer(), result) is True
+    assert session.settings.render == RenderOptions(scale=8)
 
 
 def test_system_menu_subview_transitions_clear_keyboard_and_mouse_hover(data_dir):

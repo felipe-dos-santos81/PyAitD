@@ -3,7 +3,7 @@ from PyAitD.config import Control, REMAPPABLE_CONTROLS, default_settings
 from PyAitD.ui import (
     CharacterPhase, CharacterSelectPresenter, CharacterSelectResult, Command,
     FoundPresenter, FoundResult, InventoryPresenter, SystemMenuPage,
-    SystemMenuPresenter, SystemMenuResult, capture_system_key,
+    SystemMenuPresenter, SystemMenuResult, capture_system_key, config_row_count,
     reduce_character_select, reduce_found, reduce_inventory, reduce_system_menu,
 )
 
@@ -88,7 +88,7 @@ def test_configuration_cancel_and_back_row_return_to_main_saving():
         save=True)
     assert (state.page, state.cursor) == (SystemMenuPage.MAIN, 0)
     state = SystemMenuPresenter(page=SystemMenuPage.CONFIG)
-    state.cursor = 2 + len(REMAPPABLE_CONTROLS) - 1
+    state.cursor = config_row_count() - 1
     assert reduce_system_menu(state, Command.ACCEPT, default_settings()) == SystemMenuResult(
         save=True)
     assert (state.page, state.cursor) == (SystemMenuPage.MAIN, 0)
@@ -97,9 +97,25 @@ def test_configuration_cancel_and_back_row_return_to_main_saving():
 def test_configuration_cursor_wraps_across_all_rows():
     state = SystemMenuPresenter(page=SystemMenuPage.CONFIG)
     reduce_system_menu(state, Command.UP, default_settings())
-    assert state.cursor == 2 + len(REMAPPABLE_CONTROLS) - 1
+    assert state.cursor == config_row_count() - 1
     reduce_system_menu(state, Command.DOWN, default_settings())
     assert state.cursor == 0
+
+
+def test_graphics_rows_cycle_render_options():
+    from dataclasses import replace
+    from PyAitD.ui import GRAPHICS_ROWS, config_row_count
+    from PyAitD.render_options import RenderOptions
+    assert GRAPHICS_ROWS == 3 and config_row_count() == 2 + len(REMAPPABLE_CONTROLS) + 3
+    first = 1 + len(REMAPPABLE_CONTROLS)
+    settings = default_settings()
+    state = SystemMenuPresenter(page=SystemMenuPage.CONFIG, cursor=first)
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(scale=6)
+    state.cursor = first + 1
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(shading="flat")
+    state.cursor = first + 2
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(background_filter="xbr")
+    assert state.page is SystemMenuPage.CONFIG  # never opens the key picker
 
 
 def test_choosing_a_control_row_opens_the_key_picker():

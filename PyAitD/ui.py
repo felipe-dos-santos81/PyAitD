@@ -12,7 +12,14 @@ from PyAitD.config import (
     Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
 )
 from PyAitD.effects import ChooseCharacter, OpenSystemMenu
+from PyAitD.render_options import cycle_filter, cycle_scale, cycle_shading
 from PyAitD.text import BookToken
+
+GRAPHICS_ROWS = 3
+
+
+def config_row_count():
+    return 2 + len(REMAPPABLE_CONTROLS) + GRAPHICS_ROWS
 
 
 class Command(Enum):
@@ -336,7 +343,7 @@ def reduce_system_menu(state, command, settings):
     if state.capture is not None:
         return None
     command = Command.ACCEPT if command is Command.OPEN_INVENTORY else command
-    row_count = 3 if state.page is SystemMenuPage.MAIN else 2 + len(REMAPPABLE_CONTROLS)
+    row_count = 3 if state.page is SystemMenuPage.MAIN else config_row_count()
     if command is Command.UP:
         state.cursor = (state.cursor - 1) % row_count
     elif command is Command.DOWN:
@@ -364,6 +371,10 @@ def reduce_system_menu(state, command, settings):
         return SystemMenuResult(
             settings=replace(settings, sticky_action=not settings.sticky_action),
         )
+    elif command is Command.ACCEPT and state.cursor > len(REMAPPABLE_CONTROLS):
+        cycles = (cycle_scale, cycle_shading, cycle_filter)
+        cycle = cycles[state.cursor - 1 - len(REMAPPABLE_CONTROLS)]
+        return SystemMenuResult(settings=replace(settings, render=cycle(settings.render)))
     elif command is Command.ACCEPT:
         state.capture = REMAPPABLE_CONTROLS[state.cursor - 1].name
         state.page = SystemMenuPage.KEY_PICK
@@ -506,8 +517,8 @@ class CharacterLayout:
 class SystemMenuLayout:
     MAIN_ROWS = tuple(pygame.Rect(48, 45 + i * 42, 224, 32) for i in range(3))
     CONFIG_ROWS = tuple(
-        pygame.Rect(16, 8 + i * 20, 288, 20)
-        for i in range(2 + len(REMAPPABLE_CONTROLS))
+        pygame.Rect(16, 4 + i * 16, 288, 16)
+        for i in range(config_row_count())
     )
     # 8 columns x 7 rows of key cells under a one-line header, then a wide
     # Cancel button. The 4 px gaps absorb effective_rects' 2 px padding on
@@ -847,10 +858,14 @@ def render_system_menu(presenter, settings, assets):
         labels = [f"Sticky Action: {'On' if settings.sticky_action else 'Off'}"]
         for control in REMAPPABLE_CONTROLS:
             labels.append(f"{control.name}: {', '.join(settings.bindings[control.name])}")
+        labels.append(f"Scale: {settings.render.scale}x")
+        labels.append(f"Shading: {settings.render.shading.title()}")
+        labels.append(f"Filter: {settings.render.background_filter.title()}")
         labels.append("Back to Menu")
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
+    button_size = 13 if presenter.page is SystemMenuPage.CONFIG else 18
     for index, (rect, label) in enumerate(zip(SystemMenuLayout.rows(presenter.page), labels)):
-        _button(surface, rect, label, selected=index == selection)
+        _button(surface, rect, label, selected=index == selection, size=button_size)
     return _to_frame(surface)
 
 

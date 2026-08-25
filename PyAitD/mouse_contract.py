@@ -72,7 +72,7 @@ CAPABILITY_ROUTES = {
         "left_click", "character story page", frozenset({GameMode.CHARACTER_SELECT}),
     ),
     PlayerCapability.MENU_ACTIVATE: MouseRoute(
-        "left_click", "system menu row", frozenset({GameMode.SYSTEM_MENU}),
+        "left_click", "system menu row (including graphics rows)", frozenset({GameMode.SYSTEM_MENU}),
     ),
     PlayerCapability.PICK_REMAP_KEY: MouseRoute(
         "left_click", "key-picker cell or Cancel button", frozenset({GameMode.SYSTEM_MENU}),

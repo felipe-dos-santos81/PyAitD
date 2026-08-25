@@ -117,6 +117,11 @@ class Renderer:
         self._select_backend(options or RenderOptions())
 
     def _select_backend(self, options):
+        # A rebuilt backend starts undrawn: without this reset, a present()
+        # landing before the next compose_scene() would show the previous
+        # backend's stale thumbnail (the software path's cached-frame fallback
+        # in present()).
+        self._last_thumbnail = None
         try:
             self.backend = GLBackend(self._ctx, options)
             self.options = options

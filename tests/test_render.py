@@ -130,6 +130,36 @@ def test_set_options_is_a_noop_when_options_are_unchanged(gl_ctx):
         backend.release()
 
 
+def test_select_backend_resets_the_stale_thumbnail(gl_ctx):
+    # A rebuilt backend starts undrawn: a present() that lands before the next
+    # compose_scene() must not show the previous backend's cached frame.
+    renderer = object.__new__(render.Renderer)
+    renderer._ctx = gl_ctx
+    renderer.fallback_notice = None
+    renderer._select_backend(RenderOptions(scale=2))
+    renderer._last_thumbnail = np.zeros((200, 320, 3), np.uint8)
+    try:
+        renderer._select_backend(RenderOptions(scale=3))
+        assert renderer._last_thumbnail is None
+    finally:
+        if isinstance(renderer.backend, GLBackend):
+            renderer.backend.release()
+
+
+def test_set_options_resets_the_stale_thumbnail(gl_ctx):
+    renderer = object.__new__(render.Renderer)
+    renderer._ctx = gl_ctx
+    renderer.fallback_notice = None
+    renderer._select_backend(RenderOptions(scale=2))
+    renderer._last_thumbnail = np.zeros((200, 320, 3), np.uint8)
+    try:
+        renderer.set_options(RenderOptions(scale=3))
+        assert renderer._last_thumbnail is None
+    finally:
+        if isinstance(renderer.backend, GLBackend):
+            renderer.backend.release()
+
+
 def test_compose_scene_returns_backend_thumbnail(monkeypatch):
     renderer = object.__new__(render.Renderer)
     expected = np.zeros((200, 320, 3), np.uint8)

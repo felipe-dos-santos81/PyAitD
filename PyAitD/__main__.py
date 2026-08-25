@@ -400,13 +400,16 @@ def _save_session_settings(session):
     return True
 
 
-def _apply_system_result(game, session, input_buffer, result):
+def _apply_system_result(game, session, input_buffer, result, renderer=None):
     if result is None:
         return True
     if result.settings is not None:
+        render_changed = result.settings.render != session.settings.render
         session.settings = result.settings
         session.settings_dirty = True
         configure_input(input_buffer, session.settings)
+        if render_changed and renderer is not None:
+            renderer.set_options(session.settings.render)
     saved = _save_session_settings(session) if result.save else True
     if result.quit and not saved:
         return True
@@ -448,7 +451,7 @@ def _take_over_play_input(game, session, input_buffer) -> None:
     route_hover(game, session, None)
 
 
-def route_command(game, session, command, input_buffer=None):
+def route_command(game, session, command, input_buffer=None, renderer=None):
     from PyAitD.effects import (
         GameMode, GameOver, OpenInventory, OpenSystemMenu, ReadText, ShowFound,
         ShowPicture,
@@ -493,7 +496,7 @@ def route_command(game, session, command, input_buffer=None):
         result = reduce_system_menu(
             session.system_menu, modal_command, session.settings,
         )
-        return _apply_system_result(game, session, input_buffer, result)
+        return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
 
     session.reset_for(game.active_modal)
     # A keyboard command makes the owning keyboard cursor authoritative until
@@ -540,7 +543,7 @@ def route_command(game, session, command, input_buffer=None):
     raise RuntimeError(f"unroutable modal {type(game.active_modal).__name__}")
 
 
-def route_mouse(game, session, logical_pos, input_buffer=None):
+def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
     from PyAitD.effects import (
         ChooseCharacter, GameOver, OpenInventory, OpenSystemMenu, ReadText,
         ShowFound, ShowPicture,
@@ -565,7 +568,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None):
             return True
         if session.system_menu.page is SystemMenuPage.KEY_PICK:
             result = pick_system_key(session.system_menu, session.settings, hit)
-            return _apply_system_result(game, session, input_buffer, result)
+            return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
         old_page = session.system_menu.page
         session.system_menu.cursor = hit
         result = reduce_system_menu(
@@ -573,7 +576,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None):
         )
         if session.system_menu.page is not old_page:
             session.system_menu.hover = None
-        return _apply_system_result(game, session, input_buffer, result)
+        return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
     session.reset_for(effect)
     if isinstance(effect, ChooseCharacter):
         hit = hit_test_character(logical_pos, session.character)
@@ -888,7 +891,9 @@ def run(game, trace_path=None, session=None, resolver=None):
                         game, session, floor, logical, draw_list, input_buffer,
                     )
                 else:
-                    running = route_mouse(game, session, logical, input_buffer) and running
+                    running = route_mouse(
+                        game, session, logical, input_buffer, renderer=renderer,
+                    ) and running
         now = pygame.time.get_ticks()
         elapsed = min(now - last, 250)
         last = now
@@ -901,7 +906,9 @@ def run(game, trace_path=None, session=None, resolver=None):
                 # OPEN_INVENTORY dismiss the notice instead of reaching the mode
                 session.settings_error = None
             else:
-                running = route_command(game, session, command, input_buffer) and running
+                running = route_command(
+                    game, session, command, input_buffer, renderer=renderer,
+                ) and running
         replaced = _hero_branch(game, renderer, session, input_buffer)
         if replaced is None:
             replaced = _restart_branch(game, renderer, session, input_buffer)
