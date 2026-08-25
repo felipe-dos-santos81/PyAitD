@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: GPL-2.0-only
+"""Visual asset lookup with an optional user override directory.
+
+Only load_png_rgb touches pygame; everything else is pure so headless tests
+inject a loader."""
+from dataclasses import dataclass
+import logging
+from pathlib import Path
+
+import numpy as np
+
+log = logging.getLogger("PyAitD.assets")
+
+
+@dataclass(frozen=True)
+class ImageAsset:
+    pixels: np.ndarray
+    is_override: bool
+
+
+def override_background_path(override_dir, floor_number, cam_idx):
+    return Path(override_dir) / "backgrounds" / f"floor{floor_number:02d}" / f"camera{cam_idx:03d}.png"
+
+
+def override_palette_path(override_dir):
+    return Path(override_dir) / "palette.png"
+
+
+def load_png_rgb(path):
+    import pygame
+    surface = pygame.image.load(str(path))
+    return np.ascontiguousarray(pygame.surfarray.array3d(surface).swapaxes(0, 1)).astype(np.uint8)
+
+
+class AssetResolver:
+    def __init__(self, assets, override_dir=None, *, load_png=load_png_rgb):
+        self._assets = assets
+        self._override_dir = Path(override_dir) if override_dir else None
+        self._load_png = load_png
+        self._cache = {}
+        self.failures = {}
+
+    def body(self, num):
+        return self._assets.body(num)
+
+    def _override(self, path, validate):
+        if self._override_dir is None or path in self.failures:
+            return None
+        if path in self._cache:
+            return self._cache[path]
+        if not path.is_file():
+            return None
+        try:
+            pixels = self._load_png(path)
+            validate(pixels)
+        except Exception as exc:  # any loader/validation failure degrades, never crashes
+            self.failures[path] = str(exc)
+            log.warning("override %s ignored: %s", path, exc)
+            return None
+        self._cache[path] = pixels
+        return pixels
+
+    def background(self, floor, cam_idx):
+        if self._override_dir is not None:
+            pixels = self._override(
+                override_background_path(self._override_dir, floor.number, cam_idx),
+                _require_rgb,
+            )
+            if pixels is not None:
+                return ImageAsset(pixels, True)
+        return ImageAsset(floor.camera_image(cam_idx), False)
+
+    def palette(self, floor):
+        if self._override_dir is not None:
+            pixels = self._override(override_palette_path(self._override_dir), _require_palette)
+            if pixels is not None:
+                return np.ascontiguousarray(pixels[0, :256, :3]).astype(np.uint8)
+        return floor.palette
+
+
+def _require_rgb(pixels):
+    if pixels.ndim != 3 or pixels.shape[2] != 3 or pixels.shape[0] < 1 or pixels.shape[1] < 1:
+        raise ValueError(f"expected an RGB image, got shape {pixels.shape}")
+
+
+def _require_palette(pixels):
+    _require_rgb(pixels)
+    if pixels.shape[1] != 256:
+        raise ValueError(f"palette must be 256 pixels wide, got {pixels.shape[1]}")
