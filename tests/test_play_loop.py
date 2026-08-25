@@ -148,11 +148,18 @@ def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, monkeypatch
     assert main.run(game) == 0
     assert len(ticks) == 2
     assert hit_actor.hit_by == -1, "the second catch-up tick did not erase the pulse"
-    assert np.any(np.all(presented[0] == (255, 255, 255), axis=2))
+    # present() now receives the 320x200 RGBA UI-overlay canvas (transparent
+    # until a presenter draws on it), not a composite with the scene baked
+    # in -- see PyAitD.ui.transparent_canvas. A pixel only "reached
+    # presentation" if it is both the expected colour and fully opaque.
+    assert np.any(
+        np.all(presented[0][:, :, :3] == (255, 255, 255), axis=2) & (presented[0][:, :, 3] == 255)
+    )
     assert np.any(
         (presented[0][:, :, 0] == 255)
         & (presented[0][:, :, 1] <= 64)
         & (presented[0][:, :, 2] <= 64)
+        & (presented[0][:, :, 3] == 255)
     ), "the erased hit never reached presentation"
 
 
@@ -194,11 +201,21 @@ def test_run_expires_hit_feedback_instead_of_latching_forever(data_dir, monkeypa
         main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *_args: None),
     )
 
+    from PyAitD.ui import transparent_canvas
+
     assert main.run(game) == 0
-    assert np.any(np.all(presented[1] == (255, 255, 255), axis=2)), (
+    # present() now receives the 320x200 RGBA UI-overlay canvas (transparent
+    # until a presenter draws on it), not a composite with the scene baked
+    # in -- see PyAitD.ui.transparent_canvas. A pixel only "shows" the
+    # feedback if it is both the expected colour and fully opaque; once the
+    # feedback expires with nothing else drawn (no HUD, no cursor -- hover
+    # never moves in this test), the overlay reverts to fully transparent.
+    assert np.any(
+        np.all(presented[1][:, :, :3] == (255, 255, 255), axis=2) & (presented[1][:, :, 3] == 255)
+    ), (
         "feedback expired before a later frame could show it"
     )
-    assert np.array_equal(presented[-1], source), (
+    assert np.array_equal(presented[-1], transparent_canvas()), (
         "feedback was still visible almost a second after the hit"
     )
 

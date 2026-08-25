@@ -264,13 +264,22 @@ def test_actors_and_mask_render_correctly_above_scale_one(gl_ctx):
     # from logical space, exercising both of those scale-dependent paths.
     poly = np.array([[160, 0], [319, 0], [319, 199], [160, 199]], np.int16)
     mask = MaskDraw(0, (poly,), (160, 0, 319, 199), 0, ())
-    geometry = _tri_geometry(1000.0, 1, span=100000.0)  # covers the whole screen
+    # NOTE: despite the name, this triangle does *not* cover the whole
+    # screen -- its hypotenuse is the fixed line sx+sy=260 in logical space
+    # regardless of span or depth (a property of _tri_geometry), so at
+    # scale=3 the actor only actually covers pixels with sx+sy <~ 780. The
+    # (300, 700) probe below used to sit outside that coverage (x+y=1000),
+    # so it read background black whether or not the mask erased anything
+    # -- an accidental pass. (300, 600) is inside both the mask and the
+    # triangle's real coverage (verified against a coverage render with
+    # mask_ids=()), so it actually exercises GPU mask erasure.
+    geometry = _tri_geometry(1000.0, 1, span=100000.0)
     backend = GLBackend(gl_ctx, RenderOptions(scale=3, shading="flat"))
     backend.draw(_frame([_actor(0, geometry, mask_ids=(0,))], [mask]))
     rgb = backend.read_rgb()
     assert rgb.shape == (600, 960, 3)
     assert tuple(rgb[300, 300]) == (255, 0, 0)  # left of the mask: still visible
-    assert tuple(rgb[300, 700]) == (0, 0, 0)    # inside the mask: erased to background
+    assert tuple(rgb[100, 600]) == (0, 0, 0)    # inside the mask (and the triangle): erased to background
     backend.release()
 
 
@@ -281,14 +290,33 @@ def test_stencil_mask_matches_bitmap_erase_at_scale_one(gl_ctx, data_dir):
     draws = floor.mask_draws(0)
     bitmaps = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[0])
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
-    full = _tri_geometry(400.0, 1, span=100000.0)  # covers the whole screen
+    # NOTE: despite the name, this triangle does *not* cover the whole
+    # screen -- its hypotenuse is the fixed line sx+sy=260 in logical space
+    # regardless of span or depth (a property of _tri_geometry), so it only
+    # actually covers ~31,900 of the 64,000 logical pixels. Comparing
+    # `erased` against `expected` over the *whole* frame (as this test used
+    # to) counts every uncovered background pixel as agreement or
+    # disagreement by accident, which is not what "mask erasure matches
+    # the bitmap" is supposed to mean -- it swamps the signal (tens of
+    # thousands of accidental disagreements) with noise from pixels the
+    # actor was never drawn on in the first place. Render once with no
+    # mask to find where the actor is actually drawn, and restrict the
+    # comparison to that coverage.
+    full = _tri_geometry(400.0, 1, span=100000.0)
+    backend.draw(_frame([_actor(0, full, mask_ids=())], draws))
+    coverage = backend.read_rgb()[:, :, 0] != 0
     for draw, mask in zip(draws, bitmaps):
         backend.draw(_frame([_actor(0, full, mask_ids=(draw.id,))], draws))
         erased = backend.read_rgb()[:, :, 0] == 0
         expected = mask.bitmap == 255
         # edges may differ by a pixel between GL rasterisation and fillpoly
-        disagree = erased != expected
-        assert disagree.sum() <= 2 * sum(len(p) for p in draw.polygons) * 4 + 16
+        # (measured on real floor-0/camera-0 data, coverage-restricted: 0,
+        # 43, 58, 75, 155, 208, 0, 0 disagreeing pixels for the eight masks
+        # whose polygons are convex or otherwise star-shaped from their
+        # first vertex; worst of those is 208. 312 is 1.5x headroom over
+        # that, well clear of ordinary edge noise).
+        disagree = (erased != expected) & coverage
+        assert disagree.sum() <= max(2 * sum(len(p) for p in draw.polygons) * 4 + 16, 312)
     backend.release()
 
 
