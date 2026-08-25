@@ -159,3 +159,33 @@ def test_makefile_mentions_check_and_run_overrides():
     assert "check-overrides:" in mk and "tools/check_overrides.py" in mk
     run_target = mk.split("\nrun:")[1].split("\n\n")[0]
     assert "--overrides" in run_target and "$(overrides)" in run_target
+
+
+def test_exported_originals_render_pixel_identical_through_override_path(data_dir, tmp_path):
+    """DIR straight from export, used as --overrides, changes nothing."""
+    from PyAitD.floor import Floor
+    from PyAitD.asset_resolver import AssetResolver
+    out = tmp_path / "ov"
+    assert xb.main([str(data_dir), "--out", str(out), "--floors", "0"]) == 0
+    floor = Floor(data_dir, 0)
+    plain = AssetResolver(None, None)
+    overridden = AssetResolver(None, out)
+    for cam_idx in range(len(floor.cameras)):
+        try:
+            floor.camera_image(cam_idx)
+        except KeyError:
+            continue
+        a = plain.background(floor, cam_idx)
+        b = overridden.background(floor, cam_idx)
+        assert b.is_override
+        assert (a.pixels == b.pixels).all()
+    assert overridden.failures == {}
+
+
+def test_docs_reference_the_workflow():
+    doc = open("docs/ai-background-regeneration.md").read()
+    for needle in ("make export-backgrounds", "make check-overrides", "--overrides", "manifest.json",
+                   "red", "blue", "green", "invalid", "aspect", "size", "missing", "16:10"):
+        assert needle in doc, needle
+    assert "ai-background-regeneration.md" in open("README.md").read()
+    assert "make export-backgrounds" in open("AGENTS.md").read()
