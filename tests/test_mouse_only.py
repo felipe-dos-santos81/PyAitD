@@ -8,7 +8,9 @@ import numpy as np
 import pygame
 import pytest
 
-from PyAitD.anim_action import HANDLED_ACTIONS, THROW_OBJECT, WAIT_ANIM_THROW
+from PyAitD.anim_action import (
+    FRAPPE_OK, HANDLED_ACTIONS, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME,
+)
 from PyAitD.effects import GameMode, NavIntent
 from PyAitD.floor import Floor
 from PyAitD.game import AF_ANIMATED, AF_MOVABLE, init_game
@@ -458,7 +460,15 @@ def test_mouse_combat_fixture_has_a_real_visible_attack_target_after_equip(data_
     ) == ("attack", enemy_idx)
 
 
-def test_mouse_journey_inventory_attack_publishes_real_throw(data_dir, monkeypatch):
+def test_mouse_journey_one_click_attack_swings_the_held_saber(data_dir, monkeypatch):
+    """One click on a visible enemy performs object 38's own melee strike.
+
+    ENGLISH.PAK text 32 is "Throw", so routing the click through the inventory
+    action dropped the saber on the floor. FITD mainLoop.cpp:87-101 instead
+    turns held action input into action 0x2000 and runs the in-hand object's
+    LIFE, which is what arms melee animation 41. The click therefore latches a
+    bounded native-input burst; the player never holds or times a button.
+    """
     import PyAitD.__main__ as main
     import PyAitD.playworld as playworld_module
 
@@ -468,22 +478,20 @@ def test_mouse_journey_inventory_attack_publishes_real_throw(data_dir, monkeypat
     enter_mouse_combat_fixture(game)
     hero_idx = game.current_camera_target_actor
     enemy_idx = game.world_objects[222].obj_index
-    hero = game.actors[hero_idx]
     enemy = game.actors[enemy_idx]
     floor = Floor(data_dir, game.current_floor)
     geometry_renderer = _HeadlessRenderer()
 
-    observed = {"wait": False, "flight": False, "hit": None, "target_box": None}
+    observed = {"states": set(), "hit": None, "target_box": None}
     original_gere_frappe = playworld_module.gere_frappe
 
     def observe_action(g, actor_idx):
         actor = g.actors[actor_idx]
-        observed["wait"] |= actor_idx == hero_idx and actor.anim_action_type == WAIT_ANIM_THROW
-        observed["flight"] |= actor.anim_action_type == THROW_OBJECT
+        if actor_idx == hero_idx:
+            observed["states"].add(actor.anim_action_type)
         result = original_gere_frappe(g, actor_idx)
-        thrown_idx = g.world_objects[38].obj_index
-        if thrown_idx != -1 and enemy.hit_by == thrown_idx:
-            observed["hit"] = (thrown_idx, enemy.hit_force)
+        if enemy.hit_by == hero_idx:
+            observed["hit"] = (enemy.hit_by, enemy.hit_force)
         return result
 
     monkeypatch.setattr(playworld_module, "gere_frappe", observe_action)
@@ -514,19 +522,24 @@ def test_mouse_journey_inventory_attack_publishes_real_throw(data_dir, monkeypat
                 game, floor, attack_point, draw_list,
             ) == ("attack", enemy_idx)
             observed["target_box"] = target_box
-            state["step"] = "wait"
+            state["step"] = "swing"
+            # exactly one press/release pair: no hold, no repeat
             return [_left_click(attack_point)]
         if observed["hit"] is not None:
             return [pygame.event.Event(pygame.QUIT)]
         return []
 
     _run_scripted_mouse(monkeypatch, game, None, next_events)
-    thrown_idx, force = observed["hit"]
+
+    hitter, force = observed["hit"]
     assert observed["target_box"] is not None
-    assert observed["wait"]
-    assert observed["flight"]
-    assert force == 2
-    assert thrown_idx != hero_idx
+    assert {WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, FRAPPE_OK} <= observed["states"], (
+        f"the hero never ran the native melee states: {sorted(observed['states'])}"
+    )
+    assert hitter == hero_idx, "the strike must come from the hero, not a projectile"
+    assert force == 4
+    assert 38 in inventory_items(game), "the saber must stay in inventory"
+    assert game.world_objects[38].obj_index == -1, "no saber actor may reach the floor"
 
 
 def test_mouse_journey_game_over_restart_uses_a_left_click(data_dir, monkeypatch):

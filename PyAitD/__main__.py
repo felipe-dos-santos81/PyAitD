@@ -293,7 +293,12 @@ def route_play_click(
         )
         return
     if kind == "attack":
-        attack_in_hand(game, payload)
+        # attack_in_hand only validates, stops and faces. The strike itself is
+        # published by the fixed-tick input snapshot, so the accepted target is
+        # latched into the application-owned buffer here and nowhere else.
+        if attack_in_hand(game, payload) and input_buffer is not None:
+            input_buffer.mouse_attack_target = payload
+            input_buffer.mouse_attack_ticks = 0
         return
     intent = game.nav_intent
     if intent is not None and intent.requires_hold:

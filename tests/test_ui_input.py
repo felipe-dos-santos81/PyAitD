@@ -127,3 +127,12 @@ def test_repeat_focus_loss_and_reconfiguration_cannot_leave_sticky_state():
     assert (state.held_joyd, state.action_held, state.sticky_armed, state.action_pulse) == (0, False, False, False)
     configure_input(state, default_settings())
     assert not state.sticky_action
+
+
+def test_reset_input_clears_native_mouse_combat():
+    # Focus loss, modal takeover, restart and hero replacement all funnel
+    # through reset_input, so clearing the transient combat latch here is what
+    # makes it impossible for an old click to resume a swing later.
+    state = InputBuffer(mouse_attack_target=7, mouse_attack_ticks=12)
+    reset_input(state)
+    assert (state.mouse_attack_target, state.mouse_attack_ticks) == (None, 0)

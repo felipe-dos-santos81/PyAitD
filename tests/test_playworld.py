@@ -531,3 +531,113 @@ def test_anim_pass_refreshes_before_anim_and_strikes_after_dec(monkeypatch, data
     monkeypatch.setattr("PyAitD.playworld.gere_frappe", lambda *args: calls.append("hit"))
     _anim_pass(game)
     assert calls[:4] == ["hot", "anim", "dec", "hit"]
+
+
+def _latched_attack(data_dir):
+    """A mouse-mode game whose InputBuffer holds an accepted target click."""
+    from PyAitD.interaction import _finish_take
+    from PyAitD.scenario import enter_mouse_combat_fixture
+
+    game = init_game(data_dir, hero=0)
+    enter_mouse_combat_fixture(game)
+    game.current_floor_data = Floor(data_dir, game.current_floor)
+    _finish_take(game, 38)
+    game.in_hand_table[game.current_inventory] = 38
+    enemy_idx = game.world_objects[222].obj_index
+    buf = InputBuffer(mouse_attack_target=enemy_idx)
+    return game, buf, enemy_idx
+
+
+def test_a_latched_click_publishes_fitd_action_input_on_its_first_tick(data_dir):
+    # FITD mainLoop.cpp:87-101 turns held action input into action 0x2000 and
+    # runs the in-hand object's LIFE; the mouse must reach combat through those
+    # ordinary fields rather than through a bespoke combat path.
+    game, buf, _enemy_idx = _latched_attack(data_dir)
+
+    apply_play_input(game, buf)
+
+    assert (game.local_joyd, game.local_click, game.action) == (1, 1, 0x2000)
+    assert buf.mouse_attack_ticks == 1
+    assert game.nav_decision is None
+
+
+def test_a_latched_click_holds_the_action_while_the_strike_animates(data_dir):
+    # One tick is not enough: the player's LIFE queues idle again the moment
+    # the action input drops, so the swing never reaches its strike frame.
+    game, buf, _enemy_idx = _latched_attack(data_dir)
+    apply_play_input(game, buf)
+    hero = game.actors[game.current_camera_target_actor]
+    hero.anim_action_type = WAIT_FRAPPE_ANIM
+
+    apply_play_input(game, buf)
+
+    assert (game.local_joyd, game.local_click, game.action) == (1, 1, 0x2000)
+    assert buf.mouse_attack_ticks == 2
+
+
+def test_a_latched_click_ends_when_the_strike_animation_completes(data_dir):
+    game, buf, _enemy_idx = _latched_attack(data_dir)
+    apply_play_input(game, buf)
+    hero = game.actors[game.current_camera_target_actor]
+    hero.anim_action_type = WAIT_FRAPPE_ANIM
+    apply_play_input(game, buf)
+    hero.anim_action_type = 0
+
+    apply_play_input(game, buf)
+
+    assert (buf.mouse_attack_target, buf.mouse_attack_ticks) == (None, 0)
+    assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+
+
+def test_a_latched_click_gives_up_at_its_safety_budget(data_dir):
+    # A LIFE that never returns the hero to idle must not leave the mouse
+    # holding a virtual button forever.
+    from PyAitD.playworld import MOUSE_ATTACK_TICK_BUDGET
+
+    game, buf, _enemy_idx = _latched_attack(data_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    for _ in range(MOUSE_ATTACK_TICK_BUDGET):
+        apply_play_input(game, buf)
+        hero.anim_action_type = WAIT_FRAPPE_ANIM
+    assert buf.mouse_attack_ticks == MOUSE_ATTACK_TICK_BUDGET
+
+    apply_play_input(game, buf)
+
+    assert (buf.mouse_attack_target, buf.mouse_attack_ticks) == (None, 0)
+    assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+
+
+def test_a_latched_click_drops_when_its_target_or_weapon_goes_away(data_dir):
+    game, buf, enemy_idx = _latched_attack(data_dir)
+    apply_play_input(game, buf)
+    game.actors[game.current_camera_target_actor].anim_action_type = WAIT_FRAPPE_ANIM
+    game.actors[enemy_idx].index_in_world = -1
+
+    apply_play_input(game, buf)
+
+    assert (buf.mouse_attack_target, buf.mouse_attack_ticks) == (None, 0)
+    assert game.action == 0
+
+    game, buf, _enemy_idx = _latched_attack(data_dir)
+    apply_play_input(game, buf)
+    game.actors[game.current_camera_target_actor].anim_action_type = WAIT_FRAPPE_ANIM
+    game.in_hand_table[game.current_inventory] = -1
+
+    apply_play_input(game, buf)
+
+    assert (buf.mouse_attack_target, buf.mouse_attack_ticks) == (None, 0)
+    assert game.action == 0
+
+
+def test_a_latched_click_outranks_a_leftover_navigation_intent(data_dir):
+    game, buf, _enemy_idx = _latched_attack(data_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    game.nav_intent = NavIntent(
+        dest_x=hero.room_x, dest_z=hero.room_z + 9000, room=hero.room,
+        waypoints=[(hero.room_x, hero.room_z + 9000)],
+    )
+
+    apply_play_input(game, buf)
+
+    assert (game.local_joyd, game.local_click, game.action) == (1, 1, 0x2000)
+    assert game.nav_decision is None

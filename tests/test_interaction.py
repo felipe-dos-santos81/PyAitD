@@ -34,7 +34,11 @@ def _armed_attack_fixture(game):
     return hero, target_idx, target
 
 
-def test_attack_stops_faces_in_hero_room_and_delegates(data_dir, monkeypatch):
+def test_attack_stops_faces_without_selecting_throw(data_dir, monkeypatch):
+    # ENGLISH.PAK text 32 is "Throw": routing a target click through the
+    # inventory action would launch the saber at the floor. FITD's own melee
+    # comes from held action input (mainLoop.cpp:87-101), so attack_in_hand
+    # only validates, stops and faces; publication is the tick's job.
     game = init_game(data_dir)
     hero, target_idx, target = _armed_attack_fixture(game)
     hero.room, hero.room_x, hero.room_z = 0, 400, -200
@@ -43,23 +47,36 @@ def test_attack_stops_faces_in_hero_room_and_delegates(data_dir, monkeypatch):
     game.nav_intent = NavIntent(100, 200, hero.room)
     game.nav_decision = object()
     faced = []
-    chosen = []
     monkeypatch.setattr(
         "PyAitD.tracks.face_toward",
         lambda actor, x, z: faced.append((actor, x, z)),
     )
     monkeypatch.setattr(
         "PyAitD.interaction.choose_inventory_action",
-        lambda g, obj, action: chosen.append((g, obj, action)) or True,
+        lambda *args: (_ for _ in ()).throw(
+            AssertionError("a target click must not choose an inventory action"),
+        ),
     )
 
     assert attack_in_hand(game, target_idx) is True
 
     dx, _dy, dz = room_delta(game, hero.room, target.room)
     assert faced == [(hero, target.room_x + dx, target.room_z - dz)]
-    assert chosen == [(game, 38, 32)]
     assert hero.speed == 0
     assert game.nav_intent is None and game.nav_decision is None
+    assert game.world_objects[38].obj_index == -1, "the saber must stay in hand"
+
+
+def test_a_busy_hero_keeps_a_combat_action_offer_for_the_running_strike(data_dir):
+    # The tick seam re-validates the latch while the melee animation runs, so
+    # the offer lookup must survive a non-idle hero; only the click that starts
+    # an attack requires idleness.
+    game = init_game(data_dir)
+    hero, _target_idx, _target = _armed_attack_fixture(game)
+    assert combat_action_for(game, 38) == 32
+    hero.anim_action_type = 1
+    assert combat_action_for(game, 38) is None
+    assert combat_action_for(game, 38, require_idle=False) == 32
 
 
 def test_invalid_attack_is_a_mutation_free_no_op(data_dir, monkeypatch):

@@ -34,6 +34,13 @@ class InputBuffer:
     sticky_action: bool = False
     sticky_armed: bool = False
     action_pulse: bool = False
+    # An accepted target click arms FITD's own action input for the next few
+    # fixed ticks (mainLoop.cpp:87-101), because one tick of action ends before
+    # the melee animation reaches its strike frame. It lives here rather than
+    # in Game so every focus, modal and input-mode reset already clears it, and
+    # so the simulation never learns that a mouse exists.
+    mouse_attack_target: int | None = None
+    mouse_attack_ticks: int = 0
 
 
 _DIRECTION_CONTROL = {
@@ -81,6 +88,8 @@ def reset_input(state):
     state.pointer_pos = None
     state.sticky_armed = False
     state.action_pulse = False
+    state.mouse_attack_target = None
+    state.mouse_attack_ticks = 0
     state.commands.clear()
 
 

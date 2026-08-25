@@ -228,11 +228,19 @@ def hold_action_approach(game, floor, hero_idx, target_idx):
     return (x, z, target.room, target.index_in_world)
 
 
-def combat_action_for(game, object_idx):
+def combat_action_for(game, object_idx, *, require_idle=True):
+    """The combat action the in-hand object offers, or None.
+
+    `require_idle` is the difference between starting a strike and keeping one
+    alive: a click may only start combat from an idle hero, but the tick seam
+    re-validates the same weapon while the melee animation is still running.
+    """
     if object_idx not in inventory_items(game):
         return None
     hero_idx = game.current_camera_target_actor
-    if hero_idx == -1 or game.actors[hero_idx].anim_action_type != 0:
+    if hero_idx == -1:
+        return None
+    if require_idle and game.actors[hero_idx].anim_action_type != 0:
         return None
     return next(
         (action for action in inventory_actions(game, object_idx)
@@ -478,6 +486,14 @@ def cancel_held_nav_intent(game):
 
 
 def attack_in_hand(game, target_actor_idx):
+    """Accept a target click: validate it, stop, and face the target.
+
+    This deliberately stops short of choosing an inventory action. ENGLISH.PAK
+    text 32 is "Throw", so `choose_inventory_action(..., 32)` would launch the
+    weapon at the floor instead of swinging it. FITD's melee comes from held
+    action input (mainLoop.cpp:87-101), which the caller arms on the returned
+    True; explicit Throw stays reachable only from the inventory row itself.
+    """
     # Imported lazily so tests can monkeypatch PyAitD.tracks.face_toward and
     # this module stays free of track-system imports at module load time.
     from PyAitD.tracks import face_toward
@@ -486,8 +502,7 @@ def attack_in_hand(game, target_actor_idx):
     if hero_idx == -1 or not is_combat_target(game, target_actor_idx):
         return False
     object_idx = game.in_hand_table[game.current_inventory]
-    action_id = combat_action_for(game, object_idx)
-    if action_id is None:
+    if combat_action_for(game, object_idx) is None:
         return False
 
     hero = game.actors[hero_idx]
@@ -503,7 +518,7 @@ def attack_in_hand(game, target_actor_idx):
     cancel_nav_intent(game)
     hero.speed = 0
     face_toward(hero, target_x, target_z)
-    return choose_inventory_action(game, object_idx, action_id)
+    return True
 
 
 def dispatch_nav_arrival(game):

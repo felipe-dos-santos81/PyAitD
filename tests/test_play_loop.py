@@ -404,7 +404,7 @@ def test_depth_sort_y_bands():
 from PyAitD.__main__ import _is_interactable, resolve_play_click, route_play_click
 from PyAitD.effects import GameMode
 from PyAitD.game import AF_ANIMATED, AF_FOUNDABLE
-from PyAitD.interaction import _finish_take
+from PyAitD.interaction import _finish_take, inventory_items
 from PyAitD.scenario import enter_combat_venue
 from PyAitD.ui import InputBuffer, ModalSession, PlayLayout
 
@@ -1210,6 +1210,52 @@ def test_attack_click_delegates_actor_index(data_dir, monkeypatch):
     )
     assert calls == [(game, enemy_idx)]
     assert game.nav_intent is None
+
+
+def test_attack_click_latches_native_mouse_combat(data_dir):
+    # A validated target click arms FITD's own action input for the following
+    # fixed ticks; it never picks the inventory "Throw" row on the player's
+    # behalf. The latch lives in the application-owned InputBuffer so every
+    # existing focus/modal/input-mode reset already clears it.
+    from PyAitD.interaction import choose_inventory_action
+
+    game = init_game(data_dir)
+    enter_combat_venue(game)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    _finish_take(game, 38)
+    game.in_hand_table[game.current_inventory] = 38
+    enemy_idx = game.world_objects[222].obj_index
+    state = InputBuffer()
+
+    route_play_click(
+        game, ModalSession(), floor, (150, 100),
+        [(enemy_idx, (100, 60, 200, 160))], state,
+    )
+
+    assert state.mouse_attack_target == enemy_idx
+    assert state.mouse_attack_ticks == 0
+    assert game.nav_intent is None
+    assert game.world_objects[38].obj_index == -1, "the saber must stay in hand"
+    assert 38 in inventory_items(game)
+
+
+def test_a_refused_attack_click_leaves_no_latch(data_dir):
+    game = init_game(data_dir)
+    enter_combat_venue(game)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    _finish_take(game, 38)
+    game.in_hand_table[game.current_inventory] = -1  # empty hand: nothing to swing
+    enemy_idx = game.world_objects[222].obj_index
+    state = InputBuffer()
+
+    route_play_click(
+        game, ModalSession(), floor, (150, 100),
+        [(enemy_idx, (100, 60, 200, 160))], state,
+    )
+
+    assert (state.mouse_attack_target, state.mouse_attack_ticks) == (None, 0)
 
 
 def test_attack_click_keeps_priority_over_an_active_held_push(data_dir, monkeypatch):
