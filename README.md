@@ -47,11 +47,17 @@ make prove-combat       # combat venue proof (M3c)
 make prove-mouse        # navmesh coverage for every camera-visible room, headless
 make prove-mouse-only   # one-button accessibility contract + journeys (M3e)
 make prove-shell        # shell, configuration, mouse contract, real-loop journeys (M4a1)
+make prove-mouse-accessibility # focused effective-target, hover, touch, and takeover gate
 ```
 
-Windowed single-button accessibility still requires manual verification. Known
-limitation: opening inventory by mouse during an active held push can retain the
-push until mouse-up; release the button before opening inventory.
+Mouse accessibility hardening is automated by `make prove-mouse-accessibility`
+and has user-attested windowed standard-mouse and macOS Accessibility Keyboard
+passes for Emily and Carnby. The current evidence in
+the [mouse accessibility hardening proof](docs/mouse-accessibility-hardening-proof.md)
+supersedes the older pending window checks in the
+[M4a1 shell](docs/m4a1-shell-proof.md) and
+[mouse hold-to-push](docs/mouse-hold-push-proof.md) proofs; the held-push
+inventory takeover regression is covered and closed.
 
 ## Status
 

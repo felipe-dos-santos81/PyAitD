@@ -953,7 +953,9 @@ def test_inventory_hud_wins_before_world_resolution(data_dir, monkeypatch):
     ) == ("inventory", None)
 
 
-def test_inventory_hud_right_edge_is_world_not_hud(data_dir, monkeypatch):
+def test_inventory_hud_effective_padding_has_priority_and_exclusive_far_edges(
+    data_dir, monkeypatch,
+):
     import PyAitD.picking as picking
 
     game = init_game(data_dir)
@@ -965,9 +967,22 @@ def test_inventory_hud_right_edge_is_world_not_hud(data_dir, monkeypatch):
         picking, "pick_floor_any_room",
         lambda *args: calls.append(args) or None,
     )
-    point = (PlayLayout.INVENTORY.right, PlayLayout.INVENTORY.centery)
-    assert resolve_play_click(game, floor, point, []) == ("blocked", None)
-    assert len(calls) == 1
+    padded_points = (
+        (PlayLayout.INVENTORY.right, PlayLayout.INVENTORY.centery),
+        (PlayLayout.INVENTORY.centerx, PlayLayout.INVENTORY.bottom),
+    )
+    for point in padded_points:
+        assert resolve_play_click(game, floor, point, []) == ("inventory", None)
+    assert calls == []
+
+    hit = PlayLayout.INVENTORY_HIT
+    exclusive_far_edges = (
+        (hit.right, hit.centery),
+        (hit.centerx, hit.bottom),
+    )
+    for point in exclusive_far_edges:
+        assert resolve_play_click(game, floor, point, []) == ("blocked", None)
+    assert len(calls) == 2
 
 
 def test_combat_actor_resolves_attack_or_blocked_not_walk(data_dir):

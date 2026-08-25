@@ -435,16 +435,18 @@ def effective_rects(
                 if hits[first].right > hits[second].left:
                     split = (hits[first].right + hits[second].left) // 2
                     hits[first].width = max(0, split - hits[first].left)
+                    far_edge = hits[second].right
                     hits[second].x = split
-                    hits[second].width = max(0, hits[second].right - split)
+                    hits[second].width = max(0, far_edge - split)
             else:
                 if first_visible.top > second_visible.top:
                     first, second = second, first
                 if hits[first].bottom > hits[second].top:
                     split = (hits[first].bottom + hits[second].top) // 2
                     hits[first].height = max(0, split - hits[first].top)
+                    far_edge = hits[second].bottom
                     hits[second].y = split
-                    hits[second].height = max(0, hits[second].bottom - split)
+                    hits[second].height = max(0, far_edge - split)
     return tuple(hits)
 
 

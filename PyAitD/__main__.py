@@ -195,7 +195,7 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
     if hero_idx == -1:
         return ("blocked", None)
     if (inventory_hud_available(game)
-            and PlayLayout.INVENTORY.collidepoint(logical_pos)):
+            and PlayLayout.INVENTORY_HIT.collidepoint(logical_pos)):
         return ("inventory", None)
 
     hero = game.actors[hero_idx]
@@ -444,12 +444,16 @@ def route_command(game, session, command, input_buffer=None):
         # the presenter resets where the menu is opened (the PLAY CANCEL
         # branch above), not per dispatch: a staged page/cursor/capture must
         # survive every routed command until the menu closes
+        route_hover(game, session, None)
         result = reduce_system_menu(
             session.system_menu, modal_command, session.settings,
         )
         return _apply_system_result(game, session, input_buffer, result)
 
     session.reset_for(game.active_modal)
+    # A keyboard command makes the owning keyboard cursor authoritative until
+    # a later MOUSEMOTION establishes a new preview.
+    route_hover(game, session, None)
     if isinstance(game.active_modal, ChooseCharacter):
         from PyAitD.ui import reduce_character_select
         result = reduce_character_select(session.character, modal_command)
@@ -513,10 +517,13 @@ def route_mouse(game, session, logical_pos, input_buffer=None):
         hit = hit_test_system_menu(logical_pos, session.system_menu)
         if hit is None:
             return True
+        old_page = session.system_menu.page
         session.system_menu.cursor = hit
         result = reduce_system_menu(
             session.system_menu, Command.ACCEPT, session.settings,
         )
+        if session.system_menu.page is not old_page:
+            session.system_menu.hover = None
         return _apply_system_result(game, session, input_buffer, result)
     session.reset_for(effect)
     if isinstance(effect, ChooseCharacter):
@@ -540,9 +547,12 @@ def route_mouse(game, session, logical_pos, input_buffer=None):
         return True
     if isinstance(effect, OpenInventory):
         object_ids, action_ids = _inventory_view(game, session)
+        old_subview = session.inventory.choosing_action
         result = hit_test_inventory(
             logical_pos, session.inventory, object_ids, action_ids,
         )
+        if session.inventory.choosing_action is not old_subview:
+            session.inventory.hover = None
         if result is not None:
             apply_inventory_result(game, result)
         return True
@@ -555,6 +565,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None):
             return True
         if result.page_delta:
             turn_page(session.reading, result.page_delta, page_count)
+            session.reading.hover = None
             return True
         apply_reading_result(game, result)
         return True

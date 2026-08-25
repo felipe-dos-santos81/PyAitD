@@ -581,6 +581,89 @@ def test_mouse_reading_next_changes_page_without_resuming_life(data_dir, monkeyp
     assert game.mode is GameMode.READING
 
 
+def test_system_menu_subview_transitions_clear_keyboard_and_mouse_hover(data_dir):
+    effect = OpenSystemMenu()
+    game = init_game(data_dir)
+    game.open_modal(effect)
+    session = ModalSession()
+    session.reset_for(effect)
+    session.system_menu.cursor = 1
+    session.system_menu.hover = 2
+
+    assert route_command(game, session, Command.ACCEPT, InputBuffer())
+    assert (session.system_menu.page, session.system_menu.cursor) == (
+        SystemMenuPage.CONFIG, 0,
+    )
+    assert session.system_menu.hover is None
+
+    route_hover(game, session, SystemMenuLayout.CONFIG_ROWS[-1].center)
+    assert session.system_menu.hover == len(SystemMenuLayout.CONFIG_ROWS) - 1
+    assert route_mouse(
+        game, session, SystemMenuLayout.CONFIG_ROWS[-1].center, InputBuffer(),
+    )
+    assert (session.system_menu.page, session.system_menu.cursor) == (
+        SystemMenuPage.MAIN, 0,
+    )
+    assert session.system_menu.hover is None
+
+
+def test_inventory_subview_transitions_clear_keyboard_and_mouse_hover(
+    data_dir, monkeypatch,
+):
+    effect = OpenInventory()
+    game = init_game(data_dir)
+    game.open_modal(effect)
+    session = ModalSession()
+    session.reset_for(effect)
+    monkeypatch.setattr(
+        "PyAitD.__main__._inventory_view", lambda game, session: ((13, 38), (23, 24)),
+    )
+    session.inventory.hover = 1
+
+    assert route_command(game, session, Command.ACCEPT, InputBuffer())
+    assert (session.inventory.choosing_action, session.inventory.action_cursor) == (True, 0)
+    assert session.inventory.hover is None
+
+    session.inventory.choosing_action = False
+    route_hover(game, session, ModalLayout.INVENTORY_HIT_ROWS[1].center)
+    assert session.inventory.hover == 1
+    assert route_mouse(
+        game, session, ModalLayout.INVENTORY_HIT_ROWS[1].center, InputBuffer(),
+    )
+    assert (session.inventory.object_cursor, session.inventory.choosing_action,
+            session.inventory.action_cursor) == (1, True, 0)
+    assert session.inventory.hover is None
+
+
+def test_reading_page_transitions_clear_hover_and_disable_the_new_page_target(
+    data_dir, monkeypatch,
+):
+    effect = ReadText(1, 0)
+    game = init_game(data_dir)
+    game.open_modal(effect)
+    session = ModalSession()
+    session.reset_for(effect)
+    monkeypatch.setattr(
+        "PyAitD.ui.reading_pages", lambda effect, assets: (("one",), ("two",)),
+    )
+    next_page = ReadingResult(False, 1)
+    session.reading.hover = next_page
+
+    assert route_command(game, session, Command.RIGHT, InputBuffer())
+    assert session.reading.page == 1
+    assert session.reading.hover is None
+
+    session.reading.page = 0
+    route_hover(game, session, ModalLayout.READING_NEXT.center)
+    assert session.reading.hover == next_page
+    assert route_mouse(game, session, ModalLayout.READING_NEXT.center, InputBuffer())
+    assert session.reading.page == 1
+    assert session.reading.hover is None
+
+    route_hover(game, session, ModalLayout.READING_NEXT.center)
+    assert session.reading.hover is None
+
+
 def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch, tmp_path):
     # FITD flushes input on modal entry: one pump can queue two edges, but the
     # loop routes one per frame; the leftover must not be routed next frame

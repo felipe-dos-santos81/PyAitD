@@ -48,6 +48,28 @@ def test_effective_rects_partitions_geometric_neighbors_out_of_input_order():
     assert not hit[0].colliderect(hit[2])
 
 
+def test_effective_rects_horizontal_partition_preserves_clamped_far_edge():
+    bounds = pygame.Rect(0, 0, 20, 20)
+    hit = effective_rects(
+        (pygame.Rect(10, 5, 4, 4), pygame.Rect(16, 5, 4, 4)),
+        bounds=bounds,
+    )
+
+    assert all(bounds.contains(rect) for rect in hit)
+    assert hit[1].right == bounds.right
+
+
+def test_effective_rects_vertical_partition_preserves_clamped_far_edge():
+    bounds = pygame.Rect(0, 0, 20, 20)
+    hit = effective_rects(
+        (pygame.Rect(5, 10, 4, 4), pygame.Rect(5, 16, 4, 4)),
+        bounds=bounds,
+    )
+
+    assert all(bounds.contains(rect) for rect in hit)
+    assert hit[1].bottom == bounds.bottom
+
+
 def test_layout_hit_rows_leave_visible_rectangles_unchanged():
     assert PlayLayout.INVENTORY == pygame.Rect(4, 4, 28, 20)
     assert PlayLayout.INVENTORY_HIT == pygame.Rect(2, 2, 32, 24)
