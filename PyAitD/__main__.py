@@ -150,6 +150,25 @@ def _pointer_actor_targets(game, draw_list, hero_idx):
     ]
 
 
+def expand_actor_targets(targets, *, pad=2, minimum=12):
+    """Return forgiving logical rectangles without changing visible bounds."""
+    logical_frame = pygame.Rect(0, 0, 320, 200)
+    expanded = []
+    for actor_idx, box in targets:
+        if box is None:
+            continue
+        x0, y0, x1, y1 = box
+        target = pygame.Rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1)
+        target.inflate_ip(2 * pad, 2 * pad)
+        target.inflate_ip(
+            max(0, minimum - target.width),
+            max(0, minimum - target.height),
+        )
+        target.clamp_ip(logical_frame)
+        expanded.append((actor_idx, target))
+    return expanded
+
+
 def resolve_play_click(game, floor, logical_pos, draw_list):
     """Resolve inventory, attack, target, push, walk, or blocked plus its payload.
 
@@ -181,9 +200,10 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
 
     hero = game.actors[hero_idx]
     agent = agent_extent(hero)
-    actor_idx = pick_actor(
-        logical_pos, _pointer_actor_targets(game, draw_list, hero_idx),
-    )
+    targets = _pointer_actor_targets(game, draw_list, hero_idx)
+    actor_idx = pick_actor(logical_pos, targets)
+    if actor_idx is None:
+        actor_idx = pick_actor(logical_pos, expand_actor_targets(targets))
     if actor_idx is not None and is_combat_target(game, actor_idx):
         object_idx = game.in_hand_table[game.current_inventory]
         if combat_action_for(game, object_idx) is None:

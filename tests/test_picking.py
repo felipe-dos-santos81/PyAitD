@@ -106,6 +106,21 @@ def test_pick_actor_returns_the_topmost_hit():
     assert pick_actor((10, 10), draw_list) is None
 
 
+def test_expanded_actor_target_reaches_a_tiny_actor_s_minimum_size():
+    from PyAitD.__main__ import expand_actor_targets
+
+    # A four-pixel square must become a 12x12 logical target. The expectation
+    # is hand-derived: two pixels of padding make it 8x8, then the minimum
+    # grows it symmetrically by another two pixels on each side.
+    original = [(7, (100, 50, 103, 53))]
+    actor_idx, target = expand_actor_targets(original)[0]
+
+    assert actor_idx == 7
+    assert (target.left, target.top, target.width, target.height) == (96, 46, 12, 12)
+    assert pick_actor((96, 50), original) is None
+    assert pick_actor((96, 50), [(actor_idx, target)]) == 7
+
+
 def test_actor_bbox_padding_enlarges_the_target():
     result = _FakeResult([(100.0, 50.0, 900.0), (120.0, 80.0, 900.0)])
     x0, y0, x1, y1 = actor_bbox(result)

@@ -917,33 +917,76 @@ def test_combat_actor_resolves_attack_or_blocked_not_walk(data_dir):
     assert resolve_play_click(game, floor, point, draw_list) == ("attack", enemy_idx)
 
 
-def test_topmost_union_uses_one_pick_actor_call(data_dir, monkeypatch):
+def _expanded_target_candidates(game):
+    hero_idx = game.current_camera_target_actor
+    return [
+        i for i, actor in enumerate(game.actors)
+        if actor.index_in_world >= 0 and actor.body_num != -1 and i != hero_idx
+    ][:2]
+
+
+def test_expansion_only_overlap_keeps_the_frontmost_actor(data_dir):
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    candidates = _expanded_target_candidates(game)
+    for actor_idx in candidates:
+        game.actors[actor_idx].object_type |= AF_FOUNDABLE
+
+    # Neither original contains (105, 101), but both expanded targets do.
+    # Painter order is farthest first, so the later candidate is frontmost.
+    kind, payload = resolve_play_click(
+        game, floor, (105, 101),
+        [(candidates[0], (100, 100, 103, 103)),
+         (candidates[1], (107, 100, 110, 103))],
+    )
+    assert kind == "target"
+    assert payload[-1] == game.actors[candidates[1]].index_in_world
+
+
+def test_original_actor_hit_wins_over_a_frontmost_expanded_actor(data_dir):
+    from PyAitD.__main__ import expand_actor_targets
+    from PyAitD.picking import pick_actor
+
+    game = init_game(data_dir)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    candidates = _expanded_target_candidates(game)
+    for actor_idx in candidates:
+        game.actors[actor_idx].object_type |= AF_FOUNDABLE
+
+    # (105, 101) is inside candidate 0's visible box and only candidate 1's
+    # expanded box. Expansion must never steal an original-bound hit.
+    targets = [(candidates[0], (100, 100, 105, 105)),
+               (candidates[1], (108, 100, 111, 103))]
+    assert pick_actor((105, 101), expand_actor_targets(targets)) == candidates[1]
+    kind, payload = resolve_play_click(
+        game, floor, (105, 101), targets,
+    )
+    assert kind == "target"
+    assert payload[-1] == game.actors[candidates[0]].index_in_world
+
+
+def test_expanded_actor_target_wins_before_floor_walking(data_dir, monkeypatch):
     import PyAitD.picking as picking
 
     game = init_game(data_dir)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
-    hero_idx = game.current_camera_target_actor
-    candidates = [
-        i for i, actor in enumerate(game.actors)
-        if actor.index_in_world >= 0 and actor.body_num != -1 and i != hero_idx
-    ][:2]
-    game.actors[candidates[0]].object_type |= AF_FOUNDABLE
-    game.actors[candidates[1]].object_type |= AF_ANIMATED
-    _finish_take(game, 38)
-    game.in_hand_table[game.current_inventory] = 38
-    seen = []
+    actor_idx = _expanded_target_candidates(game)[0]
+    game.actors[actor_idx].object_type |= AF_FOUNDABLE
+    hero = game.actors[game.current_camera_target_actor]
     monkeypatch.setattr(
-        picking,
-        "pick_actor",
-        lambda point, entries: seen.append(tuple(entries)) or candidates[1],
+        picking, "pick_floor_any_room",
+        lambda *_args: (0, 0, hero.room),
     )
+
     kind, payload = resolve_play_click(
-        game, floor, (150, 100),
-        [(candidates[0], (0, 0, 10, 10)), (candidates[1], (0, 0, 10, 10))],
+        game, floor, (96, 101), [(actor_idx, (100, 100, 103, 103))],
     )
-    assert (kind, payload) == ("attack", candidates[1])
-    assert [idx for idx, _box in seen[0]] == candidates
+
+    assert kind == "target"
+    assert payload[-1] == game.actors[actor_idx].index_in_world
 
 
 def test_hud_click_opens_inventory_without_navigation(data_dir):

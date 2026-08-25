@@ -211,11 +211,19 @@ def actor_bbox(result, pad=ACTOR_PICK_PAD):
 
 
 def pick_actor(logical_pos, draw_list):
-    """Topmost interactable actor under the click. draw_list is painter order."""
+    """Topmost actor under the click; draw_list is farthest-first painter order.
+
+    Boxes may be the original inclusive (x0, y0, x1, y1) bounds or a
+    rectangle-like object with collidepoint(), keeping pygame at the caller.
+    """
     x, y = logical_pos
     for actor_idx, box in reversed(draw_list):
         if box is None:
             continue
-        if box[0] <= x <= box[2] and box[1] <= y <= box[3]:
+        if hasattr(box, "collidepoint"):
+            hit = box.collidepoint(logical_pos)
+        else:
+            hit = box[0] <= x <= box[2] and box[1] <= y <= box[3]
+        if hit:
             return actor_idx
     return None
