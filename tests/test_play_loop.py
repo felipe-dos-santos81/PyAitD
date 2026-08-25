@@ -1258,6 +1258,65 @@ def test_a_refused_attack_click_leaves_no_latch(data_dir):
     assert (state.mouse_attack_target, state.mouse_attack_ticks) == (None, 0)
 
 
+def _click_to_attack(data_dir):
+    """Drive one accepted target click and hand back its latched buffer."""
+    game = init_game(data_dir)
+    enter_combat_venue(game)
+    floor = Floor(data_dir, game.current_floor)
+    game.num_camera = game.new_num_camera
+    _finish_take(game, 38)
+    game.in_hand_table[game.current_inventory] = 38
+    enemy_idx = game.world_objects[222].obj_index
+    session = ModalSession()
+    state = InputBuffer()
+    route_play_click(
+        game, session, floor, (150, 100),
+        [(enemy_idx, (100, 60, 200, 160))], state,
+    )
+    assert state.mouse_attack_target == enemy_idx
+    return game, session, state
+
+
+def test_releasing_the_button_does_not_cancel_an_accepted_attack(data_dir):
+    # The accessibility contract is one click, not a hold: the swing must
+    # outlive the release that always follows the press a moment later.
+    import PyAitD.__main__ as main
+    from PyAitD.__main__ import pygame
+    from PyAitD.ui import event_to_input
+
+    game, _session, state = _click_to_attack(data_dir)
+    release = pygame.event.Event(pygame.MOUSEBUTTONUP, button=1, pos=(150, 100))
+
+    assert main._cancel_pointer_invalidation(game, release) is False
+    event_to_input(release, state, (150, 100))
+
+    assert state.mouse_attack_target is not None
+    assert state.pointer_held is False
+
+
+def test_modal_takeover_cannot_leave_an_attack_to_resume_later(data_dir):
+    # Opening the inventory mid-swing must not park the latch and re-publish
+    # action input when PLAY returns.
+    import PyAitD.__main__ as main
+
+    game, session, state = _click_to_attack(data_dir)
+
+    main._take_over_play_input(game, session, state)
+
+    assert (state.mouse_attack_target, state.mouse_attack_ticks) == (None, 0)
+
+
+def test_focus_loss_cannot_leave_an_attack_to_resume_later(data_dir):
+    from PyAitD.__main__ import pygame
+    from PyAitD.ui import event_to_input
+
+    _game, _session, state = _click_to_attack(data_dir)
+
+    event_to_input(pygame.event.Event(pygame.WINDOWFOCUSLOST), state)
+
+    assert (state.mouse_attack_target, state.mouse_attack_ticks) == (None, 0)
+
+
 def test_attack_click_keeps_priority_over_an_active_held_push(data_dir, monkeypatch):
     from PyAitD.interaction import apply_click_intent
 
