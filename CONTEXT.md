@@ -35,6 +35,7 @@ make prove-shell             # M4a1 proof: shell, configuration, mouse contract,
 | M3e | Mouse reachability: HUD inventory, clicked force-2 throw, exhaustive mouse contract | done |
 | M4a1 | Shell: character select, system menu, remappable controls, sticky Action, settings persistence, settings notice overlay | automated gates green (`make prove-shell`); windowed accessibility pass pending (`docs/m4a1-shell-proof.md`) |
 | Mouse hold-to-push | Held approach/engage for scripted movable furniture | automated gates green; windowed accessibility pass pending (`docs/mouse-hold-push-proof.md`) |
+| Mouse accessibility hardening | Effective targets, optional pure hover, physical/touch parity, target precedence, atomic modal takeover, exhaustive contract gate | done — automated gates green and user-attested windowed standard-mouse/macOS-Accessibility-Keyboard passes for Emily and Carnby (`docs/mouse-accessibility-hardening-proof.md`) |
 | M4 | Menus, audio, save/load, ending/completability | later |
 
 Design docs live in `docs/superpowers/specs/` and `docs/superpowers/plans/`
