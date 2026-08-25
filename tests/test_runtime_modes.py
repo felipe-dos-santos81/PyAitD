@@ -73,6 +73,39 @@ def test_render_active_mode_resets_a_replaced_system_menu_preview(monkeypatch):
     assert session.system_menu.hover is None
 
 
+def test_render_active_mode_returns_a_transparent_rgba_canvas_with_no_modal():
+    """render_active_mode's no-modal contract (task 9): the return value is
+    the RGBA UI canvas (overlay_messages(transparent_canvas(), ...)), not
+    the opaque scene_frame it used to paint messages onto directly. Asserted
+    on the actual returned array's shape/dtype/content, not a stubbed
+    presenter's return string, so a regression back to the old
+    overlay_messages(scene_frame, ...) call -- which would return a
+    3-channel opaque frame instead -- fails this test."""
+    game = SimpleNamespace(active_modal=None, messages=(), assets=object())
+    session = ModalSession()
+    scene_frame = np.full((200, 320, 3), 77, dtype=np.uint8)
+
+    result = render_active_mode(game, session, scene_frame)
+
+    assert result.shape == (200, 320, 4)
+    assert result.dtype == np.uint8
+    assert result.max() == 0  # no messages: transparent_canvas() untouched
+
+    pygame.font.init()
+
+    class _FakeAssets:
+        def system_text(self, _message_id):
+            return "hello"
+
+    game_with_message = SimpleNamespace(
+        active_modal=None, assets=_FakeAssets(),
+        messages=[SimpleNamespace(message_id=0)],
+    )
+    with_message = render_active_mode(game_with_message, session, scene_frame)
+    assert with_message.shape == (200, 320, 4)
+    assert with_message[:, :, 3].max() > 0  # the message glyph painted real alpha
+
+
 def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_mutation(
     data_dir, monkeypatch,
 ):
@@ -420,7 +453,10 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
 
     assert result is not None
     (new_game, new_floor, new_session, new_buffer, accumulator,
-     draw_list, hover, scene_frame, last, exit_status) = result
+     draw_list, hover, scene_frame, last, exit_status, new_resolver) = result
+    from PyAitD.asset_resolver import AssetResolver
+    assert isinstance(new_resolver, AssetResolver)
+    assert new_resolver._assets is new_game.assets
     assert init_calls == [(staging._data_dir, 1)]
     assert new_game is not staging
     assert new_game.trace is staging.trace
@@ -780,7 +816,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
             number=number, rooms=[SimpleNamespace(camera_indices=[0])],
         )
 
-    def scene_frame(current_game, _floor, _renderer):
+    def scene_frame(current_game, _floor, _renderer, *_args):
         if current_game.active_modal is not None:
             assert_takeover_clean("scene-frame")
         return frame, []

@@ -12,6 +12,7 @@ from PyAitD.render_gl import GLBackend
 from PyAitD.render_options import RenderOptions
 from PyAitD.render_soft import SoftwareBackend
 from PyAitD.scene import CameraView, FrameDescription
+from PyAitD.ui import transparent_canvas
 from PyAitD.world import CameraState
 
 
@@ -218,6 +219,87 @@ def test_present_orientation_matches_source_for_gl_and_cpu_paths(gl_ctx):
         finally:
             cpu_tex.release()
     finally:
+        vao_scene.release()
+        vbo_scene.release()
+        vao_ui.release()
+        vbo_ui.release()
+        prog.release()
+        target_fbo.release()
+        target_tex.release()
+
+
+def test_present_gl_path_blends_ui_canvas_alpha_over_the_scene(gl_ctx):
+    """Pins the property the deferred windowed smoke run was meant to eyeball
+    (task 9 review, finding: "a clear canvas leaves the scene pixel-exact, a
+    painted one blends"): present()'s GL path draws the scene quad first,
+    then the UI quad with SRC_ALPHA/ONE_MINUS_SRC_ALPHA blending on top
+    (render.py's present()). A fully transparent ui.transparent_canvas()
+    must leave the scene untouched pixel-for-pixel; a canvas with one
+    half-alpha pixel painted must blend only that pixel, leaving every other
+    pixel still scene-exact. Uses render.py's actual shaders/quads (not a
+    reimplementation), rendered into an offscreen FBO so the pygame window
+    (unbuildable under a headless SDL driver) is never needed."""
+    ctx = gl_ctx
+    prog = ctx.program(vertex_shader=render._VSH, fragment_shader=render._FSH)
+    x0, y0, x1, y1 = render.fit_quad(render.IMG_W, render.IMG_H, 1280, 800)
+    vbo_scene = ctx.buffer(render._quad_verts(x0, y0, x1, y1, flip_v=False).tobytes())
+    vao_scene = ctx.vertex_array(prog, [(vbo_scene, "2f 2f", "in_pos", "in_uv")])
+    vbo_ui = ctx.buffer(render._quad_verts(x0, y0, x1, y1, flip_v=True).tobytes())
+    vao_ui = ctx.vertex_array(prog, [(vbo_ui, "2f 2f", "in_pos", "in_uv")])
+
+    target_tex = ctx.texture((320, 200), 4)
+    target_fbo = ctx.framebuffer(color_attachments=[target_tex])
+    ui_tex = ctx.texture((render.IMG_W, render.IMG_H), 4)
+    ui_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+
+    def _read_topdown():
+        target_fbo.use()
+        data = np.frombuffer(target_tex.read(), dtype=np.uint8).reshape(200, 320, 4)
+        return data[::-1]  # GL readback is bottom-up; flip to top-down for assertions
+
+    def _present(ui_canvas):
+        # Mirrors Renderer.present()'s GL branch exactly: scene quad first
+        # (no blend), then the UI quad with the same blend func present()
+        # enables.
+        target_fbo.use()
+        ctx.viewport = (0, 0, 320, 200)
+        ctx.clear(0.0, 0.0, 0.0, 1.0)
+        backend.texture.use(location=0)
+        vao_scene.render()
+        ui_tex.write(render._rgba(ui_canvas).tobytes())
+        ctx.enable(moderngl.BLEND)
+        ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        ui_tex.use(location=0)
+        vao_ui.render()
+        ctx.disable(moderngl.BLEND)
+        return _read_topdown()
+
+    background = np.full((200, 320, 3), (100, 150, 200), np.uint8)
+    backend = GLBackend(ctx, RenderOptions(scale=1, shading="flat"))
+    try:
+        backend.draw(_minimal_gl_frame(background))
+
+        # A fully clear canvas must leave every scene pixel untouched.
+        clear_pixels = _present(transparent_canvas())
+        assert tuple(clear_pixels[100, 160, :3]) == (100, 150, 200)
+        assert tuple(clear_pixels[0, 0, :3]) == (100, 150, 200)
+        assert tuple(clear_pixels[199, 319, :3]) == (100, 150, 200)
+
+        # A canvas with one half-alpha pixel painted must blend only that
+        # pixel: out = src*a + dst*(1-a), a = 128/255 -- everywhere else
+        # must stay scene-exact.
+        canvas = transparent_canvas()
+        canvas[100, 160] = (255, 255, 255, 128)
+        blended_pixels = _present(canvas)
+        blended = blended_pixels[100, 160, :3].astype(np.int32)
+        expected = np.array([178, 203, 228])
+        assert np.abs(blended - expected).max() <= 5, blended
+        assert tuple(blended_pixels[100, 161, :3]) == (100, 150, 200)
+        assert tuple(blended_pixels[0, 0, :3]) == (100, 150, 200)
+        assert tuple(blended_pixels[199, 319, :3]) == (100, 150, 200)
+    finally:
+        backend.release()
+        ui_tex.release()
         vao_scene.release()
         vbo_scene.release()
         vao_ui.release()

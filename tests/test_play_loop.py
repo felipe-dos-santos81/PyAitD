@@ -344,29 +344,298 @@ def test_scene_frame_delegates_to_build_frame_and_compose_scene(monkeypatch):
     assert draw_list is sentinel_draw_list
 
 
-def test_scene_frame_defaults_resolver_to_an_asset_resolver_over_game_assets(monkeypatch):
+def test_scene_frame_requires_a_resolver_instead_of_silently_defaulting_one(monkeypatch):
+    """_scene_frame must never build its own AssetResolver(game.assets) as a
+    fallback: that would silently drop whatever override_dir the caller's
+    resolver was configured with. Every real call site (run()'s pre-loop and
+    per-frame calls, both branch functions) always has a resolver in hand and
+    passes it explicitly -- this pins that resolver stays a required
+    parameter, not a defaulted one, so a future edit can't reintroduce the
+    silent-degradation path."""
+    import inspect
+
     import PyAitD.__main__ as main
+
+    parameters = inspect.signature(main._scene_frame).parameters
+    assert parameters["resolver"].default is inspect.Parameter.empty
+
+    with pytest.raises(TypeError):
+        main._scene_frame(SimpleNamespace(), SimpleNamespace(), SimpleNamespace())
+
+
+import contextlib
+
+
+@contextlib.contextmanager
+def _pygame_runtime():
+    # A real Renderer calls pygame.init() before configure_session_input
+    # ever runs; every stub Renderer in this file skips that, and
+    # configure_session_input's key-binding validation still reaches
+    # pygame.key.key_code, which warns without it. Same helper as
+    # tests/test_shell_journeys.py's _pygame_runtime -- pygame.quit() also
+    # invalidates ui's module-level font cache, so that is dropped too.
+    import pygame
+
+    from PyAitD import ui
+    pygame.init()
+    try:
+        yield
+    finally:
+        pygame.quit()
+        ui._font.cache_clear()
+
+
+def _fake_game(tmp_path, **overrides):
+    """A minimal stand-in for a real Game, shaped exactly like the one
+    test_run_coalesces_catch_up_ticks_into_one_present_per_frame and
+    test_run_skips_scene_recompute_and_caption_on_transition_frames already
+    drive main.run() with -- reused here so the six run()-level behaviours
+    below (Renderer construction, fallback_notice propagation, resolver
+    default/threading) can each get a synthetic, no-game-data test that
+    actually drives the real run() loop."""
+    from PyAitD.effects import GameMode, InputMode
+
+    fields = dict(
+        _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,
+        num_camera=-1, new_num_camera=0, flag_init_view=0, current_room=0,
+        actors=[], active_modal=None, input_mode=InputMode.MOUSE,
+        restart_requested=False,
+        current_camera_target_actor=-1,
+        inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
+        current_inventory=0, status_screen_allowed=1, assets=object(),
+        messages=(),
+    )
+    fields.update(overrides)
+    return SimpleNamespace(**fields)
+
+
+def test_run_constructs_renderer_with_the_session_s_render_options(monkeypatch, tmp_path):
+    """run()'s Renderer(session.settings.render) call (task 9 review finding
+    2): every existing Renderer stub is `lambda *_a, **_k: ...`, so nothing
+    else asserts the options object actually reaches the constructor."""
+    import PyAitD.__main__ as main
+    from dataclasses import replace as dc_replace
+    from PyAitD.config import default_settings
+    from PyAitD.render_options import RenderOptions
+
+    render_options = RenderOptions(scale=6, shading="flat", background_filter="xbr")
+    settings = dc_replace(default_settings(), render=render_options)
+    session = ModalSession(settings=settings)
+
+    seen_options = []
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    event_batches = iter([[SimpleNamespace(type=main.pygame.QUIT)]])
+    times = iter([0, 0])
+
+    def spy_renderer(options):
+        seen_options.append(options)
+        return SimpleNamespace(
+            fallback_notice=None, present=lambda image: None, close=lambda: None,
+        )
+
+    monkeypatch.setattr(main, "Floor", lambda *a: SimpleNamespace(
+        number=0, rooms=[SimpleNamespace(camera_indices=[0])],
+    ))
+    monkeypatch.setattr(main, "Renderer", spy_renderer)
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda value: None)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *a: None))
+
+    with _pygame_runtime():
+        assert main.run(_fake_game(tmp_path), session=session) == 0
+    assert seen_options == [render_options]
+
+
+def test_run_propagates_renderer_fallback_notice_into_settings_error(monkeypatch, tmp_path):
+    """run()'s `if renderer.fallback_notice and session.settings_error is
+    None: session.settings_error = renderer.fallback_notice` (task 9 review
+    finding 2): every existing Renderer stub hardcodes fallback_notice=None,
+    so nothing exercises the propagation, or the "don't clobber an existing
+    error" guard on the same line."""
+    import PyAitD.__main__ as main
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+
+    def _run_once(session):
+        event_batches = iter([[SimpleNamespace(type=main.pygame.QUIT)]])
+        times = iter([0, 0])
+        monkeypatch.setattr(main, "Floor", lambda *a: SimpleNamespace(
+            number=0, rooms=[SimpleNamespace(camera_indices=[0])],
+        ))
+        monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+            fallback_notice="Enhanced rendering unavailable",
+            present=lambda image: None, close=lambda: None,
+        ))
+        monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
+        monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+        monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda value: None)
+        monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+        monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+        monkeypatch.setattr(main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *a: None))
+        with _pygame_runtime():
+            return main.run(_fake_game(tmp_path), session=session)
+
+    fresh_session = ModalSession()
+    assert fresh_session.settings_error is None
+    assert _run_once(fresh_session) == 0
+    assert fresh_session.settings_error == "Enhanced rendering unavailable"
+
+    session_with_error = ModalSession(settings_error="an existing error")
+    assert _run_once(session_with_error) == 0
+    assert session_with_error.settings_error == "an existing error"
+
+
+def test_run_builds_one_resolver_and_threads_it_through_scene_frame_calls(monkeypatch, tmp_path):
+    """run()'s `resolver = resolver or AssetResolver(game.assets,
+    session.settings.render.override_dir)` and its threading into every
+    _scene_frame call (task 9 review finding 2): exactly one AssetResolver
+    gets built for a run with no hero swap or restart, carrying the
+    session's override_dir, and the *same* instance reaches both the
+    pre-loop and the per-frame _scene_frame call."""
+    import PyAitD.__main__ as main
+    from dataclasses import replace as dc_replace
+    from PyAitD.config import default_settings
+    from PyAitD.render_options import RenderOptions
+
+    settings = dc_replace(
+        default_settings(), render=RenderOptions(override_dir="/tmp/custom-override"),
+    )
+    session = ModalSession(settings=settings)
+    game = _fake_game(tmp_path)
+
+    built = []
+
+    class SpyAssetResolver:
+        def __init__(self, assets, override_dir):
+            self.assets = assets
+            self.override_dir = override_dir
+            built.append(self)
+
+    seen_resolvers = []
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+
+    def spy_scene_frame(_g, _f, _r, resolver):
+        seen_resolvers.append(resolver)
+        return frame, []
+
+    event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])
+    times = iter([0, 20, 20])
+
+    monkeypatch.setattr(main, "Floor", lambda *a: SimpleNamespace(
+        number=0, rooms=[SimpleNamespace(camera_indices=[0])],
+    ))
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None, present=lambda image: None, close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "AssetResolver", SpyAssetResolver)
+    monkeypatch.setattr(main, "_scene_frame", spy_scene_frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "play_tick", lambda *a: True)
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda value: None)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *a: None))
+
+    with _pygame_runtime():
+        assert main.run(game, session=session) == 0
+    assert len(built) == 1
+    assert built[0].assets is game.assets
+    assert built[0].override_dir == "/tmp/custom-override"
+    assert len(seen_resolvers) >= 2  # the pre-loop call and at least one per-frame call
+    assert all(resolver is built[0] for resolver in seen_resolvers)
+
+
+def test_resolver_for_wraps_new_assets_with_the_given_override_dir():
+    """_resolver_for (task 9 review finding 2): a brand-new helper with no
+    test at all before this. Pins that it wraps the *given* assets object
+    with the *given* override_dir string -- nothing more, no reach into
+    another resolver's private state (the review's ruling against the old
+    `getattr(resolver, "_override_dir", None)` design)."""
+    import PyAitD.__main__ as main
+    from pathlib import Path
     from PyAitD.asset_resolver import AssetResolver
 
-    game = SimpleNamespace(assets="assets-marker")
-    floor = SimpleNamespace()
-    seen_resolvers = []
+    resolver = main._resolver_for("assets-marker", "/custom/override")
+    assert isinstance(resolver, AssetResolver)
+    assert resolver._assets == "assets-marker"
+    assert resolver._override_dir == Path("/custom/override")
 
-    def fake_build_frame(_game, _floor, passed_resolver):
-        seen_resolvers.append(passed_resolver)
-        return SimpleNamespace(), []
+    none_resolver = main._resolver_for("assets-marker", None)
+    assert none_resolver._override_dir is None
 
-    monkeypatch.setattr(main, "build_frame", fake_build_frame)
 
-    class FakeRenderer:
-        def compose_scene(self, frame):
-            return frame
+def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeypatch):
+    """The override-survives-a-hero-swap behaviour _resolver_for exists for
+    (task 9 review finding 2): _hero_branch must build the new game's
+    resolver from session.settings.render.override_dir, not silently drop
+    it. No game data needed -- init_game/Floor/_take_over_play_input/
+    _scene_frame are all stubbed so only the resolver-building line is
+    exercised for real."""
+    import PyAitD.__main__ as main
+    from dataclasses import replace as dc_replace
+    from PyAitD.asset_resolver import AssetResolver
+    from PyAitD.config import default_settings
+    from PyAitD.render_options import RenderOptions
+    from pathlib import Path
 
-    main._scene_frame(game, floor, FakeRenderer())
+    new_game = SimpleNamespace(
+        _data_dir="ignored", current_floor=0, trace=None, new_num_camera=0,
+        assets="new-assets-marker",
+    )
+    monkeypatch.setattr(main, "init_game", lambda data, hero: new_game)
+    monkeypatch.setattr(main, "Floor", lambda *a: SimpleNamespace(number=0))
+    monkeypatch.setattr(main, "_take_over_play_input", lambda *a: None)
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (None, []))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
 
-    assert len(seen_resolvers) == 1
-    assert isinstance(seen_resolvers[0], AssetResolver)
-    assert seen_resolvers[0]._assets == "assets-marker"
+    settings = dc_replace(default_settings(), render=RenderOptions(override_dir="/custom/dir"))
+    session = ModalSession(settings=settings)
+    session.pending_hero = 1
+    old_game = SimpleNamespace(_data_dir="ignored", trace=None)
+
+    with _pygame_runtime():
+        result = main._hero_branch(old_game, SimpleNamespace(), session, InputBuffer())
+
+    new_resolver = result[-1]
+    assert isinstance(new_resolver, AssetResolver)
+    assert new_resolver._assets == "new-assets-marker"
+    assert new_resolver._override_dir == Path("/custom/dir")
+
+
+def test_restart_branch_builds_its_resolver_from_the_session_s_override_dir(monkeypatch):
+    """Same override-survives-a-restart behaviour as the hero-swap test
+    above, for _restart_branch."""
+    import PyAitD.__main__ as main
+    from dataclasses import replace as dc_replace
+    from PyAitD.asset_resolver import AssetResolver
+    from PyAitD.config import default_settings
+    from PyAitD.render_options import RenderOptions
+    from pathlib import Path
+
+    new_game = SimpleNamespace(
+        _data_dir="ignored", current_floor=0, new_num_camera=0,
+        assets="restarted-assets-marker",
+    )
+    monkeypatch.setattr(main, "restart_session", lambda game: new_game)
+    monkeypatch.setattr(main, "Floor", lambda *a: SimpleNamespace(number=0))
+    monkeypatch.setattr(main, "_take_over_play_input", lambda *a: None)
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (None, []))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
+
+    settings = dc_replace(default_settings(), render=RenderOptions(override_dir="/another/dir"))
+    session = ModalSession(settings=settings)
+    old_game = SimpleNamespace(restart_requested=True)
+
+    with _pygame_runtime():
+        result = main._restart_branch(old_game, SimpleNamespace(), session, InputBuffer())
+
+    new_resolver = result[-1]
+    assert isinstance(new_resolver, AssetResolver)
+    assert new_resolver._assets == "restarted-assets-marker"
+    assert new_resolver._override_dir == Path("/another/dir")
 
 
 class _FakeAssets:

@@ -91,21 +91,24 @@ def replacement_session(session):
     )
 
 
-def _scene_frame(game, floor, renderer, resolver=None):
+def _scene_frame(game, floor, renderer, resolver):
     # mainLoop.cpp:270 AllRedraw through the scene layer: build_frame keeps the
     # logical draw_list; the renderer draws the enhanced frame and returns the
-    # 320x200 thumbnail that presenters and the software path use.
-    resolver = resolver or AssetResolver(game.assets)
+    # 320x200 thumbnail that presenters and the software path use. `resolver`
+    # is required, not defaulted: a silent `AssetResolver(game.assets)`
+    # fallback here would drop the override directory with no error, the same
+    # silent-degradation failure mode `_resolver_for` exists to avoid below.
     frame, draw_list = build_frame(game, floor, resolver)
     return renderer.compose_scene(frame), draw_list
 
 
-def _resolver_for(assets, override_dir_source):
+def _resolver_for(assets, override_dir):
     # A hero swap or restart replaces `game` (and so `game.assets`): the old
     # resolver's cache is keyed off the old assets object and must not be
     # reused, but the override directory it was configured with still
-    # applies to the new game.
-    override_dir = getattr(override_dir_source, "_override_dir", None)
+    # applies to the new game. `override_dir` is the public
+    # `session.settings.render.override_dir` value -- never read off another
+    # resolver's private state.
     return AssetResolver(assets, override_dir)
 
 
@@ -709,11 +712,14 @@ def restart_session(old_game):
     return new_game
 
 
-def _hero_branch(game, renderer, session, input_buffer=None, resolver=None):
+def _hero_branch(game, renderer, session, input_buffer=None):
     # Atomic hero replacement: confirming a character rebuilds game, floor,
     # session, and input buffer in one tuple, so run() resumes on the new
     # game with a single assignment plus `continue` -- no PLAY tick and no
-    # stale present can slip through for the staging game.
+    # stale present can slip through for the staging game. The resolver this
+    # branch builds for its own _scene_frame call is returned too, so run()
+    # can adopt it for later frames instead of building a second one over
+    # the same new_game.assets.
     if session.pending_hero is None:
         return None
     _take_over_play_input(game, session, input_buffer)
@@ -722,27 +728,27 @@ def _hero_branch(game, renderer, session, input_buffer=None, resolver=None):
         new_floor = Floor(new_game._data_dir, new_game.current_floor)
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        return (None, None, None, None, 0, [], None, None, None, 2)
+        return (None, None, None, None, 0, [], None, None, None, 2, None)
     new_game.trace = game.trace
     new_session = replacement_session(session)
     input_buffer = InputBuffer()
     configure_session_input(new_session, input_buffer)
     new_game.num_camera = new_game.new_num_camera
     new_game.flag_init_view = 0
-    scene_frame, draw_list = _scene_frame(
-        new_game, new_floor, renderer, _resolver_for(new_game.assets, resolver),
-    )
+    new_resolver = _resolver_for(new_game.assets, session.settings.render.override_dir)
+    scene_frame, draw_list = _scene_frame(new_game, new_floor, renderer, new_resolver)
     return (
         new_game, new_floor, new_session, input_buffer, 0,
-        draw_list, None, scene_frame, pygame.time.get_ticks(), 0,
+        draw_list, None, scene_frame, pygame.time.get_ticks(), 0, new_resolver,
     )
 
 
-def _restart_branch(game, renderer, session, input_buffer=None, resolver=None):
+def _restart_branch(game, renderer, session, input_buffer=None):
     # The atomic replace-game-and-floor step run() inlines each frame: a
     # successful restart hands back every loop local that referenced the old
     # game, so a single tuple assignment plus `continue` is enough to resume
     # the loop on the new session without a stray tick or a stale present.
+    # Same resolver-reuse note as _hero_branch above.
     if not game.restart_requested:
         return None
     _take_over_play_input(game, session, input_buffer)
@@ -751,7 +757,8 @@ def _restart_branch(game, renderer, session, input_buffer=None, resolver=None):
         new_floor = Floor(new_game._data_dir, new_game.current_floor)
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        return (None, None, None, None, 0, [], None, None, None, 2)
+        return (None, None, None, None, 0, [], None, None, None, 2, None)
+    override_dir = session.settings.render.override_dir
     game = new_game
     floor = new_floor
     session = replacement_session(session)
@@ -762,13 +769,12 @@ def _restart_branch(game, renderer, session, input_buffer=None, resolver=None):
     hover = None
     game.num_camera = game.new_num_camera
     game.flag_init_view = 0
-    scene_frame, draw_list = _scene_frame(
-        game, floor, renderer, _resolver_for(game.assets, resolver),
-    )
+    new_resolver = _resolver_for(game.assets, override_dir)
+    scene_frame, draw_list = _scene_frame(game, floor, renderer, new_resolver)
     last = pygame.time.get_ticks()
     return (
         game, floor, session, input_buffer, accumulator,
-        draw_list, hover, scene_frame, last, 0,
+        draw_list, hover, scene_frame, last, 0, new_resolver,
     )
 
 
@@ -798,6 +804,11 @@ def run(game, trace_path=None, session=None, resolver=None):
         game.flag_init_view = 0
     draw_list = []
     hover = None
+    # Unconditional: this is what makes the very first present() well-defined.
+    # The GL backend's texture (render_gl.py) and the software backend's
+    # cached thumbnail both start undrawn, and present() has no "never drawn"
+    # guard -- compose_scene must run at least once before the loop's first
+    # present(), even on a frame where game.num_camera stays -1 below.
     scene_frame, draw_list = _scene_frame(game, floor, renderer, resolver)
     hit_feedback_deadlines = {
         actor_idx: last + HIT_FEEDBACK_MS for actor_idx in _hit_actor_ids(game)
@@ -855,23 +866,23 @@ def run(game, trace_path=None, session=None, resolver=None):
                 session.settings_error = None
             else:
                 running = route_command(game, session, command, input_buffer) and running
-        replaced = _hero_branch(game, renderer, session, input_buffer, resolver)
+        replaced = _hero_branch(game, renderer, session, input_buffer)
         if replaced is None:
-            replaced = _restart_branch(game, renderer, session, input_buffer, resolver)
+            replaced = _restart_branch(game, renderer, session, input_buffer)
         if replaced is not None:
             (
                 new_game, new_floor, new_session, new_input_buffer,
                 new_accumulator, new_draw_list, new_hover, new_scene_frame,
-                new_last, exit_status,
+                new_last, exit_status, new_resolver,
             ) = replaced
             if exit_status:
                 running = False
                 break
-            # The branch above already rebuilt its own resolver for the
-            # scene_frame it produced; run()'s resolver has to follow the
-            # same replacement so every later frame resolves against the new
-            # game's assets too, not the outgoing game's.
-            resolver = _resolver_for(new_game.assets, resolver)
+            # The branch above already built the one resolver this
+            # replacement needs (for the scene_frame it produced); adopt the
+            # same object here instead of building a second one over the same
+            # new_game.assets, so later frames keep its override-PNG cache.
+            resolver = new_resolver
             game, floor, session, input_buffer = (
                 new_game, new_floor, new_session, new_input_buffer,
             )
