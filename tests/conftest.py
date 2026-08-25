@@ -17,3 +17,14 @@ def data_dir():
     if not path.is_dir():
         pytest.skip(f"game data not found at {path}")
     return path
+
+
+@pytest.fixture
+def gl_ctx():
+    moderngl = pytest.importorskip("moderngl")
+    try:
+        ctx = moderngl.create_standalone_context(require=330)
+    except Exception as exc:  # no GL on this host/CI
+        pytest.skip(f"no standalone GL 3.3 context: {exc}")
+    yield ctx
+    ctx.release()
