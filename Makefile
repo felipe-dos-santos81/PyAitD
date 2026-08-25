@@ -9,7 +9,7 @@ PIP = $(VENV_DIR)/bin/pip
 floor ?=
 data ?= Alone in the Dark 1.app/Contents/Resources/game/INDARK
 
-.PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics clean
+.PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics export-backgrounds check-overrides clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -86,3 +86,7 @@ prove-combat: install ## M3c proof: venue, real enemy damage, player arms, game 
 
 prove-graphics: install ## Enhanced graphics proof: render attic + combat fixtures at scale 4 per shading mode to docs/graphics-proof/
 	$(PYTHON) tools/prove_graphics.py "$(data)"
+
+export-backgrounds: install ## Export every camera background + guide + manifest to out=DIR for external AI regeneration (floors="0-7", scale=4)
+	@test -n "$(out)" || { echo "usage: make export-backgrounds out=DIR [floors=0-7] [scale=4] [force=1]"; exit 2; }
+	$(PYTHON) tools/export_backgrounds.py "$(data)" --out "$(out)" --floors "$(or $(floors),0-7)" --guide-scale "$(or $(scale),4)" $(if $(force),--force)
