@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from collections import deque
+from copy import deepcopy
 import itertools
 from types import SimpleNamespace
 
@@ -9,7 +10,7 @@ import pytest
 
 from PyAitD.__main__ import (
     _capture_keydown, replacement_session, restart_session, route_command,
-    route_mouse,
+    route_hover, route_mouse,
 )
 from PyAitD.config import (
     REMAPPABLE_CONTROLS, Control, Settings, default_settings, load_settings,
@@ -23,9 +24,147 @@ from PyAitD.game import init_game
 from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter, Command,
-    InputBuffer, ModalLayout, ModalSession, SettingsNoticeLayout,
+    FoundResult, InputBuffer, ModalLayout, ModalSession, ReadingResult, SettingsNoticeLayout,
     SystemMenuLayout, SystemMenuPage, SystemMenuPresenter,
 )
+
+
+def _hover_game_snapshot(game):
+    return (
+        deepcopy(game.vars), deepcopy(game.cvars), deepcopy(game.actors),
+        deepcopy(game.world_objects), deepcopy(game.inventory_table),
+        deepcopy(game.inventory_count), deepcopy(game.life_stack),
+        game.active_modal, game.mode, deepcopy(game.nav_intent),
+    )
+
+
+def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_mutation(
+    data_dir, monkeypatch,
+):
+    from PyAitD.effects import OpenInventory, OpenSystemMenu, ReadText, ShowFound
+
+    game = init_game(data_dir)
+    session = ModalSession()
+
+    game.open_modal(ShowFound(13, False))
+    before = _hover_game_snapshot(game)
+    for target in (FoundResult.LEAVE, FoundResult.TAKE):
+        route_hover(game, session, {
+            FoundResult.LEAVE: ModalLayout.FOUND_LEAVE.center,
+            FoundResult.TAKE: ModalLayout.FOUND_TAKE.center,
+        }[target])
+        assert session.found.hover is target
+        assert session.found.choice is FoundResult.TAKE
+        assert _hover_game_snapshot(game) == before
+    route_hover(game, session, None)
+    assert session.found.hover is None
+
+    game.close_modal()
+    game.inventory_table[0][0] = 13
+    game.inventory_table[0][1] = 38
+    game.inventory_count[0] = 2
+    game.open_modal(OpenInventory())
+    monkeypatch.setattr(
+        "PyAitD.__main__._inventory_view", lambda game, session: ((13, 38), (23, 24)),
+    )
+    before = _hover_game_snapshot(game)
+    for row, target in enumerate((0, 1)):
+        route_hover(game, session, ModalLayout.INVENTORY_ROWS[row].center)
+        assert session.inventory.hover == target
+        assert (session.inventory.object_cursor, session.inventory.action_cursor,
+                session.inventory.choosing_action) == (0, 0, False)
+        assert session.found.hover is None
+        assert _hover_game_snapshot(game) == before
+    session.inventory.choosing_action = True
+    for row in range(2):
+        route_hover(game, session, ModalLayout.INVENTORY_ROWS[row].center)
+        assert session.inventory.hover == row
+        assert (session.inventory.object_cursor, session.inventory.action_cursor,
+                session.inventory.choosing_action) == (0, 0, True)
+        assert _hover_game_snapshot(game) == before
+
+    game.close_modal()
+    game.open_modal(ReadText(1, 0))
+    monkeypatch.setattr(
+        "PyAitD.ui.reading_pages", lambda effect, assets: (("one",), ("two",)),
+    )
+    before = _hover_game_snapshot(game)
+    for page, expected_reading in (
+        (0, ((ModalLayout.READING_NEXT.center, ReadingResult(False, 1)),
+             (ModalLayout.READING_CLOSE.center, ReadingResult(True)))),
+        (1, ((ModalLayout.READING_PREV.center, ReadingResult(False, -1)),
+        (ModalLayout.READING_CLOSE.center, ReadingResult(True)),
+        )),
+    ):
+        session.reading.page = page
+        for point, target in expected_reading:
+            route_hover(game, session, point)
+            assert session.reading.hover == target
+            assert session.reading.page == page
+            assert _hover_game_snapshot(game) == before
+
+    game.close_modal()
+    game.open_modal(ChooseCharacter())
+    before = _hover_game_snapshot(game)
+    for target, rect in enumerate(CharacterLayout.PORTRAITS):
+        route_hover(game, session, rect.center)
+        assert session.character.hover == target
+        assert (session.character.choice, session.character.phase) == (0, CharacterPhase.PORTRAITS)
+        assert _hover_game_snapshot(game) == before
+    session.character.phase = CharacterPhase.STORY
+    route_hover(game, session, (0, 0))
+    assert (session.character.hover, session.character.choice, session.character.phase) == (
+        0, 0, CharacterPhase.STORY,
+    )
+
+    game.close_modal()
+    game.open_modal(OpenSystemMenu())
+    before = _hover_game_snapshot(game)
+    for target, rect in enumerate(SystemMenuLayout.MAIN_ROWS):
+        route_hover(game, session, rect.center)
+        assert session.system_menu.hover == target
+        assert session.system_menu.cursor == 0
+        assert _hover_game_snapshot(game) == before
+    session.system_menu.page = SystemMenuPage.CONFIG
+    for target, rect in enumerate(SystemMenuLayout.CONFIG_ROWS):
+        route_hover(game, session, rect.center)
+        assert session.system_menu.hover == target
+        assert session.system_menu.cursor == 0
+        assert _hover_game_snapshot(game) == before
+    route_hover(game, session, (0, 0))
+    assert session.system_menu.hover is None
+
+
+def test_run_routes_motion_once_and_focus_loss_clears_the_modal_preview(data_dir, monkeypatch):
+    import PyAitD.__main__ as main
+    from PyAitD.effects import ShowFound
+
+    game = init_game(data_dir)
+    game.open_modal(ShowFound(13, False))
+    session = ModalSession()
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    positions, events = [], iter((
+        [pygame.event.Event(pygame.MOUSEMOTION, pos=ModalLayout.FOUND_TAKE.center)],
+        [pygame.event.Event(pygame.WINDOWFOCUSLOST)],
+        [pygame.event.Event(pygame.QUIT)],
+    ))
+    ticks = itertools.count(0, 20)
+    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+        window_to_logical=lambda pos: positions.append(pos) or pos,
+        present=lambda image: None,
+        close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(events))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(ticks))
+    monkeypatch.setattr(main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None))
+    monkeypatch.setattr(main.pygame.display, "set_caption", lambda *args: None)
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda *args: None)
+
+    assert main.run(game, session=session) == 0
+    assert positions == [ModalLayout.FOUND_TAKE.center]
+    assert session.found.hover is None
 
 
 def _left_click(pos):
@@ -198,6 +337,8 @@ def test_replacement_session_carries_only_application_settings(tmp_path):
     old = ModalSession(settings=settings, settings_path=tmp_path / "settings.json",
                        settings_error="named error", settings_dirty=True)
     old.character.choice = 1
+    old.character.hover = 0
+    old.system_menu.hover = 2
     new = replacement_session(old)
     assert (new.settings, new.settings_path, new.settings_error, new.settings_dirty) == (
         settings, old.settings_path, "named error", True,

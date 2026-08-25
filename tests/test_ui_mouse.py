@@ -89,6 +89,20 @@ def test_inventory_mouse_rows_follow_five_row_scroll_window():
     assert presenter.choosing_action is True
 
 
+def test_inventory_preview_hit_test_uses_the_activation_rows_without_mutation():
+    presenter = InventoryPresenter(object_cursor=5)
+    object_ids = (10, 11, 12, 13, 14, 15)
+
+    assert hit_test_inventory(
+        ModalLayout.INVENTORY_HIT_ROWS[0].center,
+        presenter,
+        object_ids,
+        (23,),
+        preview=True,
+    ) == 1
+    assert (presenter.object_cursor, presenter.action_cursor, presenter.choosing_action) == (5, 0, False)
+
+
 def test_reading_hit_tests_respect_page_bounds():
     assert hit_test_reading(ModalLayout.READING_CLOSE.center, 0, 1) == ReadingResult(True)
     assert hit_test_reading(ModalLayout.READING_PREV.center, 0, 2) is None

@@ -10,11 +10,12 @@ from PyAitD.game import init_game
 from PyAitD.text import BookToken
 from PyAitD.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
-    FoundPresenter, ReadingPresenter, SystemMenuPage, SystemMenuPresenter,
+    FoundPresenter, FoundResult, InventoryPresenter, ReadingPresenter,
+    SystemMenuPage, SystemMenuPresenter,
     draw_big_cadre, layout_book,
     overlay_messages, render_character_select, render_cursor, render_found,
     render_game_over, render_picture, render_play_hud, render_reading,
-    render_settings_notice, render_system_menu,
+    render_inventory, render_settings_notice, render_system_menu,
 )
 
 
@@ -123,6 +124,47 @@ def test_character_portraits_restore_art_inside_fitd_cadre(data_dir):
     assert np.array_equal(frame[left.top:left.bottom, left.left:left.right],
                           base[left.top:left.bottom, left.left:left.right])
     assert not np.array_equal(frame, base)
+
+
+def test_hover_preview_overrides_keyboard_selection_without_changing_it(data_dir):
+    assets = Assets(data_dir)
+    scene = np.zeros((200, 320, 3), dtype=np.uint8)
+
+    found = FoundPresenter(choice=FoundResult.TAKE, hover=FoundResult.LEAVE)
+    assert not np.array_equal(
+        render_found(ShowFound(13, False), found, assets, "Lamp"),
+        render_found(ShowFound(13, False), FoundPresenter(choice=FoundResult.TAKE), assets, "Lamp"),
+    )
+    assert found.choice is FoundResult.TAKE
+
+    inventory = InventoryPresenter(object_cursor=0, hover=1)
+    assert not np.array_equal(
+        render_inventory(inventory, assets, scene, ("Lamp", "Key"), ("Use",)),
+        render_inventory(InventoryPresenter(object_cursor=0), assets, scene, ("Lamp", "Key"), ("Use",)),
+    )
+    assert inventory.object_cursor == 0
+
+    character = CharacterSelectPresenter(choice=0, hover=1)
+    assert not np.array_equal(
+        render_character_select(character, assets),
+        render_character_select(CharacterSelectPresenter(choice=0), assets),
+    )
+    assert character.choice == 0
+
+    menu = SystemMenuPresenter(cursor=0, hover=1)
+    assert not np.array_equal(
+        render_system_menu(menu, default_settings(), assets),
+        render_system_menu(SystemMenuPresenter(cursor=0), default_settings(), assets),
+    )
+    assert menu.cursor == 0
+
+    assets.book_pages[0] = (("one",), ("two",))
+    reading = ReadingPresenter(page=0, hover=ReadingResult(False, 1))
+    assert not np.array_equal(
+        render_reading(ReadText(1, 0), reading, assets),
+        render_reading(ReadText(1, 0), ReadingPresenter(page=0), assets),
+    )
+    assert reading.page == 0
 
 
 @pytest.mark.parametrize(

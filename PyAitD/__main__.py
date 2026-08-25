@@ -536,6 +536,50 @@ def route_mouse(game, session, logical_pos, input_buffer=None):
     raise RuntimeError(f"unroutable modal {type(effect).__name__}")
 
 
+def route_hover(game, session, logical_pos):
+    """Update only the active modal presenter's mouse preview."""
+    from PyAitD.effects import (
+        ChooseCharacter, OpenInventory, OpenSystemMenu, ReadText, ShowFound,
+    )
+    from PyAitD.ui import (
+        hit_test_character, hit_test_found, hit_test_inventory, hit_test_reading,
+        hit_test_system_menu, reading_pages,
+    )
+
+    effect = game.active_modal
+    if effect is None:
+        return
+    # Modal replacement owns presenter replacement.  This is idempotent for
+    # normal motion, and ensures a preview can never leak into a new modal.
+    session.reset_for(effect)
+    if isinstance(effect, ShowFound):
+        session.found.hover = hit_test_found(logical_pos) if logical_pos is not None else None
+    elif isinstance(effect, OpenInventory):
+        if logical_pos is None:
+            session.inventory.hover = None
+        else:
+            object_ids, action_ids = _inventory_view(game, session)
+            session.inventory.hover = hit_test_inventory(
+                logical_pos, session.inventory, object_ids, action_ids, preview=True,
+            )
+    elif isinstance(effect, ReadText):
+        session.reading.hover = (
+            hit_test_reading(
+                logical_pos, session.reading.page, len(reading_pages(effect, game.assets)),
+            ) if logical_pos is not None else None
+        )
+    elif isinstance(effect, ChooseCharacter):
+        session.character.hover = (
+            hit_test_character(logical_pos, session.character)
+            if logical_pos is not None else None
+        )
+    elif isinstance(effect, OpenSystemMenu):
+        session.system_menu.hover = (
+            hit_test_system_menu(logical_pos, session.system_menu)
+            if logical_pos is not None else None
+        )
+
+
 def _auto_dismiss_picture(game, session):
     from PyAitD.effects import ShowPicture
     from PyAitD.interaction import apply_reading_result
@@ -706,6 +750,12 @@ def run(game, trace_path=None, session=None):
             _cancel_pointer_invalidation(game, event)
             if event.type == pygame.MOUSEMOTION:
                 hover = renderer.window_to_logical(event.pos)
+                if game.active_modal is not None:
+                    route_hover(game, session, hover)
+            elif event.type == pygame.WINDOWFOCUSLOST:
+                hover = None
+                if game.active_modal is not None:
+                    route_hover(game, session, None)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 logical = renderer.window_to_logical(event.pos)
                 if (session.settings_error is not None and logical is not None

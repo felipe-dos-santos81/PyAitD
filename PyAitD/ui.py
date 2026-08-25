@@ -149,6 +149,7 @@ class FoundResult(Enum):
 @dataclass
 class FoundPresenter:
     choice: FoundResult = FoundResult.TAKE
+    hover: object | None = None
 
 
 @dataclass
@@ -156,6 +157,7 @@ class InventoryPresenter:
     object_cursor: int = 0
     action_cursor: int = 0
     choosing_action: bool = False
+    hover: object | None = None
 
 
 @dataclass(frozen=True)
@@ -168,6 +170,7 @@ class InventoryResult:
 @dataclass
 class ReadingPresenter:
     page: int = 0
+    hover: object | None = None
 
 
 @dataclass(frozen=True)
@@ -242,6 +245,7 @@ class CharacterPhase(Enum):
 class CharacterSelectPresenter:
     choice: int = 0
     phase: CharacterPhase = CharacterPhase.PORTRAITS
+    hover: object | None = None
 
 
 @dataclass(frozen=True)
@@ -260,6 +264,7 @@ class SystemMenuPresenter:
     page: SystemMenuPage = SystemMenuPage.MAIN
     cursor: int = 0
     capture: str | None = None
+    hover: object | None = None
 
 
 @dataclass(frozen=True)
@@ -594,8 +599,9 @@ def render_found(effect, presenter, assets, found_name):
     name = _font(18).render(found_name, True, (255, 255, 255))
     surface.blit(title, title.get_rect(center=(160, 34)))
     surface.blit(name, name.get_rect(center=(160, 78)))
-    _button(surface, ModalLayout.FOUND_LEAVE, assets.system_text(21), presenter.choice is FoundResult.LEAVE)
-    _button(surface, ModalLayout.FOUND_TAKE, assets.system_text(22), presenter.choice is FoundResult.TAKE)
+    choice = presenter.hover if presenter.hover is not None else presenter.choice
+    _button(surface, ModalLayout.FOUND_LEAVE, assets.system_text(21), choice is FoundResult.LEAVE)
+    _button(surface, ModalLayout.FOUND_TAKE, assets.system_text(22), choice is FoundResult.TAKE)
     if effect.forced_refuse:
         warning = _font(16).render(assets.system_text(10), True, (255, 192, 128))
         surface.blit(warning, warning.get_rect(center=(160, 126)))
@@ -667,9 +673,19 @@ def render_reading(effect, presenter, assets):
         x = 160 - glyph.get_width() // 2 if centered else 60
         surface.blit(glyph, (x, y))
         y += 16
-    _button(surface, ModalLayout.READING_PREV, "Previous", presenter.page > 0)
-    _button(surface, ModalLayout.READING_CLOSE, "Close", True)
-    _button(surface, ModalLayout.READING_NEXT, "Next", presenter.page + 1 < len(pages))
+    hover = presenter.hover
+    _button(
+        surface, ModalLayout.READING_PREV, "Previous",
+        hover == ReadingResult(False, -1) if hover is not None else presenter.page > 0,
+    )
+    _button(
+        surface, ModalLayout.READING_CLOSE, "Close",
+        hover == ReadingResult(True) if hover is not None else True,
+    )
+    _button(
+        surface, ModalLayout.READING_NEXT, "Next",
+        hover == ReadingResult(False, 1) if hover is not None else presenter.page + 1 < len(pages),
+    )
     return _to_frame(surface)
 
 
@@ -677,6 +693,7 @@ def render_inventory(presenter, assets, scene_frame, object_names, action_names)
     surface = _to_surface((scene_frame.astype("f4") * 0.45).astype(np.uint8))
     rows = action_names if presenter.choosing_action else object_names
     cursor = presenter.action_cursor if presenter.choosing_action else presenter.object_cursor
+    selection = presenter.hover if presenter.hover is not None else cursor
     start = visible_start(cursor, len(rows))
     title_id = 200 if presenter.choosing_action else 20
     title = _font(20).render(assets.system_text(title_id), True, (255, 238, 198))
@@ -685,7 +702,7 @@ def render_inventory(presenter, assets, scene_frame, object_names, action_names)
         index = start + visible
         if index >= len(rows):
             break
-        _button(surface, rect, rows[index], selected=index == cursor)
+        _button(surface, rect, rows[index], selected=index == selection)
     return _to_frame(surface)
 
 
@@ -695,9 +712,11 @@ def render_character_select(presenter, assets):
     # STORY copies the opposite half of resource 14 plus book text 20/21.
     base = assets.resource_screen(10)
     surface = _to_surface(base.copy())
-    center = ((80, 100), (240, 100))[presenter.choice]
+    choice = (presenter.hover if presenter.hover is not None
+              and presenter.phase is CharacterPhase.PORTRAITS else presenter.choice)
+    center = ((80, 100), (240, 100))[choice]
     draw_big_cadre(surface, assets.cadre_bank(), center, (160, 200))
-    portrait = CharacterLayout.PORTRAITS[presenter.choice]
+    portrait = CharacterLayout.PORTRAITS[choice]
     surface.blit(_to_surface(base[portrait.top:portrait.bottom,
                                   portrait.left:portrait.right]), portrait.topleft)
     if presenter.phase is CharacterPhase.PORTRAITS:
@@ -732,8 +751,9 @@ def render_system_menu(presenter, settings, assets):
         labels.append("Back to Menu")
         if presenter.capture is not None:
             labels[presenter.cursor] = f"{presenter.capture}: press a key..."
+    selection = presenter.hover if presenter.hover is not None else presenter.cursor
     for index, (rect, label) in enumerate(zip(SystemMenuLayout.rows(presenter.page), labels)):
-        _button(surface, rect, label, selected=index == presenter.cursor)
+        _button(surface, rect, label, selected=index == selection)
     return _to_frame(surface)
 
 
@@ -786,13 +806,15 @@ def hit_test_settings_notice(pos):
     return SettingsNoticeLayout.DISMISS_HIT.collidepoint(pos)
 
 
-def hit_test_inventory(pos, presenter, object_ids, action_ids):
+def hit_test_inventory(pos, presenter, object_ids, action_ids, *, preview=False):
     rows = action_ids if presenter.choosing_action else object_ids
     cursor = presenter.action_cursor if presenter.choosing_action else presenter.object_cursor
     start = visible_start(cursor, len(rows))
     for visible, rect in enumerate(ModalLayout.INVENTORY_HIT_ROWS):
         index = start + visible
         if index < len(rows) and rect.collidepoint(pos):
+            if preview:
+                return index
             if presenter.choosing_action:
                 presenter.action_cursor = index
                 return InventoryResult(object_ids[presenter.object_cursor], action_ids[index])
