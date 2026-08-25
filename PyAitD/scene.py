@@ -120,10 +120,10 @@ class FrameDescription:
 
 
 def mask_applies_to_actor(mask, actor_room, zv):
-    # Duplicated from render._mask_applies_to_actor (render.py:227), which
-    # still exists verbatim -- the scene layer can't import from render.py
-    # without pulling in pygame/moderngl. Keep the two copies in sync until
-    # task 9 rewires __main__ onto build_frame and render's copy is deleted.
+    # Task 8 deleted render.py's _mask_applies_to_actor; this is now the
+    # only copy of the rule. It stays in scene.py rather than moving to
+    # render.py because the scene layer can't import from render.py
+    # without pulling in pygame/moderngl.
     if zv is None or mask.viewed_room != actor_room:
         return False
     x1, x2 = int(zv[0] / 10), int(zv[1] / 10)

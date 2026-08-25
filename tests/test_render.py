@@ -1,14 +1,18 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import math
 
+import moderngl
 import numpy as np
 import pygame
 
 import PyAitD.render as render
+from PyAitD.asset_resolver import ImageAsset
 from PyAitD.render import Renderer, _rgba, composite_ui, fit_quad
 from PyAitD.render_gl import GLBackend
 from PyAitD.render_options import RenderOptions
 from PyAitD.render_soft import SoftwareBackend
+from PyAitD.scene import CameraView, FrameDescription
+from PyAitD.world import CameraState
 
 
 def test_fit_quad_exact_multiple():
@@ -141,3 +145,83 @@ def test_compose_scene_returns_backend_thumbnail(monkeypatch):
     assert result is expected
     assert result.shape == (200, 320, 3)
     assert renderer.backend.drawn == "frame"
+
+
+def _minimal_gl_frame(background):
+    palette = np.zeros((256, 3), np.uint8)
+    view = CameraView(CameraState(0, 0, 0, 0, 0, 0, 1000, 320, 320).angles())
+    return FrameDescription(view, ImageAsset(background, False), palette, (), ())
+
+
+def test_present_orientation_matches_source_for_gl_and_cpu_paths(gl_ctx):
+    """Pins the V-flip convention `present()` depends on for both texture
+    kinds it draws, using render.py's *actual* fit_quad/_quad_verts/_VSH/
+    _FSH -- not a reimplementation -- rendered into an offscreen target FBO
+    so the pygame window (unbuildable under a headless SDL driver) is never
+    needed. A GL-rendered FBO texture (bottom-up) and a CPU-uploaded
+    top-down texture need opposite flip_v values; a swapped/wrong flag on
+    either must fail this test loudly."""
+    ctx = gl_ctx
+    prog = ctx.program(vertex_shader=render._VSH, fragment_shader=render._FSH)
+    x0, y0, x1, y1 = render.fit_quad(render.IMG_W, render.IMG_H, 1280, 800)
+    vbo_scene = ctx.buffer(render._quad_verts(x0, y0, x1, y1, flip_v=False).tobytes())
+    vao_scene = ctx.vertex_array(prog, [(vbo_scene, "2f 2f", "in_pos", "in_uv")])
+    vbo_ui = ctx.buffer(render._quad_verts(x0, y0, x1, y1, flip_v=True).tobytes())
+    vao_ui = ctx.vertex_array(prog, [(vbo_ui, "2f 2f", "in_pos", "in_uv")])
+
+    target_tex = ctx.texture((320, 200), 4)
+    target_fbo = ctx.framebuffer(color_attachments=[target_tex])
+
+    def _read_topdown():
+        target_fbo.use()
+        data = np.frombuffer(target_tex.read(), dtype=np.uint8).reshape(200, 320, 4)
+        return data[::-1]  # GL readback is bottom-up; flip to top-down for assertions
+
+    try:
+        # --- GL-backed scene texture (bottom-up FBO texture): top row red,
+        # bottom row blue in source data -> must land top red / bottom blue
+        # on screen, which needs flip_v=False (_vao_scene's convention).
+        background = np.zeros((200, 320, 3), np.uint8)
+        background[0] = (255, 0, 0)
+        background[-1] = (0, 0, 255)
+        backend = GLBackend(ctx, RenderOptions(scale=1, shading="flat"))
+        try:
+            backend.draw(_minimal_gl_frame(background))
+            target_fbo.use()
+            ctx.viewport = (0, 0, 320, 200)
+            ctx.clear(0.0, 0.0, 0.0, 1.0)
+            backend.texture.use(location=0)
+            vao_scene.render()
+            pixels = _read_topdown()
+            assert tuple(pixels[0, 160, :3]) == (255, 0, 0), "top row should be red"
+            assert tuple(pixels[199, 160, :3]) == (0, 0, 255), "bottom row should be blue"
+        finally:
+            backend.release()
+
+        # --- CPU-uploaded top-down texture (the UI canvas / software-path
+        # composite): same source convention, needs flip_v=True (_vao_ui's).
+        cpu_tex = ctx.texture((320, 200), 4)
+        cpu_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        cpu_rgba = np.zeros((200, 320, 4), np.uint8)
+        cpu_rgba[0] = (255, 0, 0, 255)
+        cpu_rgba[-1] = (0, 0, 255, 255)
+        cpu_tex.write(np.ascontiguousarray(cpu_rgba).tobytes())
+        try:
+            target_fbo.use()
+            ctx.viewport = (0, 0, 320, 200)
+            ctx.clear(0.0, 0.0, 0.0, 1.0)
+            cpu_tex.use(location=0)
+            vao_ui.render()
+            pixels = _read_topdown()
+            assert tuple(pixels[0, 160, :3]) == (255, 0, 0), "top row should be red"
+            assert tuple(pixels[199, 160, :3]) == (0, 0, 255), "bottom row should be blue"
+        finally:
+            cpu_tex.release()
+    finally:
+        vao_scene.release()
+        vbo_scene.release()
+        vao_ui.release()
+        vbo_ui.release()
+        prog.release()
+        target_fbo.release()
+        target_tex.release()

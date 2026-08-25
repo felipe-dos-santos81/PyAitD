@@ -44,9 +44,11 @@ def fit_quad(img_w, img_h, win_w, win_h):
 
 
 def _quad_verts(x0, y0, x1, y1, flip_v):
-    # y flipped: image row 0 is the top of the screen. The GL scene texture
-    # is bottom-up (framebuffer convention); the UI/software-path texture is
-    # uploaded top-down, so the two need opposite V orientation.
+    # y flipped: image row 0 is the top of the screen. A GL-rendered FBO
+    # texture (the scene backend's `.texture`) is already bottom-up in GL's
+    # convention, so it needs no V flip (flip_v=False); a texture built by
+    # uploading a top-down numpy array (the UI canvas, or the software
+    # backend's composited frame) does need one (flip_v=True).
     v0, v1 = (1.0, 0.0) if flip_v else (0.0, 1.0)
     return np.array(
         [
@@ -99,17 +101,19 @@ class Renderer:
 
         x0, y0, x1, y1 = fit_quad(IMG_W, IMG_H, width, height)
         # Two VAOs, opposite UV flips: the GL backend's texture is bottom-up
-        # (framebuffer convention), the UI/software-path texture is top-down.
-        self._vbo_scene = self._ctx.buffer(_quad_verts(x0, y0, x1, y1, flip_v=True).tobytes())
+        # (framebuffer convention, so no V flip), the UI/software-path
+        # texture is uploaded top-down (needs a V flip).
+        self._vbo_scene = self._ctx.buffer(_quad_verts(x0, y0, x1, y1, flip_v=False).tobytes())
         self._vao_scene = self._ctx.vertex_array(
             self._prog, [(self._vbo_scene, "2f 2f", "in_pos", "in_uv")]
         )
-        self._vbo_ui = self._ctx.buffer(_quad_verts(x0, y0, x1, y1, flip_v=False).tobytes())
+        self._vbo_ui = self._ctx.buffer(_quad_verts(x0, y0, x1, y1, flip_v=True).tobytes())
         self._vao_ui = self._ctx.vertex_array(
             self._prog, [(self._vbo_ui, "2f 2f", "in_pos", "in_uv")]
         )
 
         self.fallback_notice = None
+        self._last_thumbnail = None
         self._select_backend(options or RenderOptions())
 
     def _select_backend(self, options):
@@ -131,7 +135,8 @@ class Renderer:
 
     def compose_scene(self, frame):
         self.backend.draw(frame)
-        return self.backend.thumbnail()
+        self._last_thumbnail = self.backend.thumbnail()
+        return self._last_thumbnail
 
     def present(self, ui_canvas):
         self._ctx.screen.use()
@@ -147,7 +152,8 @@ class Renderer:
             self._vao_ui.render()  # UI at 320x200, nearest, alpha
             self._ctx.disable(moderngl.BLEND)
         else:
-            composed = composite_ui(self.backend.thumbnail(), ui_canvas)
+            scene = self._last_thumbnail if self._last_thumbnail is not None else self.backend.thumbnail()
+            composed = composite_ui(scene, ui_canvas)
             self._scene_tex.write(np.ascontiguousarray(composed).tobytes())
             self._scene_tex.use(location=0)
             self._vao_ui.render()
