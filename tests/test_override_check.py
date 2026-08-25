@@ -18,12 +18,9 @@ def _write_png(path, rgb):
     pygame.image.save(surf, str(path))
 
 
-def _write_grey_png(path):
-    import pygame
+def _write_corrupt_png(path):
     path.parent.mkdir(parents=True, exist_ok=True)
-    surf = pygame.Surface((64, 40), depth=8)
-    surf.set_palette([(i, i, i) for i in range(256)])
-    pygame.image.save(surf, str(path))
+    path.write_bytes(b"not a png")
 
 
 def _floors(n):
@@ -42,8 +39,8 @@ def test_valid_multiple_yields_no_finding(tmp_path):
     assert oc.check_overrides(tmp_path, _floors(1)) == []
 
 
-def test_greyscale_png_is_invalid_with_resolver_detail(tmp_path):
-    _write_grey_png(override_background_path(tmp_path, 0, 0))
+def test_corrupt_png_is_invalid_with_resolver_detail(tmp_path):
+    _write_corrupt_png(override_background_path(tmp_path, 0, 0))
     f = oc.check_overrides(tmp_path, _floors(1))
     assert len(f) == 1 and f[0].kind == "invalid"
     # detail is whatever AssetResolver recorded -- acceptance parity
@@ -75,7 +72,7 @@ def test_small_or_non_multiple_is_size_info(tmp_path):
 
 
 def test_one_finding_per_camera_and_only_requested_floors(tmp_path):
-    _write_grey_png(override_background_path(tmp_path, 1, 0))
+    _write_corrupt_png(override_background_path(tmp_path, 1, 0))
     f = oc.check_overrides(tmp_path, _floors(2)[1:])
     assert [(x.floor, x.camera, x.kind) for x in f] == [(1, 0, "invalid")]
 
