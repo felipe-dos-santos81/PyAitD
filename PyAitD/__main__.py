@@ -3,6 +3,7 @@
 routing, one presentation per frame — freeze-proof replacement for FITD's
 nested blocking modal loops (mainLoop.cpp:41-281)."""
 import argparse
+from dataclasses import replace
 import pathlib
 import sys
 
@@ -19,6 +20,7 @@ from PyAitD.pak import PakError
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.playworld import TICK_MS, play_tick
 from PyAitD.render import Renderer
+from PyAitD.render_options import BACKGROUND_FILTERS, SHADING_MODES, validate_render_options
 from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
 from PyAitD.scene import build_frame
 from PyAitD.ui import (
@@ -57,7 +59,41 @@ def parse_args(argv):
         "--mouse-combat-fixture", action="store_true",
         help="start with the deterministic object-38 mouse combat proof fixture",
     )
+    p.add_argument(
+        "--render-scale", type=int, default=None,
+        help="internal resolution multiple of 320x200 (1-8)",
+    )
+    p.add_argument(
+        "--shading", choices=SHADING_MODES, default=None, help="actor shading mode",
+    )
+    p.add_argument(
+        "--background-filter", choices=BACKGROUND_FILTERS, default=None,
+        help="background upscale filter",
+    )
+    p.add_argument(
+        "--overrides", type=pathlib.Path, default=None, help="asset override directory",
+    )
     return p.parse_args(argv)
+
+
+def apply_render_overrides(settings, args):
+    """Session-only CLI overrides for settings.render: pure, never persisted.
+
+    Built via validate_render_options so an out-of-range --render-scale is
+    clamped the same way a settings-file value would be, rather than being
+    rejected or passed through unclamped.
+    """
+    payload = settings.render.to_payload()
+    if args.render_scale is not None:
+        payload["scale"] = args.render_scale
+    if args.shading is not None:
+        payload["shading"] = args.shading
+    if args.background_filter is not None:
+        payload["background_filter"] = args.background_filter
+    if args.overrides is not None:
+        payload["override_dir"] = str(args.overrides)
+    render, _error = validate_render_options(payload)
+    return replace(settings, render=render)
 
 
 def load_runtime_session(path):
@@ -993,6 +1029,9 @@ def main(argv=None):
         # replaces the staging game with the confirmed hero's game.
         game.open_modal(ChooseCharacter())
     session = load_runtime_session(settings_path())
+    # Session-only: this replaces session.settings in memory without touching
+    # settings_dirty, so the CLI overrides are never picked up by a later save.
+    session.settings = apply_render_overrides(session.settings, args)
     return run(game, args.trace, session=session)
 
 
