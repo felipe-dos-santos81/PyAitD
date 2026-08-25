@@ -26,6 +26,8 @@ class InputBuffer:
     held_joyd: int = 0
     action_held: bool = False
     pointer_held: bool = False
+    pointer_touch: bool = False
+    pointer_pos: tuple[int, int] | None = None
     focused: bool = True
     commands: deque = field(default_factory=deque)
     bindings: dict | None = None
@@ -75,6 +77,8 @@ def reset_input(state):
     state.held_joyd = 0
     state.action_held = False
     state.pointer_held = False
+    state.pointer_touch = False
+    state.pointer_pos = None
     state.sticky_armed = False
     state.action_pulse = False
     state.commands.clear()
@@ -86,7 +90,7 @@ def configure_input(state, settings):
     reset_input(state)
 
 
-def event_to_input(event, state):
+def event_to_input(event, state, logical_pos=None):
     if event.type == pygame.QUIT:
         return False
     if event.type == pygame.WINDOWFOCUSLOST:
@@ -96,11 +100,19 @@ def event_to_input(event, state):
     if event.type == pygame.WINDOWFOCUSGAINED:
         state.focused = True
         return True
+    if event.type == pygame.MOUSEMOTION:
+        state.pointer_touch = bool(getattr(event, "touch", False))
+        state.pointer_pos = logical_pos
+        return True
     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
         state.pointer_held = True
+        state.pointer_touch = bool(getattr(event, "touch", False))
+        state.pointer_pos = logical_pos
         return True
     if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
         state.pointer_held = False
+        state.pointer_touch = False
+        state.pointer_pos = None
         return True
     # bindings=None keeps the pre-settings defaults and never touches
     # pygame.key before initialization; a compiled table is used as-is, even

@@ -37,15 +37,38 @@ def test_keyup_and_focus_loss_release_controls_without_new_command():
     assert list(state.commands) == []
 
 
-def test_primary_pointer_down_up_and_focus_loss_are_held_state():
+@pytest.mark.parametrize("touch", (False, True), ids=("physical", "touch-origin"))
+def test_primary_pointer_events_preserve_provenance_only_while_held(touch):
     state = InputBuffer()
-    event_to_input(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1), state)
-    assert state.pointer_held is True
-    event_to_input(pygame.event.Event(pygame.MOUSEBUTTONUP, button=1), state)
-    assert state.pointer_held is False
-    state.pointer_held = True
+    event_to_input(
+        pygame.event.Event(pygame.MOUSEMOTION, touch=touch), state, (12, 34),
+    )
+    assert (state.pointer_held, state.pointer_touch, state.pointer_pos) == (
+        False, touch, (12, 34),
+    )
+    event_to_input(
+        pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, touch=touch),
+        state,
+        (56, 78),
+    )
+    assert (state.pointer_held, state.pointer_touch, state.pointer_pos) == (
+        True, touch, (56, 78),
+    )
+    event_to_input(
+        pygame.event.Event(pygame.MOUSEBUTTONUP, button=1, touch=touch), state,
+    )
+    assert (state.pointer_held, state.pointer_touch, state.pointer_pos) == (
+        False, False, None,
+    )
+    event_to_input(
+        pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, touch=touch),
+        state,
+        (90, 12),
+    )
     event_to_input(pygame.event.Event(pygame.WINDOWFOCUSLOST), state)
-    assert state.pointer_held is False
+    assert (state.pointer_held, state.pointer_touch, state.pointer_pos) == (
+        False, False, None,
+    )
 
 
 def test_inventory_shortcuts_are_single_edges():

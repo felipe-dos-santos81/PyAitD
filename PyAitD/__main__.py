@@ -743,10 +743,13 @@ def run(game, trace_path=None, session=None):
             if captured:
                 running = capture_running and running
                 continue
-            running = event_to_input(event, input_buffer) and running
+            logical_pos = None
+            if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
+                logical_pos = renderer.window_to_logical(event.pos)
+            running = event_to_input(event, input_buffer, logical_pos) and running
             _cancel_pointer_invalidation(game, event)
             if event.type == pygame.MOUSEMOTION:
-                hover = renderer.window_to_logical(event.pos)
+                hover = input_buffer.pointer_pos
                 if game.active_modal is not None:
                     route_hover(game, session, hover)
             elif event.type == pygame.WINDOWFOCUSLOST:
@@ -754,7 +757,7 @@ def run(game, trace_path=None, session=None):
                 if game.active_modal is not None:
                     route_hover(game, session, None)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                logical = renderer.window_to_logical(event.pos)
+                logical = input_buffer.pointer_pos
                 if (session.settings_error is not None and logical is not None
                         and hit_test_settings_notice(logical)):
                     # the notice's Dismiss gets first refusal: the click clears

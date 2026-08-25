@@ -483,8 +483,9 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     assert seen == [(None, *expected_input)]
 
 
-def test_run_ignores_a_second_world_down_while_the_push_is_still_held(
-        data_dir, monkeypatch,
+@pytest.mark.parametrize("touch", (False, True), ids=("physical", "touch-origin"))
+def test_run_routes_physical_and_touch_down_through_the_same_held_push_path(
+        data_dir, monkeypatch, touch,
 ):
     import PyAitD.__main__ as main
     from PyAitD.interaction import is_hold_action_target
@@ -501,10 +502,10 @@ def test_run_ignores_a_second_world_down_while_the_push_is_still_held(
     event_batches = iter([
         [
             main.pygame.event.Event(
-                main.pygame.MOUSEBUTTONDOWN, button=1, pos=(150, 100),
+                main.pygame.MOUSEBUTTONDOWN, button=1, pos=(150, 100), touch=touch,
             ),
             main.pygame.event.Event(
-                main.pygame.MOUSEBUTTONDOWN, button=1, pos=(250, 100),
+                main.pygame.MOUSEBUTTONDOWN, button=1, pos=(250, 100), touch=touch,
             ),
         ],
         [main.pygame.event.Event(main.pygame.QUIT)],
@@ -521,6 +522,7 @@ def test_run_ignores_a_second_world_down_while_the_push_is_still_held(
         main, "play_tick",
         lambda current_game, _floor, state: seen.append((
             current_game.nav_intent.target_object_idx, state.pointer_held,
+            state.pointer_touch, state.pointer_pos,
         )),
     )
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: frame)
@@ -536,7 +538,59 @@ def test_run_ignores_a_second_world_down_while_the_push_is_still_held(
     )
 
     assert main.run(game) == 0
-    assert seen == [(4, True)]
+    assert seen == [(4, True, touch, (250, 100))]
+
+
+@pytest.mark.parametrize("touch", (False, True), ids=("physical", "touch-origin"))
+def test_run_routes_physical_and_touch_down_to_the_same_inventory_modal(
+        data_dir, monkeypatch, touch,
+):
+    import PyAitD.__main__ as main
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    game = init_game(data_dir)
+    game.num_camera = game.new_num_camera
+    _finish_take(game, 38)
+    input_buffer = InputBuffer()
+    event_batches = iter([
+        [main.pygame.event.Event(
+            main.pygame.MOUSEBUTTONDOWN,
+            button=1,
+            pos=PlayLayout.INVENTORY.center,
+            touch=touch,
+        )],
+        [main.pygame.event.Event(
+            main.pygame.MOUSEBUTTONUP,
+            button=1,
+            touch=touch,
+        )],
+        [SimpleNamespace(type=main.pygame.QUIT)],
+    ])
+    times = iter([0, 0, 0, 0])
+    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+        window_to_logical=lambda pos: pos,
+        present=lambda _image: None,
+        close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "_scene_frame", lambda *_args: (frame, []))
+    monkeypatch.setattr(main, "render_active_mode", lambda *_args: frame)
+    monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
+    monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
+    monkeypatch.setattr(main, "InputBuffer", lambda: input_buffer)
+    monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *_args: None),
+    )
+
+    assert main.run(game) == 0
+    assert game.mode is GameMode.INVENTORY
+    assert game.nav_intent is None
+    assert (input_buffer.pointer_held, input_buffer.pointer_touch, input_buffer.pointer_pos) == (
+        False, False, None,
+    )
 
 
 def test_inert_body_intercepts_the_floor_and_stays_blocked(data_dir):
