@@ -40,7 +40,7 @@ class CameraView:
         Mirrors skel.skin: the y > 10000 cull is evaluated on world y, before
         camera.y is subtracted."""
         cam = self.state
-        pts = np.array(world_xyz, dtype=np.float64).reshape(-1, 3).copy()
+        pts = np.array(world_xyz, dtype=np.float64).reshape(-1, 3)
         pts[:, 0] -= cam.x
         pts[:, 2] -= cam.z
         far = pts[:, 1] > 10000
@@ -59,8 +59,27 @@ class CameraView:
 
     def project(self, world_xyz):
         """(N,3) world -> (N,3) [sx, sy, depth] logical px; culled vertices
-        (far or depth <= 50) become the (-10000, -10000, -10000) sentinel,
-        matching skel.skin/CameraState.project exactly."""
+        (far or depth <= 50) become the (-10000, -10000, -10000) sentinel.
+
+        This is a continuous float twin of skel.skin, not a bit-exact
+        reproduction of it. skel.skin's Y/X/Z rotation chain (via
+        world.transform_point) truncates at each stage through
+        `trunc_div(..., 65536) << 1`; that truncation is bounded by a
+        small, roughly depth-independent number of FITD world units
+        (measured max ~6 across a wide distance sweep -- see
+        test_camera_view_project_parity_scales_with_distance in
+        tests/test_scene.py), but perspective division amplifies it as
+        roughly (world_error * focal) / depth, so the on-screen pixel
+        divergence from skel.skin shrinks as distance from the camera
+        grows: measured worst case ~12px within ~100 units of the camera,
+        well under 1px beyond ~2000 units. This is intended and is not a
+        formula bug -- the float path is the more numerically accurate of
+        the two. skel.skin (and its bbox-derived draw_list) stays the
+        sole authority for picking, masks and the mouse contract;
+        CameraView is a parallel, higher-precision path for rendering
+        only (tasks 6-8), and the two can legitimately disagree on
+        whether a vertex right at the depth<=50 cull boundary is visible
+        at all."""
         cam = self.state
         pts, far = self.camera_space(world_xyz)
         depth = pts[:, 2] + cam.focal1
@@ -77,25 +96,34 @@ class CameraView:
 class ActorDraw:
     index: int
     geometry: BodyGeometry
-    position: tuple
+    position: tuple[float, float, float]
     room: int
     zv: tuple
     logical: RenderResult
-    mask_ids: tuple
+    mask_ids: tuple[int, ...]
 
 
 @dataclass(frozen=True)
 class FrameDescription:
+    """The dataclass itself is immutable -- its fields can't be reassigned
+    -- but some payloads are mutable arrays that alias shared, cached
+    state: `palette` aliases `Floor.palette`, and `background.pixels`
+    aliases `Floor._camera_images[cam_idx]`'s cached decode (see
+    AssetResolver.background/.palette). Treat every array reachable from
+    a FrameDescription as read-only: a backend writing into either would
+    corrupt the cache for every later frame that reuses it."""
     camera: CameraView
     background: ImageAsset
     palette: np.ndarray
-    actors: tuple
-    masks: tuple
+    actors: tuple[ActorDraw, ...]
+    masks: tuple[MaskDraw, ...]
 
 
 def mask_applies_to_actor(mask, actor_room, zv):
-    # moved from render._mask_applies_to_actor: same trigger-rectangle rule,
-    # shared now that both the legacy compositor and the scene layer need it.
+    # Duplicated from render._mask_applies_to_actor (render.py:227), which
+    # still exists verbatim -- the scene layer can't import from render.py
+    # without pulling in pygame/moderngl. Keep the two copies in sync until
+    # task 9 rewires __main__ onto build_frame and render's copy is deleted.
     if zv is None or mask.viewed_room != actor_room:
         return False
     x1, x2 = int(zv[0] / 10), int(zv[1] / 10)

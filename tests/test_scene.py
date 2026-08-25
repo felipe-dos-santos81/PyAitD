@@ -3,7 +3,7 @@ import numpy as np
 
 from PyAitD.asset_resolver import AssetResolver
 from PyAitD.floor import Floor
-from PyAitD.formats import Body, Camera, Room
+from PyAitD.formats import Body, Camera, Group, Room
 from PyAitD.game import init_game
 from PyAitD.mask_geometry import MaskDraw
 from PyAitD.scene import CameraView, FrameDescription, build_frame, mask_applies_to_actor
@@ -38,6 +38,18 @@ def _legacy_scene(game, floor):
     return out
 
 
+def _distance_scaled_bound(depth, focal2, focal3, world_trunc_bound=8.0):
+    """Empirical per-vertex tolerance for CameraView.project vs skel.skin:
+    the chained Y/X/Z rotation truncation is bounded by a small, roughly
+    depth-independent number of FITD world units (measured max ~6 across
+    test_camera_view_project_parity_scales_with_distance's wide sweep;
+    8.0 here adds headroom), and perspective division amplifies that as
+    world_error * focal / depth. Real game data can put an actor at any
+    depth, including close to the camera, so a flat pixel budget would be
+    a lie -- this scales with the measured physics instead."""
+    return world_trunc_bound * max(abs(focal2), abs(focal3)) / max(depth, 1.0)
+
+
 # --- data_dir-gated tests (skip without game assets; kept per the brief but
 # not primary evidence -- see the synthetic tests below for coverage that
 # actually runs on this machine). ---
@@ -63,23 +75,46 @@ def test_mask_ids_follow_the_trigger_rule(data_dir):
 
 
 def test_float_projection_parity_with_skin(data_dir):
+    # depth<=50 is a hard cull boundary for skel.skin's integer path; the
+    # float path's continuous rotation can nudge a vertex's depth across
+    # that boundary either way (measured on real assets: ~20 mismatches out
+    # of ~48k vertices), so this only compares vertices both paths agree
+    # are visible, a few units clear of the boundary where "visible" is
+    # itself unstable, using the same distance-scaled tolerance measured in
+    # test_camera_view_project_parity_scales_with_distance (see
+    # CameraView.project's docstring for why a flat pixel budget is wrong).
     game, floor = _boot(data_dir)
     frame, _ = build_frame(game, floor, AssetResolver(game.assets))
+    checked_any = False
     for actor in frame.actors:
         world = actor.geometry.vertices + np.array(actor.position, dtype=np.float32)
         projected = frame.camera.project(world.astype(np.float64))
         logical = np.array(actor.logical.points, dtype=np.float64)
-        culled = logical[:, 0] == -10000.0
-        assert np.array_equal(projected[culled], logical[culled])
-        assert np.abs(projected[~culled][:, :2] - logical[~culled][:, :2]).max() <= 0.5
+        culled_int = logical[:, 0] == -10000.0
+        culled_float = projected[:, 0] == -10000.0
+        near_boundary = np.abs(logical[:, 2] - 50) < 5
+        agree_visible = (~culled_int) & (~culled_float) & (~near_boundary)
+        if not agree_visible.any():
+            continue
+        checked_any = True
+        depth = logical[agree_visible, 2]
+        bound = _distance_scaled_bound(depth, frame.camera.state.focal2, frame.camera.state.focal3)
+        diff = np.abs(projected[agree_visible][:, :2] - logical[agree_visible][:, :2]).max(axis=1)
+        assert (diff <= bound).all()
+    assert checked_any  # otherwise every actor was fully culled/at the boundary -- not a real check
 
 
 def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir):
-    # exhaustive parity: every body at the origin of every camera on floor 0
+    # exhaustive parity: every body at the origin of every camera on floor 0.
+    # Despite the name (kept from the brief), the assertion below is the
+    # same distance-scaled tolerance as test_float_projection_parity_with_skin
+    # -- a flat 0.5px bound is only true far from the camera; see
+    # CameraView.project's docstring.
     from PyAitD.geometry import pose_geometry
     from PyAitD.assets import Assets
     assets = Assets(data_dir)
     floor = Floor(data_dir, 0)
+    checked_any = False
     for room in floor.rooms:
         for cam_idx in room.camera_indices:
             state = CameraState.from_camera(floor.cameras[cam_idx], room.world_x, room.world_y, room.world_z).angles()
@@ -87,10 +122,20 @@ def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir):
             for num in range(min(assets.body_count(), 40)):
                 body = assets.body(num)
                 states = [(0, (0, 0, 0))] * len(body.groups)
-                logical = np.array(skin(body, states, (0, 0, 0), state, actor_angles=(0, 0, 0)).points)
+                logical = np.array(skin(body, states, (0, 0, 0), state, actor_angles=(0, 0, 0)).points, dtype=np.float64)
                 projected = view.project(pose_geometry(body, states, (0, 0, 0)).vertices.astype(np.float64))
-                culled = logical[:, 0] == -10000.0
-                assert np.abs(projected[~culled][:, :2] - logical[~culled][:, :2]).max(initial=0) <= 0.5
+                culled_int = logical[:, 0] == -10000.0
+                culled_float = projected[:, 0] == -10000.0
+                near_boundary = np.abs(logical[:, 2] - 50) < 5
+                agree_visible = (~culled_int) & (~culled_float) & (~near_boundary)
+                if not agree_visible.any():
+                    continue
+                checked_any = True
+                depth = logical[agree_visible, 2]
+                bound = _distance_scaled_bound(depth, state.focal2, state.focal3)
+                diff = np.abs(projected[agree_visible][:, :2] - logical[agree_visible][:, :2]).max(axis=1)
+                assert (diff <= bound).all()
+    assert checked_any
 
 
 # --- Synthetic tests: no game data required. These are the primary evidence
@@ -110,7 +155,7 @@ def _flat_body(vertices):
                 groups=[], group_order=[], primitives=[])
 
 
-def test_camera_view_project_matches_skin_across_full_rotation_order():
+def test_camera_view_project_matches_skin_across_full_rotation_order_far_field():
     # All three camera axes nonzero (alpha=109, beta=185 are the proven
     # "camera2" angles from test_world.py::test_transform_point_camera2_angles;
     # gamma=0x20 added here to exercise the Z rotation too), a large
@@ -118,6 +163,14 @@ def test_camera_view_project_matches_skin_across_full_rotation_order():
     # test_world.py::test_camera_from_room_coords) and small vertex offsets
     # (typical body-model-space magnitude). skel.skin (independent of
     # scene.py) is the ground truth.
+    #
+    # NOTE: this geometry lands at depth ~1150-1160, comfortably in the
+    # "far" range where the float/int divergence is already sub-pixel (see
+    # test_camera_view_project_parity_scales_with_distance below), so a
+    # tight bound here is expected and does *not* by itself establish
+    # close-range parity -- it only proves the Y/X/Z rotation order is
+    # correct. The distance sweep below is the test that actually measures
+    # how the divergence behaves near the camera.
     cam = CameraState(109, 185, 0x20, -7410, -2800, 1160, 300, 189, 158).angles()
     vertices = [(0, 0, 0), (50, -30, 80), (-62, 15, -40), (75, 90, -50), (100, 50, 100)]
     position = (30, -10, 200)
@@ -131,6 +184,73 @@ def test_camera_view_project_matches_skin_across_full_rotation_order():
     assert not culled.any()  # sanity: this scenario exercises the projected branch
     diff = np.abs(projected[:, :2] - logical[:, :2])
     assert diff.max() <= 0.5
+
+
+def test_camera_view_project_parity_scales_with_distance():
+    """The float path's divergence from skel.skin is not a fixed pixel
+    budget: skel.skin's chained Y/X/Z rotation truncates through
+    world.transform_point's `trunc_div(..., 65536) << 1` at each stage,
+    which loses a small, roughly depth-independent number of FITD world
+    units (bounded per stage regardless of vertex magnitude, since
+    trunc_div's error is always < 1 in its own scaled domain); perspective
+    division then amplifies that fixed world-space error as roughly
+    world_error * focal / depth. So close to the camera the on-screen
+    pixel divergence can be many pixels, and it shrinks below a pixel by
+    roughly 1500-2000 units out.
+
+    This sweeps randomized camera rotations and ordinary +-200-unit vertex
+    clouds across a wide range of target depths, keeps only vertices that
+    land on the 320x200 logical screen under *both* paths and are not
+    within a few units of the depth<=50 cull boundary (see
+    test_float_projection_parity_with_skin for why that boundary itself is
+    unstable), buckets the survivors by their skel.skin ground-truth depth,
+    and asserts each bucket's measured maximum stays under a bound with
+    headroom over what was actually observed at that depth. This is a
+    regression guard against the *shape* of the curve, not an aspirational
+    single-number claim -- a real formula bug would blow through these
+    bounds, but ordinary close-range truncation noise won't."""
+    rng = np.random.default_rng(20260825)
+    # (depth_lo, depth_hi) -> asserted bound in px. Measured maxima at this
+    # seed/sample size: (50,150)->9.58, (150,500)->7.09, (500,1500)->1.61,
+    # (1500,4000)->0.34, (4000,20000)->0.13 -- bounds below add roughly 1.5x
+    # - 2.5x headroom over that measurement.
+    buckets = {
+        (50, 150): 15.0,
+        (150, 500): 12.0,
+        (500, 1500): 3.0,
+        (1500, 4000): 0.75,
+        (4000, 20000): 0.35,
+    }
+    bucket_count = {b: 0 for b in buckets}
+    bucket_max = {b: 0.0 for b in buckets}
+    z_candidates = np.geomspace(60, 9000, 40)
+    for _ in range(250):
+        alpha, beta, gamma = (int(a) for a in rng.integers(0, 0x400, size=3))
+        cam = CameraState(alpha, beta, gamma, 0, 0, 0, 300, 189, 158).angles()
+        for z_in in z_candidates:
+            offset_x, offset_y = rng.uniform(-200.0, 200.0, size=2)
+            vertex = (float(offset_x), float(offset_y), float(z_in))
+            body = _flat_body([vertex])
+            logical = np.array(skin(body, [], (0, 0, 0), cam).points, dtype=np.float64)[0]
+            projected = CameraView(cam).project(np.array([vertex], dtype=np.float64))[0]
+            depth = logical[2]
+            on_screen = (0 <= logical[0] <= 320 and 0 <= logical[1] <= 200
+                         and 0 <= projected[0] <= 320 and 0 <= projected[1] <= 200)
+            if not on_screen or depth <= 55:
+                continue
+            err = float(np.abs(projected[:2] - logical[:2]).max())
+            for lo, hi in buckets:
+                if lo <= depth < hi:
+                    bucket_count[(lo, hi)] += 1
+                    bucket_max[(lo, hi)] = max(bucket_max[(lo, hi)], err)
+                    break
+
+    # sanity: the sweep actually reached both ends of the range, otherwise
+    # the bound checks below would be vacuous
+    assert bucket_count[(50, 150)] > 0
+    assert bucket_count[(4000, 20000)] > 0
+    for bucket, bound in buckets.items():
+        assert bucket_max[bucket] <= bound, (bucket, bucket_max[bucket], bound)
 
 
 def test_camera_view_project_depth_le_50_is_sentinel():
@@ -214,7 +334,7 @@ def _legacy_stub_scene(game, floor, resolver):
     # to a resolver instead of game.assets -- used as the ground truth for
     # draw_list, matching how the brief's own data_dir test compares against
     # _legacy_scene above.
-    from PyAitD.actors import sort_actor_indices
+    from PyAitD.actors import anim_player_for, sort_actor_indices
     from PyAitD.picking import actor_bbox
     room = floor.rooms[game.current_room]
     cam_idx = room.camera_indices[game.num_camera]
@@ -225,7 +345,8 @@ def _legacy_stub_scene(game, floor, resolver):
     for index in sort_actor_indices(game, state.x, state.y, state.z):
         actor = game.actors[index]
         body = resolver.body(actor.body_num)
-        states = [(0, (0, 0, 0))] * len(body.groups)  # every stub actor has anim == -1
+        states = ([(0, (0, 0, 0))] * len(body.groups) if actor.anim == -1
+                  else anim_player_for(game, index).group_states())
         result = skin(body, states,
                       (actor.world_x + actor.step_x, actor.world_y + actor.step_y, actor.world_z + actor.step_z),
                       state, actor_angles=(actor.alpha, actor.beta, actor.gamma))
@@ -233,18 +354,33 @@ def _legacy_stub_scene(game, floor, resolver):
     return out
 
 
-def test_build_frame_assembles_frame_description_from_stubs():
+def test_build_frame_assembles_frame_description_from_stubs(monkeypatch):
     body_a = _flat_body([(0, 0, 0), (50, 0, 0), (0, 50, 0)])
     body_b = _flat_body([(0, 0, 0), (30, 10, 0), (0, 30, 20)])
+    # animated body: two groups, so a non-trivial group_states list actually
+    # moves vertices. Group 0's own delta is always overridden by the
+    # actor's own alpha/beta/gamma when a body has any groups (see
+    # skel.pose_vertices / test_skel.py::test_actor_rotation_uses_group_zero_
+    # not_first_group_in_order) -- group 1 carries the real per-group anim
+    # state this test needs to prove flows through build_frame.
+    body_c = Body(flags=2, zv=(0, 0, 0, 0, 0, 0), scratch=(),
+                  vertices=[(0, 0, 0), (10, 0, 0), (0, 0, 0), (0, 0, 0)],
+                  groups=[Group(0, 1, 2, 0xFF, 0, 0, 0, 0), Group(1, 1, 3, 0xFF, 1, 0, 0, 0)],
+                  group_order=[0, 1], primitives=[])
 
     # actor A's zv/10 == (1, 2, _, _, 3, 4): inside mask 0's trigger rect.
     actor_a = _StubActor(0, 0, -1, (0, 0, 500), (0, 0, 0), (0, 0, 0), room=0, zv=(10, 20, 0, 0, 30, 40))
     # actor B's zv/10 == (100, 110, _, _, 100, 110): outside mask 0's rect.
     actor_b = _StubActor(1, 1, -1, (0, 0, 1500), (0, 0, 0), (0, 0, 0), room=0, zv=(1000, 1100, 0, 0, 1000, 1100))
-    # a dead actor: excluded from sort_actor_indices (index_in_world < 0).
-    actor_dead = _StubActor(-1, -1, -1, (0, 0, 0), (0, 0, 0), (0, 0, 0), room=0, zv=(0, 0, 0, 0, 0, 0))
+    # actor C: anim != -1, so build_frame must go through
+    # anim_player_for(...).group_states() instead of the anim==-1 default.
+    actor_c = _StubActor(2, 2, 7, (0, 0, 900), (0, 0, 0), (0, 0, 0), room=0, zv=(10, 20, 0, 0, 30, 40))
+    # a dead actor: excluded from sort_actor_indices by index_in_world < 0
+    # alone (body_num=0 is a *live* body number, isolating this one filter
+    # condition from the separate "body_num == -1" filter condition).
+    actor_dead = _StubActor(-1, 0, -1, (0, 0, 0), (0, 0, 0), (0, 0, 0), room=0, zv=(0, 0, 0, 0, 0, 0))
 
-    game = _StubGame(current_room=0, num_camera=0, actors=[actor_a, actor_b, actor_dead])
+    game = _StubGame(current_room=0, num_camera=0, actors=[actor_a, actor_b, actor_c, actor_dead])
     room = Room(world_x=0, world_y=0, world_z=0, camera_indices=[0],
                 hard_cols=[], sce_zones=[], offset_to_hard_col=0, offset_to_sce_zones=0)
     camera = Camera(alpha=0, beta=0, gamma=0, x=0, y=0, z=0, focal1=300, focal2=100, focal3=100)
@@ -253,7 +389,29 @@ def test_build_frame_assembles_frame_description_from_stubs():
     floor = _StubFloor(rooms=[room], cameras=[camera], masks_by_camera={0: [mask_applies, mask_wrong_room]})
     background = object()  # identity sentinel, just needs to pass through
     palette = np.zeros((256, 3), dtype=np.uint8)
-    resolver = _StubResolver({0: body_a, 1: body_b}, background, palette)
+    resolver = _StubResolver({0: body_a, 1: body_b, 2: body_c}, background, palette)
+
+    # Fake AnimPlayer.group_states(): group 0 is inert (its delta is
+    # overridden anyway), group 1 is a translate (group_type=1) by
+    # (15, 0, 0) -- non-trivial enough to prove the states actually flow
+    # through into skin()/pose_geometry rather than being defaulted.
+    fake_states = [(0, (0, 0, 0)), (1, (15, 0, 0))]
+    calls = []
+
+    class _FakePlayer:
+        def group_states(self):
+            return fake_states
+
+    def fake_anim_player_for(g, index):
+        calls.append((g, index))
+        return _FakePlayer()
+
+    # build_frame (scene.py) bound its own module-level `anim_player_for`
+    # name at import time, so it must be patched directly; _legacy_stub_scene
+    # re-imports from PyAitD.actors on every call, so patching the source
+    # module's attribute is enough for it to pick up the fake too.
+    monkeypatch.setattr("PyAitD.scene.anim_player_for", fake_anim_player_for)
+    monkeypatch.setattr("PyAitD.actors.anim_player_for", fake_anim_player_for)
 
     frame, draw_list = build_frame(game, floor, resolver)
 
@@ -264,9 +422,13 @@ def test_build_frame_assembles_frame_description_from_stubs():
     for actor, (_, _, result) in zip(frame.actors, legacy):
         assert actor.logical.points == result.points
 
+    # the animated actor actually went through anim_player_for, at least
+    # once per legacy derivation call plus once inside build_frame
+    assert (game, 2) in calls
+
     # dead actor never makes it into the draw list or the frame
     assert -1 not in [i for i, _ in draw_list]
-    assert len(frame.actors) == 2
+    assert len(frame.actors) == 3
 
     # masks: pass-through, plus the trigger-rectangle rule applied per actor
     assert frame.masks == (mask_applies, mask_wrong_room)
@@ -277,11 +439,23 @@ def test_build_frame_assembles_frame_description_from_stubs():
         assert actor.mask_ids == expected_mask_ids
     actor_a_draw = next(a for a in frame.actors if a.index == 0)
     actor_b_draw = next(a for a in frame.actors if a.index == 1)
+    actor_c_draw = next(a for a in frame.actors if a.index == 2)
     assert actor_a_draw.mask_ids == (0,)
     assert actor_b_draw.mask_ids == ()
+    assert actor_c_draw.mask_ids == (0,)
+
+    # the animated actor's logical points reflect the fake group_states,
+    # not the anim==-1 default -- an independent skin() call with the same
+    # fake_states, mirroring what a real (non-stub) legacy path would do.
+    expected_state = CameraState.from_camera(camera, 0, 0, 0).angles()
+    expected_c = skin(body_c, fake_states, (0, 0, 900), expected_state, actor_angles=(0, 0, 0))
+    assert actor_c_draw.logical.points == expected_c.points
+    default_states = [(0, (0, 0, 0))] * len(body_c.groups)  # the anim==-1 shape
+    assert actor_c_draw.logical.points != skin(
+        body_c, default_states, (0, 0, 900), expected_state, actor_angles=(0, 0, 0),
+    ).points  # sanity: the fake anim states really did move the vertices
 
     # camera, background and palette pass through unchanged
-    expected_state = CameraState.from_camera(camera, 0, 0, 0).angles()
     assert (frame.camera.state.x, frame.camera.state.y, frame.camera.state.z) == (
         expected_state.x, expected_state.y, expected_state.z)
     assert frame.background is background
