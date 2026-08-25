@@ -366,39 +366,68 @@ def effective_rects(
         hit.clamp_ip(frame)
         hits.append(hit)
 
-    # Divide expanded overlap between targets that are adjacent on a row or
-    # column. Use the original rectangles to avoid making unrelated targets in
-    # different rows compete for the same hit space. The greater center-axis
-    # distance selects the row/column direction when both rectangles overlap.
-    for index, (first_visible, second_visible) in enumerate(zip(visible, visible[1:])):
-        first, second = index, index + 1
-        horizontal = abs(first_visible.centerx - second_visible.centerx) >= abs(
-            first_visible.centery - second_visible.centery
-        )
-        if horizontal:
-            if first_visible.left > second_visible.left:
-                first, second = second, first
-                first_visible, second_visible = second_visible, first_visible
-            if (first_visible.bottom <= second_visible.top
-                    or second_visible.bottom <= first_visible.top):
-                continue
-            if hits[first].right > hits[second].left:
-                split = (hits[first].right + hits[second].left) // 2
-                hits[first].width = max(0, split - hits[first].left)
-                hits[second].x = split
-                hits[second].width = max(0, hits[second].right - split)
-        else:
-            if first_visible.top > second_visible.top:
-                first, second = second, first
-                first_visible, second_visible = second_visible, first_visible
-            if (first_visible.right <= second_visible.left
-                    or second_visible.right <= first_visible.left):
-                continue
-            if hits[first].bottom > hits[second].top:
-                split = (hits[first].bottom + hits[second].top) // 2
-                hits[first].height = max(0, split - hits[first].top)
-                hits[second].y = split
-                hits[second].height = max(0, hits[second].bottom - split)
+    # Divide expanded overlap between geometric neighbours on a row or
+    # column. Resolve the nearest neighbour on each side from geometry rather
+    # than relying on the caller's tuple order; the result tuple still keeps
+    # the caller's order.
+    def _neighbor_pairs(horizontal):
+        nearest = {}
+        for first, first_visible in enumerate(visible):
+            for second in range(first + 1, len(visible)):
+                second_visible = visible[second]
+                axis_delta = abs(
+                    (first_visible.centerx if horizontal else first_visible.centery)
+                    - (second_visible.centerx if horizontal else second_visible.centery)
+                )
+                other_delta = abs(
+                    (first_visible.centery if horizontal else first_visible.centerx)
+                    - (second_visible.centery if horizontal else second_visible.centerx)
+                )
+                if axis_delta == 0 or axis_delta < other_delta:
+                    continue
+                if horizontal:
+                    overlaps_other = not (
+                        first_visible.bottom <= second_visible.top
+                        or second_visible.bottom <= first_visible.top
+                    )
+                    first_axis, second_axis = first_visible.centerx, second_visible.centerx
+                else:
+                    overlaps_other = not (
+                        first_visible.right <= second_visible.left
+                        or second_visible.right <= first_visible.left
+                    )
+                    first_axis, second_axis = first_visible.centery, second_visible.centery
+                if not overlaps_other or first_axis == second_axis:
+                    continue
+                left, right = (first, second) if first_axis < second_axis else (second, first)
+                distance = abs(first_axis - second_axis)
+                for key, value in (((left, 1), (distance, right)), ((right, -1), (distance, left))):
+                    previous = nearest.get(key)
+                    if previous is None or value < previous:
+                        nearest[key] = value
+        return {(value[1], key[0]) if key[1] == -1 else (key[0], value[1])
+                for key, value in nearest.items()}
+
+    for horizontal in (True, False):
+        pairs = sorted(_neighbor_pairs(horizontal))
+        for first, second in pairs:
+            first_visible, second_visible = visible[first], visible[second]
+            if horizontal:
+                if first_visible.left > second_visible.left:
+                    first, second = second, first
+                if hits[first].right > hits[second].left:
+                    split = (hits[first].right + hits[second].left) // 2
+                    hits[first].width = max(0, split - hits[first].left)
+                    hits[second].x = split
+                    hits[second].width = max(0, hits[second].right - split)
+            else:
+                if first_visible.top > second_visible.top:
+                    first, second = second, first
+                if hits[first].bottom > hits[second].top:
+                    split = (hits[first].bottom + hits[second].top) // 2
+                    hits[first].height = max(0, split - hits[first].top)
+                    hits[second].y = split
+                    hits[second].height = max(0, hits[second].bottom - split)
     return tuple(hits)
 
 

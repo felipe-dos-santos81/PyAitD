@@ -37,6 +37,17 @@ def test_effective_rects_split_an_expansion_overlap_at_the_midpoint():
     assert not hit[0].colliderect(hit[1])
 
 
+def test_effective_rects_partitions_geometric_neighbors_out_of_input_order():
+    visible = (
+        pygame.Rect(10, 10, 20, 20),
+        pygame.Rect(10, 100, 4, 4),
+        pygame.Rect(30, 10, 20, 20),
+    )
+    hit = effective_rects(visible)
+    assert hit[0].right == hit[2].left == 30
+    assert not hit[0].colliderect(hit[2])
+
+
 def test_layout_hit_rows_leave_visible_rectangles_unchanged():
     assert PlayLayout.INVENTORY == pygame.Rect(4, 4, 28, 20)
     assert PlayLayout.INVENTORY_HIT == pygame.Rect(2, 2, 32, 24)
