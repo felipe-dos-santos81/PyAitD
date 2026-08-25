@@ -126,3 +126,13 @@ def test_rel_paths_match_asset_resolver_layout(tmp_path):
     from PyAitD.asset_resolver import override_background_path
     assert (tmp_path / be.background_rel_path(5, 12)) == override_background_path(tmp_path, 5, 12)
     assert be.guide_rel_path(5, 12) == "guides/floor05/camera012.png"
+
+
+def test_manifest_record_missing_image_preserves_metadata():
+    rec = be.manifest_record(StubFloor(images={}), 0, None)
+    assert rec["source"] is None
+    assert rec["guide"] is None
+    assert rec["sha256"] is None
+    assert rec["size"] is None
+    assert rec["viewed_rooms"] == [0]
+    assert rec["masks"] == 1

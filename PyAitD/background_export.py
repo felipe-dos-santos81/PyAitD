@@ -81,13 +81,16 @@ def manifest_record(floor, cam_idx, pixels):
         "masks": 0,
         "sha256": None,
     }
-    if pixels is not None:
+    # Populate camera metadata only if camera exists (valid index)
+    if cam_idx < len(floor.cameras):
         cam = floor.cameras[cam_idx]
+        rec["viewed_rooms"] = [vr.viewed_room_idx for vr in cam.viewed_rooms]
+        rec["masks"] = len(floor.mask_draws(cam_idx))
+    # Populate image-derived fields only if pixels available
+    if pixels is not None:
         rec["source"] = background_rel_path(floor.number, cam_idx)
         rec["guide"] = guide_rel_path(floor.number, cam_idx)
         rec["size"] = [int(pixels.shape[1]), int(pixels.shape[0])]
-        rec["viewed_rooms"] = [vr.viewed_room_idx for vr in cam.viewed_rooms]
-        rec["masks"] = len(floor.mask_draws(cam_idx))
         rec["sha256"] = sha256_rgb(pixels)
     return rec
 
