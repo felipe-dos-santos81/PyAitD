@@ -10,14 +10,14 @@ import pytest
 
 from PyAitD.__main__ import (
     _capture_keydown, replacement_session, restart_session, route_command,
-    route_hover, route_mouse,
+    render_active_mode, route_hover, route_mouse,
 )
 from PyAitD.config import (
     REMAPPABLE_CONTROLS, Control, Settings, default_settings, load_settings,
 )
 from PyAitD.playworld import apply_play_input
 from PyAitD.effects import (
-    ChooseCharacter, GameMode, InputMode, NavDecision, NavIntent, OpenInventory,
+    ChooseCharacter, GameMode, GameOver, InputMode, NavDecision, NavIntent, OpenInventory,
     OpenSystemMenu, ReadText, ShowPicture,
 )
 from PyAitD.game import init_game
@@ -36,6 +36,41 @@ def _hover_game_snapshot(game):
         deepcopy(game.inventory_count), deepcopy(game.life_stack),
         game.active_modal, game.mode, deepcopy(game.nav_intent),
     )
+
+
+@pytest.mark.parametrize("effect", (ShowPicture(10, 60, 4), GameOver(120)))
+def test_route_hover_leaves_non_preview_modal_timing_and_presenters_untouched(effect):
+    session = ModalSession(elapsed_ms=37)
+    observed_effect = object()
+    session.last_effect = observed_effect
+    presenters = (
+        session.found, session.inventory, session.reading,
+        session.character, session.system_menu,
+    )
+
+    route_hover(SimpleNamespace(active_modal=effect), session, (160, 100))
+
+    assert (session.last_effect, session.elapsed_ms) == (observed_effect, 37)
+    assert presenters == (
+        session.found, session.inventory, session.reading,
+        session.character, session.system_menu,
+    )
+
+
+def test_render_active_mode_resets_a_replaced_system_menu_preview(monkeypatch):
+    old_effect = OpenSystemMenu()
+    replacement = OpenSystemMenu()
+    session = ModalSession()
+    session.reset_for(old_effect)
+    old_presenter = session.system_menu
+    old_presenter.hover = 2
+    game = SimpleNamespace(active_modal=replacement, assets=object())
+    monkeypatch.setattr("PyAitD.ui.render_system_menu", lambda *args: "menu")
+
+    assert render_active_mode(game, session, np.zeros((200, 320, 3), dtype=np.uint8)) == "menu"
+    assert session.last_effect is replacement
+    assert session.system_menu is not old_presenter
+    assert session.system_menu.hover is None
 
 
 def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_mutation(

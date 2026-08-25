@@ -549,9 +549,6 @@ def route_hover(game, session, logical_pos):
     effect = game.active_modal
     if effect is None:
         return
-    # Modal replacement owns presenter replacement.  This is idempotent for
-    # normal motion, and ensures a preview can never leak into a new modal.
-    session.reset_for(effect)
     if isinstance(effect, ShowFound):
         session.found.hover = hit_test_found(logical_pos) if logical_pos is not None else None
     elif isinstance(effect, OpenInventory):
@@ -607,11 +604,11 @@ def render_active_mode(game, session, scene_frame):
     effect = game.active_modal
     if effect is None:
         return overlay_messages(scene_frame, game.messages, game.assets)
-    if isinstance(effect, OpenSystemMenu):
-        # same presenter lifetime as route_command: reset at open, never per
-        # render, so a staged page/cursor/capture survives to the screen
-        return render_system_menu(session.system_menu, session.settings, game.assets)
+    # This is the modal lifecycle boundary.  It resets a replacement exactly
+    # once before any presenter can render, including the system menu.
     session.reset_for(effect)
+    if isinstance(effect, OpenSystemMenu):
+        return render_system_menu(session.system_menu, session.settings, game.assets)
     if isinstance(effect, ChooseCharacter):
         # the selector owns the whole frame; the staged PLAY scene is never shown
         return render_character_select(session.character, game.assets)
