@@ -83,3 +83,46 @@ def test_background_export_is_pure():
     importlib.reload(be)
     src = open(be.__file__).read()
     assert "import pygame" not in src and "import moderngl" not in src
+
+
+from tests.stub_floor import StubFloor, checker_pixels
+
+
+def test_manifest_record_fields():
+    floor = StubFloor(number=3)
+    px = checker_pixels()
+    rec = be.manifest_record(floor, 0, px)
+    assert rec == {
+        "floor": 3, "camera": 0,
+        "source": "backgrounds/floor03/camera000.png",
+        "guide": "guides/floor03/camera000.png",
+        "size": [320, 200],
+        "viewed_rooms": [0],
+        "masks": 1,
+        "sha256": be.sha256_rgb(px),
+    }
+
+
+def test_manifest_record_out_of_range_camera_is_null():
+    rec = be.manifest_record(StubFloor(), 7, None)
+    assert rec["source"] is None and rec["guide"] is None and rec["sha256"] is None
+    assert rec["size"] is None and rec["camera"] == 7
+
+
+def test_export_manifest_envelope():
+    floor = StubFloor()
+    recs = [be.manifest_record(floor, 0, checker_pixels())]
+    m = be.export_manifest(recs, "/data/INDARK", 4)
+    assert m["schema"] == be.MANIFEST_SCHEMA == 1
+    assert m["data_dir"] == "/data/INDARK"
+    assert m["guide_scale"] == 4
+    assert m["legend"] == {"red": "masks", "blue": "collision", "green": "walkable"}
+    assert m["cameras"] == recs
+    import json
+    json.dumps(m)  # serialisable
+
+
+def test_rel_paths_match_asset_resolver_layout(tmp_path):
+    from PyAitD.asset_resolver import override_background_path
+    assert (tmp_path / be.background_rel_path(5, 12)) == override_background_path(tmp_path, 5, 12)
+    assert be.guide_rel_path(5, 12) == "guides/floor05/camera012.png"
