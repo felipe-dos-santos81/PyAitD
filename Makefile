@@ -7,7 +7,7 @@ VENV_DIR = .venv
 PYTHON = $(VENV_DIR)/bin/python
 PIP = $(VENV_DIR)/bin/pip
 floor ?=
-data ?= "Alone in the Dark 1.app/Contents/Resources/game/INDARK"
+data ?= Alone in the Dark 1.app/Contents/Resources/game/INDARK
 
 .PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat clean
 
@@ -36,13 +36,13 @@ clean: ## Remove venv and all temporary/generated files
 # ── Run ──────────────────────────────────────────────────────────────────────
 
 run: install ## Run the game through character selection (use floor=0 for the attic debug bypass)
-	$(PYTHON) -m PyAitD $(if $(floor),--floor "$(floor)") --data $(data) $(if $(trace),--trace $(trace))
+	$(PYTHON) -m PyAitD $(if $(floor),--floor "$(floor)") --data "$(data)" $(if $(trace),--trace $(trace))
 
 run-combat: install ## Run the supported floor-5 combat venue
-	$(PYTHON) -m PyAitD --combat-venue --data $(data) $(if $(trace),--trace $(trace))
+	$(PYTHON) -m PyAitD --combat-venue --data "$(data)" $(if $(trace),--trace $(trace))
 
 run-mouse-combat: install ## Run the deterministic object-38 mouse combat proof fixture
-	$(PYTHON) -m PyAitD --mouse-combat-fixture --data $(data) $(if $(trace),--trace $(trace))
+	$(PYTHON) -m PyAitD --mouse-combat-fixture --data "$(data)" $(if $(trace),--trace $(trace))
 
 # ── Development ──────────────────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ prove-shell: install ## M4a1 proof: shell, configuration, mouse contract, and re
 		tests/test_mouse_only.py tests/test_shell_journeys.py -q
 
 prove-mouse: install ## M3d proof: build the navmesh for every camera-visible room, every floor (usage: make prove-mouse data="path/to/INDARK")
-	$(PYTHON) tools/prove_mouse.py $(data)
+	$(PYTHON) tools/prove_mouse.py "$(data)"
 
 prove-mouse-only: install ## M3e proof: one-button contract + real-data attic, combat, restart, and held-push journeys
 	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy $(PYTHON) -m pytest tests/test_mouse_only.py -q
@@ -82,4 +82,4 @@ prove-mouse-accessibility: install ## Mouse accessibility proof: focused input, 
 		tests/test_main.py tests/test_mouse_only.py tests/test_shell_journeys.py -q
 
 prove-combat: install ## M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
-	$(PYTHON) tools/prove_combat.py $(data)
+	$(PYTHON) tools/prove_combat.py "$(data)"
