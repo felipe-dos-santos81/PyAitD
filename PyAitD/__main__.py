@@ -45,6 +45,11 @@ def parse_args(argv):
     p.add_argument("--data", type=pathlib.Path, default=DEFAULT_DATA, help="game data dir")
     p.add_argument("--floor", type=int, default=None, help="floor number (default: character select on floor 0)")
     p.add_argument("--trace", type=pathlib.Path, default=None, help="write per-opcode LIFE trace to FILE")
+    p.add_argument(
+        "--hero", type=int, choices=(0, 1), default=0,
+        help="hero for the debug starts, 0=Carnby 1=Emily (a normal boot uses "
+             "the character selector instead)",
+    )
     starts = p.add_mutually_exclusive_group()
     starts.add_argument(
         "--combat-venue", action="store_true",
@@ -957,7 +962,10 @@ def run(game, trace_path=None, session=None):
 def main(argv=None):
     args = parse_args(argv)
     try:
-        game = init_game(args.data)
+        # The debug starts bypass the character selector, so --hero is the only
+        # way to reach Emily's copy of a fixture; a normal boot still opens the
+        # selector below and replaces this staging game with the chosen hero's.
+        game = init_game(args.data, hero=args.hero)
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

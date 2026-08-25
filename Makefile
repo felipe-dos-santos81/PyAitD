@@ -38,11 +38,11 @@ clean: ## Remove venv and all temporary/generated files
 run: install ## Run the game through character selection (use floor=0 for the attic debug bypass)
 	$(PYTHON) -m PyAitD $(if $(floor),--floor "$(floor)") --data "$(data)" $(if $(trace),--trace $(trace))
 
-run-combat: install ## Run the supported floor-5 combat venue
-	$(PYTHON) -m PyAitD --combat-venue --data "$(data)" $(if $(trace),--trace $(trace))
+run-combat: install ## Run the supported floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
+	$(PYTHON) -m PyAitD --combat-venue --data "$(data)" $(if $(hero),--hero "$(hero)") $(if $(trace),--trace $(trace))
 
-run-mouse-combat: install ## Run the deterministic object-38 mouse combat proof fixture
-	$(PYTHON) -m PyAitD --mouse-combat-fixture --data "$(data)" $(if $(trace),--trace $(trace))
+run-mouse-combat: install ## Run the deterministic object-38 mouse combat proof fixture (hero=0 Carnby, hero=1 Emily)
+	$(PYTHON) -m PyAitD --mouse-combat-fixture --data "$(data)" $(if $(hero),--hero "$(hero)") $(if $(trace),--trace $(trace))
 
 # ── Development ──────────────────────────────────────────────────────────────
 

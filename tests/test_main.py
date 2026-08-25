@@ -16,6 +16,7 @@ def test_parse_args_defaults():
     assert args.data is not None
     assert args.combat_venue is False
     assert args.mouse_combat_fixture is False
+    assert args.hero == 0
 
 
 def test_parse_args_distinguishes_normal_boot_from_explicit_floor_zero():
@@ -27,7 +28,7 @@ def test_normal_main_opens_character_selection_before_run(monkeypatch, tmp_path)
     import PyAitD.__main__ as main
     game = SimpleNamespace(active_modal=None, open_modal=lambda effect: setattr(game, "active_modal", effect))
     seen = []
-    monkeypatch.setattr(main, "init_game", lambda data: game)
+    monkeypatch.setattr(main, "init_game", lambda data, hero=0: game)
     monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace())
     monkeypatch.setattr(main, "run", lambda g, trace, session=None: seen.append((g, session)) or 0)
     assert main.main(["--data", str(tmp_path)]) == 0
@@ -40,7 +41,7 @@ def test_explicit_debug_starts_bypass_character_selection(monkeypatch, tmp_path,
     import PyAitD.__main__ as main
     game = SimpleNamespace(active_modal=None)
     seen = []
-    monkeypatch.setattr(main, "init_game", lambda data: game)
+    monkeypatch.setattr(main, "init_game", lambda data, hero=0: game)
     monkeypatch.setattr(main, "enter_combat_venue", lambda value: None)
     monkeypatch.setattr(main, "enter_mouse_combat_fixture", lambda value: None)
     monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace())
@@ -62,7 +63,7 @@ def test_parse_args_overrides():
 def test_main_rejects_nonzero_floor_without_calling_run(monkeypatch, tmp_path):
     import PyAitD.__main__ as main
 
-    monkeypatch.setattr(main, "init_game", lambda data: SimpleNamespace())
+    monkeypatch.setattr(main, "init_game", lambda data, hero=0: SimpleNamespace())
     calls = []
     monkeypatch.setattr(main, "run", lambda *args: calls.append("run"))
 
@@ -77,7 +78,7 @@ def test_main_combat_venue_calls_enter_combat_venue_once_before_run(monkeypatch,
 
     game = SimpleNamespace()
     calls = []
-    monkeypatch.setattr(main, "init_game", lambda data: game)
+    monkeypatch.setattr(main, "init_game", lambda data, hero=0: game)
     monkeypatch.setattr(main, "enter_combat_venue", lambda g: calls.append(("venue", g)))
     monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace())
     monkeypatch.setattr(main, "run", lambda g, trace, session=None: calls.append(("run", g)))
@@ -93,12 +94,41 @@ def test_parse_args_has_a_separate_mouse_combat_start():
     assert args.combat_venue is False
 
 
+def test_parse_args_selects_a_fixture_hero():
+    # The debug starts bypass the character selector, so the only way to prove
+    # the mouse contract for both heroes in a real window is to name one.
+    assert parse_args(["--mouse-combat-fixture", "--hero", "1"]).hero == 1
+    assert parse_args(["--combat-venue", "--hero", "0"]).hero == 0
+    with pytest.raises(SystemExit):
+        parse_args(["--hero", "2"])
+
+
+def test_main_mouse_combat_fixture_uses_the_requested_hero(monkeypatch, tmp_path):
+    import PyAitD.__main__ as main
+
+    game = SimpleNamespace()
+    heroes = []
+    monkeypatch.setattr(
+        main, "init_game",
+        lambda data, hero=0: heroes.append(hero) or game,
+    )
+    monkeypatch.setattr(main, "enter_mouse_combat_fixture", lambda g: None)
+    monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace())
+    monkeypatch.setattr(main, "run", lambda g, trace, session=None: 0)
+
+    assert main.main([
+        "--mouse-combat-fixture", "--hero", "1", "--data", str(tmp_path),
+    ]) == 0
+
+    assert heroes == [1]
+
+
 def test_main_mouse_combat_fixture_runs_its_own_setup(monkeypatch, tmp_path):
     import PyAitD.__main__ as main
 
     game = SimpleNamespace()
     calls = []
-    monkeypatch.setattr(main, "init_game", lambda data: game)
+    monkeypatch.setattr(main, "init_game", lambda data, hero=0: game)
     monkeypatch.setattr(
         main, "enter_mouse_combat_fixture",
         lambda g: calls.append(("mouse fixture", g)),
