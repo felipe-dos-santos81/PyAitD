@@ -2,7 +2,7 @@
 
 Date: 2026-08-24
 
-Status: In-chat design approved; written review pending
+Status: Approved — planning authorized
 
 Builds on: M3d mouse input, M3e mouse reachability/combat, M4a1 shell and configuration, and mouse hold-to-push
 
@@ -200,6 +200,9 @@ and sequence boundaries. Repeating takeover or cancellation is safe.
 
 ### 1. Mouse accessibility hardening
 
+Implementation plan:
+`docs/superpowers/plans/2026-08-24-mouse-accessibility-hardening.md`.
+
 Owns only the implemented surface. It repairs atomic modal takeover, introduces
 effective hit geometry and hover preview, accepts touch-origin mouse events,
 extends the mouse contract, and completes both protagonists' current windowed
@@ -215,21 +218,28 @@ also remain green.
 
 ### 2. M4a2 persistence mouse parity
 
+Implementation plan:
+`docs/superpowers/plans/2026-08-24-m4a2-persistence-mouse-parity.md`.
+
 M4a2 implements persistence. Its mouse slice adds single-click access to Save,
-Load, slot selection, confirmation, cancellation, quick-save UI if exposed,
-and persistent error dismissal. Loading validates into a temporary snapshot;
-invalid loads leave the live game unchanged. Successful load replacement
-cancels transient pointer state before the new session becomes active.
+Load, the manual and quick slots, cancellation, and persistent error dismissal.
+FITD's one-slot silent-overwrite behavior is retained, so no confirmation mode
+is added. Loading validates into a temporary snapshot; invalid loads leave the
+live game unchanged. Successful load replacement cancels transient pointer
+state before the new session becomes active.
 
 The M4a2 focused proof must cover save, mutate, load, invalid load, overwrite
-confirmation if the owning design includes it, error dismissal, and a clean
-process restart using only declared pointer routes for UI decisions.
+replacement, error dismissal, and a clean process restart using only declared
+pointer routes for UI decisions.
 
 ### 3. M4b media mouse parity
 
+Implementation plan:
+`docs/superpowers/plans/2026-08-24-m4b-media-mouse-parity.md`.
+
 M4b implements audio and sequences. Its mouse slice adds single-click sequence
-advance or skip according to the owning FITD-backed design and exposes any real
-audio controls through large single-click targets. Playback cannot block the
+advance or skip according to the owning FITD-backed design. M4b exposes no
+audio control, so it creates no hidden pointer route. Playback cannot block the
 event pump. Silent-audio fallback remains fully playable. Media errors remain
 visible and dismissible.
 
@@ -238,6 +248,9 @@ at legal and illegal boundaries, focus loss, silent fallback, and error
 dismissal without hidden waits or replayed actions.
 
 ### 4. M4c completion mouse gate
+
+Implementation plan:
+`docs/superpowers/plans/2026-08-24-m4c-completion-mouse-gate.md`.
 
 M4c adds mouse declarations and routes for every newly reachable operation and
 then proves the combined product. Automated journeys are bounded by explicit
