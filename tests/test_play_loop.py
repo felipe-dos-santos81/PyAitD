@@ -1171,6 +1171,7 @@ def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
 
     calls = []
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    draw_list = []
     event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])
     times = iter([0, 0, 0])
     monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(
@@ -1179,8 +1180,13 @@ def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
     monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
         present=lambda image: calls.append("present"), close=lambda: calls.append("close"),
     ))
-    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, draw_list))
     monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(
+        main, "render_hit_feedback",
+        lambda image, rects: calls.append(("hit", tuple(rects))) or image,
+        raising=False,
+    )
     monkeypatch.setattr(
         main, "render_play_hud",
         lambda image, **kwargs: calls.append("hud") or image,
@@ -1195,10 +1201,14 @@ def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
     monkeypatch.setattr(main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None))
 
     game = init_game(data_dir)
+    hit_actor_idx = game.current_camera_target_actor
+    game.actors[hit_actor_idx].hit_by = 17
+    draw_list.append((hit_actor_idx, (100, 60, 200, 160)))
     game.inventory_table[0][0] = 38
     game.inventory_count[0] = 1
     assert main.run(game) == 0
-    assert calls.index("hud") < calls.index("cursor") < calls.index("present")
+    hit_call = ("hit", (main.pygame.Rect(100, 60, 101, 101),))
+    assert calls.index(hit_call) < calls.index("hud") < calls.index("cursor") < calls.index("present")
     # PLAY + mouse + no modal: the OS pointer is hidden once per frame, not
     # once at renderer creation — modals must get it back the frame they open.
     assert calls.count(("visible", False)) == 2

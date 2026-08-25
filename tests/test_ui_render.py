@@ -62,6 +62,28 @@ def test_cursor_marks_the_frame_without_mutating_the_input():
     assert int(frame.sum()) == 0
 
 
+def test_hit_feedback_marks_the_supplied_box_in_high_contrast_without_mutation():
+    from PyAitD import ui
+
+    source = np.full((200, 320, 3), 80, dtype=np.uint8)
+    original = source.copy()
+    target = pygame.Rect(100, 60, 101, 101)
+
+    result = ui.render_hit_feedback(source, (target,))
+
+    assert np.array_equal(source, original), "presentation mutated the scene frame"
+    assert result is not source
+    changed = np.any(result != source, axis=2)
+    assert not np.any(changed[:50, :]), "feedback escaped the supplied target"
+    pixels = result[changed]
+    assert np.any(np.all(pixels == (255, 255, 255), axis=1)), (
+        "hit feedback needs a bright edge against dark scenery"
+    )
+    assert np.any(
+        (pixels[:, 0] == 255) & (pixels[:, 1] <= 64) & (pixels[:, 2] <= 64)
+    ), "hit feedback needs a distinct red edge against bright scenery"
+
+
 def test_play_hud_draws_only_when_available_without_mutating_input():
     source = np.zeros((200, 320, 3), dtype=np.uint8)
     unavailable = render_play_hud(source, inventory_available=False)

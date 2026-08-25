@@ -652,6 +652,20 @@ def render_play_hud(frame, *, inventory_available):
     return _to_frame(surface)
 
 
+def render_hit_feedback(frame, rects):
+    """Outline supplied actor rectangles without reading simulation state."""
+    if not rects:
+        return frame
+    surface = _to_surface(frame.copy())
+    for rect in rects:
+        target = pygame.Rect(rect)
+        if target.width <= 0 or target.height <= 0:
+            continue
+        pygame.draw.rect(surface, (255, 255, 255), target.inflate(4, 4), width=2)
+        pygame.draw.rect(surface, (255, 32, 32), target, width=2)
+    return _to_frame(surface)
+
+
 def render_settings_notice(frame, message):
     if message is None:
         return frame

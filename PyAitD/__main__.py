@@ -24,7 +24,7 @@ from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
 from PyAitD.skel import skin
 from PyAitD.ui import (
     Command, InputBuffer, ModalSession, configure_input, event_to_input,
-    hit_test_settings_notice, render_cursor, render_play_hud,
+    hit_test_settings_notice, render_cursor, render_hit_feedback, render_play_hud,
     render_settings_notice, reset_input,
 )
 from PyAitD.world import CameraState
@@ -138,6 +138,19 @@ def inventory_hud_available(game):
         and bool(game.status_screen_allowed)
         and bool(game.inventory_count[game.current_inventory])
     )
+
+
+def _hit_feedback_rects(game, draw_list):
+    """Presentation rectangles for visible actors hit in this PLAY tick."""
+    if game.mode is not GameMode.PLAY or game.active_modal is not None:
+        return ()
+    rects = []
+    for actor_idx, box in draw_list:
+        if box is None or game.actors[actor_idx].hit_by == -1:
+            continue
+        x0, y0, x1, y1 = box
+        rects.append(pygame.Rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1))
+    return tuple(rects)
 
 
 def _pointer_actor_targets(game, draw_list, hero_idx):
@@ -873,6 +886,9 @@ def run(game, trace_path=None, session=None):
             # the same idempotent seam immediately when they open their modal.
             _take_over_play_input(game, session, input_buffer)
         composed = render_active_mode(game, session, scene_frame)
+        composed = render_hit_feedback(
+            composed, _hit_feedback_rects(game, draw_list),
+        )
         available = inventory_hud_available(game)
         composed = render_play_hud(composed, inventory_available=available)
         # the settings notice is mode-independent: after the HUD and before
