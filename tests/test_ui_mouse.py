@@ -6,9 +6,46 @@ from PyAitD.ui import (
     FoundResult, InventoryPresenter, ModalLayout, PlayLayout, ReadingResult,
     SettingsNoticeLayout, SystemMenuLayout, SystemMenuPage,
     SystemMenuPresenter,
+    effective_rects,
     hit_test_character, hit_test_found, hit_test_inventory, hit_test_reading,
     hit_test_settings_notice, hit_test_system_menu,
 )
+
+
+def test_effective_rects_expand_clamp_and_partition_without_changing_art():
+    visible = (pygame.Rect(0, 0, 4, 6), pygame.Rect(16, 0, 4, 6))
+    hit = effective_rects(visible)
+    assert visible == (pygame.Rect(0, 0, 4, 6), pygame.Rect(16, 0, 4, 6))
+    assert all(rect.w >= 12 and rect.h >= 12 for rect in hit)
+    assert hit[0].right <= hit[1].left
+    assert hit[0].collidepoint(hit[0].right, hit[0].centery) is False
+
+
+def test_effective_rects_use_explicit_bounds_and_exclusive_edges():
+    visible = (pygame.Rect(1, 1, 4, 6),)
+    hit = effective_rects(visible, bounds=pygame.Rect(0, 0, 20, 20))[0]
+    assert hit == pygame.Rect(0, 0, 12, 12)
+    assert not hit.collidepoint(hit.right, hit.centery)
+    assert not hit.collidepoint(hit.centerx, hit.bottom)
+
+
+def test_effective_rects_split_an_expansion_overlap_at_the_midpoint():
+    visible = (pygame.Rect(10, 10, 20, 20), pygame.Rect(30, 10, 20, 20))
+    hit = effective_rects(visible)
+    assert hit[0].right == 30
+    assert hit[1].left == 30
+    assert not hit[0].colliderect(hit[1])
+
+
+def test_layout_hit_rows_leave_visible_rectangles_unchanged():
+    assert PlayLayout.INVENTORY == pygame.Rect(4, 4, 28, 20)
+    assert PlayLayout.INVENTORY_HIT == pygame.Rect(2, 2, 32, 24)
+    assert SystemMenuLayout.rows(SystemMenuPage.MAIN) == SystemMenuLayout.MAIN_ROWS
+    assert SystemMenuLayout.hit_rows(SystemMenuPage.MAIN) != SystemMenuLayout.MAIN_ROWS
+    assert ModalLayout.INVENTORY_ROWS == tuple(
+        pygame.Rect(24, 30 + i * 24, 272, 22) for i in range(5)
+    )
+    assert SettingsNoticeLayout.DISMISS == pygame.Rect(72, 154, 176, 34)
 
 
 def test_inventory_hud_target_has_pinned_exclusive_edges():
@@ -49,12 +86,20 @@ def test_reading_hit_tests_respect_page_bounds():
     assert hit_test_reading(ModalLayout.READING_NEXT.center, 0, 2) == ReadingResult(False, 1)
 
 
+def test_reading_disabled_effective_targets_remain_non_targets():
+    previous, _, next_page = ModalLayout.READING_HIT_ROWS
+    assert hit_test_reading(previous.center, 0, 1) is None
+    assert hit_test_reading(next_page.center, 0, 1) is None
+
+
 def test_settings_notice_has_one_large_exclusive_dismiss_target():
     rect = SettingsNoticeLayout.DISMISS
+    hit = SettingsNoticeLayout.DISMISS_HIT
     assert rect.width >= 160 and rect.height >= 30
     assert hit_test_settings_notice(rect.topleft)
     assert hit_test_settings_notice((rect.right - 1, rect.bottom - 1))
-    assert not hit_test_settings_notice((rect.right, rect.bottom - 1))
+    assert hit_test_settings_notice((rect.right, rect.bottom - 1))
+    assert not hit_test_settings_notice((hit.right, hit.bottom - 1))
 
 
 def test_character_portraits_match_fitd_and_have_exclusive_edges():
@@ -62,9 +107,11 @@ def test_character_portraits_match_fitd_and_have_exclusive_edges():
         pygame.Rect(10, 10, 140, 181), pygame.Rect(170, 10, 140, 181),
     )
     for choice, rect in enumerate(CharacterLayout.PORTRAITS):
+        hit = CharacterLayout.PORTRAIT_HIT_ROWS[choice]
         assert hit_test_character(rect.topleft, CharacterSelectPresenter()) == choice
         assert hit_test_character((rect.right - 1, rect.bottom - 1), CharacterSelectPresenter()) == choice
-        assert hit_test_character((rect.right, rect.bottom - 1), CharacterSelectPresenter()) is None
+        assert hit_test_character((rect.right, rect.bottom - 1), CharacterSelectPresenter()) == choice
+        assert hit_test_character((hit.right, hit.bottom - 1), CharacterSelectPresenter()) is None
 
 
 def test_story_whole_frame_confirms_and_menu_rows_are_large():

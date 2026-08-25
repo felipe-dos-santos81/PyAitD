@@ -338,8 +338,73 @@ def capture_system_key(state, settings, key_name):
     return SystemMenuResult(settings=replace_binding(settings, control, key_name))
 
 
+def effective_rects(
+    rects, *, pad=2, minimum=12, bounds=pygame.Rect(0, 0, 320, 200),
+):
+    """Return forgiving, non-overlapping hit rectangles for visible targets.
+
+    The input rectangles are presentation geometry and are never mutated. Each
+    target is expanded around its original center, clamped to the logical
+    frame, and then any expansion overlap between adjacent targets is divided
+    at its midpoint. ``pygame.Rect`` keeps the right and bottom edges
+    exclusive for the returned hit boxes as well.
+    """
+    visible = tuple(pygame.Rect(rect) for rect in rects)
+    if not visible:
+        return ()
+    frame = pygame.Rect(bounds)
+    hits = []
+    for rect in visible:
+        width = min(frame.width, max(rect.width + 2 * pad, minimum))
+        height = min(frame.height, max(rect.height + 2 * pad, minimum))
+        hit = pygame.Rect(
+            rect.centerx - width // 2,
+            rect.centery - height // 2,
+            width,
+            height,
+        )
+        hit.clamp_ip(frame)
+        hits.append(hit)
+
+    # Divide expanded overlap between targets that are adjacent on a row or
+    # column. Use the original rectangles to avoid making unrelated targets in
+    # different rows compete for the same hit space. The greater center-axis
+    # distance selects the row/column direction when both rectangles overlap.
+    for index, (first_visible, second_visible) in enumerate(zip(visible, visible[1:])):
+        first, second = index, index + 1
+        horizontal = abs(first_visible.centerx - second_visible.centerx) >= abs(
+            first_visible.centery - second_visible.centery
+        )
+        if horizontal:
+            if first_visible.left > second_visible.left:
+                first, second = second, first
+                first_visible, second_visible = second_visible, first_visible
+            if (first_visible.bottom <= second_visible.top
+                    or second_visible.bottom <= first_visible.top):
+                continue
+            if hits[first].right > hits[second].left:
+                split = (hits[first].right + hits[second].left) // 2
+                hits[first].width = max(0, split - hits[first].left)
+                hits[second].x = split
+                hits[second].width = max(0, hits[second].right - split)
+        else:
+            if first_visible.top > second_visible.top:
+                first, second = second, first
+                first_visible, second_visible = second_visible, first_visible
+            if (first_visible.right <= second_visible.left
+                    or second_visible.right <= first_visible.left):
+                continue
+            if hits[first].bottom > hits[second].top:
+                split = (hits[first].bottom + hits[second].top) // 2
+                hits[first].height = max(0, split - hits[first].top)
+                hits[second].y = split
+                hits[second].height = max(0, hits[second].bottom - split)
+    return tuple(hits)
+
+
 class PlayLayout:
     INVENTORY = pygame.Rect(4, 4, 28, 20)
+    INVENTORY_HIT = effective_rects((INVENTORY,))[0]
 
 
 class CharacterLayout:
@@ -347,6 +412,7 @@ class CharacterLayout:
         pygame.Rect(10, 10, 140, 181),
         pygame.Rect(170, 10, 140, 181),
     )
+    PORTRAIT_HIT_ROWS = effective_rects(PORTRAITS)
     STORY = pygame.Rect(0, 0, 320, 200)
 
 
@@ -361,6 +427,10 @@ class SystemMenuLayout:
     def rows(cls, page):
         return cls.MAIN_ROWS if page is SystemMenuPage.MAIN else cls.CONFIG_ROWS
 
+    @classmethod
+    def hit_rows(cls, page):
+        return effective_rects(cls.rows(page))
+
 
 class ModalLayout:
     FOUND_LEAVE = pygame.Rect(28, 154, 120, 30)
@@ -369,10 +439,14 @@ class ModalLayout:
     READING_PREV = pygame.Rect(12, 164, 96, 28)
     READING_CLOSE = pygame.Rect(114, 164, 96, 28)
     READING_NEXT = pygame.Rect(216, 164, 96, 28)
+    FOUND_HIT_ROWS = effective_rects((FOUND_LEAVE, FOUND_TAKE))
+    INVENTORY_HIT_ROWS = effective_rects(INVENTORY_ROWS)
+    READING_HIT_ROWS = effective_rects((READING_PREV, READING_CLOSE, READING_NEXT))
 
 
 class SettingsNoticeLayout:
     DISMISS = pygame.Rect(72, 154, 176, 34)
+    DISMISS_HIT = effective_rects((DISMISS,))[0]
 
 
 @lru_cache(maxsize=8)
@@ -656,9 +730,9 @@ def visible_start(cursor, total):
 
 
 def hit_test_found(pos):
-    if ModalLayout.FOUND_LEAVE.collidepoint(pos):
+    if ModalLayout.FOUND_HIT_ROWS[0].collidepoint(pos):
         return FoundResult.LEAVE
-    if ModalLayout.FOUND_TAKE.collidepoint(pos):
+    if ModalLayout.FOUND_HIT_ROWS[1].collidepoint(pos):
         return FoundResult.TAKE
     return None
 
@@ -666,28 +740,28 @@ def hit_test_found(pos):
 def hit_test_character(pos, presenter):
     if presenter.phase is CharacterPhase.STORY:
         return 0 if CharacterLayout.STORY.collidepoint(pos) else None
-    for choice, rect in enumerate(CharacterLayout.PORTRAITS):
+    for choice, rect in enumerate(CharacterLayout.PORTRAIT_HIT_ROWS):
         if rect.collidepoint(pos):
             return choice
     return None
 
 
 def hit_test_system_menu(pos, presenter):
-    for index, rect in enumerate(SystemMenuLayout.rows(presenter.page)):
+    for index, rect in enumerate(SystemMenuLayout.hit_rows(presenter.page)):
         if rect.collidepoint(pos):
             return index
     return None
 
 
 def hit_test_settings_notice(pos):
-    return SettingsNoticeLayout.DISMISS.collidepoint(pos)
+    return SettingsNoticeLayout.DISMISS_HIT.collidepoint(pos)
 
 
 def hit_test_inventory(pos, presenter, object_ids, action_ids):
     rows = action_ids if presenter.choosing_action else object_ids
     cursor = presenter.action_cursor if presenter.choosing_action else presenter.object_cursor
     start = visible_start(cursor, len(rows))
-    for visible, rect in enumerate(ModalLayout.INVENTORY_ROWS):
+    for visible, rect in enumerate(ModalLayout.INVENTORY_HIT_ROWS):
         index = start + visible
         if index < len(rows) and rect.collidepoint(pos):
             if presenter.choosing_action:
@@ -734,11 +808,11 @@ class ModalSession:
 
 
 def hit_test_reading(pos, page, page_count):
-    if ModalLayout.READING_CLOSE.collidepoint(pos):
+    if ModalLayout.READING_HIT_ROWS[1].collidepoint(pos):
         return ReadingResult(True)
-    if page > 0 and ModalLayout.READING_PREV.collidepoint(pos):
+    if page > 0 and ModalLayout.READING_HIT_ROWS[0].collidepoint(pos):
         return ReadingResult(False, -1)
-    if page + 1 < page_count and ModalLayout.READING_NEXT.collidepoint(pos):
+    if page + 1 < page_count and ModalLayout.READING_HIT_ROWS[2].collidepoint(pos):
         return ReadingResult(False, 1)
     return None
 
