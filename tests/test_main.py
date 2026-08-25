@@ -162,6 +162,7 @@ def test_unknown_pygame_key_falls_back_to_defaults_with_a_path_named_notice(tmp_
     # defaults -- recording a notice that names the offending file.
     from PyAitD.__main__ import configure_session_input, load_runtime_session
     from PyAitD.config import SCHEMA, default_settings
+    from PyAitD.render_options import RenderOptions
     from PyAitD.ui import InputBuffer
 
     bindings = {name: list(keys) for name, keys in default_settings().bindings.items()}
@@ -169,6 +170,7 @@ def test_unknown_pygame_key_falls_back_to_defaults_with_a_path_named_notice(tmp_
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({
         "schema": SCHEMA, "sticky_action": False, "bindings": bindings,
+        "render": RenderOptions().to_payload(),
     }), encoding="utf-8")
 
     session = load_runtime_session(path)

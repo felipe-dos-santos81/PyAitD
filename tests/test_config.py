@@ -6,9 +6,10 @@ import sys
 import pytest
 
 from PyAitD.config import (
-    Control, REMAPPABLE_CONTROLS, Settings, default_settings, load_settings,
+    SCHEMA, Control, REMAPPABLE_CONTROLS, Settings, default_settings, load_settings,
     replace_binding, save_settings, settings_path, validate_settings,
 )
+from PyAitD.render_options import RenderOptions
 
 
 EXPECTED = {
@@ -132,17 +133,18 @@ def test_validate_settings_rejects_invalid_payloads(payload):
 def test_empty_binding_list_is_valid_for_non_cancel_controls():
     payload = valid_payload()
     payload["bindings"]["ACTION"] = []
-    settings = validate_settings(payload)
+    settings, _ = validate_settings(payload)
     assert settings.bindings["ACTION"] == ()
 
 
-def test_round_trip_uses_schema_one(tmp_path):
+def test_round_trip_uses_schema_two(tmp_path):
     path = tmp_path / "nested" / "settings.json"
     settings = Settings(EXPECTED, sticky_action=True)
     assert save_settings(settings, path) is None
     assert json.loads(path.read_text()) == {
-        "schema": 1, "sticky_action": True,
+        "schema": 2, "sticky_action": True,
         "bindings": {name: list(keys) for name, keys in EXPECTED.items()},
+        "render": RenderOptions().to_payload(),
     }
     assert load_settings(path) == (settings, None)
 
@@ -166,3 +168,41 @@ def test_replace_failure_is_reported_and_temp_is_removed(tmp_path, monkeypatch):
     error = save_settings(default_settings(), path)
     assert str(path) in error and "read only" in error
     assert list(tmp_path.glob(".settings.json.*.tmp")) == []
+
+
+def test_schema_is_2_and_settings_carry_render_defaults():
+    assert SCHEMA == 2
+    assert default_settings().render == RenderOptions()
+
+
+def test_v1_payload_loads_with_render_defaults(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps(valid_payload()))
+    settings, error = load_settings(path)
+    assert error is None
+    assert settings.render == RenderOptions()
+    assert settings.bindings == EXPECTED
+
+
+def test_v2_render_field_falls_back_per_field_with_notice(tmp_path):
+    payload = valid_payload()
+    payload["schema"] = 2
+    payload["render"] = {"scale": 2, "shading": "neon", "background_filter": "nearest",
+                         "override_dir": None}
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps(payload))
+    settings, error = load_settings(path)
+    assert settings.render == RenderOptions(2, "smooth", "nearest", None)
+    assert settings.bindings == EXPECTED
+    assert "shading" in error
+
+
+def test_save_writes_schema_2_with_render(tmp_path):
+    path = tmp_path / "settings.json"
+    settings = Settings(EXPECTED, False, RenderOptions(3, "flat", "xbr", None))
+    assert save_settings(settings, path) is None
+    payload = json.loads(path.read_text())
+    assert payload["schema"] == 2
+    assert payload["render"] == {"scale": 3, "shading": "flat",
+                                 "background_filter": "xbr", "override_dir": None}
+    assert load_settings(path) == (settings, None)

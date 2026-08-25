@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from collections import deque
 from functools import lru_cache
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from pathlib import Path
 
@@ -362,7 +362,7 @@ def reduce_system_menu(state, command, settings):
         return SystemMenuResult(save=True)
     elif command is Command.ACCEPT and state.cursor == 0:
         return SystemMenuResult(
-            settings=Settings(dict(settings.bindings), not settings.sticky_action),
+            settings=replace(settings, sticky_action=not settings.sticky_action),
         )
     elif command is Command.ACCEPT:
         state.capture = REMAPPABLE_CONTROLS[state.cursor - 1].name

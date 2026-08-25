@@ -7,8 +7,10 @@ from pathlib import Path
 import sys
 import tempfile
 
+from PyAitD.render_options import RenderOptions, validate_render_options
 
-SCHEMA = 1
+
+SCHEMA = 2
 
 
 class Control(str, Enum):
@@ -30,19 +32,26 @@ _DEFAULT_BINDINGS = {
 class Settings:
     bindings: dict[str, tuple[str, ...]]
     sticky_action: bool = False
+    render: RenderOptions = RenderOptions()
 
 
 def default_settings():
-    return Settings(dict(_DEFAULT_BINDINGS), False)
+    return Settings(dict(_DEFAULT_BINDINGS), False, RenderOptions())
 
 
 def validate_settings(payload):
+    """Return (Settings, render_error). Raises ValueError on a structurally
+    invalid payload; a bad render sub-object degrades per field instead."""
     if (not isinstance(payload, dict)
             or type(payload.get("schema")) is not int
-            or payload.get("schema") != SCHEMA):
-        raise ValueError("settings schema must be 1")
-    if set(payload) != {"schema", "sticky_action", "bindings"}:
-        raise ValueError("settings fields must be schema, sticky_action, and bindings")
+            or payload.get("schema") not in (1, 2)):
+        raise ValueError("settings schema must be 1 or 2")
+    expected_fields = {"schema", "sticky_action", "bindings"}
+    if payload["schema"] == 2:
+        expected_fields.add("render")
+    if set(payload) != expected_fields:
+        raise ValueError("settings fields must be schema, sticky_action, bindings"
+                         + (", and render" if payload["schema"] == 2 else ""))
     if type(payload.get("sticky_action")) is not bool:
         raise ValueError("sticky_action must be boolean")
     bindings = payload.get("bindings")
@@ -63,7 +72,11 @@ def validate_settings(payload):
         converted[control.name] = tuple(names)
     if converted[Control.CANCEL.name] != ("escape",):
         raise ValueError("CANCEL must remain bound only to escape")
-    return Settings(converted, payload["sticky_action"])
+    if payload["schema"] == 2:
+        render, render_error = validate_render_options(payload["render"])
+    else:
+        render, render_error = RenderOptions(), None
+    return Settings(converted, payload["sticky_action"], render), render_error
 
 
 def replace_binding(settings, control, key_name):
@@ -75,7 +88,7 @@ def replace_binding(settings, control, key_name):
         for name, keys in settings.bindings.items()
     }
     bindings[control.name] = (key_name,)
-    return Settings(bindings, settings.sticky_action)
+    return Settings(bindings, settings.sticky_action, settings.render)
 
 
 def settings_path(*, platform=None, home=None):
@@ -91,9 +104,12 @@ def load_settings(path):
     try:
         if not path.exists():
             return default_settings(), None
-        return validate_settings(json.loads(path.read_text(encoding="utf-8"))), None
+        settings, render_error = validate_settings(json.loads(path.read_text(encoding="utf-8")))
     except (OSError, ValueError, TypeError) as exc:
         return default_settings(), f"Could not load settings from {path}: {exc}"
+    if render_error is not None:
+        return settings, f"Could not load render settings from {path}: {render_error}"
+    return settings, None
 
 
 def save_settings(settings, path):
@@ -109,6 +125,7 @@ def save_settings(settings, path):
             "schema": SCHEMA,
             "sticky_action": settings.sticky_action,
             "bindings": {name: list(keys) for name, keys in settings.bindings.items()},
+            "render": settings.render.to_payload(),
         }
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(payload, stream, indent=2)
