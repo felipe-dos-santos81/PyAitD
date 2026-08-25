@@ -5,7 +5,7 @@ import numpy as np
 
 from PyAitD.floor import Floor
 from PyAitD.mask import create_aitd1_mask, fill_poly
-from PyAitD.mask_geometry import MaskDraw, iter_mask_records, mask_polygons
+from PyAitD.mask_geometry import MaskDraw, iter_mask_records, mask_polygons, triangulate_polygon
 
 
 def _pack_polygon_table(polygons):
@@ -209,3 +209,136 @@ def test_ids_are_positional_and_floor_caches(data_dir):
     draws = floor.mask_draws(0)
     assert [d.id for d in draws] == list(range(len(draws)))
     assert floor.mask_draws(0) is draws
+
+
+# ---- triangulate_polygon: the ear-clipping regression guard ----
+#
+# These tests deliberately re-implement point-in-polygon (ray casting) and
+# point-in-triangle-list checks independently of anything in mask_geometry
+# or render_gl -- they are ground truth, not a restatement of the code
+# under test.
+
+def _ray_cast_inside(x, y, poly):
+    n = len(poly)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = poly[i]
+        xj, yj = poly[j]
+        if (yi > y) != (yj > y):
+            x_cross = (xj - xi) * (y - yi) / (yj - yi) + xi
+            if x < x_cross:
+                inside = not inside
+        j = i
+    return inside
+
+
+def _cross2(o, a, b):
+    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+
+def _inside_any_triangle(x, y, poly, tri_indices):
+    p = (x, y)
+    for a, b, c in tri_indices:
+        A, B, C = poly[a], poly[b], poly[c]
+        d1, d2, d3 = _cross2(A, B, p), _cross2(B, C, p), _cross2(C, A, p)
+        has_neg = d1 < 0 or d2 < 0 or d3 < 0
+        has_pos = d1 > 0 or d2 > 0 or d3 > 0
+        if not (has_neg and has_pos):
+            return True
+    return False
+
+
+def _sample_disagreements(poly, tri_indices, bounds, step=0.2):
+    # Sample off a half-integer grid (all these fixtures use integer
+    # vertex coordinates) so no probe point ever lands exactly on an edge
+    # or vertex, where inclusion is a convention, not a correctness
+    # question.
+    lo_x, lo_y, hi_x, hi_y = bounds
+    mismatches = 0
+    for x in np.arange(lo_x, hi_x, step) + step / 2 + 0.013:
+        for y in np.arange(lo_y, hi_y, step) + step / 2 + 0.017:
+            truth = _ray_cast_inside(x, y, poly)
+            got = _inside_any_triangle(x, y, poly, tri_indices)
+            if truth != got:
+                mismatches += 1
+    return mismatches
+
+
+# A concave dart / arrowhead: vertex 3, (1, 2), is a reflex vertex that
+# points back *into* the shape defined by the other three points. A
+# GL_TRIANGLE_FAN from vertex 0 draws triangles (0,1,2) and (0,2,3) --
+# together these are exactly the *convex hull* triangle (0,1,2), because
+# (0,2,3) is a subset of it: the fan over-fills the notch the dart
+# actually excludes. This is the same over-occlusion failure mode as the
+# real mask polygons (verified against real game data separately), shrunk
+# to four hand-picked points.
+_DART = [(0, 0), (4, 2), (0, 4), (1, 2)]
+
+
+def test_ear_clip_and_naive_fan_disagree_on_a_concave_dart():
+    # Establishes the premise: this fixture actually exercises the bug
+    # class under test. If a future edit to _DART made the fan agree with
+    # the true interior everywhere, this test (not the one below) is the
+    # one that would catch it -- the exactness assertion below alone
+    # would still pass on a polygon that happened to be star-shaped.
+    naive_fan = [(0, i, i + 1) for i in range(1, len(_DART) - 1)]
+    fan_mismatches = _sample_disagreements(_DART, naive_fan, (-1, -1, 5, 5))
+    assert fan_mismatches > 0
+
+
+def test_ear_clip_triangulation_covers_exactly_the_concave_polygons_interior():
+    tris = triangulate_polygon(_DART).tolist()
+    assert len(tris) == len(_DART) - 2  # a simple polygon always triangulates to n-2 triangles
+    mismatches = _sample_disagreements(_DART, tris, (-1, -1, 5, 5))
+    assert mismatches == 0
+
+
+def test_ear_clip_triangulation_is_winding_direction_robust():
+    reversed_dart = list(reversed(_DART))
+    tris = triangulate_polygon(reversed_dart).tolist()
+    assert len(tris) == len(reversed_dart) - 2
+    mismatches = _sample_disagreements(reversed_dart, tris, (-1, -1, 5, 5))
+    assert mismatches == 0
+
+
+def test_ear_clip_triangulation_of_a_larger_concave_comb_matches_ray_casting():
+    # A five-pronged comb: deeply concave, more points than the minimal
+    # dart above, and -- unlike the dart -- not star-shaped from *any*
+    # single vertex, so no fan origin could accidentally get this right.
+    comb = [
+        (0, 0), (10, 0), (10, 10), (8, 10), (8, 3), (6, 3), (6, 10),
+        (4, 10), (4, 3), (2, 3), (2, 10), (0, 10),
+    ]
+    tris = triangulate_polygon(comb).tolist()
+    assert len(tris) == len(comb) - 2
+    mismatches = _sample_disagreements(comb, tris, (-1, -1, 11, 11))
+    assert mismatches == 0
+
+
+def test_triangulate_polygon_degenerate_inputs_fall_back_gracefully():
+    assert triangulate_polygon([]).shape == (0, 3)
+    assert triangulate_polygon([(0, 0)]).shape == (0, 3)
+    assert triangulate_polygon([(0, 0), (1, 1)]).shape == (0, 3)
+    # A duplicated closing vertex (first == last) collapses to a triangle
+    # once deduped, rather than raising or leaving a degenerate 0-area
+    # sliver triangle in the output.
+    tris = triangulate_polygon([(0, 0), (4, 0), (0, 4), (0, 0)])
+    assert tris.tolist() == [[0, 1, 2]]
+
+
+def test_triangulate_polygon_output_indexes_the_original_points():
+    # MaskDraw.triangles / render_gl gather triangle vertices with
+    # poly[tris.reshape(-1)] against the *original* (undeduped) points
+    # array -- every emitted index must be a valid position in `points`.
+    tris = triangulate_polygon(_DART)
+    assert tris.dtype == np.int32
+    assert tris.shape[1] == 3
+    assert set(tris.reshape(-1).tolist()) <= set(range(len(_DART)))
+
+
+def test_mask_draw_caches_a_triangulation_per_polygon():
+    poly = np.array(_DART, dtype=np.int16)
+    draw = MaskDraw(0, (poly,), (0, 0, 4, 4), 0, ())
+    assert len(draw.triangles) == 1
+    assert draw.triangles[0].shape == (len(_DART) - 2, 3)

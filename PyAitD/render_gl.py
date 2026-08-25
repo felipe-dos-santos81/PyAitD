@@ -386,20 +386,30 @@ class GLBackend:
         self._quad_vao.render(moderngl.TRIANGLES)
 
     def _rasterize_masks(self, masks):
+        # Each polygon is drawn as a real triangle list (GL_TRIANGLES),
+        # not a GL_TRIANGLE_FAN from vertex 0: a fan only fills a polygon
+        # correctly when it is star-shaped from that vertex, and real
+        # mask polygons are frequently concave. The ear-clipping
+        # triangulation itself lives in mask_geometry.py (pure, cached
+        # once per MaskDraw at load time via MaskDraw.triangles) -- this
+        # loop only gathers the precomputed triangle vertices and uploads
+        # them, so the per-frame buffer/VAO creation cadence (one per
+        # polygon per mask per actor) is unchanged from before this fix.
         self._mask_fbo.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
         self._mask_fbo.clear(0.0, 0.0, 0.0, 0.0)
         for mask in masks:
-            for poly in mask.polygons:
-                if len(poly) < 3:
+            for poly, tris in zip(mask.polygons, mask.triangles):
+                if len(tris) == 0:
                     continue
-                verts = np.empty((len(poly), 2), dtype="f4")
-                verts[:, 0] = poly[:, 0].astype("f4") / SCREEN_CENTER_X - 1.0
-                verts[:, 1] = 1.0 - poly[:, 1].astype("f4") / SCREEN_CENTER_Y
+                tri_pts = poly[tris.reshape(-1)]
+                verts = np.empty((len(tri_pts), 2), dtype="f4")
+                verts[:, 0] = tri_pts[:, 0].astype("f4") / SCREEN_CENTER_X - 1.0
+                verts[:, 1] = 1.0 - tri_pts[:, 1].astype("f4") / SCREEN_CENTER_Y
                 buf = self._ctx.buffer(verts.tobytes())
                 vao = self._ctx.vertex_array(self._stencil_prog, [(buf, "2f", "in_pos")])
-                vao.render(moderngl.TRIANGLE_FAN)
+                vao.render(moderngl.TRIANGLES)
                 vao.release()
                 buf.release()
 
