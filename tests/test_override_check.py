@@ -3,7 +3,6 @@ import os
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 import numpy as np
-import pytest
 
 from PyAitD import override_check as oc
 from PyAitD.asset_resolver import AssetResolver, load_png_rgb, override_background_path

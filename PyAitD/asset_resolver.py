@@ -29,16 +29,6 @@ def override_palette_path(override_dir):
 def load_png_rgb(path):
     import pygame
     surface = pygame.image.load(str(path))
-    # Reject indexed/palettized surfaces
-    try:
-        if surface.get_palette() is not None:
-            raise ValueError("8-bit indexed/palettized PNG is not supported")
-    except ValueError:
-        # Re-raise our rejection message
-        raise
-    except:
-        # Any other exception (e.g., pygame error) means surface is not palettized
-        pass
     return np.ascontiguousarray(pygame.surfarray.array3d(surface).swapaxes(0, 1)).astype(np.uint8)
 
 
