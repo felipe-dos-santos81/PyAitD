@@ -184,7 +184,8 @@ def test_run_routes_motion_once_and_focus_loss_clears_the_modal_preview(data_dir
         [pygame.event.Event(pygame.QUIT)],
     ))
     ticks = itertools.count(0, 20)
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         window_to_logical=lambda pos: positions.append(pos) or pos,
         present=lambda image: None,
         close=lambda: None,
@@ -213,7 +214,8 @@ def _run_notice_script(monkeypatch, game, session, next_events, draw_list=()):
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     ticks = itertools.count(0, 20)
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         window_to_logical=lambda pos: pos,
         present=lambda image: None,
         close=lambda: None,
@@ -695,7 +697,9 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     )
     monkeypatch.setattr(
         main, "Renderer",
-        lambda: SimpleNamespace(present=lambda image: None, close=lambda: None),
+        lambda *_a, **_k: SimpleNamespace(
+            fallback_notice=None, present=lambda image: None, close=lambda: None,
+        ),
     )
     monkeypatch.setattr(main, "play_tick", lambda *args: True)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
@@ -786,7 +790,8 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
         return frame
 
     monkeypatch.setattr(main, "Floor", load_floor)
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         present=lambda _image: None, close=lambda: None,
     ))
     monkeypatch.setattr(main, "_scene_frame", scene_frame)
@@ -1226,7 +1231,7 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
         restart_requested=False,
         current_camera_target_actor=-1,
         inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
-        current_inventory=0, status_screen_allowed=1,
+        current_inventory=0, status_screen_allowed=1, assets=object(),
     )
 
     def spy_restart_session(game):
@@ -1273,7 +1278,9 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     monkeypatch.setattr(main, "render_active_mode", lambda *a: frame)
     monkeypatch.setattr(
         main, "Renderer",
-        lambda: SimpleNamespace(present=spy_present, close=lambda: None),
+        lambda *_a, **_k: SimpleNamespace(
+            fallback_notice=None, present=spy_present, close=lambda: None,
+        ),
     )
     monkeypatch.setattr(
         main.pygame.mouse, "set_visible", lambda value: None

@@ -8,26 +8,24 @@ import sys
 
 import pygame
 
-from PyAitD.actors import anim_player_for, sort_actor_indices
+from PyAitD.asset_resolver import AssetResolver
 from PyAitD.config import default_settings, load_settings, save_settings, settings_path
 from PyAitD.effects import ChooseCharacter, GameMode, InputMode
 from PyAitD.floor import Floor
 from PyAitD.game import enter_floor_start, init_game
 from PyAitD.life import Trace
 from PyAitD.pak import PakError
-from PyAitD.picking import actor_bbox
 # imported by name, not module-qualified: run() reads play_tick as a module
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.playworld import TICK_MS, play_tick
 from PyAitD.render import Renderer
 from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
-from PyAitD.skel import skin
+from PyAitD.scene import build_frame
 from PyAitD.ui import (
     Command, InputBuffer, ModalSession, configure_input, event_to_input,
     hit_test_settings_notice, render_cursor, render_hit_feedback, render_play_hud,
-    render_settings_notice, reset_input,
+    render_settings_notice, reset_input, transparent_canvas,
 )
-from PyAitD.world import CameraState
 
 DEFAULT_DATA = (
     pathlib.Path(__file__).resolve().parent.parent
@@ -93,45 +91,22 @@ def replacement_session(session):
     )
 
 
-def _scene_frame(game, floor, renderer):
-    # mainLoop.cpp:270 AllRedraw: M2 render pipeline, every live actor skinned
-    # through the current camera (num_camera is room-relative, FITD InitView).
-    room = floor.rooms[game.current_room]
-    cam_idx = room.camera_indices[game.num_camera]
-    cam = floor.cameras[cam_idx]
-    state = CameraState.from_camera(
-        cam, room.world_x, room.world_y, room.world_z,
-    ).angles()
-    results = []
-    actor_rooms = []
-    actor_zvs = []
-    draw_list = []
-    draw_order = sort_actor_indices(game, state.x, state.y, state.z)
-    for index in draw_order:
-        actor = game.actors[index]
-        body = game.assets.body(actor.body_num)
-        if actor.anim == -1:
-            states = [(0, (0, 0, 0))] * len(body.groups)
-        else:
-            states = anim_player_for(game, index).group_states()
-        results.append(skin(
-            body,
-            states,
-            (
-                actor.world_x + actor.step_x,
-                actor.world_y + actor.step_y,
-                actor.world_z + actor.step_z,
-            ),
-            state,
-            actor_angles=(actor.alpha, actor.beta, actor.gamma),
-        ))
-        draw_list.append((index, actor_bbox(results[-1])))
-        actor_rooms.append(actor.room)
-        actor_zvs.append(actor.zv)
-    return renderer.compose_scene(
-        floor.camera_image(cam_idx), results, floor.masks(cam_idx), floor.palette,
-        actor_rooms, actor_zvs,
-    ), draw_list
+def _scene_frame(game, floor, renderer, resolver=None):
+    # mainLoop.cpp:270 AllRedraw through the scene layer: build_frame keeps the
+    # logical draw_list; the renderer draws the enhanced frame and returns the
+    # 320x200 thumbnail that presenters and the software path use.
+    resolver = resolver or AssetResolver(game.assets)
+    frame, draw_list = build_frame(game, floor, resolver)
+    return renderer.compose_scene(frame), draw_list
+
+
+def _resolver_for(assets, override_dir_source):
+    # A hero swap or restart replaces `game` (and so `game.assets`): the old
+    # resolver's cache is keyed off the old assets object and must not be
+    # reused, but the override directory it was configured with still
+    # applies to the new game.
+    override_dir = getattr(override_dir_source, "_override_dir", None)
+    return AssetResolver(assets, override_dir)
 
 
 def inventory_hud_available(game):
@@ -684,7 +659,7 @@ def render_active_mode(game, session, scene_frame):
     )
     effect = game.active_modal
     if effect is None:
-        return overlay_messages(scene_frame, game.messages, game.assets)
+        return overlay_messages(transparent_canvas(), game.messages, game.assets)
     # This is the modal lifecycle boundary.  It resets a replacement exactly
     # once before any presenter can render, including the system menu.
     session.reset_for(effect)
@@ -708,7 +683,9 @@ def render_active_mode(game, session, scene_frame):
     if isinstance(effect, ShowPicture):
         return render_picture(effect, game.assets)
     if isinstance(effect, GameOver):
-        return render_game_over(scene_frame, _game_over_ready(session, effect))
+        return render_game_over(
+            transparent_canvas(), scene_frame, _game_over_ready(session, effect),
+        )
     raise RuntimeError(f"unrenderable modal {type(effect).__name__}")
 
 
@@ -732,7 +709,7 @@ def restart_session(old_game):
     return new_game
 
 
-def _hero_branch(game, renderer, session, input_buffer=None):
+def _hero_branch(game, renderer, session, input_buffer=None, resolver=None):
     # Atomic hero replacement: confirming a character rebuilds game, floor,
     # session, and input buffer in one tuple, so run() resumes on the new
     # game with a single assignment plus `continue` -- no PLAY tick and no
@@ -752,14 +729,16 @@ def _hero_branch(game, renderer, session, input_buffer=None):
     configure_session_input(new_session, input_buffer)
     new_game.num_camera = new_game.new_num_camera
     new_game.flag_init_view = 0
-    scene_frame, draw_list = _scene_frame(new_game, new_floor, renderer)
+    scene_frame, draw_list = _scene_frame(
+        new_game, new_floor, renderer, _resolver_for(new_game.assets, resolver),
+    )
     return (
         new_game, new_floor, new_session, input_buffer, 0,
         draw_list, None, scene_frame, pygame.time.get_ticks(), 0,
     )
 
 
-def _restart_branch(game, renderer, session, input_buffer=None):
+def _restart_branch(game, renderer, session, input_buffer=None, resolver=None):
     # The atomic replace-game-and-floor step run() inlines each frame: a
     # successful restart hands back every loop local that referenced the old
     # game, so a single tuple assignment plus `continue` is enough to resume
@@ -783,7 +762,9 @@ def _restart_branch(game, renderer, session, input_buffer=None):
     hover = None
     game.num_camera = game.new_num_camera
     game.flag_init_view = 0
-    scene_frame, draw_list = _scene_frame(game, floor, renderer)
+    scene_frame, draw_list = _scene_frame(
+        game, floor, renderer, _resolver_for(game.assets, resolver),
+    )
     last = pygame.time.get_ticks()
     return (
         game, floor, session, input_buffer, accumulator,
@@ -791,7 +772,7 @@ def _restart_branch(game, renderer, session, input_buffer=None):
     )
 
 
-def run(game, trace_path=None, session=None):
+def run(game, trace_path=None, session=None, resolver=None):
     # M3b play loop: one event pump, fixed-step PLAY ticks, one present/frame
     try:
         floor = Floor(game._data_dir, game.current_floor)
@@ -799,11 +780,14 @@ def run(game, trace_path=None, session=None):
         print(f"error: {exc}", file=sys.stderr)
         return 2
     game.trace = Trace(trace_path) if trace_path else None
-    renderer = Renderer()
-    clock = pygame.time.Clock()
-    input_buffer = InputBuffer()
     if session is None:
         session = ModalSession()
+    renderer = Renderer(session.settings.render)
+    if renderer.fallback_notice and session.settings_error is None:
+        session.settings_error = renderer.fallback_notice
+    resolver = resolver or AssetResolver(game.assets, session.settings.render.override_dir)
+    clock = pygame.time.Clock()
+    input_buffer = InputBuffer()
     configure_session_input(session, input_buffer)
     running = True
     exit_status = 0
@@ -814,7 +798,7 @@ def run(game, trace_path=None, session=None):
         game.flag_init_view = 0
     draw_list = []
     hover = None
-    scene_frame, draw_list = _scene_frame(game, floor, renderer)
+    scene_frame, draw_list = _scene_frame(game, floor, renderer, resolver)
     hit_feedback_deadlines = {
         actor_idx: last + HIT_FEEDBACK_MS for actor_idx in _hit_actor_ids(game)
     }
@@ -871,9 +855,9 @@ def run(game, trace_path=None, session=None):
                 session.settings_error = None
             else:
                 running = route_command(game, session, command, input_buffer) and running
-        replaced = _hero_branch(game, renderer, session, input_buffer)
+        replaced = _hero_branch(game, renderer, session, input_buffer, resolver)
         if replaced is None:
-            replaced = _restart_branch(game, renderer, session, input_buffer)
+            replaced = _restart_branch(game, renderer, session, input_buffer, resolver)
         if replaced is not None:
             (
                 new_game, new_floor, new_session, new_input_buffer,
@@ -883,6 +867,11 @@ def run(game, trace_path=None, session=None):
             if exit_status:
                 running = False
                 break
+            # The branch above already rebuilt its own resolver for the
+            # scene_frame it produced; run()'s resolver has to follow the
+            # same replacement so every later frame resolves against the new
+            # game's assets too, not the outgoing game's.
+            resolver = _resolver_for(new_game.assets, resolver)
             game, floor, session, input_buffer = (
                 new_game, new_floor, new_session, new_input_buffer,
             )
@@ -906,7 +895,7 @@ def run(game, trace_path=None, session=None):
                 if floor.number != game.current_floor:
                     floor = Floor(game._data_dir, game.current_floor)
             if game.num_camera != -1:
-                scene_frame, draw_list = _scene_frame(game, floor, renderer)
+                scene_frame, draw_list = _scene_frame(game, floor, renderer, resolver)
         else:
             accumulator = 0
             session.elapsed_ms += elapsed

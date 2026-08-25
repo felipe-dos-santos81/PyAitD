@@ -556,12 +556,29 @@ def _font(size=16):
     return pygame.font.Font(None, size)
 
 
+def transparent_canvas():
+    """The 320x200 RGBA canvas presenters paint on: fully clear until drawn,
+    so the renderer's UI/scene compositor only replaces the pixels a
+    presenter actually touched."""
+    return np.zeros((200, 320, 4), dtype=np.uint8)
+
+
 def _to_surface(frame):
-    return pygame.surfarray.make_surface(np.ascontiguousarray(frame).swapaxes(0, 1))
+    frame = np.ascontiguousarray(frame)
+    if frame.shape[2] == 3:
+        return pygame.surfarray.make_surface(frame.swapaxes(0, 1))
+    surface = pygame.Surface((frame.shape[1], frame.shape[0]), flags=pygame.SRCALPHA)
+    pygame.surfarray.pixels3d(surface)[:] = frame[:, :, :3].swapaxes(0, 1)
+    pygame.surfarray.pixels_alpha(surface)[:] = frame[:, :, 3].swapaxes(0, 1)
+    return surface
 
 
 def _to_frame(surface):
-    return np.ascontiguousarray(pygame.surfarray.array3d(surface).swapaxes(0, 1))
+    rgb = pygame.surfarray.array3d(surface).swapaxes(0, 1)
+    if surface.get_flags() & pygame.SRCALPHA:
+        alpha = pygame.surfarray.array_alpha(surface).swapaxes(0, 1)
+        return np.ascontiguousarray(np.dstack([rgb, alpha]))
+    return np.ascontiguousarray(rgb)
 
 
 def _button(surface, rect, label, selected=False, size=18):
@@ -848,12 +865,12 @@ def _render_key_picker(surface, presenter):
     return _to_frame(surface)
 
 
-def render_game_over(scene_frame, ready):
+def render_game_over(canvas, scene_frame, ready):
     # LM_GAME_OVER's wall-clock wait (life.cpp:2438-2450) freezes the last PLAY
-    # frame -- locked, this returns the caller's frame untouched, byte-identical,
+    # frame -- locked, this returns the caller's canvas untouched, byte-identical,
     # not recomposed, so the modal appears to hold the moment of death still.
     if not ready:
-        return scene_frame
+        return canvas
     surface = _to_surface(scene_frame.copy())
     shade = pygame.Surface((320, 200), flags=pygame.SRCALPHA)
     shade.fill((0, 0, 0, 170))

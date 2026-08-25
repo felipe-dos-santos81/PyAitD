@@ -164,8 +164,9 @@ _FRAME = np.zeros((200, 320, 3), dtype=np.uint8)
 
 
 class _HeadlessRenderer:
-    def __init__(self):
+    def __init__(self, *_args, **_kwargs):
         self.presented = 0
+        self.fallback_notice = None
 
     def window_to_logical(self, pos):
         return pos
@@ -209,7 +210,7 @@ def _run_scripted_mouse(monkeypatch, game, draw_list, next_events):
 
     renderer = _HeadlessRenderer()
     ticks = itertools.count(0, 20)
-    monkeypatch.setattr(main, "Renderer", lambda: renderer)
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: renderer)
     if draw_list is not None:
         monkeypatch.setattr(main, "_scene_frame", lambda *args: (_FRAME, draw_list))
     monkeypatch.setattr(main, "render_active_mode", lambda *args: _FRAME)

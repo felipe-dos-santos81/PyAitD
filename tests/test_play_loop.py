@@ -77,7 +77,8 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
     )
     monkeypatch.setattr(
         main, "Renderer",
-        lambda: SimpleNamespace(
+        lambda *_a, **_k: SimpleNamespace(
+            fallback_notice=None,
             present=lambda image: calls.append("present"), close=lambda: None,
         ),
     )
@@ -102,7 +103,7 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
         restart_requested=False,
         current_camera_target_actor=-1,
         inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
-        current_inventory=0, status_screen_allowed=1,
+        current_inventory=0, status_screen_allowed=1, assets=object(),
     )
     assert main.run(game) == 0
     assert calls == ["tick"] * 5 + ["present", "present"]
@@ -127,7 +128,8 @@ def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, monkeypatch
     monkeypatch.setattr(main, "Floor", lambda *_args: SimpleNamespace(
         number=0, rooms=[SimpleNamespace(camera_indices=[0])],
     ))
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         present=lambda image: presented.append(image.copy()), close=lambda: None,
     ))
     monkeypatch.setattr(main, "play_tick", publish_then_clear)
@@ -175,7 +177,8 @@ def test_run_expires_hit_feedback_instead_of_latching_forever(data_dir, monkeypa
     monkeypatch.setattr(main, "Floor", lambda *_args: SimpleNamespace(
         number=0, rooms=[SimpleNamespace(camera_indices=[0])],
     ))
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         present=lambda image: presented.append(image.copy()), close=lambda: None,
     ))
     monkeypatch.setattr(main, "play_tick", publish_once)
@@ -220,7 +223,8 @@ def test_escape_opens_the_system_menu_and_pauses_play_ticks(data_dir, monkeypatc
     )
     monkeypatch.setattr(
         main, "Renderer",
-        lambda: SimpleNamespace(
+        lambda *_a, **_k: SimpleNamespace(
+            fallback_notice=None,
             present=lambda image: calls.append("present"), close=lambda: None,
         ),
     )
@@ -275,7 +279,9 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch,
     )
     monkeypatch.setattr(
         main, "Renderer",
-        lambda: SimpleNamespace(present=presented.append, close=lambda: None),
+        lambda *_a, **_k: SimpleNamespace(
+            fallback_notice=None, present=presented.append, close=lambda: None,
+        ),
     )
     monkeypatch.setattr(main, "play_tick", tick)
     monkeypatch.setattr(main, "_scene_frame", scene_frame)
@@ -296,11 +302,71 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch,
         restart_requested=False,
         current_camera_target_actor=-1,
         inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
-        current_inventory=0, status_screen_allowed=1,
+        current_inventory=0, status_screen_allowed=1, assets=object(),
     )
     assert main.run(game) == 0
     assert len(scene_calls) == 1  # only the pre-loop frame, reused after
     assert len(presented) == 2
+
+
+def test_scene_frame_delegates_to_build_frame_and_compose_scene(monkeypatch):
+    """_scene_frame's own contract (task 9): call build_frame(game, floor,
+    resolver), hand its FrameDescription -- and nothing else -- to
+    renderer.compose_scene, and return (that thumbnail, build_frame's own
+    draw_list) unmodified. build_frame's own draw_list correctness is
+    test_scene.py's job; this pins the wiring around it and needs no game
+    data, unlike the old 6-arg compose_scene call this replaced."""
+    import PyAitD.__main__ as main
+
+    game = SimpleNamespace(assets="assets-marker")
+    floor = SimpleNamespace()
+    sentinel_frame = SimpleNamespace(marker="frame")
+    sentinel_draw_list = [(0, (1, 2, 3, 4))]
+    calls = {}
+
+    def fake_build_frame(passed_game, passed_floor, passed_resolver):
+        calls["build_frame"] = (passed_game, passed_floor, passed_resolver)
+        return sentinel_frame, sentinel_draw_list
+
+    monkeypatch.setattr(main, "build_frame", fake_build_frame)
+
+    class FakeRenderer:
+        def compose_scene(self, frame):
+            calls["compose_scene"] = frame
+            return "thumbnail"
+
+    resolver = object()
+    composed, draw_list = main._scene_frame(game, floor, FakeRenderer(), resolver)
+
+    assert calls["build_frame"] == (game, floor, resolver)
+    assert calls["compose_scene"] is sentinel_frame
+    assert composed == "thumbnail"
+    assert draw_list is sentinel_draw_list
+
+
+def test_scene_frame_defaults_resolver_to_an_asset_resolver_over_game_assets(monkeypatch):
+    import PyAitD.__main__ as main
+    from PyAitD.asset_resolver import AssetResolver
+
+    game = SimpleNamespace(assets="assets-marker")
+    floor = SimpleNamespace()
+    seen_resolvers = []
+
+    def fake_build_frame(_game, _floor, passed_resolver):
+        seen_resolvers.append(passed_resolver)
+        return SimpleNamespace(), []
+
+    monkeypatch.setattr(main, "build_frame", fake_build_frame)
+
+    class FakeRenderer:
+        def compose_scene(self, frame):
+            return frame
+
+    main._scene_frame(game, floor, FakeRenderer())
+
+    assert len(seen_resolvers) == 1
+    assert isinstance(seen_resolvers[0], AssetResolver)
+    assert seen_resolvers[0]._assets == "assets-marker"
 
 
 class _FakeAssets:
@@ -572,7 +638,8 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
         [SimpleNamespace(type=main.pygame.QUIT)],
     ])
     times = iter([0, 20, 20])
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         present=lambda image: None, close=lambda: None,
     ))
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
@@ -643,7 +710,8 @@ def test_held_push_inventory_modal_takeover_is_clean_before_play_resumes(
         assert not buffer.pointer_held
         observed_ticks.append(1)
 
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         window_to_logical=lambda pos: pos,
         present=lambda _image: None,
         close=lambda: None,
@@ -697,7 +765,8 @@ def test_run_routes_physical_and_touch_down_through_the_same_held_push_path(
     ])
     times = iter([0, 20, 20])
     seen = []
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         window_to_logical=lambda pos: pos,
         present=lambda _image: None,
         close=lambda: None,
@@ -752,7 +821,8 @@ def test_run_routes_physical_and_touch_down_to_the_same_inventory_modal(
         [SimpleNamespace(type=main.pygame.QUIT)],
     ])
     times = iter([0, 0, 0, 0])
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         window_to_logical=lambda pos: pos,
         present=lambda _image: None,
         close=lambda: None,
@@ -1374,7 +1444,8 @@ def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
     monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(
         number=0, rooms=[SimpleNamespace(camera_indices=[0])],
     ))
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         present=lambda image: calls.append("present"), close=lambda: calls.append("close"),
     ))
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, draw_list))
@@ -1429,7 +1500,8 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, monkeyp
     monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(
         number=0, rooms=[SimpleNamespace(camera_indices=[0])],
     ))
-    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
         present=presented.append, close=lambda: None,
     ))
     monkeypatch.setattr(
