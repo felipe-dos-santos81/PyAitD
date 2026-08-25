@@ -98,6 +98,25 @@ def test_rgba_override_is_rejected_logged_and_falls_back(tmp_path, caplog):
     assert sum(r.levelno == logging.WARNING for r in caplog.records) == 1
 
 
+def test_enormous_override_is_rejected_logged_and_falls_back(tmp_path, caplog):
+    # Finding 3: an override PNG this large would reach ctx.texture() in
+    # render_gl.py and could raise on a driver enforcing a smaller
+    # GL_MAX_TEXTURE_SIZE than this host's -- a crash the moment the player
+    # enters that camera. _require_rgb rejects it here instead, with a clear
+    # message, well before it ever reaches GL.
+    path = override_background_path(tmp_path, 3, 0)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"huge")
+    enormous = np.zeros((9000, 320, 3), dtype=np.uint8)
+    resolver = AssetResolver(None, tmp_path, load_png=lambda p: enormous)
+    with caplog.at_level(logging.WARNING, logger="PyAitD.assets"):
+        asset = resolver.background(_floor(), 0)
+    assert not asset.is_override and asset.pixels.shape == (200, 320, 3)
+    assert path in resolver.failures
+    assert sum(r.levelno == logging.WARNING for r in caplog.records) == 1
+    assert "8192" in resolver.failures[path]
+
+
 def test_load_png_rgb_axis_order_and_dtype(tmp_path):
     import pygame
     width, height = 5, 3  # deliberately W != H so a transpose bug is detectable

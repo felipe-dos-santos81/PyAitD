@@ -101,7 +101,14 @@ def load_runtime_session(path):
     # are validated later by configure_session_input, once the Renderer owns
     # the initialized pygame runtime.
     settings, error = load_settings(path)
-    return ModalSession(settings=settings, settings_path=path, settings_error=error)
+    # Captured before main() applies any --render-* / --overrides CLI flags
+    # to session.settings: this is the on-disk baseline a later save must
+    # not let a session-only CLI override clobber. See
+    # _save_session_settings and apply_render_overrides.
+    return ModalSession(
+        settings=settings, settings_path=path, settings_error=error,
+        disk_render=settings.render,
+    )
 
 
 def configure_session_input(session, input_buffer):
@@ -124,14 +131,18 @@ def replacement_session(session):
         settings_path=session.settings_path,
         settings_error=session.settings_error,
         settings_dirty=session.settings_dirty,
+        disk_render=session.disk_render,
+        render_touched=session.render_touched,
     )
 
 
 def _scene_frame(game, floor, renderer, resolver):
-    # mainLoop.cpp:270 AllRedraw through the scene layer: build_frame keeps the
-    # logical draw_list; the renderer draws the enhanced frame and returns the
-    # 320x200 thumbnail that presenters and the software path use. `resolver`
-    # is required, not defaulted: a silent `AssetResolver(game.assets)`
+    # mainLoop.cpp:270 AllRedraw through the scene layer: build_frame keeps
+    # the logical draw_list; the renderer draws the enhanced frame (its
+    # 320x200 thumbnail, if a presenter or the software path needs one, is
+    # computed lazily by renderer.scene_thumbnail() instead of eagerly here
+    # -- see the finding-1 note on Renderer.compose_scene). `resolver` is
+    # required, not defaulted: a silent `AssetResolver(game.assets)`
     # fallback here would drop the override directory with no error, the same
     # silent-degradation failure mode `_resolver_for` exists to avoid below.
     frame, draw_list = build_frame(game, floor, resolver)
@@ -386,13 +397,43 @@ def _route_game_over_command(game, session, modal_command):
     return True
 
 
+# The only render.RenderOptions fields the CONFIG menu can actually change
+# (SystemMenuPage.CONFIG's Scale/Shading/Filter rows, via cycle_scale /
+# cycle_shading / cycle_filter in ui.reduce_system_menu). `override_dir` has
+# no menu row at all, so it is never in this set and a save can never pick
+# it up from the in-memory, possibly CLI-set, session.settings.render.
+_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter")
+
+
+def _persisted_render(session):
+    """The render payload `_save_session_settings` actually writes: the
+    on-disk baseline (`session.disk_render`, captured before any CLI
+    override was applied) with only the fields the player explicitly
+    changed via a CONFIG menu cycle this session (`session.render_touched`)
+    overlaid on top.
+
+    Without this, saving *any* setting (even one unrelated to rendering,
+    like Sticky Action) would write session.settings.render wholesale --
+    and that field already carries whatever apply_render_overrides baked in
+    from argv at boot, CLI-only override_dir included. apply_render_overrides'
+    docstring promises those overrides are session-only; this is what keeps
+    that promise true past the first save.
+    """
+    overrides = {
+        field_name: getattr(session.settings.render, field_name)
+        for field_name in session.render_touched
+    }
+    return replace(session.disk_render, **overrides)
+
+
 def _save_session_settings(session):
     if not session.settings_dirty:
         return True
     if session.settings_path is None:
         session.settings_dirty = False
         return True
-    error = save_settings(session.settings, session.settings_path)
+    settings_to_save = replace(session.settings, render=_persisted_render(session))
+    error = save_settings(settings_to_save, session.settings_path)
     if error is not None:
         session.settings_error = error
         return False
@@ -404,7 +445,19 @@ def _apply_system_result(game, session, input_buffer, result, renderer=None):
     if result is None:
         return True
     if result.settings is not None:
-        render_changed = result.settings.render != session.settings.render
+        old_render, new_render = session.settings.render, result.settings.render
+        render_changed = new_render != old_render
+        if render_changed:
+            # Only a menu render-field cycle can produce a render diff here
+            # (see _MENU_RENDER_FIELDS): record exactly which field(s)
+            # changed so a later save persists only those, not whatever
+            # else happens to be sitting in session.settings.render.
+            touched = set(session.render_touched)
+            touched.update(
+                field_name for field_name in _MENU_RENDER_FIELDS
+                if getattr(old_render, field_name) != getattr(new_render, field_name)
+            )
+            session.render_touched = frozenset(touched)
         session.settings = result.settings
         session.settings_dirty = True
         configure_input(input_buffer, session.settings)
@@ -689,7 +742,12 @@ def _auto_dismiss_picture(game, session):
     return True
 
 
-def render_active_mode(game, session, scene_frame):
+def render_active_mode(game, session, renderer):
+    """`renderer` is the live Renderer, not a pre-computed thumbnail: only
+    the two branches below that actually paint a scene thumbnail behind
+    their modal (OpenInventory, GameOver) call `renderer.scene_thumbnail()`,
+    so every other mode (most frames: no modal at all) never pays for it --
+    see the finding-1 note on `Renderer.compose_scene`."""
     from PyAitD.effects import (
         ChooseCharacter, GameOver, OpenInventory, OpenSystemMenu, ReadText,
         ShowFound, ShowPicture,
@@ -716,7 +774,7 @@ def render_active_mode(game, session, scene_frame):
     if isinstance(effect, OpenInventory):
         object_ids, action_ids = _inventory_view(game, session)
         return render_inventory(
-            session.inventory, game.assets, scene_frame,
+            session.inventory, game.assets, renderer.scene_thumbnail(),
             tuple(game.assets.system_text(game.world_objects[i].found_name) for i in object_ids),
             tuple(game.assets.system_text(i) for i in action_ids),
         )
@@ -726,7 +784,7 @@ def render_active_mode(game, session, scene_frame):
         return render_picture(effect, game.assets)
     if isinstance(effect, GameOver):
         return render_game_over(
-            transparent_canvas(), scene_frame, _game_over_ready(session, effect),
+            transparent_canvas(), renderer.scene_thumbnail(), _game_over_ready(session, effect),
         )
     raise RuntimeError(f"unrenderable modal {type(effect).__name__}")
 
@@ -964,7 +1022,7 @@ def run(game, trace_path=None, session=None, resolver=None):
             for actor_idx, deadline in hit_feedback_deadlines.items()
             if deadline > now
         }
-        composed = render_active_mode(game, session, scene_frame)
+        composed = render_active_mode(game, session, renderer)
         composed = render_hit_feedback(
             composed,
             _hit_feedback_rects(game, draw_list, hit_feedback_deadlines),
@@ -1036,8 +1094,12 @@ def main(argv=None):
         # replaces the staging game with the confirmed hero's game.
         game.open_modal(ChooseCharacter())
     session = load_runtime_session(settings_path())
-    # Session-only: this replaces session.settings in memory without touching
-    # settings_dirty, so the CLI overrides are never picked up by a later save.
+    # Session-only: this replaces session.settings in memory, but
+    # session.disk_render (captured above, before this call) stays the
+    # on-disk baseline -- so even a later save triggered by an unrelated
+    # settings change (e.g. toggling Sticky Action in CONFIG) writes back
+    # these CLI values' *un*-overridden originals, not argv. See
+    # _save_session_settings / _persisted_render.
     session.settings = apply_render_overrides(session.settings, args)
     return run(game, args.trace, session=session)
 

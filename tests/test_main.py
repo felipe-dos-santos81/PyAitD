@@ -278,6 +278,113 @@ def test_render_cli_overrides_do_not_persist_to_the_settings_file(tmp_path):
     assert settings_file.read_text(encoding="utf-8") == before
 
 
+def test_config_menu_save_does_not_persist_untouched_cli_render_overrides(tmp_path):
+    """Finding 2's full repro: launch with CLI render overrides --
+    including --overrides, which has no CONFIG menu row at all -- open the
+    CONFIG menu, touch only Sticky Action (nothing render-related), and
+    leave. The settings file on disk afterward must show the *original*
+    render values, not argv's: this is asserted on the settings file's
+    actual bytes on disk, not on in-memory session state, so a regression
+    that only *looks* right in memory (e.g. session.settings itself) still
+    fails this test.
+    """
+    from dataclasses import replace
+
+    import pygame
+
+    from PyAitD.__main__ import (
+        _apply_system_result, apply_render_overrides, load_runtime_session, parse_args,
+    )
+    from PyAitD.config import SCHEMA, default_settings
+    from PyAitD.ui import InputBuffer, SystemMenuResult
+
+    pygame.init()
+    settings_file = tmp_path / "settings.json"
+    original_payload = {
+        "schema": SCHEMA, "sticky_action": False,
+        "bindings": {name: list(keys) for name, keys in default_settings().bindings.items()},
+        "render": default_settings().render.to_payload(),
+    }
+    settings_file.write_text(json.dumps(original_payload), encoding="utf-8")
+
+    session = load_runtime_session(settings_file)
+    overrides_dir = str(tmp_path / "my-hd-pack")
+    args = parse_args([
+        "--render-scale", "7", "--shading", "flat", "--overrides", overrides_dir,
+    ])
+    session.settings = apply_render_overrides(session.settings, args)
+    assert (session.settings.render.scale, session.settings.render.shading,
+            session.settings.render.override_dir) == (7, "flat", overrides_dir)
+
+    input_buffer = InputBuffer()
+    game = SimpleNamespace(close_modal=lambda: None)
+    # The only row actually pressed in CONFIG: Sticky Action.
+    toggle = SystemMenuResult(settings=replace(session.settings, sticky_action=True))
+    assert _apply_system_result(game, session, input_buffer, toggle) is True
+    # Escape back out of the menu: closes and triggers the save.
+    leave = SystemMenuResult(close=True, save=True)
+    assert _apply_system_result(game, session, input_buffer, leave) is True
+
+    on_disk = json.loads(settings_file.read_text(encoding="utf-8"))
+    assert on_disk["sticky_action"] is True  # the one thing actually changed
+    assert on_disk["render"] == default_settings().render.to_payload()
+    assert on_disk["render"]["override_dir"] is None
+
+    # The CLI overrides stay in effect in memory for the rest of this run.
+    assert session.settings.render.scale == 7
+    assert session.settings.render.override_dir == overrides_dir
+
+
+def test_config_menu_save_persists_a_render_field_the_player_actually_cycled(tmp_path):
+    """The flip side of the repro above: a render field the player *did*
+    reach through a CONFIG menu row (Scale/Shading/Filter) must still
+    persist, even in the same session as an untouched CLI override for a
+    different field -- so the fix can't just blanket-refuse to ever save
+    render settings.
+    """
+    from dataclasses import replace
+
+    import pygame
+
+    from PyAitD.__main__ import (
+        _apply_system_result, apply_render_overrides, load_runtime_session, parse_args,
+    )
+    from PyAitD.config import SCHEMA, default_settings
+    from PyAitD.render_options import cycle_shading
+    from PyAitD.ui import InputBuffer, SystemMenuResult
+
+    pygame.init()
+    settings_file = tmp_path / "settings.json"
+    original_payload = {
+        "schema": SCHEMA, "sticky_action": False,
+        "bindings": {name: list(keys) for name, keys in default_settings().bindings.items()},
+        "render": default_settings().render.to_payload(),
+    }
+    settings_file.write_text(json.dumps(original_payload), encoding="utf-8")
+
+    session = load_runtime_session(settings_file)
+    overrides_dir = str(tmp_path / "cli-only")
+    args = parse_args(["--overrides", overrides_dir])
+    session.settings = apply_render_overrides(session.settings, args)
+
+    input_buffer = InputBuffer()
+    game = SimpleNamespace(close_modal=lambda: None)
+    # The player actually presses the Shading row in CONFIG this time.
+    cycled = SystemMenuResult(
+        settings=replace(session.settings, render=cycle_shading(session.settings.render)),
+    )
+    assert _apply_system_result(game, session, input_buffer, cycled) is True
+    leave = SystemMenuResult(close=True, save=True)
+    assert _apply_system_result(game, session, input_buffer, leave) is True
+
+    on_disk = json.loads(settings_file.read_text(encoding="utf-8"))
+    # The explicitly-cycled field persists...
+    assert on_disk["render"]["shading"] == cycle_shading(default_settings().render).shading
+    # ...but the untouched CLI-only override_dir still does not leak in.
+    assert on_disk["render"]["override_dir"] is None
+    assert on_disk["render"]["scale"] == default_settings().render.scale
+
+
 def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(monkeypatch, tmp_path):
     # Task 9 was sent back for unpinned run() wiring; pin this end to end
     # through main() -- not just apply_render_overrides in isolation -- by

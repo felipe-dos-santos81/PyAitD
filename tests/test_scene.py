@@ -460,3 +460,35 @@ def test_build_frame_assembles_frame_description_from_stubs(monkeypatch):
         expected_state.x, expected_state.y, expected_state.z)
     assert frame.background is background
     assert frame.palette is palette
+
+
+def test_actor_draw_zv_does_not_alias_the_live_mutable_actor_zv():
+    # Actor.zv is a plain list the simulation writes every tick (game.py's
+    # default_factory, plus every collision/anim_action write site). If
+    # ActorDraw.zv aliased it directly, a later tick mutating the actor's
+    # zv in place would silently corrupt an already-built FrameDescription
+    # (or any earlier frame's ActorDraw a caller kept around) -- exactly
+    # the kind of aliasing FrameDescription's own docstring calls out as
+    # dangerous for `palette`/`background.pixels`, but does not (and must
+    # not have reason to) list this as a third exception.
+    body = _flat_body([(0, 0, 0), (50, 0, 0), (0, 50, 0)])
+    live_zv = [10, 20, 0, 0, 30, 40]
+    actor = _StubActor(0, 0, -1, (0, 0, 500), (0, 0, 0), (0, 0, 0), room=0, zv=live_zv)
+    game = _StubGame(current_room=0, num_camera=0, actors=[actor])
+    room = Room(world_x=0, world_y=0, world_z=0, camera_indices=[0],
+                hard_cols=[], sce_zones=[], offset_to_hard_col=0, offset_to_sce_zones=0)
+    camera = Camera(alpha=0, beta=0, gamma=0, x=0, y=0, z=0, focal1=300, focal2=100, focal3=100)
+    floor = _StubFloor(rooms=[room], cameras=[camera], masks_by_camera={0: []})
+    resolver = _StubResolver({0: body}, object(), np.zeros((256, 3), dtype=np.uint8))
+
+    frame, _draw_list = build_frame(game, floor, resolver)
+    actor_draw = frame.actors[0]
+
+    assert isinstance(actor_draw.zv, tuple)
+    assert actor_draw.zv == (10, 20, 0, 0, 30, 40)
+
+    # The simulation mutates Actor.zv in place every tick (it's a list, not
+    # replaced wholesale): that must never reach an already-built frame.
+    live_zv[0] = 9999
+    live_zv.append(1234)
+    assert actor_draw.zv == (10, 20, 0, 0, 30, 40)

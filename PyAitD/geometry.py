@@ -137,4 +137,11 @@ def icosphere(level=1):
             new_tris += [(a, ab, ca), (b, bc, ab), (c, ca, bc), (ab, bc, ca)]
         tris = new_tris
 
-    return np.array(verts, dtype=np.float32), np.array(tris, dtype=np.int32)
+    verts_array = np.array(verts, dtype=np.float32)
+    tris_array = np.array(tris, dtype=np.int32)
+    # lru_cache-shared with every caller: nothing mutates these today, but
+    # mark them read-only so an accidental future write fails loudly instead
+    # of silently corrupting every sphere-shaped actor drawn afterward.
+    verts_array.setflags(write=False)
+    tris_array.setflags(write=False)
+    return verts_array, tris_array

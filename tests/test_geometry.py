@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import numpy as np
+import pytest
 
 from PyAitD.formats import Body, Group, Primitive
 from PyAitD.geometry import BodyGeometry, icosphere, pose_geometry, vertex_groups
@@ -76,6 +77,17 @@ def test_icosphere_is_cached():
     a = icosphere(1)
     b = icosphere(1)
     assert a[0] is b[0] and a[1] is b[1]
+
+
+def test_icosphere_arrays_are_read_only():
+    # lru_cache-shared with every sphere-shaped actor drawn afterward:
+    # nothing mutates these today, but an accidental future write must fail
+    # loudly rather than silently corrupting every other cached user.
+    verts, tris = icosphere(1)
+    with pytest.raises(ValueError):
+        verts[0, 0] = 99.0
+    with pytest.raises(ValueError):
+        tris[0, 0] = 99
 
 
 def test_point_types_mirror_formats_prim_point_like():

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+import moderngl
 import numpy as np
 import pytest
 
@@ -361,3 +362,48 @@ def test_release_is_safe_to_call_repeatedly(gl_ctx):
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
     backend.release()
     backend.release()  # must not raise
+
+
+def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeypatch):
+    # Finding 4: a construction failure partway through __init__ (here, the
+    # very last allocation step) must not leak the texture, depth
+    # renderbuffer, both FBOs, four programs, buffers and VAOs already
+    # created before it -- _select_backend's except clause never gets a
+    # live GLBackend reference to release() them through, since the
+    # constructor call itself raised.
+    import PyAitD.render_gl as render_gl_module
+
+    def boom(*_a, **_k):
+        raise RuntimeError("icosphere blew up")
+
+    monkeypatch.setattr(render_gl_module, "icosphere", boom)
+
+    backend = object.__new__(GLBackend)
+    with pytest.raises(RuntimeError, match="icosphere blew up"):
+        backend.__init__(gl_ctx, RenderOptions(scale=8, shading="flat"))
+
+    leak_checked = 0
+    for attr in (
+        "texture", "_depth", "_fbo", "_mask_tex", "_mask_fbo",
+        "_bg_prog", "_actor_prog", "_screen_prog", "_stencil_prog",
+        "_quad", "_quad_vao", "_thumb_tex", "_thumb_fbo",
+        "_thumb_quad", "_thumb_quad_vao",
+    ):
+        resource = getattr(backend, attr)
+        assert resource is not None, f"{attr} was never allocated before the failure"
+        assert isinstance(resource.mglo, moderngl.InvalidObject), f"{attr} leaked (not released)"
+        leak_checked += 1
+    assert leak_checked == 15  # every GL resource __init__ allocates, none skipped
+    assert backend._sphere is None
+    backend.release()  # must still be safe to call again
+
+
+def test_draw_after_release_raises_a_clear_error(gl_ctx):
+    # Finding 3's compose_scene fallback releases a GLBackend and swaps in a
+    # SoftwareBackend out from under any caller still holding the old
+    # object; a stray draw() on it afterward must fail loudly and clearly,
+    # not with an opaque moderngl.InvalidObject error deep inside a GL call.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
+    backend.release()
+    with pytest.raises(RuntimeError, match="release"):
+        backend.draw(_frame([]))

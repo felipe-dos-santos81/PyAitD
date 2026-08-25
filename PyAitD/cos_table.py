@@ -9,3 +9,14 @@ import math
 
 COS_TABLE = [max(min(int(math.sin(i * math.pi / 512) * 32768), 32767), -32767) for i in range(1024)]
 COS_TABLE[0] = 4
+
+
+def sin_cos(angle):
+    """FITD cosTable.cpp lookup, scaled to a float unit circle (scale 32768).
+
+    Parity-critical: scene.CameraView.camera_space and render_gl.rotation_matrix
+    must use this exact same helper (term-for-term identical formula), or the
+    GL and software/picking rotation paths silently diverge.
+    """
+    a = angle & 0x3FF
+    return COS_TABLE[(a + 0x100) & 0x3FF] / 32768.0, COS_TABLE[a] / 32768.0

@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
+from types import SimpleNamespace
+
 import numpy as np
 import pygame
 import pytest
@@ -238,6 +240,26 @@ def test_configuration_lists_graphics_rows_inside_the_screen():
     for a in range(len(hit)):
         for b in range(a + 1, len(hit)):
             assert not hit[a].colliderect(hit[b])
+
+
+def test_system_menu_row_label_mismatch_raises_instead_of_hiding_back_to_menu(monkeypatch):
+    # If the row layout and the hand-built label list ever drift in length,
+    # a plain zip() truncates silently: with fewer rows than labels the
+    # trailing "Back to Menu" row simply never gets drawn (invisible, but
+    # reduce_system_menu still treats row_count - 1 as Back, so its hit
+    # target is real -- a fully hidden but clickable row). strict=True turns
+    # that drift into a loud failure instead of a silent, hard-to-notice UI
+    # bug.
+    import PyAitD.ui as ui_module
+
+    monkeypatch.setattr(ui_module.SystemMenuLayout, "MAIN_ROWS", ui_module.SystemMenuLayout.MAIN_ROWS[:-1])
+    fake_sprite = np.zeros((20, 20, 3), dtype=np.uint8)
+    fake_assets = SimpleNamespace(cadre_bank=lambda: (fake_sprite,) * 9)
+
+    with pytest.raises(ValueError):
+        render_system_menu(
+            SystemMenuPresenter(page=SystemMenuPage.MAIN), default_settings(), fake_assets,
+        )
 
 
 def test_transparent_canvas_and_rgba_round_trip():

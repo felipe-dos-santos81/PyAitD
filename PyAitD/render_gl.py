@@ -22,7 +22,7 @@ import math
 import moderngl
 import numpy as np
 
-from PyAitD.cos_table import COS_TABLE
+from PyAitD.cos_table import sin_cos
 from PyAitD.geometry import icosphere
 from PyAitD.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
 
@@ -104,23 +104,18 @@ void main() { f_color = vec4(1.0); }
 """
 
 
-def _sin_cos(angle):
-    a = angle & 0x3FF
-    return COS_TABLE[(a + 0x100) & 0x3FF] / 32768.0, COS_TABLE[a] / 32768.0
-
-
 def rotation_matrix(state):
     """3x3 rotation matching scene.CameraView.camera_space's Y, then X, then
-    Z rotation chain (same _sin_cos formulas, same composition order)."""
+    Z rotation chain (same cos_table.sin_cos formulas, same composition order)."""
     m = np.eye(3)
     if state._use_y:
-        s, c = _sin_cos(state._use_y)
+        s, c = sin_cos(state._use_y)
         m = np.array([[s, 0, -c], [0, 1, 0], [c, 0, s]]) @ m
     if state._use_x:
-        s, c = _sin_cos(state._use_x)
+        s, c = sin_cos(state._use_x)
         m = np.array([[1, 0, 0], [0, s, -c], [0, c, s]]) @ m
     if state._use_z:
-        s, c = _sin_cos(state._use_z)
+        s, c = sin_cos(state._use_z)
         m = np.array([[s, -c, 0], [c, s, 0], [0, 0, 1]]) @ m
     return m
 
@@ -173,44 +168,98 @@ class GLBackend:
         self._ctx = ctx
         self._options = options
         self.size = (W * options.scale, H * options.scale)
-        self.texture = ctx.texture(self.size, 4)
-        self.texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
-        self._depth = ctx.depth_renderbuffer(self.size)
-        self._fbo = ctx.framebuffer(color_attachments=[self.texture], depth_attachment=self._depth)
-
-        self._mask_tex = ctx.texture(self.size, 1)
-        self._mask_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
-        self._mask_tex.repeat_x = False
-        self._mask_tex.repeat_y = False
-        self._mask_fbo = ctx.framebuffer(color_attachments=[self._mask_tex])
-
-        self._bg_prog = ctx.program(vertex_shader=_BG_VSH, fragment_shader=_BG_FSH)
-        self._actor_prog = ctx.program(vertex_shader=_ACTOR_VSH, fragment_shader=_ACTOR_FSH)
-        self._screen_prog = ctx.program(vertex_shader=_SCREEN_VSH, fragment_shader=_ACTOR_FSH)
-        self._screen_prog["shading"].value = 0  # lines/points are never shaded
-        self._stencil_prog = ctx.program(vertex_shader=_STENCIL_VSH, fragment_shader=_STENCIL_FSH)
-
-        quad = np.array([
-            -1, -1, 0, 1,
-             1, -1, 1, 1,
-             1,  1, 1, 0,
-            -1, -1, 0, 1,
-             1,  1, 1, 0,
-            -1,  1, 0, 0,
-        ], dtype="f4")
-        self._quad = ctx.buffer(quad.tobytes())
-        self._quad_vao = ctx.vertex_array(self._bg_prog, [(self._quad, "2f 2f", "in_pos", "in_uv")])
-
+        # Every attribute release() might touch is set to None up front, so
+        # a construction failure partway through the allocations below can
+        # still be cleaned up by release() (which already tolerates None):
+        # without this, an exception here would leak whatever GL objects
+        # had already been allocated -- _select_backend's except clause has
+        # no live GLBackend reference to release() them through.
+        self.texture = None
+        self._depth = None
+        self._fbo = None
+        self._mask_tex = None
+        self._mask_fbo = None
+        self._bg_prog = None
+        self._actor_prog = None
+        self._screen_prog = None
+        self._stencil_prog = None
+        self._quad = None
+        self._quad_vao = None
+        self._thumb_tex = None
+        self._thumb_fbo = None
+        self._thumb_quad = None
+        self._thumb_quad_vao = None
         self._bg_tex = None
         self._bg_key = None
         self._bg_src = None
-        self._sphere = icosphere(1)
+        self._sphere = None
+        self._released = False
+        try:
+            self.texture = ctx.texture(self.size, 4)
+            self.texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
+            self._depth = ctx.depth_renderbuffer(self.size)
+            self._fbo = ctx.framebuffer(color_attachments=[self.texture], depth_attachment=self._depth)
+
+            self._mask_tex = ctx.texture(self.size, 1)
+            self._mask_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+            self._mask_tex.repeat_x = False
+            self._mask_tex.repeat_y = False
+            self._mask_fbo = ctx.framebuffer(color_attachments=[self._mask_tex])
+
+            self._bg_prog = ctx.program(vertex_shader=_BG_VSH, fragment_shader=_BG_FSH)
+            self._actor_prog = ctx.program(vertex_shader=_ACTOR_VSH, fragment_shader=_ACTOR_FSH)
+            self._screen_prog = ctx.program(vertex_shader=_SCREEN_VSH, fragment_shader=_ACTOR_FSH)
+            self._screen_prog["shading"].value = 0  # lines/points are never shaded
+            self._stencil_prog = ctx.program(vertex_shader=_STENCIL_VSH, fragment_shader=_STENCIL_FSH)
+
+            quad = np.array([
+                -1, -1, 0, 1,
+                 1, -1, 1, 1,
+                 1,  1, 1, 0,
+                -1, -1, 0, 1,
+                 1,  1, 1, 0,
+                -1,  1, 0, 0,
+            ], dtype="f4")
+            self._quad = ctx.buffer(quad.tobytes())
+            self._quad_vao = ctx.vertex_array(self._bg_prog, [(self._quad, "2f 2f", "in_pos", "in_uv")])
+
+            # thumbnail()'s GPU box-average downsample target: a fixed
+            # 320x200 RGB FBO the internal target is blitted into.
+            self._thumb_tex = ctx.texture((W, H), 3)
+            self._thumb_fbo = ctx.framebuffer(color_attachments=[self._thumb_tex])
+            # A separate quad with an *identity* UV mapping (no V flip):
+            # `._quad`/`._quad_vao` above are for `_draw_background`, which
+            # samples a CPU-uploaded, top-down source texture and needs a
+            # flip to land right-side-up in NDC. `.texture` here is a
+            # GL-rendered FBO texture instead (bottom-up, like `read_rgb`
+            # flips *from*) -- blitting it into another GL-native FBO
+            # (`_thumb_fbo`) with no flip keeps both buffers in the same
+            # bottom-up convention, exactly like render.py's `_vao_scene`
+            # (flip_v=False) versus `_vao_ui` (flip_v=True).
+            thumb_quad = np.array([
+                -1, -1, 0, 0,
+                 1, -1, 1, 0,
+                 1,  1, 1, 1,
+                -1, -1, 0, 0,
+                 1,  1, 1, 1,
+                -1,  1, 0, 1,
+            ], dtype="f4")
+            self._thumb_quad = ctx.buffer(thumb_quad.tobytes())
+            self._thumb_quad_vao = ctx.vertex_array(
+                self._bg_prog, [(self._thumb_quad, "2f 2f", "in_pos", "in_uv")])
+
+            self._sphere = icosphere(1)
+        except Exception:
+            self.release()
+            raise
 
     def release(self):
         for resource in (
             self._quad_vao, self._quad,
+            self._thumb_quad_vao, self._thumb_quad,
             self._stencil_prog, self._screen_prog, self._actor_prog, self._bg_prog,
             self._mask_fbo, self._mask_tex,
+            self._thumb_fbo, self._thumb_tex,
             self._fbo, self._depth, self.texture,
             self._bg_tex,
         ):
@@ -219,6 +268,7 @@ class GLBackend:
         self._bg_tex = None
         self._bg_key = None
         self._bg_src = None
+        self._released = True
 
     # ---- per-frame drawing ----
 
@@ -231,6 +281,13 @@ class GLBackend:
         default, "<"), so a caller sharing this `ctx` -- task 8's Renderer
         -- is not left with our internal FBO or scratch viewport bound.
         """
+        if self._released:
+            # render.Renderer.compose_scene's draw-failure fallback releases
+            # a GLBackend and swaps in a SoftwareBackend; a caller still
+            # holding the old, now-released GLBackend must get a clear error
+            # here rather than an opaque moderngl.InvalidObject failure deep
+            # inside a GL call.
+            raise RuntimeError("GLBackend.draw() called after release()")
         prev_viewport = self._ctx.viewport
         prev_fbo = self._ctx.fbo
         try:
@@ -438,9 +495,44 @@ class GLBackend:
         return data[::-1, :, :3].copy()
 
     def thumbnail(self):
-        scale = self._options.scale
-        rgb = self.read_rgb()
-        return rgb.reshape(H, scale, W, scale, 3).mean(axis=(1, 3)).astype(np.uint8)
+        """Downsample `.texture` to a (200,320,3) uint8 array, GPU-side.
+
+        A fullscreen blit into the fixed 320x200 `_thumb_fbo`, sampling
+        `.texture` with GL_LINEAR: at scale=2 this lands exactly on the
+        4-texel box average (each destination texel centre maps to
+        source-texel-space i*2+0.5, i.e. frac=0.5 in both axes -- a
+        standard GL_LINEAR two-tap-per-axis blend, which is the same
+        weighting a true box filter would use). At larger scales GL_LINEAR
+        still blends only the 4 nearest source texels rather than the full
+        NxN box the old numpy `.mean()` averaged, trading a slightly
+        softer result for a single texture fetch per output pixel instead
+        of an NxN one -- this is the whole point of the optimisation
+        (measured ~28x at scale 4, ~56x at scale 8 against the old
+        read_rgb()+numpy .mean() path; see the finding-1 benchmark in the
+        fix report). A decoupled copy, matching the previous numpy-backed
+        contract.
+        """
+        prev_viewport = self._ctx.viewport
+        prev_fbo = self._ctx.fbo
+        prev_filter = self.texture.filter
+        try:
+            self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
+            self._thumb_fbo.use()
+            self._ctx.viewport = (0, 0, W, H)
+            self._ctx.disable(moderngl.DEPTH_TEST)
+            self.texture.use(location=0)
+            self._bg_prog["tex"].value = 0
+            self._bg_prog["mode"].value = 0
+            self._bg_prog["src_size"].value = (float(self.size[0]), float(self.size[1]))
+            self._thumb_quad_vao.render(moderngl.TRIANGLES)
+            data = np.frombuffer(self._thumb_fbo.read(components=3), dtype=np.uint8)
+            data = data.reshape(H, W, 3)
+        finally:
+            self.texture.filter = prev_filter
+            self._ctx.viewport = prev_viewport
+            if prev_fbo is not None and not isinstance(prev_fbo.mglo, moderngl.InvalidObject):
+                prev_fbo.use()
+        return data[::-1, :, :].copy()
 
 
 def _line_quad(p0, p1, half_width, color):

@@ -82,9 +82,24 @@ class AssetResolver:
         return floor.palette
 
 
+# Below every GL 3.3 core implementation's guaranteed GL_MAX_TEXTURE_SIZE
+# floor (the spec requires >=1024, but every real driver we've seen goes far
+# higher; this stays conservative), so an override this size or smaller can
+# never be the reason ctx.texture() raises in render_gl.py. A crash from an
+# enormous-but-otherwise-valid override PNG is exactly the failure mode
+# render.Renderer.compose_scene's draw-failure fallback exists to catch --
+# this is a second, earlier line of defence with a clearer error message.
+_MAX_OVERRIDE_DIMENSION = 8192
+
+
 def _require_rgb(pixels):
     if pixels.ndim != 3 or pixels.shape[2] != 3 or pixels.shape[0] < 1 or pixels.shape[1] < 1:
         raise ValueError(f"expected an RGB image, got shape {pixels.shape}")
+    if pixels.shape[0] > _MAX_OVERRIDE_DIMENSION or pixels.shape[1] > _MAX_OVERRIDE_DIMENSION:
+        raise ValueError(
+            f"image {pixels.shape[1]}x{pixels.shape[0]} exceeds the "
+            f"{_MAX_OVERRIDE_DIMENSION}x{_MAX_OVERRIDE_DIMENSION} override limit"
+        )
 
 
 def _require_palette(pixels):

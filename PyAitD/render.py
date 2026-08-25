@@ -113,7 +113,7 @@ class Renderer:
         )
 
         self.fallback_notice = None
-        self._last_thumbnail = None
+        self._thumbnail_cache = None
         self._select_backend(options or RenderOptions())
 
     def _select_backend(self, options):
@@ -121,7 +121,7 @@ class Renderer:
         # landing before the next compose_scene() would show the previous
         # backend's stale thumbnail (the software path's cached-frame fallback
         # in present()).
-        self._last_thumbnail = None
+        self._thumbnail_cache = None
         try:
             self.backend = GLBackend(self._ctx, options)
             self.options = options
@@ -139,9 +139,41 @@ class Renderer:
         self._select_backend(options)
 
     def compose_scene(self, frame):
-        self.backend.draw(frame)
-        self._last_thumbnail = self.backend.thumbnail()
-        return self._last_thumbnail
+        """Draws `frame` into the active backend.
+
+        Spec fallback: a backend that raises while drawing (not just while
+        constructing -- see `_select_backend` above) releases its GL state,
+        is swapped for a `SoftwareBackend` at scale 1, and gets one retry.
+        A second failure (the fresh SoftwareBackend itself raising) is not
+        caught here; there is no further backend left to fall back to.
+
+        Does not compute a thumbnail: that's `scene_thumbnail()`'s job, on
+        demand, since most frames (no modal open) never need one -- see the
+        finding-1 benchmark in the fix report.
+        """
+        try:
+            self.backend.draw(frame)
+        except Exception as exc:
+            logging.getLogger("PyAitD.render").warning(
+                "%s.draw failed, falling back to software: %s",
+                type(self.backend).__name__, exc,
+            )
+            if isinstance(self.backend, GLBackend):
+                self.backend.release()
+            self.backend = SoftwareBackend()
+            self.options = replace(self.options, scale=1)
+            self.fallback_notice = "Enhanced rendering unavailable"
+            self.backend.draw(frame)
+        self._thumbnail_cache = None
+
+    def scene_thumbnail(self):
+        """The composed scene as a (200,320,3) uint8 array, computed and
+        cached lazily: only the presenters that actually paint it
+        (render_inventory, render_game_over) and present()'s software path
+        pay for it, and at most once per compose_scene()."""
+        if self._thumbnail_cache is None:
+            self._thumbnail_cache = self.backend.thumbnail()
+        return self._thumbnail_cache
 
     def present(self, ui_canvas):
         self._ctx.screen.use()
@@ -157,8 +189,7 @@ class Renderer:
             self._vao_ui.render()  # UI at 320x200, nearest, alpha
             self._ctx.disable(moderngl.BLEND)
         else:
-            scene = self._last_thumbnail if self._last_thumbnail is not None else self.backend.thumbnail()
-            composed = composite_ui(scene, ui_canvas)
+            composed = composite_ui(self.scene_thumbnail(), ui_canvas)
             self._scene_tex.write(np.ascontiguousarray(composed).tobytes())
             self._scene_tex.use(location=0)
             self._vao_ui.render()

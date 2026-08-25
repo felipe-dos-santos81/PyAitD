@@ -137,10 +137,10 @@ def test_select_backend_resets_the_stale_thumbnail(gl_ctx):
     renderer._ctx = gl_ctx
     renderer.fallback_notice = None
     renderer._select_backend(RenderOptions(scale=2))
-    renderer._last_thumbnail = np.zeros((200, 320, 3), np.uint8)
+    renderer._thumbnail_cache = np.zeros((200, 320, 3), np.uint8)
     try:
         renderer._select_backend(RenderOptions(scale=3))
-        assert renderer._last_thumbnail is None
+        assert renderer._thumbnail_cache is None
     finally:
         if isinstance(renderer.backend, GLBackend):
             renderer.backend.release()
@@ -151,31 +151,93 @@ def test_set_options_resets_the_stale_thumbnail(gl_ctx):
     renderer._ctx = gl_ctx
     renderer.fallback_notice = None
     renderer._select_backend(RenderOptions(scale=2))
-    renderer._last_thumbnail = np.zeros((200, 320, 3), np.uint8)
+    renderer._thumbnail_cache = np.zeros((200, 320, 3), np.uint8)
     try:
         renderer.set_options(RenderOptions(scale=3))
-        assert renderer._last_thumbnail is None
+        assert renderer._thumbnail_cache is None
     finally:
         if isinstance(renderer.backend, GLBackend):
             renderer.backend.release()
 
 
-def test_compose_scene_returns_backend_thumbnail(monkeypatch):
+def test_compose_scene_draws_but_does_not_compute_a_thumbnail(monkeypatch):
+    # Finding 1: compose_scene must not pay for a thumbnail that most frames
+    # (no modal open) never display -- it only draws and invalidates the
+    # cache. scene_thumbnail() is the only thing that ever calls
+    # backend.thumbnail(), and only when something actually asks for it.
     renderer = object.__new__(render.Renderer)
+    renderer.fallback_notice = None
+    calls = []
+
+    class Backend:
+        def draw(self, frame):
+            calls.append(("draw", frame))
+
+        def thumbnail(self):
+            calls.append("thumbnail")
+            return np.zeros((200, 320, 3), np.uint8)
+
+    renderer.backend = Backend()
+    renderer._thumbnail_cache = "stale"
+    result = renderer.compose_scene("frame")
+    assert result is None
+    assert calls == [("draw", "frame")]
+    assert renderer._thumbnail_cache is None
+
+
+def test_scene_thumbnail_computes_once_and_caches(monkeypatch):
+    renderer = object.__new__(render.Renderer)
+    renderer.fallback_notice = None
+    calls = []
     expected = np.zeros((200, 320, 3), np.uint8)
 
     class Backend:
         def draw(self, frame):
-            self.drawn = frame
+            pass
 
         def thumbnail(self):
+            calls.append("thumbnail")
             return expected
 
     renderer.backend = Backend()
-    result = renderer.compose_scene("frame")
-    assert result is expected
-    assert result.shape == (200, 320, 3)
-    assert renderer.backend.drawn == "frame"
+    renderer.compose_scene("frame")
+    first = renderer.scene_thumbnail()
+    second = renderer.scene_thumbnail()
+    assert first is expected and second is expected
+    assert calls == ["thumbnail"]  # only one real backend.thumbnail() call
+
+
+def test_compose_scene_falls_back_to_software_when_the_backend_draw_raises(gl_ctx):
+    # Finding 3: the spec's "GL failure ... or the backend otherwise raises"
+    # fallback was only implemented for construction failures (_select_backend
+    # above); a raise from draw() itself had no handling at all and would
+    # kill the play loop. compose_scene must catch it, swap to a software
+    # backend at scale 1, set the settings notice, and retry the draw once.
+    renderer = object.__new__(render.Renderer)
+    renderer._ctx = gl_ctx
+    renderer.fallback_notice = None
+    renderer._select_backend(RenderOptions(scale=4))
+    assert isinstance(renderer.backend, GLBackend)
+    released = []
+    original_release = renderer.backend.release
+    renderer.backend.release = lambda: (released.append(True), original_release())[0]
+
+    def boom(_frame):
+        raise RuntimeError("driver rejected an oversized texture")
+
+    renderer.backend.draw = boom  # instance-level shadow, not a bound method
+
+    frame = _minimal_gl_frame(np.zeros((200, 320, 3), np.uint8))
+    renderer.compose_scene(frame)
+
+    assert released == [True]
+    assert isinstance(renderer.backend, SoftwareBackend)
+    assert renderer.options.scale == 1
+    assert renderer.fallback_notice == "Enhanced rendering unavailable"
+    # The retry on the fresh SoftwareBackend must have actually drawn: the
+    # thumbnail is real content, not the backend's blank startup frame.
+    thumb = renderer.scene_thumbnail()
+    assert thumb.shape == (200, 320, 3)
 
 
 def _minimal_gl_frame(background):

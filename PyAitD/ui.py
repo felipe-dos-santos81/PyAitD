@@ -12,7 +12,7 @@ from PyAitD.config import (
     Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
 )
 from PyAitD.effects import ChooseCharacter, OpenSystemMenu
-from PyAitD.render_options import cycle_filter, cycle_scale, cycle_shading
+from PyAitD.render_options import RenderOptions, cycle_filter, cycle_scale, cycle_shading
 from PyAitD.text import BookToken
 
 GRAPHICS_ROWS = 3
@@ -864,7 +864,8 @@ def render_system_menu(presenter, settings, assets):
         labels.append("Back to Menu")
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
     button_size = 13 if presenter.page is SystemMenuPage.CONFIG else 18
-    for index, (rect, label) in enumerate(zip(SystemMenuLayout.rows(presenter.page), labels)):
+    rows = zip(SystemMenuLayout.rows(presenter.page), labels, strict=True)
+    for index, (rect, label) in enumerate(rows):
         _button(surface, rect, label, selected=index == selection, size=button_size)
     return _to_frame(surface)
 
@@ -959,6 +960,14 @@ class ModalSession:
     settings_path: Path | None = None
     settings_error: str | None = None
     settings_dirty: bool = False
+    # The render options as last loaded from (or defaulted for) the settings
+    # file, before any session-only CLI override was applied to `settings`.
+    # A save writes this, with only the render fields the player actually
+    # touched via a CONFIG menu cycle (`render_touched`) overlaid on top --
+    # never a CLI-set value the player never saw a menu row for. See
+    # __main__._save_session_settings.
+    disk_render: RenderOptions = field(default_factory=RenderOptions)
+    render_touched: frozenset = frozenset()
     pending_hero: int | None = None
     elapsed_ms: int = 0
     last_effect: object = field(default=None, repr=False)

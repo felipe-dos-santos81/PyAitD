@@ -11,7 +11,7 @@ import numpy as np
 
 from PyAitD.actors import anim_player_for, sort_actor_indices
 from PyAitD.asset_resolver import ImageAsset
-from PyAitD.cos_table import COS_TABLE
+from PyAitD.cos_table import sin_cos
 from PyAitD.geometry import BodyGeometry, pose_geometry
 from PyAitD.mask_geometry import MaskDraw
 from PyAitD.picking import actor_bbox
@@ -19,12 +19,6 @@ from PyAitD.skel import RenderResult, skin
 from PyAitD.world import SCREEN_CENTER_X, SCREEN_CENTER_Y, CameraState
 
 _SENTINEL = np.array([-10000.0, -10000.0, -10000.0])
-
-
-def _sin_cos(angle):
-    # FITD cosTable.cpp lookup, scaled to a float unit circle (scale 32768).
-    a = angle & 0x3FF
-    return COS_TABLE[(a + 0x100) & 0x3FF] / 32768.0, COS_TABLE[a] / 32768.0
 
 
 @dataclass(frozen=True)
@@ -47,13 +41,13 @@ class CameraView:
         pts[:, 1] -= cam.y
         x, y, z = pts[:, 0], pts[:, 1], pts[:, 2]
         if cam._use_y:
-            s, c = _sin_cos(cam._use_y)
+            s, c = sin_cos(cam._use_y)
             x, z = x * s - z * c, x * c + z * s
         if cam._use_x:
-            s, c = _sin_cos(cam._use_x)
+            s, c = sin_cos(cam._use_x)
             y, z = y * s - z * c, y * c + z * s
         if cam._use_z:
-            s, c = _sin_cos(cam._use_z)
+            s, c = sin_cos(cam._use_z)
             x, y = x * s - y * c, x * c + y * s
         return np.stack([x, y, z], axis=1), far
 
@@ -166,7 +160,7 @@ def build_frame(game, floor, resolver):
             pose_geometry(body, states, angles),
             position,
             actor.room,
-            actor.zv,
+            tuple(actor.zv),
             logical,
             tuple(m.id for m in masks if mask_applies_to_actor(m, actor.room, actor.zv)),
         ))
