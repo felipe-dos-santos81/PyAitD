@@ -259,13 +259,17 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
     return ("walk", (dest_x, dest_z, dest_room, -1))
 
 
-def route_play_click(game, session, floor, logical_pos, draw_list):
+def route_play_click(
+        game, session, floor, logical_pos, draw_list, input_buffer=None,
+):
     """Route one resolved PLAY click; HUD and world share the resolver."""
     from PyAitD.interaction import apply_click_intent, attack_in_hand
 
     kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
     if kind == "inventory":
-        route_command(game, session, Command.OPEN_INVENTORY)
+        route_command(
+            game, session, Command.OPEN_INVENTORY, input_buffer,
+        )
         return
     if kind == "attack":
         attack_in_hand(game, payload)
@@ -388,6 +392,17 @@ def _capture_keydown(event, game, session, input_buffer):
     return True, _apply_system_result(game, session, input_buffer, result)
 
 
+def _take_over_play_input(game, session, input_buffer) -> None:
+    """Atomically drop transient PLAY input before a modal takes control."""
+    if input_buffer is not None:
+        reset_input(input_buffer)
+    from PyAitD.interaction import cancel_nav_intent
+    cancel_nav_intent(game)
+    # route_hover owns presenter-only hover and deliberately does not own the
+    # modal lifecycle: ModalSession.reset_for remains at the open/render seams.
+    route_hover(game, session, None)
+
+
 def route_command(game, session, command, input_buffer=None):
     from PyAitD.effects import (
         GameMode, GameOver, OpenInventory, OpenSystemMenu, ReadText, ShowFound,
@@ -414,13 +429,13 @@ def route_command(game, session, command, input_buffer=None):
     if game.mode is GameMode.PLAY:
         if command is Command.CANCEL:
             game.open_modal(OpenSystemMenu())
+            _take_over_play_input(game, session, input_buffer)
             session.reset_for(game.active_modal)
-            if input_buffer is not None:
-                reset_input(input_buffer)
             return True
         if command is Command.OPEN_INVENTORY and game.status_screen_allowed:
             if game.inventory_count[game.current_inventory]:
                 game.open_modal(OpenInventory())
+                _take_over_play_input(game, session, input_buffer)
                 session.reset_for(game.active_modal)
         return True
 
@@ -671,13 +686,14 @@ def restart_session(old_game):
     return new_game
 
 
-def _hero_branch(game, renderer, session):
+def _hero_branch(game, renderer, session, input_buffer=None):
     # Atomic hero replacement: confirming a character rebuilds game, floor,
     # session, and input buffer in one tuple, so run() resumes on the new
     # game with a single assignment plus `continue` -- no PLAY tick and no
     # stale present can slip through for the staging game.
     if session.pending_hero is None:
         return None
+    _take_over_play_input(game, session, input_buffer)
     try:
         new_game = init_game(game._data_dir, hero=session.pending_hero)
         new_floor = Floor(new_game._data_dir, new_game.current_floor)
@@ -697,13 +713,14 @@ def _hero_branch(game, renderer, session):
     )
 
 
-def _restart_branch(game, renderer, session):
+def _restart_branch(game, renderer, session, input_buffer=None):
     # The atomic replace-game-and-floor step run() inlines each frame: a
     # successful restart hands back every loop local that referenced the old
     # game, so a single tuple assignment plus `continue` is enough to resume
     # the loop on the new session without a stray tick or a stale present.
     if not game.restart_requested:
         return None
+    _take_over_play_input(game, session, input_buffer)
     try:
         new_game = restart_session(game)
         new_floor = Floor(new_game._data_dir, new_game.current_floor)
@@ -787,7 +804,9 @@ def run(game, trace_path=None, session=None):
                 if game.active_modal is None and game.mode is GameMode.PLAY:
                     # keyboard mode swallows play clicks; the cursor is hidden
                     # there too, so nothing advertises a click that does nothing
-                    route_play_click(game, session, floor, logical, draw_list)
+                    route_play_click(
+                        game, session, floor, logical, draw_list, input_buffer,
+                    )
                 else:
                     running = route_mouse(game, session, logical, input_buffer) and running
         now = pygame.time.get_ticks()
@@ -803,9 +822,9 @@ def run(game, trace_path=None, session=None):
                 session.settings_error = None
             else:
                 running = route_command(game, session, command, input_buffer) and running
-        replaced = _hero_branch(game, renderer, session)
+        replaced = _hero_branch(game, renderer, session, input_buffer)
         if replaced is None:
-            replaced = _restart_branch(game, renderer, session)
+            replaced = _restart_branch(game, renderer, session, input_buffer)
         if replaced is not None:
             (
                 new_game, new_floor, new_session, new_input_buffer,
@@ -836,13 +855,10 @@ def run(game, trace_path=None, session=None):
             session.elapsed_ms += elapsed
             _auto_dismiss_picture(game, session)
         if was_play and game.mode is not GameMode.PLAY:
-            # FITD flushes input on modal entry: leftover edges queued by the
-            # same pump (route_command or a found-contact in play_tick) must
-            # not reach the new modal, where OPEN_INVENTORY maps to ACCEPT.
-            # Already-modal frames keep theirs: freshly queued, must route.
-            reset_input(input_buffer)
-            from PyAitD.interaction import cancel_nav_intent
-            cancel_nav_intent(game)
+            # Simulation-raised effects (found, reading, picture, game over)
+            # cross the boundary inside play_tick.  Command/pointer routes use
+            # the same idempotent seam immediately when they open their modal.
+            _take_over_play_input(game, session, input_buffer)
         composed = render_active_mode(game, session, scene_frame)
         available = inventory_hud_available(game)
         composed = render_play_hud(composed, inventory_available=available)

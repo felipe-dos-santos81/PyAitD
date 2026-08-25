@@ -18,7 +18,7 @@ from PyAitD.config import (
 from PyAitD.playworld import apply_play_input
 from PyAitD.effects import (
     ChooseCharacter, GameMode, GameOver, InputMode, NavDecision, NavIntent, OpenInventory,
-    OpenSystemMenu, ReadText, ShowPicture,
+    OpenSystemMenu, ReadText, ShowFound, ShowPicture,
 )
 from PyAitD.game import init_game
 from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
@@ -388,8 +388,14 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
     staging = init_game(data_dir)
     staging.open_modal(ChooseCharacter())
     staging.trace = object()
+    staging.nav_intent = NavIntent(dest_x=100, dest_z=200, room=0)
+    staging.local_joyd, staging.local_click, staging.action = (8, 1, 0x2000)
     session = ModalSession(settings_error="named error", settings_dirty=True)
     session.pending_hero = 1
+    old_buffer = InputBuffer(
+        pointer_held=True, action_held=True, held_joyd=8,
+        commands=deque([Command.ACCEPT]),
+    )
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     init_calls, floor_calls, ticked = [], [], []
@@ -408,7 +414,7 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 4321)
     monkeypatch.setattr(main, "play_tick", lambda *args: ticked.append(1))
 
-    result = main._hero_branch(staging, SimpleNamespace(), session)
+    result = main._hero_branch(staging, SimpleNamespace(), session, old_buffer)
 
     assert result is not None
     (new_game, new_floor, new_session, new_buffer, accumulator,
@@ -426,6 +432,12 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
         0, ["draw"], None, frame, 4321, 0,
     )
     assert ticked == [], "the old staging game must not be ticked"
+    assert staging.nav_intent is None
+    assert (staging.local_joyd, staging.local_click, staging.action) == (0, 0, 0)
+    assert (old_buffer.pointer_held, old_buffer.action_held,
+            old_buffer.held_joyd, list(old_buffer.commands)) == (
+        False, False, 0, [],
+    )
 
 
 def test_hero_branch_is_inert_without_a_pending_hero(data_dir):
@@ -439,14 +451,20 @@ def test_restart_branch_carries_application_settings(data_dir, monkeypatch):
 
     game = init_game(data_dir, hero=1)
     game.restart_requested = True
+    game.nav_intent = NavIntent(dest_x=100, dest_z=200, room=0)
+    game.local_joyd, game.local_click, game.action = (8, 1, 0x2000)
     session = ModalSession(settings_error="named error", settings_dirty=True)
     session.character.choice = 1
+    old_buffer = InputBuffer(
+        pointer_held=True, action_held=True, held_joyd=8,
+        commands=deque([Command.ACCEPT]),
+    )
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(number=0))
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
 
-    result = main._restart_branch(game, SimpleNamespace(), session)
+    result = main._restart_branch(game, SimpleNamespace(), session, old_buffer)
 
     assert result is not None
     new_session, new_buffer = result[2], result[3]
@@ -455,6 +473,12 @@ def test_restart_branch_carries_application_settings(data_dir, monkeypatch):
     )
     assert new_session.character == CharacterSelectPresenter()
     assert isinstance(new_buffer, InputBuffer) and new_buffer.bindings is not None
+    assert game.nav_intent is None
+    assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+    assert (old_buffer.pointer_held, old_buffer.action_held,
+            old_buffer.held_joyd, list(old_buffer.commands)) == (
+        False, False, 0, [],
+    )
 
 
 def test_inventory_hud_availability_is_the_complete_shared_policy(data_dir):
@@ -614,6 +638,76 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     assert list(buffer.commands) == []
 
 
+@pytest.mark.parametrize(
+    "effect",
+    (ShowFound(13, False), GameOver(120)),
+    ids=("found-contact", "game-over"),
+)
+def test_simulation_raised_modal_takeover_is_clean_before_render(
+        data_dir, monkeypatch, effect,
+):
+    import PyAitD.__main__ as main
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    game = init_game(data_dir)
+    game.num_camera = game.new_num_camera
+    hero = game.actors[game.current_camera_target_actor]
+    game.nav_intent = NavIntent(dest_x=100, dest_z=200, room=hero.room)
+    game.nav_decision = NavDecision(
+        joyd=8, target_x=100, target_z=200, advance=True, arrived=False,
+    )
+    game.local_joyd, game.local_click, game.action = (8, 1, 0x2000)
+    buffer = InputBuffer(
+        pointer_held=True, pointer_pos=(150, 100), action_held=True, held_joyd=8,
+    )
+    session = ModalSession(last_effect=effect)
+    session.found.hover = FoundResult.LEAVE
+    observed = []
+    event_batches = iter([
+        [],
+        [main.pygame.event.Event(main.pygame.QUIT)],
+    ])
+    times = iter([0, 20, 20])
+
+    def raise_modal(current_game, _floor, input_buffer):
+        input_buffer.commands.append(Command.UP)
+        current_game.open_modal(effect)
+
+    def assert_clean_before_render(current_game, current_session, _frame):
+        assert current_game.nav_intent is None
+        assert current_game.nav_decision is None
+        assert (
+            current_game.local_joyd, current_game.local_click, current_game.action,
+        ) == (0, 0, 0)
+        assert not buffer.pointer_held
+        assert list(buffer.commands) == []
+        if isinstance(effect, ShowFound):
+            assert current_session.found.hover is None
+        observed.append(type(effect))
+        return frame
+
+    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+        present=lambda _image: None, close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "_scene_frame", lambda *_args: (frame, []))
+    monkeypatch.setattr(main, "play_tick", raise_modal)
+    monkeypatch.setattr(main, "render_active_mode", assert_clean_before_render)
+    monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
+    monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
+    monkeypatch.setattr(main, "InputBuffer", lambda: buffer)
+    monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
+    monkeypatch.setattr(main.pygame.display, "set_caption", lambda *_args: None)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *_args: None),
+    )
+
+    assert main.run(game, session=session) == 0
+    assert observed == [type(effect), type(effect)]
+
+
 def test_escape_in_play_opens_system_menu_instead_of_quitting(data_dir):
     game = init_game(data_dir)
     session = ModalSession()
@@ -622,6 +716,71 @@ def test_escape_in_play_opens_system_menu_instead_of_quitting(data_dir):
     assert route_command(game, session, Command.CANCEL, state)
     assert isinstance(game.active_modal, OpenSystemMenu)
     assert game.mode is GameMode.SYSTEM_MENU
+
+
+def test_keyboard_system_menu_modal_takeover_cleans_play_input(data_dir):
+    game = init_game(data_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    game.nav_intent = NavIntent(dest_x=100, dest_z=200, room=hero.room)
+    game.nav_decision = NavDecision(
+        joyd=8, target_x=100, target_z=200, advance=True, arrived=False,
+    )
+    game.local_joyd, game.local_click, game.action = (8, 1, 0x2000)
+    session = ModalSession()
+    session.system_menu.hover = 2
+    state = InputBuffer(
+        pointer_held=True, pointer_pos=(150, 100), action_held=True, held_joyd=8,
+        commands=deque([Command.UP]),
+    )
+
+    assert route_command(game, session, Command.CANCEL, state)
+
+    assert isinstance(game.active_modal, OpenSystemMenu)
+    assert game.nav_intent is None
+    assert game.nav_decision is None
+    assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+    assert (state.pointer_held, state.pointer_pos, state.action_held,
+            state.held_joyd, list(state.commands)) == (
+        False, None, False, 0, [],
+    )
+    assert session.system_menu.hover is None
+
+
+def test_repeated_modal_takeover_is_idempotent_without_presenter_reset(data_dir):
+    import PyAitD.__main__ as main
+
+    game = init_game(data_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    effect = OpenInventory()
+    game.open_modal(effect)
+    game.nav_intent = NavIntent(dest_x=100, dest_z=200, room=hero.room)
+    game.nav_decision = NavDecision(
+        joyd=8, target_x=100, target_z=200, advance=True, arrived=False,
+    )
+    game.local_joyd, game.local_click, game.action = (8, 1, 0x2000)
+    session = ModalSession(elapsed_ms=37)
+    session.reset_for(effect)
+    session.elapsed_ms = 37
+    presenter = session.inventory
+    presenter.hover = 0
+    state = InputBuffer(
+        pointer_held=True, pointer_pos=(150, 100), action_held=True, held_joyd=8,
+        commands=deque([Command.UP]),
+    )
+
+    main._take_over_play_input(game, session, state)
+    main._take_over_play_input(game, session, state)
+
+    assert session.last_effect is effect
+    assert session.inventory is presenter
+    assert (session.elapsed_ms, presenter.hover) == (37, None)
+    assert game.nav_intent is None
+    assert game.nav_decision is None
+    assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
+    assert (state.pointer_held, state.pointer_pos, state.action_held,
+            state.held_joyd, list(state.commands)) == (
+        False, None, False, 0, [],
+    )
 
 
 def test_system_menu_mouse_activates_configuration_and_return(data_dir):

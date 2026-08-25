@@ -9,7 +9,7 @@ import pygame
 import pytest
 
 from PyAitD.anim_action import HANDLED_ACTIONS, THROW_OBJECT, WAIT_ANIM_THROW
-from PyAitD.effects import GameMode
+from PyAitD.effects import GameMode, NavIntent
 from PyAitD.floor import Floor
 from PyAitD.game import AF_ANIMATED, AF_MOVABLE, init_game
 from PyAitD.interaction import (
@@ -472,10 +472,20 @@ def test_mouse_journey_game_over_restart_uses_a_left_click(data_dir, monkeypatch
     game, saw_death_life = _journey_to_game_over(data_dir)
     assert saw_death_life
     assert game.mode is GameMode.GAME_OVER
+    hero = game.actors[game.current_camera_target_actor]
+    game.nav_intent = NavIntent(
+        dest_x=hero.room_x, dest_z=hero.room_z, room=hero.room,
+        requires_hold=True,
+    )
+    game.local_joyd, game.local_click, game.action = (8, 1, 0x2000)
     restarted = []
     real_restart = main.restart_session
 
     def capture_restart(old_game):
+        assert old_game.nav_intent is None
+        assert (old_game.local_joyd, old_game.local_click, old_game.action) == (
+            0, 0, 0,
+        )
         new_game = real_restart(old_game)
         restarted.append(new_game)
         return new_game

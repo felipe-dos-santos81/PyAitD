@@ -508,6 +508,74 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     assert seen == [(None, *expected_input)]
 
 
+@pytest.mark.parametrize("engaged", (False, True), ids=("approach", "engaged"))
+def test_held_push_inventory_modal_takeover_is_clean_before_play_resumes(
+        data_dir, monkeypatch, engaged,
+):
+    import PyAitD.__main__ as main
+    from PyAitD.interaction import apply_click_intent
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    game = init_game(data_dir)
+    game.num_camera = game.new_num_camera
+    _finish_take(game, 38)
+    hero = game.actors[game.current_camera_target_actor]
+    apply_click_intent(
+        game, 100, 200, hero.room, 4, requires_hold=True,
+    )
+    game.nav_intent.engaged = engaged
+    game.local_joyd, game.local_click, game.action = (8, 1, 0x2000)
+    input_buffer = InputBuffer(
+        pointer_held=True, pointer_pos=(150, 100), action_held=True, held_joyd=8,
+    )
+    session = ModalSession()
+    event_batches = iter([
+        [main.pygame.event.Event(
+            main.pygame.MOUSEBUTTONDOWN,
+            button=1,
+            pos=PlayLayout.INVENTORY.center,
+        )],
+        [main.pygame.event.Event(
+            main.pygame.KEYDOWN, key=main.pygame.K_ESCAPE,
+        )],
+        [main.pygame.event.Event(main.pygame.QUIT)],
+    ])
+    times = iter([0, 0, 20, 20])
+    observed_ticks = []
+
+    def assert_modal_tick_is_clean(current_game, _floor, buffer):
+        assert current_game.nav_intent is None
+        assert (
+            current_game.local_joyd, current_game.local_click, current_game.action,
+        ) == (0, 0, 0)
+        assert not buffer.pointer_held
+        observed_ticks.append(1)
+
+    monkeypatch.setattr(main, "Renderer", lambda: SimpleNamespace(
+        window_to_logical=lambda pos: pos,
+        present=lambda _image: None,
+        close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "_scene_frame", lambda *_args: (frame, []))
+    monkeypatch.setattr(main, "play_tick", assert_modal_tick_is_clean)
+    monkeypatch.setattr(main, "render_active_mode", lambda *_args: frame)
+    monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
+    monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
+    monkeypatch.setattr(main, "render_cursor", lambda image, *_args: image)
+    monkeypatch.setattr(main, "InputBuffer", lambda: input_buffer)
+    monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
+    monkeypatch.setattr(main.pygame.display, "set_caption", lambda *_args: None)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *_args: None),
+    )
+
+    assert main.run(game, session=session) == 0
+    assert observed_ticks == [1]
+
+
 @pytest.mark.parametrize("touch", (False, True), ids=("physical", "touch-origin"))
 def test_run_routes_physical_and_touch_down_through_the_same_held_push_path(
         data_dir, monkeypatch, touch,
