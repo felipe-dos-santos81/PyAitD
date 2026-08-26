@@ -122,7 +122,10 @@ def generate(client, model, cam, prompt):
     config = {"response_modalities": ["IMAGE"], "image_config": {"aspect_ratio": GENERATE_ASPECT}}
     response = client.models.generate_content(model=model, contents=contents, config=config)
     for candidate in response.candidates or ():
-        for part in candidate.content.parts or ():
+        content = getattr(candidate, "content", None)
+        if content is None:
+            continue
+        for part in getattr(content, "parts", None) or ():
             data = getattr(part, "inline_data", None)
             if data is not None and (data.mime_type or "").startswith("image/"):
                 return data.data

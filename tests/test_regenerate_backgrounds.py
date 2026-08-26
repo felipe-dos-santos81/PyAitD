@@ -131,3 +131,24 @@ def test_generate_without_image_part_raises(tmp_path):
     cam = rb.discover(make_in_dir(tmp_path), None)[0]
     with pytest.raises(RuntimeError, match="no image in response"):
         rb.generate(FakeClient(no_image=True), "gemini-2.5-flash-image", cam, "desc")
+
+
+def test_generate_skips_candidates_without_content(tmp_path):
+    cam = rb.discover(make_in_dir(tmp_path), None)[0]
+    response = _t.SimpleNamespace(
+        text=None,
+        candidates=[
+            _t.SimpleNamespace(content=None),
+            _t.SimpleNamespace(content=_t.SimpleNamespace(parts=None)),
+        ],
+    )
+
+    class _NoContentClient:
+        def __init__(self):
+            self.models = self
+
+        def generate_content(self, *, model, contents, config=None):
+            return response
+
+    with pytest.raises(RuntimeError, match="no image in response"):
+        rb.generate(_NoContentClient(), "gemini-2.5-flash-image", cam, "desc")
