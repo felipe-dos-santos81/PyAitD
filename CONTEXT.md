@@ -6,7 +6,7 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 
 - Repo: `/Users/felipe.dos.santos/code/mine/m-aitd` (branch `main`)
 - FITD reference: `/Users/felipe.dos.santos/code/theirs/FITD/FitdLib/` (authoritative for all game logic)
-- Game data: `Alone in the Dark 1.app/Contents/Resources/game/INDARK`
+- Game data: `data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK`
 - Python 3.12, `.venv/`; deps: pygame-ce, moderngl, numpy, pytest (no more)
 
 ## Commands

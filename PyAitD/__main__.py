@@ -31,6 +31,8 @@ from PyAitD.ui import (
 
 DEFAULT_DATA = (
     pathlib.Path(__file__).resolve().parent.parent
+    / "data"
+    / "aitd1"
     / "Alone in the Dark 1.app"
     / "Contents"
     / "Resources"

@@ -3,6 +3,8 @@ import hashlib
 import io
 import json
 import os
+import re
+import subprocess
 import types as _t
 import zlib
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -68,19 +70,7 @@ def png_bytes(rgb):
     return buf.getvalue()
 
 
-def _response(text=None, image=None, mime="image/png"):
-    if image is None:
-        part = _t.SimpleNamespace(inline_data=None, text=text)
-    else:
-        part = _t.SimpleNamespace(inline_data=_t.SimpleNamespace(data=image, mime_type=mime), text=None)
-    return _t.SimpleNamespace(text=text, candidates=[_t.SimpleNamespace(content=_t.SimpleNamespace(parts=[part]))])
-
-
-class FakeClient:
-    """Records calls; image models return `image_png`, text models a fixed
-    description (or `describe_text` if given). The Nth image call (1-based)
-    in `fail_image_calls` raises."""
-
+class FakeSubprocess:
     def __init__(self, image_png=None, fail_image_calls=(), no_image=False,
                  describe_text="  a dusty attic under sloped rafters  "):
         self.image_png = image_png
@@ -89,132 +79,115 @@ class FakeClient:
         self.describe_text = describe_text
         self.calls = []
         self.image_calls = 0
-        self.models = self
 
-    def generate_content(self, *, model, contents, config=None):
-        self.calls.append((model, contents, config))
-        if "image" in model:
+    def run(self, cmd, capture_output=True, text=True, check=True):
+        self.calls.append(cmd)
+        prompt = cmd[2]
+        if "generate_image tool" in prompt:
             self.image_calls += 1
             if self.image_calls in self.fail:
-                raise RuntimeError("quota")
-            if self.no_image:
-                return _response(text="sorry")
-            return _response(image=self.image_png)
-        return _response(text=self.describe_text)
+                raise subprocess.CalledProcessError(1, cmd, output="quota")
+            
+            if not self.no_image and self.image_png:
+                m = re.search(r"exactly this path: (.*?). Then output", prompt)
+                if m:
+                    path = m.group(1)
+                    with open(path, "wb") as f:
+                        f.write(self.image_png)
+            
+            return _t.SimpleNamespace(stdout="SUCCESS\n", returncode=0)
+        else:
+            if not self.describe_text:
+                return _t.SimpleNamespace(stdout="", returncode=0)
+            return _t.SimpleNamespace(stdout=self.describe_text, returncode=0)
 
 
-def test_describe_sends_source_guide_and_prompt(tmp_path):
+def test_describe_sends_source_guide_and_prompt(tmp_path, monkeypatch):
     in_dir = make_in_dir(tmp_path)
     cam = rb.discover(in_dir, None)[0]
-    client = FakeClient()
-    assert rb.describe(client, "gemini-2.5-flash", cam) == "a dusty attic under sloped rafters"
-    model, contents, config = client.calls[0]
-    assert model == "gemini-2.5-flash"
-    assert contents[0] == {"inline_data": {"mime_type": "image/png", "data": cam.source.read_bytes()}}
-    assert contents[1] == {"inline_data": {"mime_type": "image/png", "data": cam.guide.read_bytes()}}
-    assert contents[2] == rb.describe_prompt(True)
+    fake = FakeSubprocess()
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    assert rb.describe("gemini-3.1-pro", cam) == "a dusty attic under sloped rafters"
+    cmd = fake.calls[0]
+    assert cmd[0] == "agy"
+    assert "--model" in cmd and "gemini-3.1-pro" in cmd
+    prompt = cmd[2]
+    assert str(cam.source.absolute()) in prompt
+    assert str(cam.guide.absolute()) in prompt
+    assert rb.describe_prompt(True) in prompt
 
 
-def test_describe_without_guide_sends_two_parts(tmp_path):
+def test_describe_without_guide_sends_no_guide_prompt(tmp_path, monkeypatch):
     cam = rb.discover(make_in_dir(tmp_path), None)[1]
-    client = FakeClient()
-    rb.describe(client, "gemini-2.5-flash", cam)
-    contents = client.calls[0][1]
-    assert len(contents) == 2 and contents[1] == rb.describe_prompt(False)
+    fake = FakeSubprocess()
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    rb.describe("gemini-3.1-pro", cam)
+    prompt = fake.calls[0][2]
+    assert str(cam.source.absolute()) in prompt
+    assert "guide image" not in prompt
+    assert rb.describe_prompt(False) in prompt
 
 
 @pytest.mark.parametrize("text", [None, "", "   "])
-def test_describe_raises_on_empty_text(tmp_path, text):
+def test_describe_raises_on_empty_text(tmp_path, text, monkeypatch):
     cam = rb.discover(make_in_dir(tmp_path), None)[0]
-    client = FakeClient(describe_text=text)
+    fake = FakeSubprocess(describe_text=text)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
     with pytest.raises(RuntimeError, match="empty description from text model"):
-        rb.describe(client, "gemini-2.5-flash", cam)
+        rb.describe("gemini-3.1-pro", cam)
 
 
-def test_generate_requests_image_and_returns_first_image_part(tmp_path):
+def test_generate_requests_image_and_returns_bytes(tmp_path, monkeypatch):
     cam = rb.discover(make_in_dir(tmp_path), None)[0]
     png = png_bytes(np.zeros((1024, 1536, 3), np.uint8))
-    client = FakeClient(png)
-    assert rb.generate(client, "gemini-2.5-flash-image", cam, "desc") == png
-    model, contents, config = client.calls[0]
-    assert config == {"response_modalities": ["TEXT", "IMAGE"], "image_config": {"aspect_ratio": "3:2"}}
-    assert contents[2] == "desc"
+    fake = FakeSubprocess(png)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    assert rb.generate("gemini-3.1-pro", cam, "desc") == png
+    cmd = fake.calls[0]
+    assert "--model" in cmd and "gemini-3.1-pro" in cmd
+    assert "desc" in cmd[2]
 
 
-def test_generate_without_image_part_raises(tmp_path):
+def test_generate_without_image_part_raises(tmp_path, monkeypatch):
     cam = rb.discover(make_in_dir(tmp_path), None)[0]
-    with pytest.raises(RuntimeError, match="no image in response"):
-        rb.generate(FakeClient(no_image=True), "gemini-2.5-flash-image", cam, "desc")
-
-
-def test_generate_rejects_part_with_no_data(tmp_path):
-    cam = rb.discover(make_in_dir(tmp_path), None)[0]
-    response = _t.SimpleNamespace(
-        text=None,
-        candidates=[_t.SimpleNamespace(content=_t.SimpleNamespace(
-            parts=[_t.SimpleNamespace(inline_data=_t.SimpleNamespace(data=b"", mime_type="image/png"),
-                                      text=None)]))],
-    )
-
-    class _EmptyDataClient:
-        def __init__(self):
-            self.models = self
-
-        def generate_content(self, *, model, contents, config=None):
-            return response
-
-    with pytest.raises(RuntimeError, match="no image in response"):
-        rb.generate(_EmptyDataClient(), "gemini-2.5-flash-image", cam, "desc")
-
-
-def test_generate_skips_candidates_without_content(tmp_path):
-    cam = rb.discover(make_in_dir(tmp_path), None)[0]
-    response = _t.SimpleNamespace(
-        text=None,
-        candidates=[
-            _t.SimpleNamespace(content=None),
-            _t.SimpleNamespace(content=_t.SimpleNamespace(parts=None)),
-        ],
-    )
-
-    class _NoContentClient:
-        def __init__(self):
-            self.models = self
-
-        def generate_content(self, *, model, contents, config=None):
-            return response
-
-    with pytest.raises(RuntimeError, match="no image in response"):
-        rb.generate(_NoContentClient(), "gemini-2.5-flash-image", cam, "desc")
+    fake = FakeSubprocess(no_image=True)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    with pytest.raises(RuntimeError, match="no image generated or copied by agent"):
+        rb.generate("gemini-3.1-pro", cam, "desc")
 
 
 def test_fit_to_target_crops_to_16_10_then_scales():
     assert rb.fit_to_target(png_bytes(np.zeros((1024, 1536, 3), np.uint8))).shape == (800, 1280, 3)
     assert rb.fit_to_target(png_bytes(np.zeros((1000, 1000, 3), np.uint8))).shape == (800, 1280, 3)
-    # A 16:10 two-colour image is scaled, not cropped: left stays red, right stays blue.
     rgb = np.zeros((400, 640, 3), np.uint8)
     rgb[:, :320] = (255, 0, 0)
     rgb[:, 320:] = (0, 0, 255)
     out = rb.fit_to_target(png_bytes(rgb))
     assert tuple(out[400, 10]) == (255, 0, 0) and tuple(out[400, 1270]) == (0, 0, 255)
-    # A wide image is centre-cropped: red centre column survives, black edges are cut.
     wide = np.zeros((100, 400, 3), np.uint8)
     wide[:, 120:280] = (255, 0, 0)
     out = rb.fit_to_target(png_bytes(wide))
     assert tuple(out[400, 640]) == (255, 0, 0) and tuple(out[400, 5]) == (255, 0, 0)
 
 
-def _run(tmp_path, client, **kw):
+def _run(tmp_path, fake, **kw):
     cams = rb.discover(make_in_dir(tmp_path), None)
-    opts = dict(client=client, text_model="gemini-2.5-flash", image_model="gemini-2.5-flash-image",
+    opts = dict(text_model="gemini-3.1-pro", image_model="gemini-3.1-pro",
                 style="s.", force=False, dry_run=False, log=lambda *_: None)
     opts.update(kw)
     return rb.regenerate(cams, tmp_path / "out", **opts)
 
 
-def test_regenerate_writes_fitted_pngs_and_prompt_cache(tmp_path):
-    client = FakeClient(png_bytes(np.full((1024, 1536, 3), 7, np.uint8)))
-    assert _run(tmp_path, client) == (3, 0)
+def test_regenerate_writes_fitted_pngs_and_prompt_cache(tmp_path, monkeypatch):
+    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 7, np.uint8)))
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    assert _run(tmp_path, fake) == (3, 0)
     out = tmp_path / "out"
     for key in ("floor00/camera000", "floor00/camera001", "floor01/camera000"):
         assert load_png_rgb(out / "backgrounds" / f"{key}.png").shape == (800, 1280, 3)
@@ -222,47 +195,54 @@ def test_regenerate_writes_fitted_pngs_and_prompt_cache(tmp_path):
     assert set(prompts) == {"floor00/camera000", "floor00/camera001", "floor01/camera000"}
     src = (tmp_path / "in/backgrounds/floor00/camera000.png").read_bytes()
     assert prompts["floor00/camera000"] == {
-        "prompt": "a dusty attic under sloped rafters", "model": "gemini-2.5-flash",
+        "prompt": "a dusty attic under sloped rafters", "model": "gemini-3.1-pro",
         "sha256": hashlib.sha256(src).hexdigest()}
-    assert len(client.calls) == 6
-    # The generation call carries the cached description and the style.
-    gen_prompt = client.calls[1][1][-1]
-    assert gen_prompt == rb.generation_prompt("a dusty attic under sloped rafters", "s.", True)
+    assert len(fake.calls) == 6
+    gen_prompt = fake.calls[1][2]
+    assert rb.generation_prompt("a dusty attic under sloped rafters", "s.", True) in gen_prompt
 
 
-def test_regenerate_resumes_and_force_redoes(tmp_path):
-    client = FakeClient(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
-    _run(tmp_path, client)
-    client.calls.clear()
-    assert _run(tmp_path, client) == (0, 0)
-    assert client.calls == []
-    # Hand-edited prompt survives a run without --force and is used by it after deleting the png.
+def test_regenerate_resumes_and_force_redoes(tmp_path, monkeypatch):
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    _run(tmp_path, fake)
+    fake.calls.clear()
+    assert _run(tmp_path, fake) == (0, 0)
+    assert fake.calls == []
+    
     path = tmp_path / "out" / rb.PROMPTS_FILE
     prompts = rb.load_prompts(path)
     prompts["floor00/camera001"]["prompt"] = "EDITED"
     rb.save_prompts(path, prompts)
     (tmp_path / "out/backgrounds/floor00/camera001.png").unlink()
-    assert _run(tmp_path, client) == (1, 0)
-    assert len(client.calls) == 1 and "EDITED" in client.calls[0][1][-1]
+    
+    assert _run(tmp_path, fake) == (1, 0)
+    assert len(fake.calls) == 1 and "EDITED" in fake.calls[0][2]
     assert rb.load_prompts(path)["floor00/camera001"]["prompt"] == "EDITED"
-    client.calls.clear()
-    assert _run(tmp_path, client, force=True) == (3, 0)
-    assert len(client.calls) == 6
+    
+    fake.calls.clear()
+    assert _run(tmp_path, fake, force=True) == (3, 0)
+    assert len(fake.calls) == 6
     assert rb.load_prompts(path)["floor00/camera001"]["prompt"] != "EDITED"
 
 
-def test_regenerate_continues_after_a_failed_camera(tmp_path):
+def test_regenerate_continues_after_a_failed_camera(tmp_path, monkeypatch):
     logs = []
-    client = FakeClient(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={2})
-    assert _run(tmp_path, client, log=logs.append) == (2, 1)
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={2})
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    assert _run(tmp_path, fake, log=logs.append) == (2, 1)
     assert not (tmp_path / "out/backgrounds/floor00/camera001.png").exists()
-    assert any("floor00/camera001: failed: quota" in line for line in logs)
+    assert any("floor00/camera001: failed:" in line for line in logs)
 
 
-def test_regenerate_counts_empty_description_as_failed(tmp_path):
+def test_regenerate_counts_empty_description_as_failed(tmp_path, monkeypatch):
     logs = []
-    client = FakeClient(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), describe_text=None)
-    assert _run(tmp_path, client, log=logs.append) == (0, 3)
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), describe_text=None)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    assert _run(tmp_path, fake, log=logs.append) == (0, 3)
     out = tmp_path / "out"
     for key in ("floor00/camera000", "floor00/camera001", "floor01/camera000"):
         assert not (out / "backgrounds" / f"{key}.png").exists()
@@ -270,58 +250,66 @@ def test_regenerate_counts_empty_description_as_failed(tmp_path):
     assert any("empty description from text model" in line for line in logs)
 
 
-def test_regenerate_counts_non_png_image_as_failed(tmp_path):
+def test_regenerate_counts_non_png_image_as_failed(tmp_path, monkeypatch):
     logs = []
-    client = FakeClient(b"not a png")
-    assert _run(tmp_path, client, log=logs.append) == (0, 3)
+    fake = FakeSubprocess(b"not a png")
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    assert _run(tmp_path, fake, log=logs.append) == (0, 3)
     out = tmp_path / "out"
     for key in ("floor00/camera000", "floor00/camera001", "floor01/camera000"):
         assert not (out / "backgrounds" / f"{key}.png").exists()
     assert any("floor00/camera000: failed:" in line for line in logs)
-    # All three cameras are attempted; failures don't stop the loop.
-    assert len(logs) == 3
+    assert [l.split(":")[0] for l in logs[:3]] == ["floor00/camera000", "floor00/camera001", "floor01/camera000"]
 
 
-def test_regenerate_redescribes_when_source_hash_changes(tmp_path):
+def test_regenerate_redescribes_when_source_hash_changes(tmp_path, monkeypatch):
     in_dir = make_in_dir(tmp_path)
     out_dir = tmp_path / "out"
-    opts = dict(text_model="gemini-2.5-flash", image_model="gemini-2.5-flash-image",
+    opts = dict(text_model="gemini-3.1-pro", image_model="gemini-3.1-pro",
                 style="s.", force=False, dry_run=False, log=lambda *_: None)
-    client = FakeClient(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
-    rb.regenerate(rb.discover(in_dir, None), out_dir, client=client, **opts)
-    client.calls.clear()
-    # Re-export the source PNG with different bytes, drop the stale output.
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    rb.regenerate(rb.discover(in_dir, None), out_dir, **opts)
+    fake.calls.clear()
+    
     xb.save_png(in_dir / "backgrounds/floor00/camera001.png",
                checker_pixels(zlib.crc32(b"floor00/camera001-changed") % 100))
     (out_dir / "backgrounds/floor00/camera001.png").unlink()
     path = out_dir / rb.PROMPTS_FILE
     old_sha = rb.load_prompts(path)["floor00/camera001"]["sha256"]
-    assert rb.regenerate(rb.discover(in_dir, None), out_dir, client=client, **opts) == (1, 0)
-    assert len(client.calls) == 2  # describe + generate, only for the changed camera
+    
+    assert rb.regenerate(rb.discover(in_dir, None), out_dir, **opts) == (1, 0)
+    assert len(fake.calls) == 2
     new_sha = rb.load_prompts(path)["floor00/camera001"]["sha256"]
     assert new_sha != old_sha
     new_source_sha = hashlib.sha256((in_dir / "backgrounds/floor00/camera001.png").read_bytes()).hexdigest()
     assert new_sha == new_source_sha
 
 
-def test_regenerate_dry_run_makes_no_calls_and_no_files(tmp_path):
+def test_regenerate_dry_run_makes_no_calls_and_no_files(tmp_path, monkeypatch):
     logs = []
-    client = FakeClient()
-    assert _run(tmp_path, client, dry_run=True, log=logs.append) == (0, 0)
-    assert client.calls == [] and not (tmp_path / "out").exists()
+    fake = FakeSubprocess()
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    assert _run(tmp_path, fake, dry_run=True, log=logs.append) == (0, 0)
+    assert fake.calls == [] and not (tmp_path / "out").exists()
     assert any("floor00/camera001" in line and "guide no" in line for line in logs)
 
 
-def test_regenerate_round_trips_through_check_overrides(tmp_path):
+def test_regenerate_round_trips_through_check_overrides(tmp_path, monkeypatch):
     in_dir = tmp_path / "in"
     floor = StubFloor(number=0)
     recs = xb.export_floor(floor, in_dir, 4)
     manifest = export_manifest(recs, "stub", 4)
     xb.save_manifest(in_dir, manifest)
     cams = rb.discover(in_dir, None)
-    client = FakeClient(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)))
+    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)))
+    monkeypatch.setattr(subprocess, "run", fake.run)
     out = tmp_path / "out"
-    assert rb.regenerate(cams, out, client=client, text_model="t", image_model="image", style="s",
+    
+    assert rb.regenerate(cams, out, text_model="t", image_model="image", style="s",
                          force=False, dry_run=False, log=lambda *_: None) == (1, 0)
     assert json.loads((out / "manifest.json").read_text()) == manifest
     findings = oc.check_overrides(out, [floor], manifest)
@@ -329,7 +317,7 @@ def test_regenerate_round_trips_through_check_overrides(tmp_path):
     assert oc.coverage(out, [floor], manifest)[0]["regenerated"] == 1
 
 
-def test_copy_manifest_never_overwrites_existing_out_manifest(tmp_path):
+def test_copy_manifest_never_overwrites_existing_out_manifest(tmp_path, monkeypatch):
     in_dir = tmp_path / "in"
     floor = StubFloor(number=0)
     recs = xb.export_floor(floor, in_dir, 4)
@@ -340,70 +328,53 @@ def test_copy_manifest_never_overwrites_existing_out_manifest(tmp_path):
     sentinel = json.dumps({"hand": "edited"})
     (out / "manifest.json").write_text(sentinel)
     cams = rb.discover(in_dir, None)
-    client = FakeClient(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)))
-    assert rb.regenerate(cams, out, client=client, text_model="t", image_model="image", style="s",
+    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)))
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    assert rb.regenerate(cams, out, text_model="t", image_model="image", style="s",
                          force=False, dry_run=False, log=lambda *_: None) == (1, 0)
     assert (out / "manifest.json").read_text() == sentinel
     assert not (out / "manifest.json.tmp").exists()
 
 
-def test_main_dry_run_needs_no_key_or_sdk(tmp_path, monkeypatch, capsys):
+def test_main_dry_run_needs_no_api_calls(tmp_path, capsys):
     in_dir = make_in_dir(tmp_path)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.setattr(rb, "make_client", lambda: pytest.fail("client created in dry run"))
     assert rb.main([str(in_dir), "--out", str(tmp_path / "out"), "--dry-run"]) == 0
     assert "floor00/camera000" in capsys.readouterr().out
     assert not (tmp_path / "out").exists()
 
 
-def test_main_exit_codes(tmp_path, monkeypatch, capsys):
+def test_main_exit_codes(tmp_path, capsys):
     in_dir = make_in_dir(tmp_path)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     assert rb.main([str(tmp_path / "empty"), "--out", str(tmp_path / "out")]) == 2
     assert "no cameras" in capsys.readouterr().err
-    assert rb.main([str(in_dir), "--out", str(tmp_path / "out")]) == 2
-    assert "GEMINI_API_KEY is not set" in capsys.readouterr().err
     assert not (tmp_path / "out").exists()
 
 
-def test_main_runs_with_injected_client_and_reports_failures(tmp_path, monkeypatch, capsys):
+def test_main_runs_with_injected_subprocess_and_reports_failures(tmp_path, monkeypatch, capsys):
     in_dir = make_in_dir(tmp_path)
-    monkeypatch.setenv("GEMINI_API_KEY", "x")
-    client = FakeClient(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={3})
-    monkeypatch.setattr(rb, "make_client", lambda: client)
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={3})
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
     assert rb.main([str(in_dir), "--out", str(tmp_path / "out"), "--floors", "0-7",
                     "--style", "noir.", "--text-model", "t-model", "--image-model", "image-x"]) == 1
     out = capsys.readouterr().out
-    assert "floor01/camera000: failed: quota" in out and "done 2, failed 1" in out
-    assert client.calls[0][0] == "t-model" and client.calls[1][0] == "image-x"
-    assert client.calls[1][1][-1].endswith("noir.")
-    client.fail.clear()
+    assert "floor01/camera000: failed:" in out and "done 2, failed 1" in out
+    
+    assert "--model" in fake.calls[0] and "t-model" in fake.calls[0]
+    assert "--model" in fake.calls[1] and "t-model" in fake.calls[1]
+    assert "noir." in fake.calls[1][2]
+    
+    fake.fail.clear()
     assert rb.main([str(in_dir), "--out", str(tmp_path / "out")]) == 0
 
 
-def test_make_client_reports_missing_sdk(monkeypatch, capsys):
-    import builtins
-    real_import = builtins.__import__
+def test_regenerate_aborts_after_consecutive_failures(tmp_path, monkeypatch):
+    logs = []
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={1, 2, 3, 4})
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    
+    assert _run(tmp_path, fake, log=logs.append) == (0, 3)
+    assert fake.image_calls == 3
+    assert logs[-1] == "aborting after 3 consecutive failures"
 
-    def fake_import(name, *a, **k):
-        if name.startswith("google"):
-            raise ImportError(name)
-        return real_import(name, *a, **k)
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-    with pytest.raises(SystemExit) as e:
-        rb.make_client()
-    assert e.value.code == 2
-    assert 'google-genai is not installed: run .venv/bin/pip install -e ".[dev,ai]"' in capsys.readouterr().err
-
-
-@pytest.mark.skipif(not (os.environ.get("GEMINI_API_KEY") and os.environ.get("PYAITD_LIVE_AI") == "1"),
-                    reason="set GEMINI_API_KEY and PYAITD_LIVE_AI=1 to call Gemini")
-def test_live_gemini_round_trip(tmp_path):
-    in_dir = tmp_path / "in"
-    xb.save_png(in_dir / "backgrounds/floor00/camera000.png", checker_pixels(1))
-    cams = rb.discover(in_dir, None)
-    done, failed = rb.regenerate(cams, tmp_path / "out", client=rb.make_client(),
-                                 text_model=rb.DEFAULT_TEXT_MODEL, image_model=rb.DEFAULT_IMAGE_MODEL,
-                                 style=rb.DEFAULT_STYLE, force=False, dry_run=False)
-    assert (done, failed) == (1, 0)
-    assert load_png_rgb(tmp_path / "out/backgrounds/floor00/camera000.png").shape == (800, 1280, 3)

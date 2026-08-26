@@ -12,7 +12,7 @@ make install            # .venv + editable install with dev deps
 make install-ai         # + google-genai, only for make regenerate-backgrounds
 ```
 
-Game data defaults to `Alone in the Dark 1.app/Contents/Resources/game/INDARK`
+Game data defaults to `data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK`
 at the repo root; override with `data=` on any make target or `--data DIR`.
 Tests honor env `PYAITD_DATA` and skip when data is absent.
 
@@ -58,10 +58,10 @@ backend at scale 1 with a settings notice; the game always runs.
 
 To regenerate the backgrounds with an external AI tool, `make
 export-backgrounds` writes the originals plus structure guides and a
-manifest into `./overrides` (git-ignored; `out=DIR` to choose another), and `make check-overrides`
+manifest into `data/aitd1/overrides` (git-ignored; `out=DIR` to choose another), and `make check-overrides`
 validates the results the way the game loads them. `make regenerate-backgrounds`
 (optional; needs `make install-ai` and `GEMINI_API_KEY`) does the
-regeneration with Gemini into `./overrides-ai`. See
+regeneration with Gemini into `data/aitd1/overrides-ai`. See
 [docs/ai-background-regeneration.md](docs/ai-background-regeneration.md).
 
 ## Tests
@@ -76,7 +76,7 @@ make prove-mouse-only   # one-button accessibility contract + journeys (M3e)
 make prove-shell        # shell, configuration, mouse contract, real-loop journeys (M4a1)
 make prove-mouse-accessibility # focused effective-target, hover, touch, and takeover gate
 make prove-graphics     # render attic + combat fixtures at every shading mode to docs/graphics-proof/
-make check-overrides proof=1  # validate ./overrides (or overrides=DIR); side-by-sides to docs/graphics-proof/overrides/
+make check-overrides proof=1  # validate data/aitd1/overrides (or overrides=DIR); side-by-sides to docs/graphics-proof/overrides/
 make regenerate-backgrounds dry=1  # list cameras the Gemini regeneration would process; no API calls
 ```
 

@@ -7,9 +7,9 @@ VENV_DIR = .venv
 PYTHON = $(VENV_DIR)/bin/python
 PIP = $(VENV_DIR)/bin/pip
 floor ?=
-data ?= Alone in the Dark 1.app/Contents/Resources/game/INDARK
-out ?= overrides
-overrides ?= overrides
+data ?= data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK
+out ?= data/aitd1/overrides
+overrides ?= data/aitd1/overrides
 
 .PHONY: help install install-ai run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics export-backgrounds check-overrides regenerate-backgrounds clean
 
@@ -92,11 +92,11 @@ prove-combat: install ## M3c proof: venue, real enemy damage, player arms, game 
 prove-graphics: install ## Enhanced graphics proof: render attic + combat fixtures at scale 4 per shading mode to docs/graphics-proof/
 	$(PYTHON) tools/prove_graphics.py "$(data)"
 
-export-backgrounds: install ## Export every camera background + guide + manifest for external AI regeneration (out=overrides, floors=0-7, scale=4, force=1)
+export-backgrounds: install ## Export every camera background + guide + manifest for external AI regeneration (out=data/aitd1/overrides, floors=0-7, scale=4, force=1)
 	$(PYTHON) tools/export_backgrounds.py "$(data)" --out "$(out)" --floors "$(or $(floors),0-7)" --guide-scale "$(or $(scale),4)" $(if $(force),--force)
 
-check-overrides: install ## Check an override dir the way the game loads it (overrides=overrides, floors=0-7); proof=1 renders original|override side-by-sides to docs/graphics-proof/overrides/
+check-overrides: install ## Check an override dir the way the game loads it (overrides=data/aitd1/overrides, floors=0-7); proof=1 renders original|override side-by-sides to docs/graphics-proof/overrides/
 	$(PYTHON) tools/check_overrides.py "$(data)" "$(overrides)" --floors "$(or $(floors),0-7)" $(if $(proof),--proof)
 
-regenerate-backgrounds: install ## Regenerate ./overrides backgrounds with Gemini into ./overrides-ai (in=, out_ai=, floors=0-7, style=, force=1, dry=1, text_model=, image_model=); needs GEMINI_API_KEY and `make install-ai`
-	$(PYTHON) tools/regenerate_backgrounds.py "$(or $(in),overrides)" --out "$(or $(out_ai),overrides-ai)" --floors "$(or $(floors),0-7)" $(if $(style),--style "$(style)") $(if $(force),--force) $(if $(dry),--dry-run) $(if $(text_model),--text-model "$(text_model)") $(if $(image_model),--image-model "$(image_model)")
+regenerate-backgrounds: install ## Regenerate data/aitd1/overrides backgrounds with Gemini into data/aitd1/overrides-ai (in=, out_ai=, floors=0-7, style=, force=1, dry=1, text_model=, image_model=); needs GEMINI_API_KEY and `make install-ai`
+	$(PYTHON) tools/regenerate_backgrounds.py "$(or $(in),data/aitd1/overrides)" --out "$(or $(out_ai),data/aitd1/overrides-ai)" --floors "$(or $(floors),0-7)" $(if $(style),--style "$(style)") $(if $(force),--force) $(if $(dry),--dry-run) $(if $(text_model),--text-model "$(text_model)") $(if $(image_model),--image-model "$(image_model)")

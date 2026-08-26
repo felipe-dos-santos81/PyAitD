@@ -14,9 +14,9 @@ make prove-mouse-only # one-button contract + real mouse journeys, including hel
 make prove-shell   # M4a1 shell/config/mouse-contract + real-loop journeys
 make prove-mouse-accessibility # focused effective-target/hover/touch/takeover gate
 make prove-graphics # render attic + combat fixtures at every shading mode to docs/graphics-proof/
-make export-backgrounds # originals + guides + manifest to ./overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1)
-make check-overrides # validate ./overrides (or overrides=DIR) as the game loads it; proof=1 renders side-by-sides
-make regenerate-backgrounds # Gemini describe+render ./overrides -> ./overrides-ai (dry=1, floors=, style=, force=1); needs GEMINI_API_KEY + make install-ai
+make export-backgrounds # originals + guides + manifest to data/aitd1/overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1)
+make check-overrides # validate data/aitd1/overrides (or overrides=DIR) as the game loads it; proof=1 renders side-by-sides
+make regenerate-backgrounds # Gemini describe+render data/aitd1/overrides -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); needs GEMINI_API_KEY + make install-ai
 make run           # play via character select; floor=0 debug bypass, data="..." trace=/tmp/t.log optional
 ```
 

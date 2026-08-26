@@ -8,7 +8,7 @@ import pytest
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-DEFAULT_DATA = REPO_ROOT / "Alone in the Dark 1.app" / "Contents" / "Resources" / "game" / "INDARK"
+DEFAULT_DATA = REPO_ROOT / "data" / "aitd1" / "Alone in the Dark 1.app" / "Contents" / "Resources" / "game" / "INDARK"
 
 
 @pytest.fixture

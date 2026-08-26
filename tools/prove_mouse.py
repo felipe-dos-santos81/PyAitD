@@ -16,7 +16,7 @@ from PyAitD.navmesh import agent_extent, build_room_mesh
 
 DEFAULT_DATA = (
     pathlib.Path(__file__).resolve().parent.parent
-    / "Alone in the Dark 1.app" / "Contents" / "Resources" / "game" / "INDARK"
+    / "data" / "aitd1" / "Alone in the Dark 1.app" / "Contents" / "Resources" / "game" / "INDARK"
 )
 
 

@@ -3,8 +3,6 @@
 text model, render the description with an image model using the original
 and its guide as references, fit to 1280x800 and write an override dir.
 
-google-genai is imported only in make_client(); everything else runs
-without it so tests use a fake client. See
 docs/superpowers/specs/2026-08-25-gemini-background-regeneration-design.md."""
 import argparse
 import dataclasses
@@ -14,7 +12,10 @@ import os
 import pathlib
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
+import time
 
 import numpy as np
 
@@ -22,13 +23,13 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from tools.export_backgrounds import parse_floors, save_png  # noqa: E402
 
-DEFAULT_TEXT_MODEL = "gemini-2.5-flash"
-DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image"
+DEFAULT_TEXT_MODEL = "gemini-3.1-pro"
+DEFAULT_IMAGE_MODEL = "gemini-3-pro-image"
 DEFAULT_STYLE = "Dark 1920s Louisiana mansion, moody film lighting, subtle grain."
 TARGET_SIZE = (1280, 800)   # 4 x 320x200
 GENERATE_ASPECT = "3:2"     # nearest Gemini ratio to 16:10 (3:2 is narrower); extra height is centre-cropped after
 PROMPTS_FILE = "prompts.json"
-_SDK_MISSING = 'google-genai is not installed: run .venv/bin/pip install -e ".[dev,ai]"'
+MAX_CONSECUTIVE_FAILURES = 3   # a dead model/key fails every camera: stop early
 _CAMERA_RE = re.compile(r"floor(\d\d)/camera(\d\d\d)\.png$")
 
 
@@ -99,43 +100,55 @@ def save_prompts(path, prompts):
     os.replace(tmp, path)
 
 
-def image_part(path):
-    return {"inline_data": {"mime_type": "image/png", "data": pathlib.Path(path).read_bytes()}}
-
-
-def _reference_parts(cam):
-    parts = [image_part(cam.source)]
-    if cam.guide is not None:
-        parts.append(image_part(cam.guide))
-    return parts
-
-
-def describe(client, model, cam):
-    """One text-model call: original (+ guide) -> scene prompt."""
-    contents = _reference_parts(cam) + [describe_prompt(cam.guide is not None)]
-    response = client.models.generate_content(model=model, contents=contents)
-    text = (response.text or "").strip()
+def describe(model, cam):
+    """One text-model call via agy CLI: original (+ guide) -> scene prompt."""
+    prompt = describe_prompt(cam.guide is not None)
+    instructions = f"Look at the image at {cam.source.absolute()}. "
+    if cam.guide:
+        instructions += f"Also look at the guide image at {cam.guide.absolute()}. "
+    instructions += f"Then output ONLY the prompt: {prompt}"
+    
+    cmd = [
+        "agy", "-p", instructions,
+        "--dangerously-skip-permissions",
+        "--effort", "low",
+        "--model", model
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    text = result.stdout.strip()
     if not text:
         raise RuntimeError("empty description from text model")
     return text
 
 
-def generate(client, model, cam, prompt):
-    """One image-model call: original (+ guide) + prompt -> image bytes.
-    `prompt` is the full generation prompt (caller composes it)."""
-    contents = _reference_parts(cam) + [prompt]
-    config = {"response_modalities": ["TEXT", "IMAGE"],
-              "image_config": {"aspect_ratio": GENERATE_ASPECT}}
-    response = client.models.generate_content(model=model, contents=contents, config=config)
-    for candidate in response.candidates or ():
-        content = getattr(candidate, "content", None)
-        if content is None:
-            continue
-        for part in getattr(content, "parts", None) or ():
-            data = getattr(part, "inline_data", None)
-            if data is not None and data.data and (data.mime_type or "").startswith("image/"):
-                return data.data
-    raise RuntimeError("no image in response")
+def generate(model, cam, prompt):
+    """One image-model call via agy CLI: original (+ guide) + prompt -> image bytes."""
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        tmp_path = tmp.name
+        
+    instructions = f"Look at the image at {cam.source.absolute()}. "
+    if cam.guide:
+        instructions += f"Also look at the guide image at {cam.guide.absolute()}. "
+    instructions += (f"Use the generate_image tool to recreate the first image based on "
+                     f"this prompt: {prompt} "
+                     f"Once you generate the image, copy the resulting image artifact to exactly "
+                     f"this path: {tmp_path}. Then output ONLY 'SUCCESS'.")
+    
+    cmd = [
+        "agy", "-p", instructions,
+        "--dangerously-skip-permissions",
+        "--effort", "low",
+        "--model", model
+    ]
+    subprocess.run(cmd, capture_output=True, text=True, check=True)
+    
+    with open(tmp_path, "rb") as f:
+        image_bytes = f.read()
+    os.remove(tmp_path)
+    
+    if not image_bytes:
+        raise RuntimeError("no image generated or copied by agent")
+    return image_bytes
 
 
 def fit_to_target(png_bytes):
@@ -171,14 +184,14 @@ def _copy_manifest(cams, out_dir):
         os.replace(tmp, dst)
 
 
-def regenerate(cams, out_dir, *, client, text_model, image_model, style, force, dry_run, log=print):
+def regenerate(cams, out_dir, *, text_model, image_model, style, force, dry_run, log=print):
     """Describe + generate every camera into out_dir. Returns (done, failed).
     Existing outputs are skipped unless force; cached prompts are reused
     unless force; prompts.json is saved after every camera."""
     out_dir = pathlib.Path(out_dir)
     prompts_path = out_dir / PROMPTS_FILE
     prompts = load_prompts(prompts_path)
-    done = failed = 0
+    done = failed = streak = 0
     for cam in cams:
         target = out_dir / "backgrounds" / f"{cam.key}.png"
         if target.is_file() and not force:
@@ -193,31 +206,26 @@ def regenerate(cams, out_dir, *, client, text_model, image_model, style, force, 
             source_sha = hashlib.sha256(cam.source.read_bytes()).hexdigest()
             stale = cam.key in prompts and prompts[cam.key].get("sha256") != source_sha
             if cam.key not in prompts or force or stale:
-                text = describe(client, text_model, cam)
+                text = describe(text_model, cam)
                 prompts[cam.key] = {"prompt": text, "model": text_model, "sha256": source_sha}
                 save_prompts(prompts_path, prompts)
             prompt = generation_prompt(prompts[cam.key]["prompt"], style, cam.guide is not None)
-            image = generate(client, image_model, cam, prompt)
+            image = generate(text_model, cam, prompt)
             save_png(target, fit_to_target(image))
         except Exception as exc:  # per-camera: SDK error types are not imported here
             failed += 1
+            streak += 1
             log(f"{cam.key}: failed: {exc}")
+            if streak >= MAX_CONSECUTIVE_FAILURES:
+                log(f"aborting after {streak} consecutive failures")
+                break
             continue
         done += 1
+        streak = 0
         log(f"{cam.key}: ok (guide {guide}, prompt cached {cached})")
     if not dry_run:
         _copy_manifest(cams, out_dir)
     return done, failed
-
-
-def make_client():
-    """The only place google-genai is imported. Reads GEMINI_API_KEY itself."""
-    try:
-        from google import genai
-    except ImportError:
-        print(_SDK_MISSING, file=sys.stderr)
-        raise SystemExit(2)
-    return genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 
 def _parse_args(argv):
@@ -239,13 +247,8 @@ def main(argv=None):
     if not cams:
         print(f"no cameras under {args.in_dir}/backgrounds", file=sys.stderr)
         return 2
-    client = None
-    if not args.dry_run:
-        if not os.environ.get("GEMINI_API_KEY"):
-            print("GEMINI_API_KEY is not set", file=sys.stderr)
-            return 2
-        client = make_client()
-    done, failed = regenerate(cams, args.out, client=client, text_model=args.text_model,
+    
+    done, failed = regenerate(cams, args.out, text_model=args.text_model,
                               image_model=args.image_model, style=args.style,
                               force=args.force, dry_run=args.dry_run)
     print(f"done {done}, failed {failed}")

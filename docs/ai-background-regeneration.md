@@ -10,7 +10,7 @@ repo ships no model, no key and no game data.
 
 ## 1. Export
 
-    make export-backgrounds                                 # all floors, guide scale 4, into ./overrides
+    make export-backgrounds                                 # all floors, guide scale 4, into data/aitd1/overrides
     make export-backgrounds out=~/aitd-overrides floors=0 scale=2
 
 Produces:
@@ -56,12 +56,12 @@ elsewhere will look wrong in play even though it loads fine.
     make install-ai                               # once: google-genai
     export GEMINI_API_KEY=...                     # never stored by the tool
     make regenerate-backgrounds dry=1             # list what would run, no calls
-    make regenerate-backgrounds                   # ./overrides -> ./overrides-ai
+    make regenerate-backgrounds                   # data/aitd1/overrides -> data/aitd1/overrides-ai
     make regenerate-backgrounds floors=0 style="Sunlit, warm, clean." force=1
 
 For each `backgrounds/floorNN/cameraNNN.png` (with its guide when present)
 the tool asks `gemini-2.5-flash` for a scene description, stores it in
-`overrides-ai/prompts.json`, then asks `gemini-2.5-flash-image` to render
+`data/aitd1/overrides-ai/prompts.json`, then asks `gemini-2.5-flash-image` to render
 that description with the original and guide as references. The result is
 centre-cropped to 16:10 and scaled to 1280x800, so `check-overrides` never
 reports `aspect` or `size` for it. `manifest.json` is copied across so
