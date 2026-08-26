@@ -105,3 +105,91 @@ def test_subjects_partition_the_suite_and_only_known_markers_are_used():
         for b in SUBJECTS:
             if a < b:
                 assert not (by_subject[a] & by_subject[b]), f"{a} and {b} overlap"
+
+
+# The file list each legacy gate ran before markers replaced its recipe,
+# captured from the Makefile at commit 4024b10. THIS DATA IS HISTORICAL.
+# If a test below fails, a file's marker is wrong, or a gate's marker
+# expression no longer covers what a proof document says it proves --
+# fix the marker or the expression. Never edit this table to make a
+# failure go away: that silently invalidates the proof docs' evidence.
+LEGACY_GATE_FILES = {
+    "prove": ["test_prove_m3a"],
+    "prove-m3b": [
+        "test_life_continuation", "test_interaction", "test_actor_contacts",
+        "test_gere_dec", "test_life_interaction_ops", "test_runtime_modes",
+        "test_m3b_attic",
+    ],
+    "prove-shell": [
+        "test_config", "test_assets", "test_effects", "test_ui_input",
+        "test_ui_reducers", "test_ui_mouse", "test_ui_render",
+        "test_runtime_modes", "test_main", "test_mouse_only",
+        "test_startup", "test_shell_journeys",
+    ],
+    "prove-mouse-only": ["test_mouse_only"],
+    "prove-mouse-accessibility": [
+        "test_ui_input", "test_ui_reducers", "test_ui_mouse", "test_ui_render",
+        "test_play_loop", "test_runtime_modes", "test_main", "test_mouse_only",
+        "test_shell_journeys",
+    ],
+}
+
+
+def _makefile():
+    return (REPO_ROOT / "Makefile").read_text()
+
+
+def _target_block(text, target):
+    """The dependency line and recipe of one Make target."""
+    match = re.search(rf"^{re.escape(target)}:([^\n]*)\n((?:\t[^\n]*\n)*)", text, re.M)
+    assert match, f"Makefile has no target {target}"
+    return match.group(1), match.group(2)
+
+
+def marker_expression(target, _seen=None):
+    """The `-m EXPR` a target runs, following one level of alias dependency."""
+    _seen = _seen or set()
+    assert target not in _seen, f"alias cycle at {target}"
+    _seen.add(target)
+    deps, recipe = _target_block(_makefile(), target)
+    # Anchor on `pytest -m`, not a bare `-m`: the recipe also contains
+    # `$(PYTHON) -m pytest`, whose `-m` would otherwise match first.
+    found = re.search(r'pytest\s+-m\s+"([^"]+)"|pytest\s+-m\s+(\w+)\b', recipe)
+    if found:
+        return found.group(1) or found.group(2)
+    for dep in deps.split():
+        if dep.startswith(("test-", "proof-", "prove")):
+            return marker_expression(dep, _seen)
+    raise AssertionError(f"{target} runs no -m expression and delegates to nothing")
+
+
+def selects(expression, markers):
+    """Evaluate an or-joined marker expression against a file's markers."""
+    parts = [p.strip() for p in expression.split(" or ")]
+    assert all(re.fullmatch(r"\w+", p) for p in parts), (
+        f"expression {expression!r} is not or-joined single markers; the "
+        "spec restricts alias expressions so this evaluator stays honest"
+    )
+    return any(part in markers for part in parts)
+
+
+@pytest.mark.parametrize("gate", sorted(LEGACY_GATE_FILES))
+def test_legacy_gate_still_covers_every_file_it_historically_ran(gate):
+    expression = marker_expression(gate)
+    by_name = {p.stem: markers_of(p) for p in all_test_files()}
+    uncovered = [
+        name for name in LEGACY_GATE_FILES[gate]
+        if not selects(expression, by_name.get(name, set()))
+    ]
+    assert not uncovered, (
+        f"`make {gate}` now runs `-m {expression}`, which no longer covers "
+        f"{uncovered} -- a proof document cites this gate as evidence for them"
+    )
+
+
+def test_every_legacy_gate_name_still_exists_in_the_makefile():
+    text = _makefile()
+    for gate in ("prove", "prove-m3b", "prove-shell", "prove-mouse-only",
+                 "prove-mouse-accessibility", "prove-mouse", "prove-combat",
+                 "prove-graphics", "prove-intro"):
+        assert re.search(rf"^{re.escape(gate)}:", text, re.M), f"missing alias {gate}"
