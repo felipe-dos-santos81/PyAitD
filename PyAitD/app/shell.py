@@ -12,7 +12,6 @@ import pygame
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.app.config import default_settings, load_settings, save_settings, settings_path
 from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenStartupMenu, ShowTitle
-from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import enter_floor_start, init_game
 from PyAitD.engine.life import Trace
 from PyAitD.engine.pak import PakError
@@ -936,7 +935,7 @@ def _boot_hero(game, renderer, session, input_buffer, hero, *, cutscene):
         if cutscene:
             start_game(new_game, *game.profile.intro_start)
             new_game.allow_system_menu = False
-        new_floor = Floor(new_game._data_dir, new_game.current_floor, new_game.profile)
+        new_floor = new_game.load_floor(new_game.current_floor)
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return (None, None, None, None, 0, [], None, None, None, 2, None)
@@ -1001,7 +1000,7 @@ def _restart_branch(game, renderer, session, input_buffer=None):
     _take_over_play_input(game, session, input_buffer)
     try:
         new_game = restart_session(game)
-        new_floor = Floor(new_game._data_dir, new_game.current_floor, new_game.profile)
+        new_floor = new_game.load_floor(new_game.current_floor)
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return (None, None, None, None, 0, [], None, None, None, 2, None)
@@ -1028,7 +1027,7 @@ def _restart_branch(game, renderer, session, input_buffer=None):
 def run(game, trace_path=None, session=None, resolver=None):
     # M3b play loop: one event pump, fixed-step PLAY ticks, one present/frame
     try:
-        floor = Floor(game._data_dir, game.current_floor, game.profile)
+        floor = game.load_floor(game.current_floor)
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -1189,7 +1188,7 @@ def run(game, trace_path=None, session=None, resolver=None):
                     _take_over_play_input(game, session, input_buffer)
                 accumulator -= TICK_MS
                 if floor.number != game.current_floor:
-                    floor = Floor(game._data_dir, game.current_floor, game.profile)
+                    floor = game.load_floor(game.current_floor)
             if game.num_camera != -1:
                 scene_frame, draw_list = _scene_frame(game, floor, renderer, resolver)
         else:

@@ -74,10 +74,6 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
     times = iter([0, 100, 100])
 
     monkeypatch.setattr(
-        main, "Floor",
-        lambda *args: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
-    )
-    monkeypatch.setattr(
         main, "Renderer",
         lambda *_a, **_k: SimpleNamespace(
             fallback_notice=None,
@@ -106,6 +102,9 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
         current_camera_target_actor=-1,
         inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
         current_inventory=0, status_screen_allowed=1, assets=object(),
+        load_floor=lambda number: SimpleNamespace(
+            number=0, rooms=[SimpleNamespace(camera_indices=[0])],
+        ),
         profile=AITD1,
     )
     assert main.run(game) == 0
@@ -114,6 +113,7 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
 
 def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, monkeypatch):
     import PyAitD.app.shell as main
+    from PyAitD.engine.game import Game
 
     source = np.full((200, 320, 3), 80, dtype=np.uint8)
     presented = []
@@ -128,9 +128,10 @@ def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, monkeypatch
         ticks.append(1)
         hit_actor.hit_by = 17 if len(ticks) == 1 else -1
 
-    monkeypatch.setattr(main, "Floor", lambda *_args: SimpleNamespace(
-        number=0, rooms=[SimpleNamespace(camera_indices=[0])],
-    ))
+    monkeypatch.setattr(
+        Game, "load_floor",
+        lambda self, number: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
+    )
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
         fallback_notice=None,
         present=lambda image: presented.append(image.copy()), close=lambda: None,
@@ -168,6 +169,7 @@ def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, monkeypatch
 
 def test_run_expires_hit_feedback_instead_of_latching_forever(data_dir, monkeypatch):
     import PyAitD.app.shell as main
+    from PyAitD.engine.game import Game
 
     source = np.full((200, 320, 3), 80, dtype=np.uint8)
     presented = []
@@ -184,9 +186,10 @@ def test_run_expires_hit_feedback_instead_of_latching_forever(data_dir, monkeypa
         ticks.append(1)
         hit_actor.hit_by = 17 if len(ticks) == 1 else -1
 
-    monkeypatch.setattr(main, "Floor", lambda *_args: SimpleNamespace(
-        number=0, rooms=[SimpleNamespace(camera_indices=[0])],
-    ))
+    monkeypatch.setattr(
+        Game, "load_floor",
+        lambda self, number: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
+    )
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
         fallback_notice=None,
         present=lambda image: presented.append(image.copy()), close=lambda: None,
@@ -228,6 +231,7 @@ def test_escape_opens_the_system_menu_and_pauses_play_ticks(data_dir, monkeypatc
     # fixed-step tick runs while the menu is up, and the loop still presents
     # exactly once per frame.
     import PyAitD.app.shell as main
+    from PyAitD.engine.game import Game
 
     calls = []
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -238,8 +242,8 @@ def test_escape_opens_the_system_menu_and_pauses_play_ticks(data_dir, monkeypatc
     times = iter([0] * 8)
 
     monkeypatch.setattr(
-        main, "Floor",
-        lambda *args: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
+        Game, "load_floor",
+        lambda self, number: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
     )
     monkeypatch.setattr(
         main, "Renderer",
@@ -295,9 +299,6 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch,
     times = iter([0, 100, 100])
 
     monkeypatch.setattr(
-        main, "Floor", lambda *args: SimpleNamespace(number=0, rooms=[]),
-    )
-    monkeypatch.setattr(
         main, "Renderer",
         lambda *_a, **_k: SimpleNamespace(
             fallback_notice=None, present=presented.append, close=lambda: None,
@@ -323,6 +324,7 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch,
         current_camera_target_actor=-1,
         inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
         current_inventory=0, status_screen_allowed=1, assets=object(),
+        load_floor=lambda number: SimpleNamespace(number=0, rooms=[]),
         profile=AITD1,
     )
     assert main.run(game) == 0
@@ -424,7 +426,11 @@ def _fake_game(tmp_path, **overrides):
         current_camera_target_actor=-1,
         inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
         current_inventory=0, status_screen_allowed=1, assets=object(),
-        messages=(), profile=AITD1,
+        messages=(),
+        load_floor=lambda number: SimpleNamespace(
+            number=0, rooms=[SimpleNamespace(camera_indices=[0])],
+        ),
+        profile=AITD1,
     )
     fields.update(overrides)
     return SimpleNamespace(**fields)
@@ -454,9 +460,6 @@ def test_run_constructs_renderer_with_the_session_s_render_options(monkeypatch, 
             fallback_notice=None, present=lambda image: None, close=lambda: None,
         )
 
-    monkeypatch.setattr(main, "Floor", lambda *a: SimpleNamespace(
-        number=0, rooms=[SimpleNamespace(camera_indices=[0])],
-    ))
     monkeypatch.setattr(main, "Renderer", spy_renderer)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
     monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
@@ -483,9 +486,6 @@ def test_run_propagates_renderer_fallback_notice_into_settings_error(monkeypatch
     def _run_once(session):
         event_batches = iter([[SimpleNamespace(type=main.pygame.QUIT)]])
         times = iter([0, 0])
-        monkeypatch.setattr(main, "Floor", lambda *a: SimpleNamespace(
-            number=0, rooms=[SimpleNamespace(camera_indices=[0])],
-        ))
         monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
             fallback_notice="Enhanced rendering unavailable",
             present=lambda image: None, close=lambda: None,
@@ -545,9 +545,6 @@ def test_run_builds_one_resolver_and_threads_it_through_scene_frame_calls(monkey
     event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])
     times = iter([0, 20, 20])
 
-    monkeypatch.setattr(main, "Floor", lambda *a: SimpleNamespace(
-        number=0, rooms=[SimpleNamespace(camera_indices=[0])],
-    ))
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
         fallback_notice=None, present=lambda image: None, close=lambda: None,
     ))
@@ -606,9 +603,9 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeyp
     new_game = SimpleNamespace(
         _data_dir="ignored", current_floor=0, trace=None, new_num_camera=0,
         assets="new-assets-marker", profile=AITD1,
+        load_floor=lambda number: SimpleNamespace(number=0),
     )
     monkeypatch.setattr(main, "init_game", lambda data, profile, hero: new_game)
-    monkeypatch.setattr(main, "Floor", lambda *a: SimpleNamespace(number=0))
     monkeypatch.setattr(main, "_take_over_play_input", lambda *a: None)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (None, []))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
@@ -646,9 +643,9 @@ def test_restart_branch_builds_its_resolver_from_the_session_s_override_dir(monk
     new_game = SimpleNamespace(
         _data_dir="ignored", current_floor=0, new_num_camera=0,
         assets="restarted-assets-marker", profile=AITD1,
+        load_floor=lambda number: SimpleNamespace(number=0),
     )
     monkeypatch.setattr(main, "restart_session", lambda game: new_game)
-    monkeypatch.setattr(main, "Floor", lambda *a: SimpleNamespace(number=0))
     monkeypatch.setattr(main, "_take_over_play_input", lambda *a: None)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (None, []))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
@@ -1733,15 +1730,17 @@ def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
     data_dir, monkeypatch,
 ):
     import PyAitD.app.shell as main
+    from PyAitD.engine.game import Game
 
     calls = []
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     draw_list = []
     event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])
     times = iter([0, 0, 0])
-    monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(
-        number=0, rooms=[SimpleNamespace(camera_indices=[0])],
-    ))
+    monkeypatch.setattr(
+        Game, "load_floor",
+        lambda self, number: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
+    )
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
         fallback_notice=None,
         present=lambda image: calls.append("present"), close=lambda: calls.append("close"),
@@ -1787,6 +1786,7 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, monkeyp
     # comes from render_character_select, never from the staged scene array.
     import PyAitD.app.shell as main
     from PyAitD.engine.effects import ChooseCharacter
+    from PyAitD.engine.game import Game
     from PyAitD.app.ui import CharacterSelectPresenter, render_character_select
 
     calls = []
@@ -1795,9 +1795,10 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, monkeyp
     event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])
     times = iter([0, 0, 0])
 
-    monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(
-        number=0, rooms=[SimpleNamespace(camera_indices=[0])],
-    ))
+    monkeypatch.setattr(
+        Game, "load_floor",
+        lambda self, number: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
+    )
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
         fallback_notice=None,
         present=presented.append, close=lambda: None,

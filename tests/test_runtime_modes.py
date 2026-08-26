@@ -426,6 +426,7 @@ def test_replacement_session_carries_only_application_settings(tmp_path):
 
 def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, monkeypatch):
     import PyAitD.app.shell as main
+    from PyAitD.engine.game import Game
 
     staging = init_game(data_dir, AITD1)
     staging.open_modal(ChooseCharacter())
@@ -449,8 +450,8 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
 
     monkeypatch.setattr(main, "init_game", spy_init_game)
     monkeypatch.setattr(
-        main, "Floor",
-        lambda *args: floor_calls.append(args) or SimpleNamespace(number=0),
+        Game, "load_floor",
+        lambda self, number: floor_calls.append((self, number)) or SimpleNamespace(number=0),
     )
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, ["draw"]))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 4321)
@@ -467,7 +468,7 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
     assert init_calls == [(staging._data_dir, 1)]
     assert new_game is not staging
     assert new_game.trace is staging.trace
-    assert floor_calls == [(new_game._data_dir, new_game.current_floor, new_game.profile)]
+    assert floor_calls == [(new_game, new_game.current_floor)]
     assert isinstance(new_buffer, InputBuffer) and new_buffer.bindings is not None
     assert (new_session.settings_error, new_session.settings_dirty) == (
         "named error", True,
@@ -493,6 +494,7 @@ def test_hero_branch_is_inert_without_a_pending_hero(data_dir):
 
 def test_restart_branch_carries_application_settings(data_dir, monkeypatch):
     import PyAitD.app.shell as main
+    from PyAitD.engine.game import Game
 
     game = init_game(data_dir, AITD1, hero=1)
     game.restart_requested = True
@@ -505,7 +507,7 @@ def test_restart_branch_carries_application_settings(data_dir, monkeypatch):
         commands=deque([Command.ACCEPT]),
     )
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(number=0))
+    monkeypatch.setattr(Game, "load_floor", lambda self, number: SimpleNamespace(number=0))
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
 
@@ -751,6 +753,7 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     # into the new modal, where OPEN_INVENTORY maps to ACCEPT (would flip the
     # inventory session into action selection).
     import PyAitD.app.shell as main
+    from PyAitD.engine.game import Game
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     buffer = InputBuffer()
@@ -771,8 +774,8 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     monkeypatch.setattr(main, "InputBuffer", lambda: buffer)
     monkeypatch.setattr(main, "ModalSession", lambda: session)
     monkeypatch.setattr(
-        main, "Floor",
-        lambda *args: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
+        Game, "load_floor",
+        lambda self, number: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
     )
     monkeypatch.setattr(
         main, "Renderer",
@@ -813,6 +816,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
         data_dir, monkeypatch, effect,
 ):
     import PyAitD.app.shell as main
+    from PyAitD.engine.game import Game
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     game = init_game(data_dir, AITD1)
@@ -852,7 +856,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
             assert session.found.hover is None
         boundaries.append(boundary)
 
-    def load_floor(_data_dir, number, _profile):
+    def stub_load_floor(self, number):
         if game.active_modal is not None:
             assert_takeover_clean("floor-load")
         return SimpleNamespace(
@@ -868,7 +872,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
         assert_takeover_clean("modal-render")
         return frame
 
-    monkeypatch.setattr(main, "Floor", load_floor)
+    monkeypatch.setattr(Game, "load_floor", stub_load_floor)
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
         fallback_notice=None,
         present=lambda _image: None, close=lambda: None,
@@ -1258,6 +1262,7 @@ def test_restart_session_calls_init_game_and_enter_floor_start_once_and_builds_n
     data_dir, monkeypatch,
 ):
     import PyAitD.app.shell as main
+    from PyAitD.engine.game import Game
 
     old = init_game(data_dir, AITD1, hero=0)
     enter_combat_venue(old)
@@ -1274,13 +1279,13 @@ def test_restart_session_calls_init_game_and_enter_floor_start_once_and_builds_n
         enter_calls.append((args, kwargs))
         return real_enter_floor_start(*args, **kwargs)
 
-    def refuse_floor(*args, **kwargs):
-        floor_calls.append((args, kwargs))
+    def refuse_floor(self, number):
+        floor_calls.append((self, number))
         raise AssertionError("restart_session must not construct a Floor")
 
     monkeypatch.setattr(main, "init_game", spy_init_game)
     monkeypatch.setattr(main, "enter_floor_start", spy_enter_floor_start)
-    monkeypatch.setattr(main, "Floor", refuse_floor)
+    monkeypatch.setattr(Game, "load_floor", refuse_floor)
 
     new = main.restart_session(old)
 
@@ -1303,6 +1308,10 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     old_game = init_game(data_dir, AITD1)
     old_game.restart_requested = True
 
+    def spy_floor(number):
+        calls.append("Floor")
+        return SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])])
+
     new_game = SimpleNamespace(
         _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,
         num_camera=-1, new_num_camera=0, flag_init_view=2, current_room=0,
@@ -1311,16 +1320,13 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
         current_camera_target_actor=-1,
         inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
         current_inventory=0, status_screen_allowed=1, assets=object(),
+        load_floor=spy_floor,
         profile=AITD1,
     )
 
     def spy_restart_session(game):
         calls.append("restart_session")
         return new_game
-
-    def spy_floor(*args):
-        calls.append("Floor")
-        return SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])])
 
     real_modal_session = main.ModalSession
 
@@ -1350,7 +1356,6 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     times = iter([0] * 8)
 
     monkeypatch.setattr(main, "restart_session", spy_restart_session)
-    monkeypatch.setattr(main, "Floor", spy_floor)
     monkeypatch.setattr(main, "ModalSession", spy_modal_session)
     monkeypatch.setattr(main, "InputBuffer", spy_input_buffer)
     monkeypatch.setattr(main, "_scene_frame", spy_scene_frame)

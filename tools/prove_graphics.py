@@ -19,7 +19,6 @@ import sys
 import numpy as np
 
 from PyAitD.render.asset_resolver import AssetResolver
-from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import SHADING_MODES, RenderOptions
@@ -35,7 +34,7 @@ def _boot(data_dir, name):
     if name == "combat":
         enter_combat_venue(game)
     game.num_camera = game.new_num_camera
-    return game, Floor(data_dir, game.current_floor, game.profile)
+    return game, game.load_floor(game.current_floor)
 
 
 def render_fixture(data_dir, name, scale, shading, ctx):

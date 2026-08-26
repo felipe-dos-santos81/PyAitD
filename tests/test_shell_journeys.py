@@ -516,6 +516,7 @@ def test_death_restart_keeps_live_settings_and_drops_input_transients(
     data_dir, tmp_path, monkeypatch,
 ):
     import PyAitD.app.shell as main
+    from PyAitD.engine.game import Game
 
     game = init_game(data_dir, AITD1)
     game.restart_requested = True
@@ -532,7 +533,7 @@ def test_death_restart_keeps_live_settings_and_drops_input_transients(
     )
 
     monkeypatch.setattr(main, "InputBuffer", lambda: dirty_buffer)
-    monkeypatch.setattr(main, "Floor", lambda *args: SimpleNamespace(number=0))
+    monkeypatch.setattr(Game, "load_floor", lambda self, number: SimpleNamespace(number=0))
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (_FRAME, []))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
 

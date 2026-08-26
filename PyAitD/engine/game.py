@@ -176,6 +176,16 @@ class Game:
         self.next_sample = -1
         self.last_priority = -1
 
+    def load_floor(self, number):
+        """The Floor loader for callers outside Game: threads self.profile so
+        they need neither the profile nor self._data_dir. Uncached by design
+        -- callers hold their own floor and reload only when current_floor
+        changes, and a cache would retain every visited floor's decoded
+        camera images for the process's lifetime. Game's own internals
+        (rooms_of_floor) construct Floor directly, so a test stubbing
+        load_floor cannot starve them."""
+        return Floor(self._data_dir, number, self.profile)
+
     def rooms_of_floor(self, floor_number):
         # roomDataTable port: global room indices, entry per room in the ETAGE pak
         if floor_number not in self._rooms_by_floor:

@@ -127,3 +127,28 @@ def test_game_carries_its_profile_and_sets_choose_perso_by_name(data_dir):
     game = Game(data_dir, AITD1, hero=1)
     assert game.profile is AITD1
     assert game.cvars[AITD1.cvar_index("CHOOSE_PERSO")] == 1
+
+
+def test_load_floor_threads_the_profile_and_does_not_cache(data_dir):
+    # The seam for callers that hold a Game: they need neither the profile
+    # nor game._data_dir. Uncached on purpose -- the shell holds its own
+    # floor and reloads only when current_floor changes, and a cache would
+    # retain every visited floor's decoded camera images for the process.
+    game = init_game(data_dir, AITD1)
+    first = game.load_floor(0)
+    second = game.load_floor(0)
+    assert first.number == 0
+    assert first is not second
+    assert first.palette.shape == second.palette.shape
+
+
+def test_rooms_of_floor_does_not_go_through_load_floor(data_dir, monkeypatch):
+    # Several shell tests stub Game.load_floor at class level because the
+    # shell builds its game internally. If rooms_of_floor shared that method,
+    # those stubs would also replace the engine's own room lookups.
+    game = init_game(data_dir, AITD1)
+    monkeypatch.setattr(
+        type(game), "load_floor",
+        lambda self, number: pytest.fail("rooms_of_floor must not call load_floor"),
+    )
+    assert game.rooms_of_floor(0)

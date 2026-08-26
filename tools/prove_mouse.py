@@ -10,7 +10,6 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.navmesh import agent_extent, build_room_mesh
 from PyAitD.games.aitd1.profile import AITD1
@@ -27,7 +26,7 @@ def main(argv):
     agent = agent_extent(game.actors[game.current_camera_target_actor])
     built = skipped = empty = 0
     for number in range(8):
-        floor = Floor(data, number, game.profile)
+        floor = game.load_floor(number)
         for room_idx, room in enumerate(floor.rooms):
             mesh = build_room_mesh(floor, room_idx, agent)
             if mesh is None:

@@ -478,6 +478,9 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(monkey
         current_camera_target_actor=-1,
         inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
         current_inventory=0, status_screen_allowed=1, assets=object(),
+        load_floor=lambda number: SimpleNamespace(
+            number=0, rooms=[SimpleNamespace(camera_indices=[0])],
+        ),
         profile=AITD1,
     )
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -493,10 +496,6 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(monkey
             settings=default_settings(), settings_path=path, settings_error=None,
             settings_dirty=False, pending_hero=None, cutscene=False,
         ),
-    )
-    monkeypatch.setattr(
-        main, "Floor",
-        lambda *args: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
     )
     monkeypatch.setattr(
         main, "Renderer",
