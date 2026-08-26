@@ -43,9 +43,11 @@ meaningful gates — the other four (`prove-mouse`, `prove-combat`,
 artifact targets, which need real game data (and GL, for graphics/intro) so
 they aren't part of the pytest-file pinning.
 
-After non-trivial changes run `.venv/bin/pytest -q && make prove`. No lint,
-formatter, or typecheck is configured — LSP/pyright diagnostics are noise, the
-test suite is the only gate. Never mass-reformat.
+After non-trivial changes run `make test`: headless by construction, and a
+superset of `make prove` (now `-m engine`, a strict subset of the full
+suite), so nothing is gained by running both. No lint, formatter, or
+typecheck is configured — LSP/pyright diagnostics are noise, the test suite
+is the only gate. Never mass-reformat.
 
 ## Game data + FITD reference
 
