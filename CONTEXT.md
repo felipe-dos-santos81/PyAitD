@@ -323,22 +323,38 @@ action runner.
   cameras `tools/prove_intro.py` visits) is pinned against the gated
   version.
 - `ModalSession.cutscene` (`app/ui.py`) is the single flag that owns skip
-  during the opening: `route_command` turns every command into
-  `session.skip_cutscene = True` instead of routing into PLAY's own
-  commands; the event loop (`shell.run`) does the same directly for any
-  KEYDOWN/left-click/FINGERDOWN; mouse routing does the same when the
-  active modal is already `CutsceneFinished`. `PlayerCapability.
-  SKIP_CUTSCENE` documents this "anywhere" route for `GameMode.PLAY` and
-  `GameMode.CUTSCENE_END` in the mouse contract. `--skip-intro` sets
-  `session.skip_intro`, a development-only bypass (not FITD behaviour) that
-  boots straight to the attic instead of staging the cutscene at all.
+  during the opening. The one *live* route is the event loop (`shell.run`):
+  its cutscene swallow `continue`s on the first KEYDOWN, left-click
+  `MOUSEBUTTONDOWN`, or `FINGERDOWN` seen while `session.cutscene`, before
+  the event ever reaches command dispatch or mouse routing -- checked after
+  the settings-notice Dismiss first-refusal (below), so a click on the
+  notice during the opening clears the notice instead of skipping.
+  `route_command`'s cutscene branch, `route_mouse`'s `CutsceneFinished`
+  branch, and the command-drain's cutscene `pass` in `run()` are
+  defence-in-depth, not additional live routes: with the pump swallow in
+  place, no `Command` can exist while `session.cutscene` (nothing ever
+  calls `event_to_input` to produce one) and no click can reach
+  `route_mouse` while `CutsceneFinished` is the active modal (`session.
+  cutscene` is still `True` then, so the swallow catches the click first).
+  They exist for callers that invoke `route_command`/`route_mouse` directly
+  -- tests today, any future caller bypassing the pump -- and are commented
+  as such at each site. `PlayerCapability.SKIP_CUTSCENE` documents the
+  live route for `GameMode.PLAY` and `GameMode.CUTSCENE_END` in the mouse
+  contract; its `GameMode.PLAY` entry is the contract's one
+  session-conditional capability (true only while `session.cutscene` --
+  ordinary `PLAY` routes a left click to walk/interact instead), commented
+  as such in `mouse_contract.py`. `--skip-intro` sets `session.skip_intro`,
+  a development-only bypass (not FITD behaviour) that boots straight to the
+  attic instead of staging the cutscene at all.
 - `_boot_hero` (`app/shell.py`) is the one hero-boot path shared by
   `_hero_branch` (character confirmation → the opening, `cutscene=True`,
   `start_game(*profile.intro_start)`) and `_cutscene_end_branch`
   (`CutsceneFinished` or `skip_cutscene` → the attic, `cutscene=False`,
-  `startGame(0, 0, 1)` — `AITD1.cpp:361`) — same `init_game` +
-  conditional `start_game` staging, same atomic replacement-tuple contract
-  as the rest of `shell.py`'s hero/restart swaps.
+  no `start_game` call — FITD's own hand-over is `startGame(0, 0, 1)`,
+  `AITD1.cpp:361`, but the port reaches the same floor/room through
+  `init_game`'s `game_start` staging instead, per the note above) — same
+  `init_game` + conditional `start_game` staging, same atomic
+  replacement-tuple contract as the rest of `shell.py`'s hero/restart swaps.
 - Focused proof: `make prove-intro` (headless golden-tick gate +
   `tools/prove_intro.py`, one GL render per camera the opening visits);
   tests: `tests/test_intro.py` (golden ticks, both heroes) and the real-loop

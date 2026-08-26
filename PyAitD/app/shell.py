@@ -542,6 +542,20 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
         Command, ReadingResult, reading_pages, reduce_found, reduce_inventory,
         reduce_reading, reduce_system_menu,
     )
+    if session.cutscene:
+        # PlayWorld(allowSystemMenu=0): every command is a skip, never a
+        # route into PLAY's own commands (CANCEL opening the system menu,
+        # OPEN_INVENTORY, TOGGLE_INPUT_MODE) -- mainLoop.cpp:71-89. Checked
+        # first so that claim holds for every command, TOGGLE_INPUT_MODE
+        # included -- defence-in-depth only: shell.run's event-pump swallow
+        # already marks skip_cutscene and `continue`s for every KEYDOWN
+        # while session.cutscene, so no Command -- this one included -- can
+        # actually reach route_command while a cutscene is active; this
+        # branch exists for callers that invoke route_command directly
+        # (tests, and any future caller bypassing the pump).
+        session.skip_cutscene = True
+        return True
+
     if command is Command.TOGGLE_INPUT_MODE:
         from PyAitD.engine.interaction import cancel_nav_intent, sync_player_track_mode
         game.input_mode = (
@@ -551,13 +565,6 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
         sync_player_track_mode(game)
         if input_buffer is not None:
             reset_input(input_buffer)
-        return True
-
-    if session.cutscene:
-        # PlayWorld(allowSystemMenu=0): every command is a skip, never a
-        # route into PLAY's own commands (CANCEL opening the system menu,
-        # OPEN_INVENTORY) -- mainLoop.cpp:71-89.
-        session.skip_cutscene = True
         return True
 
     if game.mode is GameMode.PLAY:
@@ -677,6 +684,12 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
         return True
     effect = game.active_modal
     if isinstance(effect, CutsceneFinished):
+        # defence-in-depth only: whenever active_modal is CutsceneFinished,
+        # session.cutscene is still True (only _cutscene_end_branch clears
+        # it), so shell.run's event-pump swallow already intercepts every
+        # left click before it can reach route_mouse -- this branch exists
+        # for callers that invoke route_mouse directly (tests, and any
+        # future caller bypassing the pump).
         session.skip_cutscene = True
         return True
     if isinstance(effect, OpenSystemMenu):
@@ -1058,19 +1071,37 @@ def run(game, trace_path=None, session=None, resolver=None):
             if captured:
                 running = capture_running and running
                 continue
+            logical_pos = None
+            if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
+                logical_pos = renderer.window_to_logical(event.pos)
+            if (event.type == pygame.MOUSEBUTTONDOWN and event.button == 1
+                    and session.settings_error is not None and logical_pos is not None
+                    and hit_test_settings_notice(logical_pos)):
+                # the notice's Dismiss gets first refusal over every other
+                # route -- including the cutscene skip below -- so a click on
+                # it during the opening clears only the error, never the
+                # mode/effect underneath and never the cutscene itself.
+                session.settings_error = None
+                continue
             if session.cutscene and (
                 event.type == pygame.KEYDOWN
                 or (event.type == pygame.MOUSEBUTTONDOWN and event.button == 1)
                 or event.type == pygame.FINGERDOWN
             ):
-                # PlayWorld(allowSystemMenu=0) breaks on any key or click
-                # (mainLoop.cpp:71-89): QUIT and focus events fall through to
-                # their normal handling below, everything else just skips.
+                # PlayWorld(allowSystemMenu=0) breaks on 0x1C/0x17 or any
+                # click (mainLoop.cpp:69-92). ponytail: FITD's 0x1B (Escape)
+                # instead calls processSystemMenu() unconditionally first
+                # (mainLoop.cpp:55-61), before any allowSystemMenu test, so
+                # Escape opens the system menu *during* the intro rather than
+                # skipping it; this port deliberately swallows every key,
+                # Escape included, as a skip instead (the spec's chosen
+                # simplification -- no system menu during the opening). A
+                # faithful upgrade would special-case KEYDOWN Escape here to
+                # open OpenSystemMenu instead of setting skip_cutscene.
+                # QUIT and focus events fall through to their normal handling
+                # below; everything else just skips.
                 session.skip_cutscene = True
                 continue
-            logical_pos = None
-            if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
-                logical_pos = renderer.window_to_logical(event.pos)
             running = event_to_input(event, input_buffer, logical_pos) and running
             _cancel_pointer_invalidation(game, event)
             if event.type == pygame.MOUSEMOTION:
@@ -1083,12 +1114,6 @@ def run(game, trace_path=None, session=None, resolver=None):
                     route_hover(game, session, None)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 logical = input_buffer.pointer_pos
-                if (session.settings_error is not None and logical is not None
-                        and hit_test_settings_notice(logical)):
-                    # the notice's Dismiss gets first refusal: the click clears
-                    # only the error, never the mode or effect underneath
-                    session.settings_error = None
-                    continue
                 if game.active_modal is None and game.mode is GameMode.PLAY:
                     # keyboard mode swallows play clicks; the cursor is hidden
                     # there too, so nothing advertises a click that does nothing
@@ -1106,8 +1131,14 @@ def run(game, trace_path=None, session=None, resolver=None):
         if input_buffer.commands:
             command = input_buffer.commands.popleft()
             if session.cutscene:
-                # dropped: the KEYDOWN handler above already marked the skip
-                # (commands only ever come from keys, never from a click)
+                # defence-in-depth: unreachable in practice, since the
+                # cutscene swallow above `continue`s on every KEYDOWN while
+                # session.cutscene is True -- event_to_input, the only place
+                # that appends to input_buffer.commands, never runs, so
+                # commands cannot exist here while a cutscene is active. Kept
+                # so this drain still does the right thing if that invariant
+                # is ever weakened (e.g. a caller feeding input_buffer.commands
+                # directly, as some tests do).
                 pass
             elif (session.settings_error is not None
                     and command in (Command.ACCEPT, Command.OPEN_INVENTORY)):

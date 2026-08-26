@@ -780,6 +780,60 @@ def test_journey_a_click_skips_the_opening(data_dir, monkeypatch):
     assert game.mode is not GameMode.GAME_OVER
 
 
+def test_journey_dismissing_the_settings_notice_during_the_cutscene_does_not_skip_it(
+    data_dir, monkeypatch,
+):
+    # render_settings_notice paints the Dismiss button unconditionally, mode
+    # independent, and PlayerCapability.DISMISS_SETTINGS_ERROR's contract
+    # claims ALL_MODES -- so a click there during the opening must clear the
+    # notice, not trip the cutscene-skip swallow that also fires on any left
+    # click. Track the live game/session through the hero replacement (like
+    # test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change
+    # above) since _boot_hero constructs a brand new ModalSession for the
+    # cutscene.
+    import PyAitD.app.shell as main
+
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    session.settings_error = "forced test notice"
+
+    live = {"game": game, "session": session}
+    real_init_game = main.init_game
+    real_modal_session = main.ModalSession
+
+    def spy_init_game(data, profile, hero=0):
+        live["game"] = real_init_game(data, profile, hero=hero)
+        return live["game"]
+
+    def spy_modal_session(*args, **kwargs):
+        live["session"] = real_modal_session(*args, **kwargs)
+        return live["session"]
+
+    monkeypatch.setattr(main, "init_game", spy_init_game)
+    monkeypatch.setattr(main, "ModalSession", spy_modal_session)
+
+    floors = []
+    frames = iter(
+        _confirm_emily_events(game)
+        + [[], [], [_left_click(SettingsNoticeLayout.DISMISS.center)], [], [], [_quit()]]
+    )
+
+    def next_events():
+        return next(frames, [_quit()])
+
+    def observe_tick(game_, floor, buf):
+        floors.append(floor.number)
+        return real_play_tick(game_, floor, buf)
+
+    _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
+
+    assert live["session"].settings_error is None    # the Dismiss click landed
+    assert live["session"].cutscene is True           # ...and did NOT skip
+    assert 0 not in floors                            # the attic was never reached
+    assert floors[-1] == 7
+
+
 def test_journey_a_keypress_skips_the_opening(data_dir, monkeypatch):
     # Same as the click journey above, but with a keypress: PlayWorld
     # (allowSystemMenu=0) breaks on any key too (mainLoop.cpp:71-89), and
