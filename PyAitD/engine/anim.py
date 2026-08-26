@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Animation state machine port (FITD anim.cpp SetAnimObjet/SetInterAnimObjet)."""
 
-from PyAitD.world import trunc_div as _trunc_div
+from PyAitD.engine.world import trunc_div as _trunc_div
 
 
 def patch_inter_angle(previous, next_, bp, bx):

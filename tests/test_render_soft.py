@@ -6,8 +6,8 @@ from PyAitD.geometry import BodyGeometry
 from PyAitD.mask_geometry import MaskDraw
 from PyAitD.render_soft import SoftwareBackend
 from PyAitD.scene import ActorDraw, CameraView, FrameDescription
-from PyAitD.skel import PrimEntry, RenderResult
-from PyAitD.world import CameraState
+from PyAitD.engine.skel import PrimEntry, RenderResult
+from PyAitD.engine.world import CameraState
 
 
 def _palette():

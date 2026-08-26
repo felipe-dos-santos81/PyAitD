@@ -2,15 +2,15 @@
 import subprocess
 import sys
 
-from PyAitD.effects import NavIntent
-from PyAitD.game import Actor
-from PyAitD.navigate import (
+from PyAitD.engine.effects import NavIntent
+from PyAitD.engine.game import Actor
+from PyAitD.engine.navigate import (
     ARRIVE_DISTANCE, GIVE_UP_ARRIVE_DISTANCE, STALL_TICKS, decide,
 )
-from PyAitD.tracks import cap_objet
+from PyAitD.engine.tracks import cap_objet
 
 _PURITY_PROBE = """
-import sys, PyAitD.navigate
+import sys, PyAitD.engine.navigate
 leaked = {"PyAitD.ui", "PyAitD.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
 sys.exit(", ".join(sorted(leaked)) or None)
 """
@@ -18,7 +18,7 @@ sys.exit(", ".join(sorted(leaked)) or None)
 
 def test_navigate_does_not_import_the_presentation_layer():
     out = subprocess.run([sys.executable, "-c", _PURITY_PROBE], capture_output=True, text=True)
-    assert out.returncode == 0, f"PyAitD.navigate pulled in {out.stderr.strip()}"
+    assert out.returncode == 0, f"PyAitD.engine.navigate pulled in {out.stderr.strip()}"
 
 
 class _Game:
@@ -132,7 +132,7 @@ def test_the_mirrored_joyd_turns_beta_the_way_mode_4_does():
     # tracks._process_track_mouse applies) and the mirrored joyd fed through
     # mode 1's gere_manual_rot must drive beta in the same direction. Before the
     # polarity fix these ran exactly opposite (+123 vs -123 over 30 ticks).
-    from PyAitD.tracks import _turn_toward, gere_manual_rot
+    from PyAitD.engine.tracks import _turn_toward, gere_manual_rot
 
     for target in ((9000, 0), (-9000, 0), (5000, 5000), (-5000, 5000)):
         intent = NavIntent(target[0], target[1], 0, waypoints=[target])
@@ -189,7 +189,7 @@ def test_a_destination_in_another_room_steers_to_the_room_link():
     game = _LinkGame(intent)
     actor = _actor(0, 0, room=0)
 
-    import PyAitD.navigate as navigate_module
+    import PyAitD.engine.navigate as navigate_module
 
     class _Zone:
         x1, x2, y1, y2, z1, z2, type, parameter = 100, 300, 0, 0, 700, 900, 4, 3

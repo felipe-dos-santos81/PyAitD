@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from PyAitD.formats import Body, Group, Primitive
-from PyAitD.game import init_game
-from PyAitD.skel import hot_point, pose_vertices, skin
-from PyAitD.world import CameraState
+from PyAitD.engine.formats import Body, Group, Primitive
+from PyAitD.engine.game import init_game
+from PyAitD.engine.skel import hot_point, pose_vertices, skin
+from PyAitD.engine.world import CameraState
 
 
 def _cube_body():

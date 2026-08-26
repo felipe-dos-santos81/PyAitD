@@ -2,13 +2,13 @@
 import numpy as np
 
 from PyAitD.asset_resolver import AssetResolver
-from PyAitD.floor import Floor
-from PyAitD.formats import Body, Camera, Group, Room
-from PyAitD.game import init_game
+from PyAitD.engine.floor import Floor
+from PyAitD.engine.formats import Body, Camera, Group, Room
+from PyAitD.engine.game import init_game
 from PyAitD.mask_geometry import MaskDraw
 from PyAitD.scene import CameraView, FrameDescription, build_frame, mask_applies_to_actor
-from PyAitD.skel import skin
-from PyAitD.world import CameraState
+from PyAitD.engine.skel import skin
+from PyAitD.engine.world import CameraState
 
 
 def _boot(data_dir):
@@ -20,8 +20,8 @@ def _boot(data_dir):
 
 def _legacy_scene(game, floor):
     """The pre-layer _scene_frame body: what draw_list and actor order were."""
-    from PyAitD.actors import anim_player_for, sort_actor_indices
-    from PyAitD.picking import actor_bbox
+    from PyAitD.engine.actors import anim_player_for, sort_actor_indices
+    from PyAitD.engine.picking import actor_bbox
     room = floor.rooms[game.current_room]
     cam = floor.cameras[room.camera_indices[game.num_camera]]
     state = CameraState.from_camera(cam, room.world_x, room.world_y, room.world_z).angles()
@@ -127,7 +127,7 @@ def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir):
     # CameraView.project's docstring. Also restricted to the on-screen
     # domain the bound was calibrated over -- see _on_screen.
     from PyAitD.geometry import pose_geometry
-    from PyAitD.assets import Assets
+    from PyAitD.engine.assets import Assets
     assets = Assets(data_dir)
     floor = Floor(data_dir, 0)
     checked_any = False
@@ -350,8 +350,8 @@ def _legacy_stub_scene(game, floor, resolver):
     # to a resolver instead of game.assets -- used as the ground truth for
     # draw_list, matching how the brief's own data_dir test compares against
     # _legacy_scene above.
-    from PyAitD.actors import anim_player_for, sort_actor_indices
-    from PyAitD.picking import actor_bbox
+    from PyAitD.engine.actors import anim_player_for, sort_actor_indices
+    from PyAitD.engine.picking import actor_bbox
     room = floor.rooms[game.current_room]
     cam_idx = room.camera_indices[game.num_camera]
     state = CameraState.from_camera(
@@ -424,10 +424,10 @@ def test_build_frame_assembles_frame_description_from_stubs(monkeypatch):
 
     # build_frame (scene.py) bound its own module-level `anim_player_for`
     # name at import time, so it must be patched directly; _legacy_stub_scene
-    # re-imports from PyAitD.actors on every call, so patching the source
+    # re-imports from PyAitD.engine.actors on every call, so patching the source
     # module's attribute is enough for it to pick up the fake too.
     monkeypatch.setattr("PyAitD.scene.anim_player_for", fake_anim_player_for)
-    monkeypatch.setattr("PyAitD.actors.anim_player_for", fake_anim_player_for)
+    monkeypatch.setattr("PyAitD.engine.actors.anim_player_for", fake_anim_player_for)
 
     frame, draw_list = build_frame(game, floor, resolver)
 

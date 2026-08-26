@@ -2,14 +2,14 @@
 import subprocess
 import sys
 
-from PyAitD.floor import Floor
-from PyAitD.game import init_game
-from PyAitD.navmesh import COVER_SCALE, cover_polys
-from PyAitD.picking import pick_floor, pick_floor_any_room, pick_floor_in_room, project_floor_point
-from PyAitD.world import CameraState
+from PyAitD.engine.floor import Floor
+from PyAitD.engine.game import init_game
+from PyAitD.engine.navmesh import COVER_SCALE, cover_polys
+from PyAitD.engine.picking import pick_floor, pick_floor_any_room, pick_floor_in_room, project_floor_point
+from PyAitD.engine.world import CameraState
 
 _PURITY_PROBE = """
-import sys, PyAitD.picking
+import sys, PyAitD.engine.picking
 leaked = {"PyAitD.ui", "PyAitD.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
 sys.exit(", ".join(sorted(leaked)) or None)
 """
@@ -18,7 +18,7 @@ sys.exit(", ".join(sorted(leaked)) or None)
 def test_picking_does_not_import_the_presentation_layer():
     out = subprocess.run([sys.executable, "-c", _PURITY_PROBE], capture_output=True, text=True)
     assert out.returncode == 0, (
-        f"PyAitD.picking pulled in {out.stderr.strip()} — picking is pure math "
+        f"PyAitD.engine.picking pulled in {out.stderr.strip()} — picking is pure math "
         f"and must not need a window; __main__ passes it logical coordinates"
     )
 
@@ -79,7 +79,7 @@ def test_pick_floor_outside_every_cover_polygon_is_none(data_dir):
     assert pick_floor((2, 2), floor, 0, 0, 0) is None
 
 
-from PyAitD.picking import ACTOR_PICK_PAD, actor_bbox, pick_actor
+from PyAitD.engine.picking import ACTOR_PICK_PAD, actor_bbox, pick_actor
 
 
 class _FakeResult:

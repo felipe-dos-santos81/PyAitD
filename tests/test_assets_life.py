@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from PyAitD.assets import Assets
+from PyAitD.engine.assets import Assets
 
 
 def test_counts(data_dir):

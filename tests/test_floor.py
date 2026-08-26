@@ -2,9 +2,9 @@
 import numpy as np
 import pytest
 
-from PyAitD import floor as floormod
-from PyAitD.floor import Floor
-from PyAitD.pak import PakError
+from PyAitD.engine import floor as floormod
+from PyAitD.engine.floor import Floor
+from PyAitD.engine.pak import PakError
 
 
 def test_floor0_loads(data_dir):

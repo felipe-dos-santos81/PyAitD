@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.effects import AddMessage, BeginTake, LifeFrame
-from PyAitD.game import init_game
-from PyAitD.interaction import advance_messages, drain_immediate_effects
+from PyAitD.engine.effects import AddMessage, BeginTake, LifeFrame
+from PyAitD.engine.game import init_game
+from PyAitD.engine.interaction import advance_messages, drain_immediate_effects
 
 
 def test_messages_refresh_duplicate_fill_five_slots_and_expire(data_dir):
@@ -23,7 +23,7 @@ def test_begin_take_runs_after_parent_frame_is_stacked(data_dir, monkeypatch):
     game = init_game(data_dir)
     game.life_stack.append(LifeFrame(0, 1, pc=6))
     seen = []
-    monkeypatch.setattr("PyAitD.interaction.begin_take", lambda g, i: seen.append((i, len(g.life_stack))) or False)
+    monkeypatch.setattr("PyAitD.engine.interaction.begin_take", lambda g, i: seen.append((i, len(g.life_stack))) or False)
     game.emit(BeginTake(12))
     assert drain_immediate_effects(game) is False
     assert seen == [(12, 1)]

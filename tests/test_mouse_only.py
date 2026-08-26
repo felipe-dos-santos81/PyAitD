@@ -8,18 +8,18 @@ import numpy as np
 import pygame
 import pytest
 
-from PyAitD.anim_action import (
+from PyAitD.engine.anim_action import (
     FRAPPE_OK, HANDLED_ACTIONS, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME,
 )
 from PyAitD.asset_resolver import AssetResolver
-from PyAitD.effects import GameMode, NavIntent
-from PyAitD.floor import Floor
-from PyAitD.game import AF_ANIMATED, AF_MOVABLE, init_game
-from PyAitD.interaction import (
+from PyAitD.engine.effects import GameMode, NavIntent
+from PyAitD.engine.floor import Floor
+from PyAitD.engine.game import AF_ANIMATED, AF_MOVABLE, init_game
+from PyAitD.engine.interaction import (
     COMBAT_ACTIONS, _finish_take, choose_inventory_action, inventory_actions,
     inventory_items, PLAYER_PUSH_ANIM,
 )
-from PyAitD.playworld import play_tick
+from PyAitD.engine.playworld import play_tick
 from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
 from PyAitD.ui import InputBuffer, ModalLayout, PlayLayout
 from PyAitD.mouse_contract import (
@@ -474,7 +474,7 @@ def test_mouse_journey_one_click_attack_swings_the_held_saber(data_dir, monkeypa
     bounded native-input burst; the player never holds or times a button.
     """
     import PyAitD.__main__ as main
-    import PyAitD.playworld as playworld_module
+    import PyAitD.engine.playworld as playworld_module
 
     game = init_game(data_dir)
     # This call is the documented pre-audit fixture boundary. Every player

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Actor state, hard-col collision helpers (FITD ports)."""
 
-from PyAitD.anim import AnimPlayer
-from PyAitD.game import AF_BOXIFY, AF_DRAWABLE, AF_ANIMATED
-from PyAitD.realvalue import evaluate_real, init_real_value
-from PyAitD.world import adjust_zv_between_rooms, cdiv as _cdiv, rotate_step
+from PyAitD.engine.anim import AnimPlayer
+from PyAitD.engine.game import AF_BOXIFY, AF_DRAWABLE, AF_ANIMATED
+from PyAitD.engine.realvalue import evaluate_real, init_real_value
+from PyAitD.engine.world import adjust_zv_between_rooms, cdiv as _cdiv, rotate_step
 
 def cube_intersect(zv1, zv2):
     return not (
@@ -223,7 +223,7 @@ def gere_anim(game, actor_idx):
                     step_z = hard_col_step_z
         else:
             a.hard_col = 1 if check_hard_col(zv_local, room.hard_cols) else 0
-        from PyAitD.interaction import resolve_actor_contacts
+        from PyAitD.engine.interaction import resolve_actor_contacts
         zv_local, step_x, step_z = resolve_actor_contacts(
             game, actor_idx, list(a.zv), zv_local, step_x, step_z,
         )

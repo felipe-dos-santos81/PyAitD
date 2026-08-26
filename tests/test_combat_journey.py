@@ -13,14 +13,14 @@ import numpy as np
 import pytest
 
 from PyAitD.__main__ import _auto_dismiss_picture, restart_session, route_mouse
-from PyAitD.anim_action import (
+from PyAitD.engine.anim_action import (
     DO_TIR, FRAPPE_OK, THROW_OBJECT, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, gere_frappe,
 )
-from PyAitD.effects import GameMode, GameOver
-from PyAitD.floor import Floor
-from PyAitD.game import AF_ANIMATED, init_game, relocate_actor
-from PyAitD.life import process_life
-from PyAitD.playworld import TICK_MS, play_tick
+from PyAitD.engine.effects import GameMode, GameOver
+from PyAitD.engine.floor import Floor
+from PyAitD.engine.game import AF_ANIMATED, init_game, relocate_actor
+from PyAitD.engine.life import process_life
+from PyAitD.engine.playworld import TICK_MS, play_tick
 from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.ui import InputBuffer, ModalSession, render_game_over, transparent_canvas
 
@@ -174,7 +174,7 @@ def test_player_melee_executes_opcode_and_runner(data_dir, monkeypatch):
     # single fall-through call FITD documents (animAction.cpp:24), leaving both
     # wait states untested.
     _execute_words(game, hero_idx, [16, 4, 1, 0, 2000, -1, 10, 4, 11])
-    monkeypatch.setattr("PyAitD.anim_action.check_object_col", lambda *args: (victim_idx,))
+    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", lambda *args: (victim_idx,))
     assert hero.anim_action_type == WAIT_FRAPPE_ANIM
     gere_frappe(game, hero_idx); assert hero.anim_action_type == WAIT_FRAPPE_FRAME
     hero.frame = 1  # the strike frame gere_anim would reach (anim 4 has 4 frames)
@@ -192,7 +192,7 @@ def test_player_fire_executes_opcode_and_runner(data_dir, monkeypatch):
     # FITD life.cpp:66-78 fire(anim, frame, group, radius, force, next)
     _execute_words(game, hero_idx, [53, 4, 0, 0, 50, 12, 4, 11])
     monkeypatch.setattr(
-        "PyAitD.anim_action.check_line_projection_with_actors",
+        "PyAitD.engine.anim_action.check_line_projection_with_actors",
         lambda *args: (victim_idx, hero.room_x + 20, hero.room_y, hero.room_z + 30),
     )
     gere_frappe(game, hero_idx); assert hero.anim_action_type == DO_TIR
@@ -213,15 +213,15 @@ def test_player_throw_executes_setup_launch_and_flight(data_dir, monkeypatch):
     game.inventory_count[0] = 1
     # FITD life.cpp:18-36 throwObj(anim, frame, group, object, rotated, force, next)
     _execute_words(game, hero_idx, [76, 4, 0, 0, object_idx, 1, 14, 4, 11])
-    monkeypatch.setattr("PyAitD.anim_action.check_hard_col", lambda *args: [])
+    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *args: [])
     gere_frappe(game, hero_idx)
     thrown_idx = game.world_objects[object_idx].obj_index
     assert thrown_idx != -1, "throw release must activate its own world object"
     assert game.actors[thrown_idx].index_in_world == object_idx
     gere_frappe(game, hero_idx)
     assert game.actors[thrown_idx].anim_action_type == THROW_OBJECT
-    monkeypatch.setattr("PyAitD.anim_action.check_object_col", lambda *args: (victim_idx,))
-    monkeypatch.setattr("PyAitD.anim_action.throw_stopped_at", lambda *args: None)
+    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", lambda *args: (victim_idx,))
+    monkeypatch.setattr("PyAitD.engine.anim_action.throw_stopped_at", lambda *args: None)
     gere_frappe(game, thrown_idx)
     assert game.actors[thrown_idx].hit == victim_idx
     assert game.actors[victim_idx].hit_force == 14

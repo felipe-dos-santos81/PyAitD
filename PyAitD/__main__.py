@@ -11,14 +11,14 @@ import pygame
 
 from PyAitD.asset_resolver import AssetResolver
 from PyAitD.config import default_settings, load_settings, save_settings, settings_path
-from PyAitD.effects import ChooseCharacter, GameMode, InputMode
-from PyAitD.floor import Floor
-from PyAitD.game import enter_floor_start, init_game
-from PyAitD.life import Trace
-from PyAitD.pak import PakError
+from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode
+from PyAitD.engine.floor import Floor
+from PyAitD.engine.game import enter_floor_start, init_game
+from PyAitD.engine.life import Trace
+from PyAitD.engine.pak import PakError
 # imported by name, not module-qualified: run() reads play_tick as a module
 # global, which is the patch point tests/test_play_loop.py relies on
-from PyAitD.playworld import TICK_MS, play_tick
+from PyAitD.engine.playworld import TICK_MS, play_tick
 from PyAitD.render import Renderer
 from PyAitD.render_options import BACKGROUND_FILTERS, SHADING_MODES, validate_render_options
 from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
@@ -232,14 +232,14 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
     actor), "walk" (a floor point we can head for), or "blocked" (nothing to
     do, payload None).
     """
-    from PyAitD.interaction import (
+    from PyAitD.engine.interaction import (
         combat_action_for, hold_action_approach, is_combat_target,
         is_hold_action_target,
     )
-    from PyAitD.navmesh import agent_extent, approach_cell, nearest_walkable
-    from PyAitD.picking import pick_actor, pick_floor_any_room
+    from PyAitD.engine.navmesh import agent_extent, approach_cell, nearest_walkable
+    from PyAitD.engine.picking import pick_actor, pick_floor_any_room
     from PyAitD.ui import PlayLayout
-    from PyAitD.world import room_delta
+    from PyAitD.engine.world import room_delta
 
     if (logical_pos is None or game.active_modal is not None
             or game.input_mode is not InputMode.MOUSE or game.num_camera == -1):
@@ -316,7 +316,7 @@ def route_play_click(
         game, session, floor, logical_pos, draw_list, input_buffer=None,
 ):
     """Route one resolved PLAY click; HUD and world share the resolver."""
-    from PyAitD.interaction import apply_click_intent, attack_in_hand
+    from PyAitD.engine.interaction import apply_click_intent, attack_in_hand
 
     kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
     if kind == "inventory":
@@ -350,7 +350,7 @@ def _cancel_pointer_invalidation(game, event):
     ) or event.type == pygame.WINDOWFOCUSLOST
     if not invalidated:
         return False
-    from PyAitD.interaction import cancel_held_nav_intent
+    from PyAitD.engine.interaction import cancel_held_nav_intent
     return cancel_held_nav_intent(game)
 
 
@@ -364,7 +364,7 @@ def _play_cursor_kind(game, floor, hover, draw_list, input_buffer):
 
 
 def _is_interactable(game, actor_idx):
-    from PyAitD.game import AF_FOUNDABLE
+    from PyAitD.engine.game import AF_FOUNDABLE
     actor = game.actors[actor_idx]
     if actor.index_in_world < 0:
         return False
@@ -374,7 +374,7 @@ def _is_interactable(game, actor_idx):
 
 
 def _inventory_view(game, session):
-    from PyAitD.interaction import inventory_actions, inventory_items
+    from PyAitD.engine.interaction import inventory_actions, inventory_items
     object_ids = inventory_items(game)
     selected = object_ids[min(session.inventory.object_cursor, len(object_ids) - 1)]
     return object_ids, inventory_actions(game, selected)
@@ -478,7 +478,7 @@ def _apply_system_result(game, session, input_buffer, result, renderer=None):
 
 
 def _capture_keydown(event, game, session, input_buffer):
-    from PyAitD.effects import OpenSystemMenu
+    from PyAitD.engine.effects import OpenSystemMenu
     from PyAitD.ui import canonical_key_name, capture_system_key
     if (not isinstance(game.active_modal, OpenSystemMenu)
             or session.system_menu.capture is None
@@ -499,7 +499,7 @@ def _take_over_play_input(game, session, input_buffer) -> None:
     """Atomically drop transient PLAY input before a modal takes control."""
     if input_buffer is not None:
         reset_input(input_buffer)
-    from PyAitD.interaction import cancel_nav_intent
+    from PyAitD.engine.interaction import cancel_nav_intent
     cancel_nav_intent(game)
     # route_hover owns presenter-only hover and deliberately does not own the
     # modal lifecycle: ModalSession.reset_for remains at the open/render seams.
@@ -507,11 +507,11 @@ def _take_over_play_input(game, session, input_buffer) -> None:
 
 
 def route_command(game, session, command, input_buffer=None, renderer=None):
-    from PyAitD.effects import (
+    from PyAitD.engine.effects import (
         GameMode, GameOver, OpenInventory, OpenSystemMenu, ReadText, ShowFound,
         ShowPicture,
     )
-    from PyAitD.interaction import (
+    from PyAitD.engine.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
     )
     from PyAitD.ui import (
@@ -519,7 +519,7 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
         reduce_reading, reduce_system_menu,
     )
     if command is Command.TOGGLE_INPUT_MODE:
-        from PyAitD.interaction import cancel_nav_intent, sync_player_track_mode
+        from PyAitD.engine.interaction import cancel_nav_intent, sync_player_track_mode
         game.input_mode = (
             InputMode.KEYBOARD if game.input_mode is InputMode.MOUSE else InputMode.MOUSE
         )
@@ -599,11 +599,11 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
 
 
 def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
-    from PyAitD.effects import (
+    from PyAitD.engine.effects import (
         ChooseCharacter, GameOver, OpenInventory, OpenSystemMenu, ReadText,
         ShowFound, ShowPicture,
     )
-    from PyAitD.interaction import (
+    from PyAitD.engine.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
     )
     from PyAitD.ui import (
@@ -691,7 +691,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
 
 def route_hover(game, session, logical_pos):
     """Update only the active modal presenter's mouse preview."""
-    from PyAitD.effects import (
+    from PyAitD.engine.effects import (
         ChooseCharacter, OpenInventory, OpenSystemMenu, ReadText, ShowFound,
     )
     from PyAitD.ui import (
@@ -731,8 +731,8 @@ def route_hover(game, session, logical_pos):
 
 
 def _auto_dismiss_picture(game, session):
-    from PyAitD.effects import ShowPicture
-    from PyAitD.interaction import apply_reading_result
+    from PyAitD.engine.effects import ShowPicture
+    from PyAitD.engine.interaction import apply_reading_result
     from PyAitD.ui import ReadingResult
     effect = game.active_modal
     if not isinstance(effect, ShowPicture) or effect.delay_units <= 0:
@@ -750,7 +750,7 @@ def render_active_mode(game, session, renderer):
     their modal (OpenInventory, GameOver) call `renderer.scene_thumbnail()`,
     so every other mode (most frames: no modal at all) never pays for it --
     see the finding-1 note on `Renderer.compose_scene`."""
-    from PyAitD.effects import (
+    from PyAitD.engine.effects import (
         ChooseCharacter, GameOver, OpenInventory, OpenSystemMenu, ReadText,
         ShowFound, ShowPicture,
     )
@@ -804,7 +804,7 @@ def restart_session(old_game):
     new_game = init_game(data_dir, hero=hero)
     new_game.input_mode = input_mode
     new_game.trace = trace
-    from PyAitD.interaction import sync_player_track_mode
+    from PyAitD.engine.interaction import sync_player_track_mode
     sync_player_track_mode(new_game)
     enter_floor_start(new_game, floor_start)
     new_game.floor_start = floor_start

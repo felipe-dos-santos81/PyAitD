@@ -7,12 +7,12 @@ pass) to build a strike cube and publish hits through `check_object_col`.
 Never touches actor.life: health lives in script vars, hit/hit_by/hit_force
 are the only fields this module writes.
 """
-from PyAitD.actors import anim_player_for, check_hard_col, check_object_col, cube_intersect
-from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_SPECIAL, activate_world_object, put_at_objet
-from PyAitD.interaction import point_in_zone, remove_from_inventory
-from PyAitD.realvalue import init_real_value
-from PyAitD.skel import hot_point
-from PyAitD.world import adjust_zv_between_rooms, cdiv, rotate_step
+from PyAitD.engine.actors import anim_player_for, check_hard_col, check_object_col, cube_intersect
+from PyAitD.engine.game import AF_ANIMATED, AF_BOXIFY, AF_SPECIAL, activate_world_object, put_at_objet
+from PyAitD.engine.interaction import point_in_zone, remove_from_inventory
+from PyAitD.engine.realvalue import init_real_value
+from PyAitD.engine.skel import hot_point
+from PyAitD.engine.world import adjust_zv_between_rooms, cdiv, rotate_step
 
 WAIT_FRAPPE_ANIM = 1
 FRAPPE_OK = 2

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pathlib
 
-from PyAitD.formats import parse_defines, parse_objets, parse_priority, parse_vars
+from PyAitD.engine.formats import parse_defines, parse_objets, parse_priority, parse_vars
 
 
 def test_objets_golden(data_dir):

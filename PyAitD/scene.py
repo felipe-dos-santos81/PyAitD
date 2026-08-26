@@ -9,14 +9,14 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from PyAitD.actors import anim_player_for, sort_actor_indices
+from PyAitD.engine.actors import anim_player_for, sort_actor_indices
 from PyAitD.asset_resolver import ImageAsset
-from PyAitD.cos_table import sin_cos
+from PyAitD.engine.cos_table import sin_cos
 from PyAitD.geometry import BodyGeometry, pose_geometry
 from PyAitD.mask_geometry import MaskDraw
-from PyAitD.picking import actor_bbox
-from PyAitD.skel import RenderResult, skin
-from PyAitD.world import SCREEN_CENTER_X, SCREEN_CENTER_Y, CameraState
+from PyAitD.engine.picking import actor_bbox
+from PyAitD.engine.skel import RenderResult, skin
+from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y, CameraState
 
 _SENTINEL = np.array([-10000.0, -10000.0, -10000.0])
 

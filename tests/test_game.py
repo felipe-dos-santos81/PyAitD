@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from PyAitD.game import NUM_MAX_OBJECT, Game, init_game, game_step_tick, spawn_stage_actors
+from PyAitD.engine.game import NUM_MAX_OBJECT, Game, init_game, game_step_tick, spawn_stage_actors
 
 
 def test_init_golden(data_dir):
@@ -86,8 +86,8 @@ def test_spawn_does_not_touch_found_flag(data_dir):
 
 
 def test_activate_world_object_initializes_one_released_item(data_dir):
-    from PyAitD.game import activate_world_object
-    from PyAitD.interaction import _finish_take
+    from PyAitD.engine.game import activate_world_object
+    from PyAitD.engine.interaction import _finish_take
 
     game = init_game(data_dir)
     _finish_take(game, 38)

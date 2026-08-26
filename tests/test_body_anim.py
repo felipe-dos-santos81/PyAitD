@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from PyAitD.formats import parse_anim, parse_body
-from PyAitD.pak import Pak
+from PyAitD.engine.formats import parse_anim, parse_body
+from PyAitD.engine.pak import Pak
 
 
 def _read(pak_name, index, data_dir):

@@ -19,11 +19,11 @@ import numpy as np
 from PyAitD.asset_resolver import AssetResolver
 from PyAitD.background_export import MANIFEST_SCHEMA
 from PyAitD.override_check import check_overrides, coverage, has_errors, summarize
-from PyAitD.pak import PakError
+from PyAitD.engine.pak import PakError
 from PyAitD.render_gl import GLBackend
 from PyAitD.render_options import RenderOptions
 from PyAitD.scene import CameraView, FrameDescription
-from PyAitD.world import CameraState
+from PyAitD.engine.world import CameraState
 # Run as a script (`python tools/check_overrides.py`), sys.path[0] is tools/,
 # not the repo root, so the sibling module is only reachable through the
 # package when the root is added explicitly.

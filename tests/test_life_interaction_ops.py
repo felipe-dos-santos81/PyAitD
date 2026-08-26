@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from PyAitD.effects import AddMessage, BeginTake, ReadText, ShowFound, ShowPicture
-from PyAitD.game import init_game
-from PyAitD.life import process_life
+from PyAitD.engine.effects import AddMessage, BeginTake, ReadText, ShowFound, ShowPicture
+from PyAitD.engine.game import init_game
+from PyAitD.engine.life import process_life
 
 
 class Scripts:

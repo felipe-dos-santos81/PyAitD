@@ -19,8 +19,8 @@ import sys
 import numpy as np
 
 from PyAitD.asset_resolver import AssetResolver
-from PyAitD.floor import Floor
-from PyAitD.game import init_game
+from PyAitD.engine.floor import Floor
+from PyAitD.engine.game import init_game
 from PyAitD.render_gl import GLBackend
 from PyAitD.render_options import SHADING_MODES, RenderOptions
 from PyAitD.scenario import enter_combat_venue

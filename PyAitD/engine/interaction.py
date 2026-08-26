@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.effects import (
+from PyAitD.engine.effects import (
     AddMessage, AfterLife, BeginTake, InputMode, LifeFrame, TimedMessage,
 )
-from PyAitD.life import process_life
-from PyAitD.world import adjust_zv_between_rooms, room_delta, shifted_zv
+from PyAitD.engine.life import process_life
+from PyAitD.engine.world import adjust_zv_between_rooms, room_delta, shifted_zv
 
 INVENTORY_SIZE = 30
 MAX_VISIBLE_ACTIONS = 5
@@ -163,7 +163,7 @@ def inventory_actions(game, object_idx):
 
 
 def is_combat_target(game, actor_idx):
-    from PyAitD.game import AF_ANIMATED
+    from PyAitD.engine.game import AF_ANIMATED
     if actor_idx < 0 or actor_idx >= len(game.actors):
         return False
     if actor_idx == game.current_camera_target_actor:
@@ -173,7 +173,7 @@ def is_combat_target(game, actor_idx):
 
 
 def is_hold_action_target(game, actor_idx):
-    from PyAitD.game import AF_FOUNDABLE, AF_MOVABLE
+    from PyAitD.engine.game import AF_FOUNDABLE, AF_MOVABLE
     if actor_idx < 0 or actor_idx >= len(game.actors):
         return False
     if actor_idx == game.current_camera_target_actor:
@@ -191,7 +191,7 @@ def is_hold_action_target(game, actor_idx):
 
 
 def hold_action_approach(game, floor, hero_idx, target_idx):
-    from PyAitD.navmesh import agent_extent, nearest_walkable
+    from PyAitD.engine.navmesh import agent_extent, nearest_walkable
 
     if not is_hold_action_target(game, target_idx):
         return None
@@ -250,7 +250,7 @@ def combat_action_for(game, object_idx, *, require_idle=True):
 
 
 def request_found(game, object_idx, parameter):
-    from PyAitD.effects import ShowFound
+    from PyAitD.engine.effects import ShowFound
     if object_idx < 0:
         return None
     world = game.world_objects[object_idx]
@@ -319,7 +319,7 @@ def put_object(game, object_idx, x, y, z, room, stage, alpha, beta, gamma):
 
 
 def drop_object(game, object_idx, source_idx):
-    from PyAitD.game import put_at_objet
+    from PyAitD.engine.game import put_at_objet
     put_at_objet(game, object_idx, source_idx)
     game.flag_genere_aff_list = 1
 
@@ -333,8 +333,8 @@ def choose_inventory_action(game, object_idx, action_text_id):
 
 
 def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z):
-    from PyAitD.actors import check_hard_col, check_object_col, gere_collision
-    from PyAitD.game import AF_ANIMATED, AF_BOXIFY, AF_FOUNDABLE, AF_MOVABLE
+    from PyAitD.engine.actors import check_hard_col, check_object_col, gere_collision
+    from PyAitD.engine.game import AF_ANIMATED, AF_BOXIFY, AF_FOUNDABLE, AF_MOVABLE
 
     actor = game.actors[actor_idx]
     room = game.rooms_of_floor(game.current_floor)[actor.room]
@@ -383,7 +383,7 @@ def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z
 
 
 def apply_found_result(game, result):
-    from PyAitD.effects import ShowFound
+    from PyAitD.engine.effects import ShowFound
     from PyAitD.ui import FoundResult
     effect = game.active_modal
     if not isinstance(effect, ShowFound):
@@ -399,7 +399,7 @@ def apply_found_result(game, result):
 
 
 def apply_inventory_result(game, result):
-    from PyAitD.effects import OpenInventory
+    from PyAitD.engine.effects import OpenInventory
     if not isinstance(game.active_modal, OpenInventory):
         raise RuntimeError(f"inventory result applied to {type(game.active_modal).__name__}")
     game.close_modal()
@@ -410,7 +410,7 @@ def apply_inventory_result(game, result):
 
 
 def apply_reading_result(game, result):
-    from PyAitD.effects import ReadText, ShowPicture
+    from PyAitD.engine.effects import ReadText, ShowPicture
     if not isinstance(game.active_modal, (ReadText, ShowPicture)):
         raise RuntimeError(f"reading result applied to {type(game.active_modal).__name__}")
     if not result.dismissed:
@@ -428,7 +428,7 @@ def apply_click_intent(
         game, dest_x, dest_z, room, target_object_idx=-1, *, requires_hold=False,
 ):
     """Record where the player clicked. A new click replaces any previous one."""
-    from PyAitD.effects import NavIntent
+    from PyAitD.engine.effects import NavIntent
     hero_idx = game.current_camera_target_actor
     origin_room = None
     if requires_hold:
@@ -494,9 +494,9 @@ def attack_in_hand(game, target_actor_idx):
     action input (mainLoop.cpp:87-101), which the caller arms on the returned
     True; explicit Throw stays reachable only from the inventory row itself.
     """
-    # Imported lazily so tests can monkeypatch PyAitD.tracks.face_toward and
+    # Imported lazily so tests can monkeypatch PyAitD.engine.tracks.face_toward and
     # this module stays free of track-system imports at module load time.
-    from PyAitD.tracks import face_toward
+    from PyAitD.engine.tracks import face_toward
 
     hero_idx = game.current_camera_target_actor
     if hero_idx == -1 or not is_combat_target(game, target_actor_idx):
@@ -531,7 +531,7 @@ def dispatch_nav_arrival(game):
     Mouse-only players still reach Action by clicking the object itself, which
     routes through the target branch below.
     """
-    from PyAitD.game import AF_FOUNDABLE
+    from PyAitD.engine.game import AF_FOUNDABLE
     target = game.nav_arrived_target
     game.nav_arrived_target = -1
     if game.active_modal is not None:

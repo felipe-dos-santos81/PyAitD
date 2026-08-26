@@ -3,8 +3,8 @@ import struct
 
 import pytest
 
-from PyAitD.game import init_game
-from PyAitD.life import process_life, read_s16, VM
+from PyAitD.engine.game import init_game
+from PyAitD.engine.life import process_life, read_s16, VM
 
 
 def _script(*words):

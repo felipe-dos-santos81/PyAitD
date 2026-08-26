@@ -8,10 +8,10 @@ import hashlib
 
 import numpy as np
 
-from PyAitD.formats import parse_cover_zones
-from PyAitD.navmesh import COVER_SCALE
+from PyAitD.engine.formats import parse_cover_zones
+from PyAitD.engine.navmesh import COVER_SCALE
 from PyAitD.scene import CameraView
-from PyAitD.world import CameraState
+from PyAitD.engine.world import CameraState
 
 W, H = 320, 200
 

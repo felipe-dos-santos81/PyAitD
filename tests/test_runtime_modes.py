@@ -17,12 +17,12 @@ from PyAitD.config import (
     REMAPPABLE_CONTROLS, Control, Settings, default_settings, load_settings,
 )
 from PyAitD.render_options import RenderOptions
-from PyAitD.playworld import apply_play_input
-from PyAitD.effects import (
+from PyAitD.engine.playworld import apply_play_input
+from PyAitD.engine.effects import (
     ChooseCharacter, GameMode, GameOver, InputMode, NavDecision, NavIntent, OpenInventory,
     OpenSystemMenu, ReadText, ShowFound, ShowPicture,
 )
-from PyAitD.game import init_game
+from PyAitD.engine.game import init_game
 from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter, Command,
@@ -111,7 +111,7 @@ def test_render_active_mode_returns_a_transparent_rgba_canvas_with_no_modal():
 def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_mutation(
     data_dir, monkeypatch,
 ):
-    from PyAitD.effects import OpenInventory, OpenSystemMenu, ReadText, ShowFound
+    from PyAitD.engine.effects import OpenInventory, OpenSystemMenu, ReadText, ShowFound
 
     game = init_game(data_dir)
     session = ModalSession()
@@ -207,7 +207,7 @@ def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_
 
 def test_run_routes_motion_once_and_focus_loss_clears_the_modal_preview(data_dir, monkeypatch):
     import PyAitD.__main__ as main
-    from PyAitD.effects import ShowFound
+    from PyAitD.engine.effects import ShowFound
 
     game = init_game(data_dir)
     game.open_modal(ShowFound(13, False))

@@ -5,7 +5,7 @@ import struct
 import zlib
 from dataclasses import dataclass
 
-from PyAitD.explode import explode
+from PyAitD.engine.explode import explode
 
 FLAG_RAW = 0
 FLAG_EXPLODE = 1

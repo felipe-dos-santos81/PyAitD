@@ -7,11 +7,11 @@ joystick through evalVar 0x13 and must not see a dead stick while the player
 is walking), and once by tracks._process_track_mouse, which applies it through
 the same _turn_toward the engine's follow mode uses.
 """
-from PyAitD.effects import NavDecision
-from PyAitD.navmesh import find_path
-from PyAitD.realvalue import give_distance_2d
-from PyAitD.tracks import cap_objet, get_room_link
-from PyAitD.world import cdiv
+from PyAitD.engine.effects import NavDecision
+from PyAitD.engine.navmesh import find_path
+from PyAitD.engine.realvalue import give_distance_2d
+from PyAitD.engine.tracks import cap_objet, get_room_link
+from PyAitD.engine.world import cdiv
 
 ARRIVE_DISTANCE = 400    # tracks.DISTANCE_TO_POINT_TRESSHOLD [sic], same units
 WAYPOINT_DISTANCE = 400  # how close counts as reaching an intermediate hop

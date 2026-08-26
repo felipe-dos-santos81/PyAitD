@@ -3,10 +3,10 @@ import struct
 
 import pytest
 
-from PyAitD.effects import NavDecision
-from PyAitD.formats import Zone
-from PyAitD.game import AF_TRIGGER, Actor, Game, init_game
-from PyAitD.tracks import (
+from PyAitD.engine.effects import NavDecision
+from PyAitD.engine.formats import Zone
+from PyAitD.engine.game import AF_TRIGGER, Actor, Game, init_game
+from PyAitD.engine.tracks import (
     cap_objet, face_toward, get_room_link, init_deplacement, process_track,
 )
 
@@ -290,7 +290,7 @@ def test_face_toward_converges_from_every_beta(target):
 
 def test_face_toward_raises_at_its_bound(monkeypatch):
     actor = _actor()
-    monkeypatch.setattr("PyAitD.tracks.cap_objet", lambda *args: 1)
+    monkeypatch.setattr("PyAitD.engine.tracks.cap_objet", lambda *args: 1)
     with pytest.raises(
         RuntimeError,
         match=r"beta=0 target=\(100, 200\) did not converge in 256 steps",

@@ -3,11 +3,11 @@ from collections import deque
 
 import pytest
 
-from PyAitD.effects import (
+from PyAitD.engine.effects import (
     AddMessage, BeginTake, ChooseCharacter, GameMode, LifeFrame, OpenSystemMenu,
     NavIntent, ShowFound,
 )
-from PyAitD.game import init_game
+from PyAitD.engine.game import init_game
 
 
 def test_game_initializes_fitd_inventory_and_effect_state(data_dir):

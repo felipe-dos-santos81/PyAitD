@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.anim import patch_inter_angle, patch_inter_step
+from PyAitD.engine.anim import patch_inter_angle, patch_inter_step
 
 
 def test_patch_angle_equal():

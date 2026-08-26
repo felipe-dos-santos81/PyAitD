@@ -2,9 +2,9 @@
 import numpy as np
 import pytest
 
-from PyAitD.formats import Body, Group, Primitive
+from PyAitD.engine.formats import Body, Group, Primitive
 from PyAitD.geometry import BodyGeometry, icosphere, pose_geometry, vertex_groups
-from PyAitD.skel import pose_vertices
+from PyAitD.engine.skel import pose_vertices
 
 
 def _cube_body():
@@ -91,13 +91,13 @@ def test_icosphere_arrays_are_read_only():
 
 
 def test_point_types_mirror_formats_prim_point_like():
-    from PyAitD.formats import _PRIM_POINT_LIKE
+    from PyAitD.engine.formats import _PRIM_POINT_LIKE
     from PyAitD.geometry import POINT_TYPES
     assert POINT_TYPES == tuple(_PRIM_POINT_LIKE)
 
 
 def test_every_body_in_the_data_poses_without_nan(data_dir):
-    from PyAitD.assets import Assets
+    from PyAitD.engine.assets import Assets
     assets = Assets(data_dir)
     for num in range(assets.num_bodies):
         body = assets.body(num)

@@ -8,7 +8,7 @@ import pytest
 
 from PyAitD.__main__ import parse_args
 from PyAitD.config import default_settings
-from PyAitD.effects import ChooseCharacter
+from PyAitD.engine.effects import ChooseCharacter
 
 
 def test_parse_args_defaults():
@@ -395,7 +395,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(monkey
 
     import PyAitD.__main__ as main
     from PyAitD import ui
-    from PyAitD.effects import GameMode, InputMode
+    from PyAitD.engine.effects import GameMode, InputMode
 
     game = SimpleNamespace(
         _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,

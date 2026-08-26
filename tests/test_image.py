@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from PyAitD.formats import decode_image, decode_palette
-from PyAitD.pak import Pak
+from PyAitD.engine.formats import decode_image, decode_palette
+from PyAitD.engine.pak import Pak
 
 
 def test_palette_golden_values(data_dir):

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from PyAitD.floor import Floor
-from PyAitD.game import FloorStart, enter_floor_start, init_game, relocate_actor
-from PyAitD.life import process_life
-from PyAitD.playworld import play_tick
+from PyAitD.engine.floor import Floor
+from PyAitD.engine.game import FloorStart, enter_floor_start, init_game, relocate_actor
+from PyAitD.engine.life import process_life
+from PyAitD.engine.playworld import play_tick
 from PyAitD.scenario import enter_combat_venue
 from PyAitD.ui import InputBuffer
 
@@ -31,7 +31,7 @@ def test_relocate_actor_rebases_zv_and_zeroes_steps(data_dir):
 
 
 def test_enter_floor_start_applies_transition_postconditions(data_dir, monkeypatch):
-    import PyAitD.game as game_module
+    import PyAitD.engine.game as game_module
     game = init_game(data_dir)
     calls = []
     real_spawn = game_module.spawn_stage_actors

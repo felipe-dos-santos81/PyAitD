@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.actors import check_hard_col, cube_intersect, gere_collision
+from PyAitD.engine.actors import check_hard_col, cube_intersect, gere_collision
 
 
 def test_cube_intersect():
@@ -9,7 +9,7 @@ def test_cube_intersect():
 
 
 def test_check_hard_col():
-    from PyAitD.formats import Zone
+    from PyAitD.engine.formats import Zone
     cols = [Zone(0, 10, 0, 100, 0, 10, 0, 0), Zone(50, 60, 0, 100, 0, 10, 0, 0)]
     assert len(check_hard_col((0, 10, 0, 10, 0, 10), cols)) == 1
 

@@ -13,7 +13,7 @@ from PyAitD.render_options import RenderOptions
 from PyAitD.render_soft import SoftwareBackend
 from PyAitD.scene import CameraView, FrameDescription
 from PyAitD.ui import transparent_canvas
-from PyAitD.world import CameraState
+from PyAitD.engine.world import CameraState
 
 
 def test_fit_quad_exact_multiple():

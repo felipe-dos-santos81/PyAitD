@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.formats import parse_cameras, parse_rooms
-from PyAitD.pak import Pak
+from PyAitD.engine.formats import parse_cameras, parse_rooms
+from PyAitD.engine.pak import Pak
 
 
 def test_floor0_rooms(data_dir):

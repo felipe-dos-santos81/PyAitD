@@ -4,13 +4,13 @@ from collections import deque
 from dataclasses import dataclass, field
 from itertools import product
 
-from PyAitD.assets import Assets
-from PyAitD.effects import GameMode, ImmediateEffect, InputMode, MODAL_MODE, TimedMessage
-from PyAitD.cos_table import COS_TABLE
-from PyAitD.floor import Floor
-from PyAitD.formats import parse_defines, parse_objets, parse_vars
-from PyAitD.navmesh import MeshCache
-from PyAitD.world import cdiv as _cdiv, room_delta
+from PyAitD.engine.assets import Assets
+from PyAitD.engine.effects import GameMode, ImmediateEffect, InputMode, MODAL_MODE, TimedMessage
+from PyAitD.engine.cos_table import COS_TABLE
+from PyAitD.engine.floor import Floor
+from PyAitD.engine.formats import parse_defines, parse_objets, parse_vars
+from PyAitD.engine.navmesh import MeshCache
+from PyAitD.engine.world import cdiv as _cdiv, room_delta
 
 NUM_MAX_OBJECT = 128
 
@@ -444,7 +444,7 @@ def delete_object(game, obj_idx):
     obj.obj_index = -1
     obj.room = -1
     obj.stage = -1
-    from PyAitD.interaction import remove_from_inventory
+    from PyAitD.engine.interaction import remove_from_inventory
     remove_from_inventory(game, obj_idx)
 
 
@@ -474,13 +474,13 @@ def put_at_objet(game, obj_idx, obj_idx_to_put_at):
         actor.alpha, actor.beta, actor.gamma = alpha, beta, gamma
         game.world_objects[actor.index_in_world].found_flag |= 0x4000
         game.world_objects[actor.index_in_world].flags |= 0x80
-    from PyAitD.interaction import remove_from_inventory
+    from PyAitD.engine.interaction import remove_from_inventory
     remove_from_inventory(game, obj_idx)
 
 
 def activate_world_object(game, world_idx):
     """Initialize one staged world object, or return its existing actor."""
-    from PyAitD.tracks import init_deplacement
+    from PyAitD.engine.tracks import init_deplacement
 
     obj = game.world_objects[world_idx]
     if obj.obj_index != -1:
@@ -593,7 +593,7 @@ def game_step_tick(game):
 
 
 def init_game(data_dir, hero=0):
-    from PyAitD.interaction import sync_player_track_mode  # interaction imports game
+    from PyAitD.engine.interaction import sync_player_track_mode  # interaction imports game
     game = Game(data_dir, hero=hero)
     spawn_stage_actors(game)
     # object data spawns the hero in track mode 1 (tank); the default input mode

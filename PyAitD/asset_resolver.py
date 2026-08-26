@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-log = logging.getLogger("PyAitD.assets")
+log = logging.getLogger("PyAitD.engine.assets")
 
 
 @dataclass(frozen=True)

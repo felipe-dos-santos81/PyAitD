@@ -32,7 +32,7 @@ def test_override_dir_set_but_file_absent_falls_back_silently(tmp_path, caplog):
     def fail_if_called(p):
         raise AssertionError("load_png must not be called when the override file is absent")
     resolver = AssetResolver(None, tmp_path, load_png=fail_if_called)
-    with caplog.at_level(logging.WARNING, logger="PyAitD.assets"):
+    with caplog.at_level(logging.WARNING, logger="PyAitD.engine.assets"):
         asset = resolver.background(_floor(), 0)
     assert not asset.is_override and asset.pixels.shape == (200, 320, 3)
     assert not resolver.failures
@@ -56,7 +56,7 @@ def test_unreadable_override_logs_once_and_falls_back(tmp_path, caplog):
     def boom(p):
         raise ValueError("corrupt")
     resolver = AssetResolver(None, tmp_path, load_png=boom)
-    with caplog.at_level(logging.WARNING, logger="PyAitD.assets"):
+    with caplog.at_level(logging.WARNING, logger="PyAitD.engine.assets"):
         first = resolver.background(_floor(), 0)
         second = resolver.background(_floor(), 0)
     assert not first.is_override and not second.is_override
@@ -78,7 +78,7 @@ def test_greyscale_override_is_rejected_logged_and_falls_back(tmp_path, caplog):
     path.write_bytes(b"grey")
     greyscale = np.zeros((200, 320), dtype=np.uint8)  # ndim == 2, no channel axis
     resolver = AssetResolver(None, tmp_path, load_png=lambda p: greyscale)
-    with caplog.at_level(logging.WARNING, logger="PyAitD.assets"):
+    with caplog.at_level(logging.WARNING, logger="PyAitD.engine.assets"):
         asset = resolver.background(_floor(), 0)
     assert not asset.is_override and asset.pixels.shape == (200, 320, 3)
     assert path in resolver.failures
@@ -91,7 +91,7 @@ def test_rgba_override_is_rejected_logged_and_falls_back(tmp_path, caplog):
     path.write_bytes(b"rgba")
     rgba = np.zeros((200, 320, 4), dtype=np.uint8)  # 4 channels, not the required 3
     resolver = AssetResolver(None, tmp_path, load_png=lambda p: rgba)
-    with caplog.at_level(logging.WARNING, logger="PyAitD.assets"):
+    with caplog.at_level(logging.WARNING, logger="PyAitD.engine.assets"):
         asset = resolver.background(_floor(), 0)
     assert not asset.is_override and asset.pixels.shape == (200, 320, 3)
     assert path in resolver.failures
@@ -109,7 +109,7 @@ def test_enormous_override_is_rejected_logged_and_falls_back(tmp_path, caplog):
     path.write_bytes(b"huge")
     enormous = np.zeros((9000, 320, 3), dtype=np.uint8)
     resolver = AssetResolver(None, tmp_path, load_png=lambda p: enormous)
-    with caplog.at_level(logging.WARNING, logger="PyAitD.assets"):
+    with caplog.at_level(logging.WARNING, logger="PyAitD.engine.assets"):
         asset = resolver.background(_floor(), 0)
     assert not asset.is_override and asset.pixels.shape == (200, 320, 3)
     assert path in resolver.failures

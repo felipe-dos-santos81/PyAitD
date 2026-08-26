@@ -22,9 +22,9 @@ import math
 import moderngl
 import numpy as np
 
-from PyAitD.cos_table import sin_cos
+from PyAitD.engine.cos_table import sin_cos
 from PyAitD.geometry import icosphere
-from PyAitD.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
+from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
 
 W, H = 320, 200
 

@@ -10,9 +10,9 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from PyAitD.floor import Floor
-from PyAitD.game import init_game
-from PyAitD.navmesh import agent_extent, build_room_mesh
+from PyAitD.engine.floor import Floor
+from PyAitD.engine.game import init_game
+from PyAitD.engine.navmesh import agent_extent, build_room_mesh
 
 DEFAULT_DATA = (
     pathlib.Path(__file__).resolve().parent.parent

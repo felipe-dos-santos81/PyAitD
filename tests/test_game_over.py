@@ -5,15 +5,15 @@ never mid-loop."""
 import pytest
 
 from PyAitD.__main__ import route_command, route_mouse
-from PyAitD.effects import GameMode, GameOver
-from PyAitD.floor import Floor
-from PyAitD.game import init_game
-from PyAitD.playworld import play_tick
+from PyAitD.engine.effects import GameMode, GameOver
+from PyAitD.engine.floor import Floor
+from PyAitD.engine.game import init_game
+from PyAitD.engine.playworld import play_tick
 from PyAitD.ui import Command, InputBuffer, ModalSession
 
 
 def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, monkeypatch):
-    import PyAitD.playworld as playworld
+    import PyAitD.engine.playworld as playworld
 
     game = init_game(data_dir)
     floor = Floor(data_dir, game.current_floor)

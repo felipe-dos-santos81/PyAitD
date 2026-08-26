@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from types import SimpleNamespace
 
-from PyAitD.actors import check_object_col
-from PyAitD.game import AF_FOUNDABLE, AF_MOVABLE, init_game
-from PyAitD.interaction import resolve_actor_contacts
+from PyAitD.engine.actors import check_object_col
+from PyAitD.engine.game import AF_FOUNDABLE, AF_MOVABLE, init_game
+from PyAitD.engine.interaction import resolve_actor_contacts
 
 
 def live_actor(game, index, room, zv, flags=0, world_idx=0):

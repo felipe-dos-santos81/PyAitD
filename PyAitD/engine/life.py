@@ -2,8 +2,8 @@
 """LIFE script VM — faithful port of FITD life.cpp processLife (AITD1)."""
 import struct
 
-from PyAitD.effects import AfterLife, LifeFrame
-from PyAitD.realvalue import start_chrono
+from PyAitD.engine.effects import AfterLife, LifeFrame
+from PyAitD.engine.realvalue import start_chrono
 
 
 class VM:
@@ -73,8 +73,8 @@ class Trace:
 
 
 def eval_var(vm):
-    # Full encodings port (task 6, PyAitD.eval_var); lazy import avoids a cycle.
-    from PyAitD.eval_var import eval_var as _full_eval_var
+    # Full encodings port (task 6, PyAitD.engine.eval_var); lazy import avoids a cycle.
+    from PyAitD.engine.eval_var import eval_var as _full_eval_var
     return _full_eval_var(vm)
 
 
@@ -260,7 +260,7 @@ LIFETABLE[69] = _op_dead                       # LM_SPEED
 def _install_handlers():
     # Task 8 wiring (opcode numbers per AITD1LifeMacroTable, AITD1.cpp:30-119)
     from PyAitD import life_ops as ops
-    from PyAitD.tracks import process_track
+    from PyAitD.engine.tracks import process_track
     LIFETABLE[0] = lambda vm: process_track(vm.game, vm.actor)  # LM_DO_MOVE
     LIFETABLE[1] = ops.op_anim_once
     LIFETABLE[2] = ops.op_anim_all_once

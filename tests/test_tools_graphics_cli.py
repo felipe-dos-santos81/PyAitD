@@ -194,7 +194,7 @@ def test_makefile_mentions_check_and_run_overrides():
 
 def test_exported_originals_render_pixel_identical_through_override_path(data_dir, tmp_path):
     """DIR straight from export, used as --overrides, changes nothing."""
-    from PyAitD.floor import Floor
+    from PyAitD.engine.floor import Floor
     from PyAitD.asset_resolver import AssetResolver
     out = tmp_path / "ov"
     assert xb.main([str(data_dir), "--out", str(out), "--floors", "0"]) == 0

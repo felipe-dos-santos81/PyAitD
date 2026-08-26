@@ -5,21 +5,21 @@ Imports no pygame, ModernGL or Renderer, so one 50 Hz logic step can be
 advanced without a window. Callers still reach `ui.py` for an InputBuffer;
 freeing that needs InputBuffer moved out of the presentation layer.
 """
-from PyAitD.actors import gere_anim
-from PyAitD.anim_action import gere_frappe, refresh_hot_point
-from PyAitD.effects import GameMode, GameOver, InputMode, LifeFrame
-from PyAitD.formats import parse_cover_zones
-from PyAitD.game import (
+from PyAitD.engine.actors import gere_anim
+from PyAitD.engine.anim_action import gere_frappe, refresh_hot_point
+from PyAitD.engine.effects import GameMode, GameOver, InputMode, LifeFrame
+from PyAitD.engine.formats import parse_cover_zones
+from PyAitD.engine.game import (
     AF_ANIMATED, AF_TRIGGER, change_salle, game_step_tick, spawn_stage_actors,
 )
-from PyAitD.interaction import (
+from PyAitD.engine.interaction import (
     advance_messages, dispatch_nav_arrival, drain_immediate_effects, execute_found_life,
     gere_dec, run_life, sync_player_track_mode,
 )
-from PyAitD.life import life_gate
-from PyAitD.navigate import WAYPOINT_DISTANCE, decide
-from PyAitD.navmesh import agent_extent, find_path, nearest_walkable
-from PyAitD.world import find_best_camera, is_in_poly
+from PyAitD.engine.life import life_gate
+from PyAitD.engine.navigate import WAYPOINT_DISTANCE, decide
+from PyAitD.engine.navmesh import agent_extent, find_path, nearest_walkable
+from PyAitD.engine.world import find_best_camera, is_in_poly
 
 TICK_MS = 20  # 50 Hz logic tick
 NATIVE_ACTION = 0x2000  # mainLoop.cpp:87-101 held-action input
@@ -61,7 +61,7 @@ def _push_into_target(game):
     arrival at the object's own point dispatches normally, so the push always
     terminates in a dispatch, a modal, or the stall give-up.
     """
-    from PyAitD.game import AF_FOUNDABLE
+    from PyAitD.engine.game import AF_FOUNDABLE
     intent = game.nav_intent
     if intent.target_object_idx == -1:
         return False
@@ -80,7 +80,7 @@ def _push_into_target(game):
 
 
 def _refresh_held_target(game, hero, mesh):
-    from PyAitD.interaction import (
+    from PyAitD.engine.interaction import (
         PLAYER_PUSH_ANIM, cancel_nav_intent, hold_action_approach,
         is_hold_action_target,
     )
@@ -273,7 +273,7 @@ def _apply_mouse_attack(game, input_buffer):
     the caller until the melee animation completes -- automatically, and
     bounded, so the player never has to hold or time a button.
     """
-    from PyAitD.interaction import combat_action_for, is_combat_target
+    from PyAitD.engine.interaction import combat_action_for, is_combat_target
 
     target_idx = input_buffer.mouse_attack_target
     if target_idx is None:
@@ -321,7 +321,7 @@ def _apply_mouse_input(game, input_buffer):
         game.nav_decision = None
         game.local_joyd = 0
         return
-    from PyAitD.interaction import cancel_nav_intent
+    from PyAitD.engine.interaction import cancel_nav_intent
     if intent.requires_hold and (not input_buffer.focused or not input_buffer.pointer_held):
         cancel_nav_intent(game)
         return
