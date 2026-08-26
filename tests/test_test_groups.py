@@ -7,6 +7,7 @@ Markers are read with `ast`, never by importing the module: importing every
 test file here would double the suite's import cost and could execute
 module-level fixtures."""
 import ast
+import functools
 import pathlib
 import re
 
@@ -21,10 +22,20 @@ REPO_ROOT = TESTS_DIR.parent
 NON_TEST = {"conftest.py", "purity.py", "stub_floor.py", "__init__.py"}
 
 
-def all_test_files():
-    return sorted(p for p in TESTS_DIR.glob("test_*.py") if p.name not in NON_TEST)
+def is_test_file(name):
+    """Whether pytest's default `python_files` patterns (`test_*.py`,
+    `*_test.py`) collect this basename. pyproject.toml does not override
+    `python_files`, so both patterns apply -- and pytest also recurses into
+    subdirectories, which is why `all_test_files()` below walks with
+    `rglob` rather than a flat `glob`."""
+    return name not in NON_TEST and (name.startswith("test_") or name.endswith("_test.py"))
 
 
+def all_test_files(root=TESTS_DIR):
+    return sorted(p for p in root.rglob("*.py") if is_test_file(p.name))
+
+
+@functools.lru_cache(maxsize=None)
 def markers_of(path):
     """Marker names from a module-level `pytestmark`, without importing."""
     tree = ast.parse(pathlib.Path(path).read_text())
@@ -73,6 +84,36 @@ def test_marker_parser_ignores_function_level_marks(tmp_path):
         "def test_x():\n    pass\n"
     )
     assert markers_of(path) == set(), "only module-level pytestmark counts as the file's group"
+
+
+def test_is_test_file_matches_both_pytest_default_python_files_patterns():
+    # pyproject.toml never overrides python_files, so pytest's two default
+    # patterns both apply -- a `test_*.py` file and a `*_test.py` file are
+    # both collected and so must both be enforced.
+    assert is_test_file("test_x.py")
+    assert is_test_file("mouse_test.py")
+    assert not is_test_file("conftest.py")
+    assert not is_test_file("purity.py")
+    assert not is_test_file("stub_floor.py")
+    assert not is_test_file("__init__.py")
+    assert not is_test_file("helpers.py")
+
+
+def test_all_test_files_recurses_and_matches_both_naming_shapes(tmp_path):
+    # Regression for the hole the old `TESTS_DIR.glob("test_*.py")` left
+    # open: a flat, single-pattern glob missed a `*_test.py` file and
+    # anything in a subdirectory. Reproduce both shapes named in the
+    # finding -- tests/mouse_test.py and tests/shell/test_new_modal.py --
+    # under a throwaway root so this does not touch the real tests/ tree.
+    (tmp_path / "mouse_test.py").write_text("import pytest\npytestmark = pytest.mark.shell\n")
+    shell_dir = tmp_path / "shell"
+    shell_dir.mkdir()
+    (shell_dir / "test_new_modal.py").write_text("import pytest\npytestmark = pytest.mark.shell\n")
+    (tmp_path / "conftest.py").write_text("")
+    (tmp_path / "helpers.py").write_text("")
+
+    found = {p.name for p in all_test_files(tmp_path)}
+    assert found == {"mouse_test.py", "test_new_modal.py"}
 
 
 def test_registered_vocabulary_is_exactly_the_declared_one():
@@ -135,6 +176,7 @@ LEGACY_GATE_FILES = {
 }
 
 
+@functools.lru_cache(maxsize=None)
 def _makefile():
     return (REPO_ROOT / "Makefile").read_text()
 
@@ -189,7 +231,13 @@ def test_legacy_gate_still_covers_every_file_it_historically_ran(gate):
 
 def test_every_legacy_gate_name_still_exists_in_the_makefile():
     text = _makefile()
+    # test-engine and test-shell are pinned transitively -- deleting either
+    # breaks marker_expression() for the prove-* aliases above -- but
+    # nothing else pins the branch's own new targets, so they're listed
+    # here explicitly: delete one and the suite should stop being green.
     for gate in ("prove", "prove-m3b", "prove-shell", "prove-mouse-only",
                  "prove-mouse-accessibility", "prove-mouse", "prove-combat",
-                 "prove-graphics", "prove-intro"):
-        assert re.search(rf"^{re.escape(gate)}:", text, re.M), f"missing alias {gate}"
+                 "prove-graphics", "prove-intro",
+                 "test-render", "test-tools", "test-meta", "test-journey",
+                 "proof-mouse", "proof-combat", "proof-graphics", "proof-intro"):
+        assert re.search(rf"^{re.escape(gate)}:", text, re.M), f"missing target {gate}"
