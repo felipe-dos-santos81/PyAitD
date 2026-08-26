@@ -53,15 +53,14 @@ elsewhere will look wrong in play even though it loads fine.
 
 ## 2b. Regenerate with Gemini (optional, in-repo)
 
-    make install-ai                               # once: google-genai
-    export GEMINI_API_KEY=...                     # never stored by the tool
+    command -v agy                                # once: the agy CLI must be on PATH
     make regenerate-backgrounds dry=1             # list what would run, no calls
     make regenerate-backgrounds                   # data/aitd1/overrides -> data/aitd1/overrides-ai
     make regenerate-backgrounds floors=0 style="Sunlit, warm, clean." force=1
 
 For each `backgrounds/floorNN/cameraNNN.png` (with its guide when present)
-the tool asks `gemini-2.5-flash` for a scene description, stores it in
-`data/aitd1/overrides-ai/prompts.json`, then asks `gemini-2.5-flash-image` to render
+the tool asks `gemini-3.1-pro` (via `agy`) for a scene description, stores it in
+`data/aitd1/overrides-ai/prompts.json`, then asks `gemini-3-pro-image` to render
 that description with the original and guide as references. The result is
 centre-cropped to 16:10 and scaled to 1280x800, so `check-overrides` never
 reports `aspect` or `size` for it. `manifest.json` is copied across so

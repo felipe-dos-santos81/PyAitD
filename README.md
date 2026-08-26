@@ -9,7 +9,6 @@ pygame-ce + ModernGL, Apple Silicon, windowed. GPLv2.
 
 ```bash
 make install            # .venv + editable install with dev deps
-make install-ai         # + google-genai, only for make regenerate-backgrounds
 ```
 
 Game data defaults to `data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK`
@@ -20,9 +19,15 @@ Tests honor env `PYAITD_DATA` and skip when data is absent.
 
 ```bash
 make run                # boots into character selection (floor=0 bypasses it for debugging)
-make run overrides=data/aitd1/overrides-ai   # play with regenerated backgrounds
+make run overrides=     # same, but with the original 320x200 backgrounds
 make run-combat         # floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
 ```
+
+`make run` loads replacement backgrounds from `data/aitd1/overrides` by
+default. That directory is git-ignored and this repo never ships it: if it is
+absent, or a camera is missing from it, the game falls back to the original
+asset silently. Point elsewhere with `overrides=DIR`, or pass an empty
+`overrides=` to disable overrides for the run.
 
 Pick Emily or Carnby by mouse or keyboard, then play. Mouse (default):
 left-click the floor to walk there, left-click an object to approach and use
@@ -48,7 +53,8 @@ internal render resolution as a multiple of 320x200), `--shading
 {flat,lambert,smooth}` (per-actor lighting), `--background-filter
 {nearest,bilinear,xbr}` (how the original 320x200 backgrounds are upscaled),
 and `--overrides DIR` (a user-supplied replacement asset directory; this repo
-still ships no game data). An override directory holds
+still ships no game data — `make run` passes `data/aitd1/overrides` unless you
+override or clear `overrides=`). An override directory holds
 `DIR/backgrounds/floor<NN>/camera<NNN>.png` (any size) per camera and
 `DIR/palette.png` (256 pixels wide) for the palette; a missing override file
 falls back to the original asset silently, while one that exists but fails
@@ -62,7 +68,8 @@ To regenerate the backgrounds with an external AI tool, `make
 export-backgrounds` writes the originals plus structure guides and a
 manifest into `data/aitd1/overrides` (git-ignored; `out=DIR` to choose another), and `make check-overrides`
 validates the results the way the game loads them. `make regenerate-backgrounds`
-(optional; needs `make install-ai` and `GEMINI_API_KEY`) does the
+(optional; needs the `agy` CLI on `PATH`, which it invokes once per camera for
+the description and once for the image) does the
 regeneration with Gemini into `data/aitd1/overrides-ai` (git-ignored, resumable; `dry=1` lists work). See
 [docs/ai-background-regeneration.md](docs/ai-background-regeneration.md).
 

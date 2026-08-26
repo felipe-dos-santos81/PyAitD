@@ -9,8 +9,9 @@ PIP = $(VENV_DIR)/bin/pip
 floor ?=
 data ?= data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK
 out ?= data/aitd1/overrides
+overrides ?= data/aitd1/overrides
 
-.PHONY: help install install-ai run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics export-backgrounds check-overrides regenerate-backgrounds clean
+.PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics export-backgrounds check-overrides regenerate-backgrounds clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -29,9 +30,6 @@ install: ## Create .venv and install the package (editable, with dev deps)
 	fi; \
 	echo "Environment setup complete."
 
-install-ai: install ## Add the optional google-genai dependency for make regenerate-backgrounds
-	$(PIP) install -e ".[dev,ai]"
-
 clean: ## Remove venv and all temporary/generated files
 	rm -rf $(VENV_DIR)
 	find . -type d -name "__pycache__" -exec rm -rf {} +
@@ -39,7 +37,7 @@ clean: ## Remove venv and all temporary/generated files
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
-run: install ## Run the game through character selection (floor=0 attic debug bypass, overrides=DIR e.g. data/aitd1/overrides-ai for regenerated backgrounds, trace=FILE)
+run: install ## Run the game through character selection (floor=0 attic debug bypass, overrides=DIR defaults to data/aitd1/overrides — pass overrides= to play the original backgrounds, trace=FILE)
 	$(PYTHON) -m PyAitD $(if $(floor),--floor "$(floor)") --data "$(data)" $(if $(trace),--trace $(trace)) $(if $(overrides),--overrides "$(overrides)")
 
 run-combat: install ## Run the supported floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
@@ -97,5 +95,5 @@ export-backgrounds: install ## Export every camera background + guide + manifest
 check-overrides: install ## Check an override dir the way the game loads it (overrides=data/aitd1/overrides, floors=0-7); proof=1 renders original|override side-by-sides to docs/graphics-proof/overrides/
 	$(PYTHON) tools/check_overrides.py "$(data)" "$(or $(overrides),data/aitd1/overrides)" --floors "$(or $(floors),0-7)" $(if $(proof),--proof)
 
-regenerate-backgrounds: install ## Regenerate data/aitd1/overrides backgrounds with Gemini into data/aitd1/overrides-ai (in=, out_ai=, floors=0-7, style=, force=1, dry=1, text_model=, image_model=); needs GEMINI_API_KEY and `make install-ai`
+regenerate-backgrounds: install ## Regenerate data/aitd1/overrides backgrounds with Gemini into data/aitd1/overrides-ai (in=, out_ai=, floors=0-7, style=, force=1, dry=1, text_model=, image_model=); needs the `agy` CLI on PATH
 	$(PYTHON) tools/regenerate_backgrounds.py "$(or $(in),data/aitd1/overrides)" --out "$(or $(out_ai),data/aitd1/overrides-ai)" --floors "$(or $(floors),0-7)" $(if $(style),--style "$(style)") $(if $(force),--force) $(if $(dry),--dry-run) $(if $(text_model),--text-model "$(text_model)") $(if $(image_model),--image-model "$(image_model)")

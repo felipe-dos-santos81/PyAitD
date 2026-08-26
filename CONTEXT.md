@@ -7,14 +7,15 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 - Repo: `/Users/felipe.dos.santos/code/mine/m-aitd` (branch `main`)
 - FITD reference: `/Users/felipe.dos.santos/code/theirs/FITD/FitdLib/` (authoritative for all game logic)
 - Game data: `data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK`
-- Python 3.12, `.venv/`; deps: pygame-ce, moderngl, numpy, pytest (no more) — plus the
-  optional `ai` extra (`google-genai`, `make install-ai`) used only by `tools/regenerate_backgrounds.py`
+- Python 3.12, `.venv/`; deps: pygame-ce, moderngl, numpy, pytest — no more.
+  `tools/regenerate_backgrounds.py` reaches Gemini through the `agy` CLI
+  (`subprocess`), so the one external service costs no Python dependency
 - Version 0.5.0 (`pyproject.toml`); GPL-2.0-only
 
 ## Commands
 
 ```bash
-make run                     # play (windowed) through character selection; floor=0 for the attic debug bypass, trace=/tmp/t.log writes per-opcode LIFE trace
+make run                     # play (windowed) through character selection; floor=0 for the attic debug bypass, trace=/tmp/t.log writes per-opcode LIFE trace; overrides=DIR defaults to data/aitd1/overrides
 make run-combat              # play the supported floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
 make run-mouse-combat        # deterministic object-38 mouse combat proof start (hero=0 Carnby, hero=1 Emily)
 make test                    # pytest suite — authoritative gate
@@ -28,8 +29,8 @@ make prove-mouse-accessibility # effective-target/hover/touch/takeover gate
 make prove-graphics          # attic + combat fixtures at every shading mode -> docs/graphics-proof/
 make export-backgrounds      # originals + guides + manifest -> data/aitd1/overrides (out=, floors=, scale=, force=1)
 make check-overrides         # validate an override dir as the game loads it (overrides=DIR, proof=1 side-by-sides)
-make regenerate-backgrounds  # Gemini describe+render -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); GEMINI_API_KEY + make install-ai
-make run overrides=DIR       # play with an override directory (e.g. data/aitd1/overrides-ai)
+make regenerate-backgrounds  # Gemini describe+render -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); needs the `agy` CLI on PATH
+make run overrides=DIR       # play with a different override directory (e.g. data/aitd1/overrides-ai); overrides= plays the originals
 ```
 
 ## Where we are
@@ -265,10 +266,14 @@ action runner.
 - `tools/regenerate_backgrounds.py` reads an export dir, asks Gemini for a
   description then an image per camera, fits the result to 1280x800, and
   writes `data/aitd1/overrides-ai` plus `prompts.json` (a resumable prompt
-  cache saved after every camera). The client is duck-typed and injected in
-  tests; `google-genai` is imported only inside `make_client`.
+  cache saved after every camera). It reaches Gemini by invoking the `agy` CLI
+  through `subprocess.run` and imports no SDK; the tests monkeypatch
+  `subprocess.run`, and `tests/test_layering.py` pins the boundary.
 - Output dirs `overrides/` and `overrides-ai/` are git-ignored; a missing
-  override file falls back silently, a corrupt one warns and falls back.
+  override file — or a missing override directory entirely — falls back
+  silently, a corrupt one warns and falls back. `make run` points at
+  `data/aitd1/overrides` by default, so that fallback is the normal path on a
+  fresh clone.
 - Evidence: `docs/ai-background-regeneration.md`; spec/plan under
   `docs/superpowers/*/2026-08-25-{ai,gemini}-background-regeneration*`.
 

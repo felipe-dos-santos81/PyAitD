@@ -16,10 +16,10 @@ make prove-mouse-accessibility # focused effective-target/hover/touch/takeover g
 make prove-graphics # render attic + combat fixtures at every shading mode to docs/graphics-proof/
 make export-backgrounds # originals + guides + manifest to data/aitd1/overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1)
 make check-overrides # validate data/aitd1/overrides (or overrides=DIR) as the game loads it; proof=1 renders side-by-sides
-make regenerate-backgrounds # Gemini describe+render data/aitd1/overrides -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); needs GEMINI_API_KEY + make install-ai
+make regenerate-backgrounds # Gemini describe+render data/aitd1/overrides -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); needs the `agy` CLI on PATH
 make prove-combat  # M3c combat venue proof (pytest gate)
 make prove-mouse   # M3d navmesh coverage for every camera-visible room
-make run           # play via character select; floor=0 debug bypass, overrides=DIR (only passed when given), data="..." trace=/tmp/t.log optional
+make run           # play via character select; floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
 ```
 
 Any test touching rendering/pygame needs `SDL_VIDEODRIVER=dummy`. After
@@ -78,9 +78,11 @@ the test suite is the only gate. Never mass-reformat.
   PNG encoding lives only in `tools/`. The export directory layout is
   `asset_resolver.override_background_path`'s — change both or neither.
 - `tools/regenerate_backgrounds.py` is the only module that may talk to an
-  AI service; its unit tests inject a fake client and never touch the
-  network. `GEMINI_API_KEY` comes from the environment (a `.env` is
-  git-ignored); never commit keys or generated `overrides*/` output.
+  AI service. It shells out to the `agy` CLI (`subprocess.run`) — it imports no
+  SDK — and its unit tests monkeypatch `subprocess.run`, so they never touch the
+  network. `tests/test_layering.py` pins that boundary. Credentials belong to
+  that CLI, not to this repo (a `.env` is git-ignored); never commit keys or
+  generated `overrides*/` output.
 - `skel.skin`'s integer projection stays authoritative for picking, masks and
   the mouse contract; `draw_list` entries must stay byte-identical.
   `scene.CameraView` is a parallel float path for rendering only and is
@@ -102,6 +104,6 @@ the test suite is the only gate. Never mass-reformat.
 - Workflow is brainstorm → spec → plan → TDD under `docs/superpowers/`
   (one spec + one task-level plan per milestone); `docs/life-vm-opcodes.md`
   is research only — plan + code are the source of truth.
-- Dependencies fixed: pygame-ce, ModernGL, NumPy, pytest. Add nothing — the
-  one exception is the optional extra `ai` (`google-genai`), imported only
-  inside `tools/regenerate_backgrounds.make_client`.
+- Dependencies fixed: pygame-ce, ModernGL, NumPy, pytest. Add nothing. The one
+  external service, Gemini, is reached through the `agy` CLI, not a Python SDK,
+  so it costs this project no dependency at all.
