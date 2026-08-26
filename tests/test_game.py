@@ -146,9 +146,15 @@ def test_rooms_of_floor_does_not_go_through_load_floor(data_dir, monkeypatch):
     # Several shell tests stub Game.load_floor at class level because the
     # shell builds its game internally. If rooms_of_floor shared that method,
     # those stubs would also replace the engine's own room lookups.
+    # Floor 1, not 0: init_game already warms _rooms_by_floor[0], so calling
+    # rooms_of_floor(0) here would return from that cache and never reach
+    # the Floor(...) construction line -- the stub would never get a chance
+    # to fire, and the test would pass even if rooms_of_floor routed through
+    # load_floor. Floor 1 is cold, so this actually exercises the line the
+    # isolation depends on.
     game = init_game(data_dir, AITD1)
     monkeypatch.setattr(
         type(game), "load_floor",
         lambda self, number: pytest.fail("rooms_of_floor must not call load_floor"),
     )
-    assert game.rooms_of_floor(0)
+    assert game.rooms_of_floor(1)
