@@ -26,6 +26,8 @@ class PlayerCapability(Enum):
     MENU_ACTIVATE = auto()
     PICK_REMAP_KEY = auto()
     DISMISS_SETTINGS_ERROR = auto()
+    ADVANCE_TITLE = auto()
+    STARTUP_MENU_ACTIVATE = auto()
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,12 @@ CAPABILITY_ROUTES = {
     PlayerCapability.DISMISS_SETTINGS_ERROR: MouseRoute(
         "left_click", "settings error Dismiss button", ALL_MODES,
     ),
+    PlayerCapability.ADVANCE_TITLE: MouseRoute(
+        "left_click", "title or credits page", frozenset({GameMode.TITLE}),
+    ),
+    PlayerCapability.STARTUP_MENU_ACTIVATE: MouseRoute(
+        "left_click", "startup menu row", frozenset({GameMode.STARTUP_MENU}),
+    ),
 }
 
 
@@ -129,6 +137,16 @@ MODE_MOUSE_CAPABILITIES = {
         PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),
+    GameMode.TITLE: frozenset({
+        PlayerCapability.ADVANCE_TITLE,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
+        PlayerCapability.QUIT,
+    }),
+    GameMode.STARTUP_MENU: frozenset({
+        PlayerCapability.STARTUP_MENU_ACTIVATE,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
+        PlayerCapability.QUIT,
+    }),
 }
 
 
@@ -142,6 +160,8 @@ COMMAND_MOUSE_CAPABILITIES = {
         PlayerCapability.CLOSE_READING,
         PlayerCapability.DISMISS_PICTURE,
         PlayerCapability.RESTART_GAME_OVER,
+        PlayerCapability.ADVANCE_TITLE,
+        PlayerCapability.STARTUP_MENU_ACTIVATE,
     }),
     "CANCEL": frozenset({
         PlayerCapability.LEAVE_FOUND_OBJECT,
