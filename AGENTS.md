@@ -14,12 +14,13 @@ make prove-mouse-only # one-button contract + real mouse journeys, including hel
 make prove-shell   # M4a1 shell/config/mouse-contract + real-loop journeys
 make prove-mouse-accessibility # focused effective-target/hover/touch/takeover gate
 make prove-graphics # render attic + combat fixtures at every shading mode to docs/graphics-proof/
+make prove-intro   # opening cutscene proof: headless run to CutsceneFinished + one GL render per visited camera to docs/intro-proof/
 make export-backgrounds # originals + ITD_RESS screens + guides + manifest to data/aitd1/overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1, screens=0 to skip)
 make check-overrides # validate data/aitd1/overrides (or overrides=DIR) as the game loads it; proof=1 renders side-by-sides
 make regenerate-backgrounds # Gemini describe+render data/aitd1/overrides -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); needs the `agy` CLI on PATH
 make prove-combat  # M3c combat venue proof (pytest gate)
 make prove-mouse   # M3d navmesh coverage for every camera-visible room
-make run           # play via title -> menu -> character select; floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
+make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
 ```
 
 Any test touching rendering/pygame needs `SDL_VIDEODRIVER=dummy`. After

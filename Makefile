@@ -11,7 +11,7 @@ data ?= data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK
 out ?= data/aitd1/overrides
 overrides ?= data/aitd1/overrides
 
-.PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics export-backgrounds check-overrides regenerate-backgrounds clean
+.PHONY: help install run run-combat run-mouse-combat test prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro export-backgrounds check-overrides regenerate-backgrounds clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -88,6 +88,9 @@ prove-combat: install ## M3c proof: venue, real enemy damage, player arms, game 
 
 prove-graphics: install ## Enhanced graphics proof: render attic + combat fixtures at scale 4 per shading mode to docs/graphics-proof/
 	$(PYTHON) tools/prove_graphics.py "$(data)"
+
+prove-intro: install ## Opening cutscene proof: headless run to CutsceneFinished + one GL render per visited camera to docs/intro-proof/
+	SDL_VIDEODRIVER=dummy $(PYTHON) -m pytest tests/test_intro.py -q && $(PYTHON) tools/prove_intro.py "$(data)"
 
 export-backgrounds: install ## Export every camera background + ITD_RESS screen + guides + manifest for external AI regeneration (out=data/aitd1/overrides, floors=0-7, scale=4, force=1, screens=0 to skip screens)
 	$(PYTHON) tools/export_backgrounds.py "$(data)" --out "$(out)" --floors "$(or $(floors),0-7)" --guide-scale "$(or $(scale),4)" $(if $(force),--force) $(if $(filter 0,$(screens)),--no-screens)

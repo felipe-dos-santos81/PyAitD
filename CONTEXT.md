@@ -290,6 +290,54 @@ action runner.
 - Evidence: `docs/ai-background-regeneration.md`; spec/plan under
   `docs/superpowers/*/2026-08-25-{ai,gemini}-background-regeneration*`.
 
+## Opening cutscene boundary
+
+- `engine.game.start_game(game, stage, room)` is FITD's `startGame`
+  (main.cpp:4134) minus `PlayWorld`: resets camera/world targets, loads
+  `stage`, calls `change_salle(room)`, stages `new_num_camera=0` /
+  `flag_init_view=2`, spawns the stage's actors, and clears `floor_start` —
+  a staged start has no restart point until a script sets one. It's the
+  same staging both `_boot_hero`'s cutscene branch and `game_start`'s attic
+  boot rely on.
+- `Game.allow_system_menu` mirrors FITD's `allowSystemMenu` parameter to
+  `PlayWorld`. While it's `False` (set right after `start_game` for the
+  intro), `flag_game_over` going true surfaces as `effects.CutsceneFinished`
+  (`GameMode.CUTSCENE_END`) instead of `GameOver` — the opening cannot be
+  "lost", only finished or skipped.
+- The reduced `LM_STAGE` handler (`games/aitd1/life_reduced.py`) raises
+  `flag_genere_aff_list` when an object is staged onto the *current* floor,
+  so the existing per-tick spawn scan (`playworld._genere_active_list`)
+  picks it up the next tick — without this the intro's director (life 547 →
+  object 288) never spawns and the cutscene stalls forever at tick 1596.
+  `ponytail:` this raises the existing gated scan; it does **not** make the
+  scan unconditional. FITD's `GenereActiveList` runs every frame regardless
+  (`mainLoop.cpp:249`) — that unconditional scan is the faithful upgrade
+  path, named here so nobody closes it ad hoc: it changes spawn timing
+  everywhere, and every ticks golden in `tests/test_intro.py` (and the
+  cameras `tools/prove_intro.py` visits) is pinned against the gated
+  version.
+- `ModalSession.cutscene` (`app/ui.py`) is the single flag that owns skip
+  during the opening: `route_command` turns every command into
+  `session.skip_cutscene = True` instead of routing into PLAY's own
+  commands; the event loop (`shell.run`) does the same directly for any
+  KEYDOWN/left-click/FINGERDOWN; mouse routing does the same when the
+  active modal is already `CutsceneFinished`. `PlayerCapability.
+  SKIP_CUTSCENE` documents this "anywhere" route for `GameMode.PLAY` and
+  `GameMode.CUTSCENE_END` in the mouse contract. `--skip-intro` sets
+  `session.skip_intro`, a development-only bypass (not FITD behaviour) that
+  boots straight to the attic instead of staging the cutscene at all.
+- `_boot_hero` (`app/shell.py`) is the one hero-boot path shared by
+  `_hero_branch` (character confirmation → the opening, `cutscene=True`,
+  `start_game(*profile.intro_start)`) and `_cutscene_end_branch`
+  (`CutsceneFinished` or `skip_cutscene` → the attic, `cutscene=False`,
+  `startGame(0, 0, 1)` — `AITD1.cpp:361`) — same `init_game` +
+  conditional `start_game` staging, same atomic replacement-tuple contract
+  as the rest of `shell.py`'s hero/restart swaps.
+- Focused proof: `make prove-intro` (headless golden-tick gate +
+  `tools/prove_intro.py`, one GL render per camera the opening visits);
+  tests: `tests/test_intro.py` (golden ticks, both heroes) and the real-loop
+  journeys in `tests/test_shell_journeys.py`; evidence: `docs/intro-proof.md`.
+
 ## Testing conventions
 
 Golden values are pinned from real game data (do not re-derive): 292 world objects,
