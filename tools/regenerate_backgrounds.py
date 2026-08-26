@@ -130,3 +130,72 @@ def generate(client, model, cam, prompt):
             if data is not None and (data.mime_type or "").startswith("image/"):
                 return data.data
     raise RuntimeError("no image in response")
+
+
+def fit_to_target(png_bytes):
+    """Decode, centre-crop to the largest 16:10 rectangle, smooth-scale to
+    TARGET_SIZE. Returns (800, 1280, 3) uint8 so save_png can write it."""
+    import io
+    import pygame
+    surface = pygame.image.load(io.BytesIO(png_bytes))
+    rgb = np.ascontiguousarray(pygame.surfarray.array3d(surface).swapaxes(0, 1))
+    h, w = rgb.shape[:2]
+    if w * 10 > h * 16:
+        new_w = h * 16 // 10
+        x0 = (w - new_w) // 2
+        rgb = rgb[:, x0:x0 + new_w]
+    elif w * 10 < h * 16:
+        new_h = w * 10 // 16
+        y0 = (h - new_h) // 2
+        rgb = rgb[y0:y0 + new_h]
+    cropped = pygame.surfarray.make_surface(np.ascontiguousarray(rgb.swapaxes(0, 1)))
+    scaled = pygame.transform.smoothscale(cropped, TARGET_SIZE)
+    return np.ascontiguousarray(pygame.surfarray.array3d(scaled).swapaxes(0, 1)).astype(np.uint8)
+
+
+def _copy_manifest(cams, out_dir):
+    if not cams:
+        return
+    src = cams[0].source.parents[2] / "manifest.json"
+    dst = pathlib.Path(out_dir) / "manifest.json"
+    if src.is_file() and not dst.is_file():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dst)
+
+
+def regenerate(cams, out_dir, *, client, text_model, image_model, style, force, dry_run, log=print):
+    """Describe + generate every camera into out_dir. Returns (done, failed).
+    Existing outputs are skipped unless force; cached prompts are reused
+    unless force; prompts.json is saved after every camera."""
+    out_dir = pathlib.Path(out_dir)
+    prompts_path = out_dir / PROMPTS_FILE
+    prompts = load_prompts(prompts_path)
+    done = failed = 0
+    for cam in cams:
+        target = out_dir / "backgrounds" / f"{cam.key}.png"
+        if target.is_file() and not force:
+            log(f"{cam.key}: exists, skipped")
+            continue
+        guide = "yes" if cam.guide is not None else "no"
+        cached = "yes" if cam.key in prompts else "no"
+        if dry_run:
+            log(f"{cam.key}: would regenerate (guide {guide}, prompt cached {cached})")
+            continue
+        try:
+            if cam.key not in prompts or force:
+                text = describe(client, text_model, cam)
+                prompts[cam.key] = {"prompt": text, "model": text_model,
+                                    "sha256": hashlib.sha256(cam.source.read_bytes()).hexdigest()}
+                save_prompts(prompts_path, prompts)
+            prompt = generation_prompt(prompts[cam.key]["prompt"], style, cam.guide is not None)
+            image = generate(client, image_model, cam, prompt)
+            save_png(target, fit_to_target(image))
+        except Exception as exc:  # per-camera: SDK error types are not imported here
+            failed += 1
+            log(f"{cam.key}: failed: {exc}")
+            continue
+        done += 1
+        log(f"{cam.key}: ok (guide {guide}, prompt cached {cached})")
+    if not dry_run:
+        _copy_manifest(cams, out_dir)
+    return done, failed

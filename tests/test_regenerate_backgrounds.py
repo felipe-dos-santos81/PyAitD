@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+import hashlib
 import io
 import json
 import os
@@ -7,7 +8,10 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import numpy as np
 import pytest
 
-from tests.stub_floor import checker_pixels
+from PyAitD.asset_resolver import load_png_rgb
+from PyAitD.background_export import export_manifest, sha256_rgb
+from PyAitD import override_check as oc
+from tests.stub_floor import checker_pixels, StubFloor
 from tools import export_backgrounds as xb
 from tools import regenerate_backgrounds as rb
 
@@ -152,3 +156,99 @@ def test_generate_skips_candidates_without_content(tmp_path):
 
     with pytest.raises(RuntimeError, match="no image in response"):
         rb.generate(_NoContentClient(), "gemini-2.5-flash-image", cam, "desc")
+
+
+def test_fit_to_target_crops_to_16_10_then_scales():
+    assert rb.fit_to_target(png_bytes(np.zeros((1024, 1536, 3), np.uint8))).shape == (800, 1280, 3)
+    assert rb.fit_to_target(png_bytes(np.zeros((1000, 1000, 3), np.uint8))).shape == (800, 1280, 3)
+    # A 16:10 two-colour image is scaled, not cropped: left stays red, right stays blue.
+    rgb = np.zeros((400, 640, 3), np.uint8)
+    rgb[:, :320] = (255, 0, 0)
+    rgb[:, 320:] = (0, 0, 255)
+    out = rb.fit_to_target(png_bytes(rgb))
+    assert tuple(out[400, 10]) == (255, 0, 0) and tuple(out[400, 1270]) == (0, 0, 255)
+    # A wide image is centre-cropped: red centre column survives, black edges are cut.
+    wide = np.zeros((100, 400, 3), np.uint8)
+    wide[:, 120:280] = (255, 0, 0)
+    out = rb.fit_to_target(png_bytes(wide))
+    assert tuple(out[400, 640]) == (255, 0, 0) and tuple(out[400, 5]) == (255, 0, 0)
+
+
+def _run(tmp_path, client, **kw):
+    cams = rb.discover(make_in_dir(tmp_path), None)
+    opts = dict(client=client, text_model="gemini-2.5-flash", image_model="gemini-2.5-flash-image",
+                style="s.", force=False, dry_run=False, log=lambda *_: None)
+    opts.update(kw)
+    return rb.regenerate(cams, tmp_path / "out", **opts)
+
+
+def test_regenerate_writes_fitted_pngs_and_prompt_cache(tmp_path):
+    client = FakeClient(png_bytes(np.full((1024, 1536, 3), 7, np.uint8)))
+    assert _run(tmp_path, client) == (3, 0)
+    out = tmp_path / "out"
+    for key in ("floor00/camera000", "floor00/camera001", "floor01/camera000"):
+        assert load_png_rgb(out / "backgrounds" / f"{key}.png").shape == (800, 1280, 3)
+    prompts = rb.load_prompts(out / rb.PROMPTS_FILE)
+    assert set(prompts) == {"floor00/camera000", "floor00/camera001", "floor01/camera000"}
+    src = (tmp_path / "in/backgrounds/floor00/camera000.png").read_bytes()
+    assert prompts["floor00/camera000"] == {
+        "prompt": "a dusty attic under sloped rafters", "model": "gemini-2.5-flash",
+        "sha256": hashlib.sha256(src).hexdigest()}
+    assert len(client.calls) == 6
+    # The generation call carries the cached description and the style.
+    gen_prompt = client.calls[1][1][-1]
+    assert gen_prompt == rb.generation_prompt("a dusty attic under sloped rafters", "s.", True)
+
+
+def test_regenerate_resumes_and_force_redoes(tmp_path):
+    client = FakeClient(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
+    _run(tmp_path, client)
+    client.calls.clear()
+    assert _run(tmp_path, client) == (0, 0)
+    assert client.calls == []
+    # Hand-edited prompt survives a run without --force and is used by it after deleting the png.
+    path = tmp_path / "out" / rb.PROMPTS_FILE
+    prompts = rb.load_prompts(path)
+    prompts["floor00/camera001"]["prompt"] = "EDITED"
+    rb.save_prompts(path, prompts)
+    (tmp_path / "out/backgrounds/floor00/camera001.png").unlink()
+    assert _run(tmp_path, client) == (1, 0)
+    assert len(client.calls) == 1 and "EDITED" in client.calls[0][1][-1]
+    assert rb.load_prompts(path)["floor00/camera001"]["prompt"] == "EDITED"
+    client.calls.clear()
+    assert _run(tmp_path, client, force=True) == (3, 0)
+    assert len(client.calls) == 6
+    assert rb.load_prompts(path)["floor00/camera001"]["prompt"] != "EDITED"
+
+
+def test_regenerate_continues_after_a_failed_camera(tmp_path):
+    logs = []
+    client = FakeClient(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={2})
+    assert _run(tmp_path, client, log=logs.append) == (2, 1)
+    assert not (tmp_path / "out/backgrounds/floor00/camera001.png").exists()
+    assert any("floor00/camera001: failed: quota" in line for line in logs)
+
+
+def test_regenerate_dry_run_makes_no_calls_and_no_files(tmp_path):
+    logs = []
+    client = FakeClient()
+    assert _run(tmp_path, client, dry_run=True, log=logs.append) == (0, 0)
+    assert client.calls == [] and not (tmp_path / "out").exists()
+    assert any("floor00/camera001" in line and "guide no" in line for line in logs)
+
+
+def test_regenerate_round_trips_through_check_overrides(tmp_path):
+    in_dir = tmp_path / "in"
+    floor = StubFloor(number=0)
+    recs = xb.export_floor(floor, in_dir, 4)
+    manifest = export_manifest(recs, "stub", 4)
+    xb.save_manifest(in_dir, manifest)
+    cams = rb.discover(in_dir, None)
+    client = FakeClient(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)))
+    out = tmp_path / "out"
+    assert rb.regenerate(cams, out, client=client, text_model="t", image_model="image", style="s",
+                         force=False, dry_run=False, log=lambda *_: None) == (1, 0)
+    assert json.loads((out / "manifest.json").read_text()) == manifest
+    findings = oc.check_overrides(out, [floor], manifest)
+    assert [f.kind for f in findings] == []
+    assert oc.coverage(out, [floor], manifest)[0]["regenerated"] == 1
