@@ -12,7 +12,7 @@ import struct
 import numpy as np
 import pytest
 
-from PyAitD.__main__ import _auto_dismiss_picture, restart_session, route_mouse
+from PyAitD.app.shell import _auto_dismiss_picture, restart_session, route_mouse
 from PyAitD.engine.anim_action import (
     DO_TIR, FRAPPE_OK, THROW_OBJECT, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, gere_frappe,
 )
@@ -22,7 +22,7 @@ from PyAitD.engine.game import AF_ANIMATED, init_game, relocate_actor
 from PyAitD.engine.life import process_life
 from PyAitD.engine.playworld import TICK_MS, play_tick
 from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
-from PyAitD.ui import InputBuffer, ModalSession, render_game_over, transparent_canvas
+from PyAitD.app.ui import InputBuffer, ModalSession, render_game_over, transparent_canvas
 
 
 def _venue(data_dir):

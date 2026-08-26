@@ -10,16 +10,14 @@ from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.interaction import PLAYER_PUSH_ANIM
 from PyAitD.engine.playworld import _anim_pass, play_tick
-from PyAitD.ui import InputBuffer
+from PyAitD.app.ui import InputBuffer
 
 # Runs in a fresh interpreter: pytest (and this module, via InputBuffer) has
 # pygame loaded in-process, so sys.modules is only meaningful out-of-process.
-# A static import walk cannot substitute — it reports pygame reachable through
-# interaction.apply_found_result's deferred `from PyAitD.ui import FoundResult`.
 _PURITY_PROBE = """
 import sys, PyAitD.engine.playworld, PyAitD.engine.anim_action
 # the layer rule, then the third-party names a direct import would pull in
-leaked = {m for m in sys.modules if m == "PyAitD.ui" or m.startswith("PyAitD.render") or m in ("pygame", "moderngl", "OpenGL")}
+leaked = {m for m in sys.modules if m.startswith(("PyAitD.app", "PyAitD.render")) or m in ("pygame", "moderngl", "OpenGL")}
 sys.exit(", ".join(sorted(leaked)) or None)
 """
 

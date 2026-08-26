@@ -6,13 +6,13 @@ extreme corners snap to the same vertex, so _quad_of's corner heuristic
 rejected them and pick_floor_any_room resolved almost every on-screen floor
 pixel — including the hero's own feet — to None ("blocked").
 """
-import PyAitD.__main__ as main
+import PyAitD.app.shell as main
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game, relocate_actor
 from PyAitD.engine.picking import _camera_state_global, pick_floor_any_room, project_floor_point
 from PyAitD.engine.playworld import play_tick
 from PyAitD.scenario import enter_mouse_combat_fixture
-from PyAitD.ui import InputBuffer
+from PyAitD.app.ui import InputBuffer
 
 
 def _settled_venue(data_dir):

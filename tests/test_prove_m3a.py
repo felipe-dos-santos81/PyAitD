@@ -42,7 +42,7 @@ def test_headless_boot_ticks(data_dir):
     from PyAitD.engine.game import init_game
     from PyAitD.engine.life import Trace
     from PyAitD.engine.playworld import play_tick
-    from PyAitD.ui import InputBuffer
+    from PyAitD.app.ui import InputBuffer
 
     trace_path = "/tmp/m3a_trace.log"
     game = init_game(data_dir, hero=0)

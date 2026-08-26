@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.config import Control, REMAPPABLE_CONTROLS, default_settings
-from PyAitD.ui import (
+from PyAitD.app.config import Control, REMAPPABLE_CONTROLS, default_settings
+from PyAitD.engine.effects import FoundResult
+from PyAitD.app.ui import (
     CharacterPhase, CharacterSelectPresenter, CharacterSelectResult, Command,
-    FoundPresenter, FoundResult, InventoryPresenter, SystemMenuPage,
+    FoundPresenter, InventoryPresenter, SystemMenuPage,
     SystemMenuPresenter, SystemMenuResult, capture_system_key, config_row_count,
     reduce_character_select, reduce_found, reduce_inventory, reduce_system_menu,
 )
@@ -104,7 +105,7 @@ def test_configuration_cursor_wraps_across_all_rows():
 
 def test_graphics_rows_cycle_render_options():
     from dataclasses import replace
-    from PyAitD.ui import GRAPHICS_ROWS, config_row_count
+    from PyAitD.app.ui import GRAPHICS_ROWS, config_row_count
     from PyAitD.render.render_options import RenderOptions
     assert GRAPHICS_ROWS == 3 and config_row_count() == 2 + len(REMAPPABLE_CONTROLS) + 3
     first = 1 + len(REMAPPABLE_CONTROLS)
@@ -127,7 +128,7 @@ def test_choosing_a_control_row_opens_the_key_picker():
 
 
 def test_clicking_a_picker_cell_binds_and_returns_to_configuration():
-    from PyAitD.ui import PICKABLE_KEYS, pick_system_key
+    from PyAitD.app.ui import PICKABLE_KEYS, pick_system_key
     state = SystemMenuPresenter(page=SystemMenuPage.KEY_PICK, capture="ACTION", cursor=5)
     result = pick_system_key(state, default_settings(), PICKABLE_KEYS.index("q"))
     assert result.settings.bindings["ACTION"] == ("q",)
@@ -137,7 +138,7 @@ def test_clicking_a_picker_cell_binds_and_returns_to_configuration():
 
 
 def test_picker_cancel_cell_keeps_settings_and_returns_to_configuration():
-    from PyAitD.ui import PICKABLE_KEYS, pick_system_key
+    from PyAitD.app.ui import PICKABLE_KEYS, pick_system_key
     state = SystemMenuPresenter(page=SystemMenuPage.KEY_PICK, capture="ACTION", cursor=5)
     assert pick_system_key(state, default_settings(), len(PICKABLE_KEYS)) is None
     assert state.capture is None
@@ -163,7 +164,7 @@ def test_picker_ignores_keyboard_menu_commands_while_capturing():
 
 def test_pickable_keys_round_trip_through_pygame_and_fit_the_frame():
     import pygame
-    from PyAitD.ui import PICKABLE_KEYS, SystemMenuLayout, canonical_key_name
+    from PyAitD.app.ui import PICKABLE_KEYS, SystemMenuLayout, canonical_key_name
     pygame.init()
     try:
         assert len(set(PICKABLE_KEYS)) == len(PICKABLE_KEYS)

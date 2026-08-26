@@ -21,20 +21,20 @@ from PyAitD.engine.interaction import (
 )
 from PyAitD.engine.playworld import play_tick
 from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
-from PyAitD.ui import InputBuffer, ModalLayout, PlayLayout
+from PyAitD.app.ui import InputBuffer, ModalLayout, PlayLayout
 from PyAitD.mouse_contract import (
     ALL_MODES, CAPABILITY_ROUTES, COMMAND_MOUSE_CAPABILITIES,
     KEYBOARD_ONLY_DECISIONS, LEGACY_COMMAND_REPLACEMENTS,
     MODE_MOUSE_CAPABILITIES, MOUSE_INTERACTION_DECISIONS, MouseRoute,
     PlayerCapability,
 )
-from PyAitD.ui import Command
+from PyAitD.app.ui import Command
 
 
 _PURITY_PROBE = r"""
 import sys
 import PyAitD.mouse_contract
-leaked = {"pygame", "moderngl", "PyAitD.ui", "PyAitD.render.render"} & sys.modules.keys()
+leaked = {"pygame", "moderngl", "PyAitD.app.ui", "PyAitD.render.render"} & sys.modules.keys()
 raise SystemExit(", ".join(sorted(leaked)) if leaked else 0)
 """
 
@@ -207,7 +207,7 @@ def _effective_position(actor):
 
 
 def _run_scripted_mouse(monkeypatch, game, draw_list, next_events):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     renderer = _HeadlessRenderer()
     ticks = itertools.count(0, 20)
@@ -226,7 +226,7 @@ def _run_scripted_mouse(monkeypatch, game, draw_list, next_events):
 
 @pytest.mark.parametrize("hero_id", (0, 1))
 def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, monkeypatch, hero_id):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir, hero=hero_id)
     floor = Floor(data_dir, game.current_floor)
@@ -441,7 +441,7 @@ def test_mouse_journey_attic_take_hud_inventory_action(data_dir, monkeypatch):
 
 
 def test_mouse_combat_fixture_has_a_real_visible_attack_target_after_equip(data_dir):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir)
     enter_mouse_combat_fixture(game)
@@ -473,7 +473,7 @@ def test_mouse_journey_one_click_attack_swings_the_held_saber(data_dir, monkeypa
     LIFE, which is what arms melee animation 41. The click therefore latches a
     bounded native-input burst; the player never holds or times a button.
     """
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     import PyAitD.engine.playworld as playworld_module
 
     game = init_game(data_dir)
@@ -549,7 +549,7 @@ def test_mouse_journey_one_click_attack_swings_the_held_saber(data_dir, monkeypa
 
 
 def test_mouse_journey_game_over_restart_uses_a_left_click(data_dir, monkeypatch):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from tests.test_combat_journey import _journey_to_game_over
 
     game, saw_death_life = _journey_to_game_over(data_dir)

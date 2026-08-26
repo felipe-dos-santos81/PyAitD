@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.engine.effects import GameMode, LifeFrame, OpenInventory, ReadText, ShowFound
+from PyAitD.engine.effects import FoundResult, GameMode, LifeFrame, OpenInventory, ReadText, ShowFound
 from PyAitD.engine.game import init_game
 from PyAitD.engine.interaction import apply_found_result, apply_inventory_result, apply_reading_result
-from PyAitD.ui import FoundResult, InventoryResult, ModalSession, ReadingResult
+from PyAitD.app.ui import InventoryResult, ModalSession, ReadingResult
 
 
 def test_leave_debounces_and_resumes_parent(data_dir, monkeypatch):

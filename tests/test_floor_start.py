@@ -6,7 +6,7 @@ from PyAitD.engine.game import FloorStart, enter_floor_start, init_game, relocat
 from PyAitD.engine.life import process_life
 from PyAitD.engine.playworld import play_tick
 from PyAitD.scenario import enter_combat_venue
-from PyAitD.ui import InputBuffer
+from PyAitD.app.ui import InputBuffer
 
 
 def test_relocate_actor_rebases_zv_and_zeroes_steps(data_dir):

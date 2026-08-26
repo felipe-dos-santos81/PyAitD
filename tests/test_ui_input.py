@@ -2,10 +2,10 @@
 import pygame
 import pytest
 
-from PyAitD.config import (
+from PyAitD.app.config import (
     Control, Settings, default_settings, replace_binding,
 )
-from PyAitD.ui import (
+from PyAitD.app.ui import (
     Command, InputBuffer, canonical_key_name, compile_bindings,
     configure_input, event_to_input, reset_input,
 )

@@ -27,7 +27,7 @@ def test_life_gate(data_dir):
 def test_apply_play_input_mapping(data_dir):
     from PyAitD.engine.effects import InputMode
     from PyAitD.engine.playworld import apply_play_input
-    from PyAitD.ui import InputBuffer
+    from PyAitD.app.ui import InputBuffer
     game = init_game(data_dir)
     # this asserts the keyboard mapping specifically; mouse is the default
     # input_mode (task 9: playworld — wire the follower into the input
@@ -61,7 +61,7 @@ def test_mouse_mode_ignores_and_consumes_a_stale_sticky_pulse(data_dir):
 
 
 def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tmp_path):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from PyAitD.engine.effects import GameMode, InputMode
 
     calls = []
@@ -110,7 +110,7 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(monkeypatch, tm
 
 
 def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, monkeypatch):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     source = np.full((200, 320, 3), 80, dtype=np.uint8)
     presented = []
@@ -150,7 +150,7 @@ def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, monkeypatch
     assert hit_actor.hit_by == -1, "the second catch-up tick did not erase the pulse"
     # present() now receives the 320x200 RGBA UI-overlay canvas (transparent
     # until a presenter draws on it), not a composite with the scene baked
-    # in -- see PyAitD.ui.transparent_canvas. A pixel only "reached
+    # in -- see PyAitD.app.ui.transparent_canvas. A pixel only "reached
     # presentation" if it is both the expected colour and fully opaque.
     assert np.any(
         np.all(presented[0][:, :, :3] == (255, 255, 255), axis=2) & (presented[0][:, :, 3] == 255)
@@ -164,7 +164,7 @@ def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, monkeypatch
 
 
 def test_run_expires_hit_feedback_instead_of_latching_forever(data_dir, monkeypatch):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     source = np.full((200, 320, 3), 80, dtype=np.uint8)
     presented = []
@@ -201,12 +201,12 @@ def test_run_expires_hit_feedback_instead_of_latching_forever(data_dir, monkeypa
         main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *_args: None),
     )
 
-    from PyAitD.ui import transparent_canvas
+    from PyAitD.app.ui import transparent_canvas
 
     assert main.run(game) == 0
     # present() now receives the 320x200 RGBA UI-overlay canvas (transparent
     # until a presenter draws on it), not a composite with the scene baked
-    # in -- see PyAitD.ui.transparent_canvas. A pixel only "shows" the
+    # in -- see PyAitD.app.ui.transparent_canvas. A pixel only "shows" the
     # feedback if it is both the expected colour and fully opaque; once the
     # feedback expires with nothing else drawn (no HUD, no cursor -- hover
     # never moves in this test), the overlay reverts to fully transparent.
@@ -224,7 +224,7 @@ def test_escape_opens_the_system_menu_and_pauses_play_ticks(data_dir, monkeypatc
     # Escape in PLAY opens the paused system menu instead of quitting: no
     # fixed-step tick runs while the menu is up, and the loop still presents
     # exactly once per frame.
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     calls = []
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -271,7 +271,7 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(monkeypatch,
     # with current_room stale until the next tick's change_salle, so the loop
     # must reuse the previous frame instead of recomputing the scene or
     # indexing floor.rooms[current_room] (IndexError / wrong camera).
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from PyAitD.engine.effects import GameMode, InputMode
 
     scene_calls = []
@@ -333,7 +333,7 @@ def test_scene_frame_delegates_to_build_frame_and_compose_scene(monkeypatch):
     draw_list) unmodified. build_frame's own draw_list correctness is
     test_scene.py's job; this pins the wiring around it and needs no game
     data, unlike the old 6-arg compose_scene call this replaced."""
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     game = SimpleNamespace(assets="assets-marker")
     floor = SimpleNamespace()
@@ -371,7 +371,7 @@ def test_scene_frame_requires_a_resolver_instead_of_silently_defaulting_one(monk
     silent-degradation path."""
     import inspect
 
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     parameters = inspect.signature(main._scene_frame).parameters
     assert parameters["resolver"].default is inspect.Parameter.empty
@@ -393,7 +393,7 @@ def _pygame_runtime():
     # invalidates ui's module-level font cache, so that is dropped too.
     import pygame
 
-    from PyAitD import ui
+    from PyAitD.app import ui
     pygame.init()
     try:
         yield
@@ -430,9 +430,9 @@ def test_run_constructs_renderer_with_the_session_s_render_options(monkeypatch, 
     """run()'s Renderer(session.settings.render) call (task 9 review finding
     2): every existing Renderer stub is `lambda *_a, **_k: ...`, so nothing
     else asserts the options object actually reaches the constructor."""
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from dataclasses import replace as dc_replace
-    from PyAitD.config import default_settings
+    from PyAitD.app.config import default_settings
     from PyAitD.render.render_options import RenderOptions
 
     render_options = RenderOptions(scale=6, shading="flat", background_filter="xbr")
@@ -472,7 +472,7 @@ def test_run_propagates_renderer_fallback_notice_into_settings_error(monkeypatch
     finding 2): every existing Renderer stub hardcodes fallback_notice=None,
     so nothing exercises the propagation, or the "don't clobber an existing
     error" guard on the same line."""
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
 
@@ -512,9 +512,9 @@ def test_run_builds_one_resolver_and_threads_it_through_scene_frame_calls(monkey
     gets built for a run with no hero swap or restart, carrying the
     session's override_dir, and the *same* instance reaches both the
     pre-loop and the per-frame _scene_frame call."""
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from dataclasses import replace as dc_replace
-    from PyAitD.config import default_settings
+    from PyAitD.app.config import default_settings
     from PyAitD.render.render_options import RenderOptions
 
     settings = dc_replace(
@@ -571,7 +571,7 @@ def test_resolver_for_wraps_new_assets_with_the_given_override_dir():
     with the *given* override_dir string -- nothing more, no reach into
     another resolver's private state (the review's ruling against the old
     `getattr(resolver, "_override_dir", None)` design)."""
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from pathlib import Path
     from PyAitD.render.asset_resolver import AssetResolver
 
@@ -591,10 +591,10 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeyp
     it. No game data needed -- init_game/Floor/_take_over_play_input/
     _scene_frame are all stubbed so only the resolver-building line is
     exercised for real."""
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from dataclasses import replace as dc_replace
     from PyAitD.render.asset_resolver import AssetResolver
-    from PyAitD.config import default_settings
+    from PyAitD.app.config import default_settings
     from PyAitD.render.render_options import RenderOptions
     from pathlib import Path
 
@@ -625,10 +625,10 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeyp
 def test_restart_branch_builds_its_resolver_from_the_session_s_override_dir(monkeypatch):
     """Same override-survives-a-restart behaviour as the hero-swap test
     above, for _restart_branch."""
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from dataclasses import replace as dc_replace
     from PyAitD.render.asset_resolver import AssetResolver
-    from PyAitD.config import default_settings
+    from PyAitD.app.config import default_settings
     from PyAitD.render.render_options import RenderOptions
     from pathlib import Path
 
@@ -753,12 +753,12 @@ def test_depth_sort_y_bands():
     assert len(order) == 2
 
 
-from PyAitD.__main__ import _is_interactable, resolve_play_click, route_play_click
+from PyAitD.app.shell import _is_interactable, resolve_play_click, route_play_click
 from PyAitD.engine.effects import GameMode
 from PyAitD.engine.game import AF_ANIMATED, AF_FOUNDABLE
 from PyAitD.engine.interaction import _finish_take, inventory_items
 from PyAitD.scenario import enter_combat_venue
-from PyAitD.ui import InputBuffer, ModalSession, PlayLayout
+from PyAitD.app.ui import InputBuffer, ModalSession, PlayLayout
 
 
 def _state_for(floor, room_idx, cam_slot):
@@ -825,7 +825,7 @@ def test_opening_wardrobe_resolves_and_routes_as_a_held_push(data_dir):
 def test_latched_push_cursor_survives_pointer_drift(data_dir):
     # A held push must remain visually unambiguous while the pointer moves
     # elsewhere; resolving current hover here would advertise another action.
-    from PyAitD.__main__ import _play_cursor_kind
+    from PyAitD.app.shell import _play_cursor_kind
     from PyAitD.engine.interaction import apply_click_intent
 
     game = init_game(data_dir)
@@ -854,7 +854,7 @@ def test_mouseup_cancels_only_a_hold_required_intent(data_dir):
 
 
 def test_pointer_invalidation_routes_mouseup_and_focus_loss(data_dir):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from PyAitD.engine.interaction import apply_click_intent
 
     game = init_game(data_dir)
@@ -904,7 +904,7 @@ def test_pointer_invalidation_routes_mouseup_and_focus_loss(data_dir):
 def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     data_dir, monkeypatch, event_factory, touch, expected_input,
 ):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from PyAitD.engine.interaction import apply_click_intent
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -957,7 +957,7 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
 def test_held_push_inventory_modal_takeover_is_clean_before_play_resumes(
         data_dir, monkeypatch, engaged,
 ):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from PyAitD.engine.interaction import apply_click_intent
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -1026,7 +1026,7 @@ def test_held_push_inventory_modal_takeover_is_clean_before_play_resumes(
 def test_run_routes_physical_and_touch_down_through_the_same_held_push_path(
         data_dir, monkeypatch, touch,
 ):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from PyAitD.engine.interaction import is_hold_action_target
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -1085,7 +1085,7 @@ def test_run_routes_physical_and_touch_down_through_the_same_held_push_path(
 def test_run_routes_physical_and_touch_down_to_the_same_inventory_modal(
         data_dir, monkeypatch, touch,
 ):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     game = init_game(data_dir)
@@ -1184,7 +1184,7 @@ def test_clicking_floor_zero_s_interactable_walks_there_and_dispatches(data_dir)
     # instead, so the walk actually finishes and the arrival dispatches.
     from PyAitD.engine.effects import GameMode
     from PyAitD.engine.playworld import play_tick
-    from PyAitD.ui import InputBuffer
+    from PyAitD.app.ui import InputBuffer
 
     game = init_game(data_dir)
     floor = Floor(data_dir, game.current_floor)
@@ -1327,7 +1327,7 @@ def test_the_approach_bias_is_converted_into_the_target_room_s_frame(data_dir):
     # 12000-unit delta on x, 120 grid cells, so an unconverted bias picks the
     # approach side essentially at random.
     import PyAitD.engine.navmesh as navmesh_module
-    from PyAitD.__main__ import resolve_play_click
+    from PyAitD.app.shell import resolve_play_click
     from PyAitD.engine.world import room_delta
 
     game, floor, hero, target, draw_list = _cross_room_target_setup(data_dir)
@@ -1362,7 +1362,7 @@ def test_a_same_room_target_passes_the_hero_position_unchanged(data_dir):
     # control: the conversion must be a no-op within one room, or every
     # single-room click would be biased by a spurious offset.
     import PyAitD.engine.navmesh as navmesh_module
-    from PyAitD.__main__ import resolve_play_click
+    from PyAitD.app.shell import resolve_play_click
 
     game, floor, hero, target, draw_list = _cross_room_target_setup(data_dir)
     target.room = hero.room  # same room now
@@ -1476,7 +1476,7 @@ def test_expansion_only_overlap_keeps_the_frontmost_actor(data_dir):
 
 
 def test_original_actor_hit_wins_over_a_frontmost_expanded_actor(data_dir):
-    from PyAitD.__main__ import expand_actor_targets
+    from PyAitD.app.shell import expand_actor_targets
     from PyAitD.engine.picking import pick_actor
 
     game = init_game(data_dir)
@@ -1636,9 +1636,9 @@ def _click_to_attack(data_dir):
 def test_releasing_the_button_does_not_cancel_an_accepted_attack(data_dir):
     # The accessibility contract is one click, not a hold: the swing must
     # outlive the release that always follows the press a moment later.
-    import PyAitD.__main__ as main
-    from PyAitD.__main__ import pygame
-    from PyAitD.ui import event_to_input
+    import PyAitD.app.shell as main
+    from PyAitD.app.shell import pygame
+    from PyAitD.app.ui import event_to_input
 
     game, _session, state = _click_to_attack(data_dir)
     release = pygame.event.Event(pygame.MOUSEBUTTONUP, button=1, pos=(150, 100))
@@ -1653,7 +1653,7 @@ def test_releasing_the_button_does_not_cancel_an_accepted_attack(data_dir):
 def test_modal_takeover_cannot_leave_an_attack_to_resume_later(data_dir):
     # Opening the inventory mid-swing must not park the latch and re-publish
     # action input when PLAY returns.
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     game, session, state = _click_to_attack(data_dir)
 
@@ -1663,8 +1663,8 @@ def test_modal_takeover_cannot_leave_an_attack_to_resume_later(data_dir):
 
 
 def test_focus_loss_cannot_leave_an_attack_to_resume_later(data_dir):
-    from PyAitD.__main__ import pygame
-    from PyAitD.ui import event_to_input
+    from PyAitD.app.shell import pygame
+    from PyAitD.app.ui import event_to_input
 
     _game, _session, state = _click_to_attack(data_dir)
 
@@ -1720,7 +1720,7 @@ def test_world_down_routes_normally_after_a_held_push_is_cancelled(data_dir):
 def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
     data_dir, monkeypatch,
 ):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     calls = []
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -1773,9 +1773,9 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, monkeyp
     # Staging-game rule: a normal boot loads floor zero but must never tick or
     # present PLAY before character confirmation -- every presented frame
     # comes from render_character_select, never from the staged scene array.
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from PyAitD.engine.effects import ChooseCharacter
-    from PyAitD.ui import CharacterSelectPresenter, render_character_select
+    from PyAitD.app.ui import CharacterSelectPresenter, render_character_select
 
     calls = []
     presented = []

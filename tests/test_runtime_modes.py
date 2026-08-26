@@ -9,24 +9,24 @@ import numpy as np
 import pygame
 import pytest
 
-from PyAitD.__main__ import (
+from PyAitD.app.shell import (
     _apply_system_result, _capture_keydown, replacement_session, restart_session,
     route_command, render_active_mode, route_hover, route_mouse,
 )
-from PyAitD.config import (
+from PyAitD.app.config import (
     REMAPPABLE_CONTROLS, Control, Settings, default_settings, load_settings,
 )
 from PyAitD.render.render_options import RenderOptions
 from PyAitD.engine.playworld import apply_play_input
 from PyAitD.engine.effects import (
-    ChooseCharacter, GameMode, GameOver, InputMode, NavDecision, NavIntent, OpenInventory,
-    OpenSystemMenu, ReadText, ShowFound, ShowPicture,
+    ChooseCharacter, FoundResult, GameMode, GameOver, InputMode, NavDecision, NavIntent,
+    OpenInventory, OpenSystemMenu, ReadText, ShowFound, ShowPicture,
 )
 from PyAitD.engine.game import init_game
 from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
-from PyAitD.ui import (
+from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter, Command,
-    FoundResult, InputBuffer, ModalLayout, ModalSession, ReadingResult, SettingsNoticeLayout,
+    InputBuffer, ModalLayout, ModalSession, ReadingResult, SettingsNoticeLayout,
     SystemMenuLayout, SystemMenuPage, SystemMenuPresenter, SystemMenuResult,
 )
 
@@ -67,7 +67,7 @@ def test_render_active_mode_resets_a_replaced_system_menu_preview(monkeypatch):
     old_presenter = session.system_menu
     old_presenter.hover = 2
     game = SimpleNamespace(active_modal=replacement, assets=object())
-    monkeypatch.setattr("PyAitD.ui.render_system_menu", lambda *args: "menu")
+    monkeypatch.setattr("PyAitD.app.ui.render_system_menu", lambda *args: "menu")
 
     assert render_active_mode(game, session, np.zeros((200, 320, 3), dtype=np.uint8)) == "menu"
     assert session.last_effect is replacement
@@ -135,7 +135,7 @@ def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_
     game.inventory_count[0] = 2
     game.open_modal(OpenInventory())
     monkeypatch.setattr(
-        "PyAitD.__main__._inventory_view", lambda game, session: ((13, 38), (23, 24)),
+        "PyAitD.app.shell._inventory_view", lambda game, session: ((13, 38), (23, 24)),
     )
     before = _hover_game_snapshot(game)
     for row, target in enumerate((0, 1)):
@@ -156,7 +156,7 @@ def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_
     game.close_modal()
     game.open_modal(ReadText(1, 0))
     monkeypatch.setattr(
-        "PyAitD.ui.reading_pages", lambda effect, assets: (("one",), ("two",)),
+        "PyAitD.app.ui.reading_pages", lambda effect, assets: (("one",), ("two",)),
     )
     before = _hover_game_snapshot(game)
     for page, expected_reading in (
@@ -206,7 +206,7 @@ def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_
 
 
 def test_run_routes_motion_once_and_focus_loss_clears_the_modal_preview(data_dir, monkeypatch):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     from PyAitD.engine.effects import ShowFound
 
     game = init_game(data_dir)
@@ -245,7 +245,7 @@ def _left_click(pos):
 def _run_notice_script(monkeypatch, game, session, next_events, draw_list=()):
     # Same headless run() harness as the modal-entry/restart tests above,
     # with a caller-supplied session so the settings notice can be staged.
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     ticks = itertools.count(0, 20)
@@ -420,7 +420,7 @@ def test_replacement_session_carries_only_application_settings(tmp_path):
 
 
 def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, monkeypatch):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     staging = init_game(data_dir)
     staging.open_modal(ChooseCharacter())
@@ -481,13 +481,13 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
 
 
 def test_hero_branch_is_inert_without_a_pending_hero(data_dir):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     game = init_game(data_dir)
     assert main._hero_branch(game, SimpleNamespace(), ModalSession()) is None
 
 
 def test_restart_branch_carries_application_settings(data_dir, monkeypatch):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir, hero=1)
     game.restart_requested = True
@@ -522,7 +522,7 @@ def test_restart_branch_carries_application_settings(data_dir, monkeypatch):
 
 
 def test_inventory_hud_availability_is_the_complete_shared_policy(data_dir):
-    from PyAitD.__main__ import inventory_hud_available
+    from PyAitD.app.shell import inventory_hud_available
 
     game = init_game(data_dir)
     game.num_camera = game.new_num_camera
@@ -613,7 +613,7 @@ def test_mouse_reading_next_changes_page_without_resuming_life(data_dir, monkeyp
     game.open_modal(ReadText(1, 0))
     session = ModalSession()
     monkeypatch.setattr(
-        "PyAitD.ui.reading_pages", lambda effect, assets: (("one",), ("two",))
+        "PyAitD.app.ui.reading_pages", lambda effect, assets: (("one",), ("two",))
     )
     logical = ModalLayout.READING_NEXT.center
     assert route_mouse(game, session, logical)
@@ -692,7 +692,7 @@ def test_inventory_subview_transitions_clear_keyboard_and_mouse_hover(
     session = ModalSession()
     session.reset_for(effect)
     monkeypatch.setattr(
-        "PyAitD.__main__._inventory_view", lambda game, session: ((13, 38), (23, 24)),
+        "PyAitD.app.shell._inventory_view", lambda game, session: ((13, 38), (23, 24)),
     )
     session.inventory.hover = 1
 
@@ -720,7 +720,7 @@ def test_reading_page_transitions_clear_hover_and_disable_the_new_page_target(
     session = ModalSession()
     session.reset_for(effect)
     monkeypatch.setattr(
-        "PyAitD.ui.reading_pages", lambda effect, assets: (("one",), ("two",)),
+        "PyAitD.app.ui.reading_pages", lambda effect, assets: (("one",), ("two",)),
     )
     next_page = ReadingResult(False, 1)
     session.reading.hover = next_page
@@ -745,7 +745,7 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     # loop routes one per frame; the leftover must not be routed next frame
     # into the new modal, where OPEN_INVENTORY maps to ACCEPT (would flip the
     # inventory session into action selection).
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     buffer = InputBuffer()
@@ -807,7 +807,7 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
 def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
         data_dir, monkeypatch, effect,
 ):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     game = init_game(data_dir)
@@ -928,7 +928,7 @@ def test_keyboard_system_menu_modal_takeover_cleans_play_input(data_dir):
 
 
 def test_repeated_modal_takeover_is_idempotent_without_presenter_reset(data_dir):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir)
     hero = game.actors[game.current_camera_target_actor]
@@ -1008,7 +1008,7 @@ def test_failed_quit_save_stays_in_menu_with_live_settings(data_dir, tmp_path, m
     session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
     session.settings = Settings(dict(session.settings.bindings), True)
     session.system_menu.cursor = 2
-    monkeypatch.setattr("PyAitD.__main__.save_settings", lambda *args: "Could not save settings to target: read only")
+    monkeypatch.setattr("PyAitD.app.shell.save_settings", lambda *args: "Could not save settings to target: read only")
     assert route_command(game, session, Command.ACCEPT, InputBuffer()) is True
     assert game.mode is GameMode.SYSTEM_MENU
     assert session.settings.sticky_action is True
@@ -1040,7 +1040,7 @@ def test_failed_return_closes_to_play_and_keeps_the_named_error(data_dir, tmp_pa
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
     session.system_menu.cursor = 0
-    monkeypatch.setattr("PyAitD.__main__.save_settings", lambda *args: "Could not save settings to target: read only")
+    monkeypatch.setattr("PyAitD.app.shell.save_settings", lambda *args: "Could not save settings to target: read only")
     assert route_command(game, session, Command.ACCEPT, InputBuffer()) is True
     assert game.mode is GameMode.PLAY
     assert session.settings_dirty is True
@@ -1252,7 +1252,7 @@ def test_restart_session_rebuilds_state_from_the_initial_floor(data_dir):
 def test_restart_session_calls_init_game_and_enter_floor_start_once_and_builds_no_floor(
     data_dir, monkeypatch,
 ):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     old = init_game(data_dir, hero=0)
     enter_combat_venue(old)
@@ -1290,7 +1290,7 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     # run, then the per-frame state (session/input buffer) must be reset, then
     # the scene must be recomposed, all before the loop is allowed to tick the
     # world or present a frame for the new game.
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     calls = []
     frame = np.zeros((200, 320, 3), dtype=np.uint8)

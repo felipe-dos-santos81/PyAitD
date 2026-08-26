@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from PyAitD.config import (
+from PyAitD.app.config import (
     SCHEMA, Control, REMAPPABLE_CONTROLS, Settings, default_settings, load_settings,
     replace_binding, save_settings, settings_path, validate_settings,
 )
@@ -69,7 +69,7 @@ def test_settings_paths_are_platform_specific(tmp_path):
 
 
 def test_config_module_does_not_import_pygame():
-    probe = "import sys, PyAitD.config; raise SystemExit('pygame' in sys.modules)"
+    probe = "import sys, PyAitD.app.config; raise SystemExit('pygame' in sys.modules)"
     assert subprocess.run([sys.executable, "-c", probe]).returncode == 0
 
 
@@ -164,7 +164,7 @@ def test_missing_file_is_a_clean_default(tmp_path):
 
 def test_replace_failure_is_reported_and_temp_is_removed(tmp_path, monkeypatch):
     path = tmp_path / "settings.json"
-    monkeypatch.setattr("PyAitD.config.os.replace", lambda *args: (_ for _ in ()).throw(OSError("read only")))
+    monkeypatch.setattr("PyAitD.app.config.os.replace", lambda *args: (_ for _ in ()).throw(OSError("read only")))
     error = save_settings(default_settings(), path)
     assert str(path) in error and "read only" in error
     assert list(tmp_path.glob(".settings.json.*.tmp")) == []

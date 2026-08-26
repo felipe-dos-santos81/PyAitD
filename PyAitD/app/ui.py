@@ -8,10 +8,10 @@ from pathlib import Path
 import numpy as np
 import pygame
 
-from PyAitD.config import (
+from PyAitD.app.config import (
     Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
 )
-from PyAitD.engine.effects import ChooseCharacter, OpenSystemMenu
+from PyAitD.engine.effects import ChooseCharacter, FoundResult, OpenSystemMenu
 from PyAitD.render.render_options import RenderOptions, cycle_filter, cycle_scale, cycle_shading
 from PyAitD.engine.text import BookToken
 
@@ -167,11 +167,6 @@ def event_to_input(event, state, logical_pos=None):
         elif control is Control.ACTION:
             state.action_held = False
     return True
-
-
-class FoundResult(Enum):
-    TAKE = auto()
-    LEAVE = auto()
 
 
 @dataclass

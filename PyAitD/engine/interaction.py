@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from PyAitD.engine.effects import (
-    AddMessage, AfterLife, BeginTake, InputMode, LifeFrame, TimedMessage,
+    AddMessage, AfterLife, BeginTake, FoundResult, InputMode, LifeFrame, TimedMessage,
 )
 from PyAitD.engine.life import process_life
 from PyAitD.engine.world import adjust_zv_between_rooms, room_delta, shifted_zv
@@ -384,7 +384,6 @@ def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z
 
 def apply_found_result(game, result):
     from PyAitD.engine.effects import ShowFound
-    from PyAitD.ui import FoundResult
     effect = game.active_modal
     if not isinstance(effect, ShowFound):
         raise RuntimeError(f"found result applied to {type(effect).__name__}")

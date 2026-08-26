@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from PyAitD.__main__ import parse_args
-from PyAitD.config import default_settings
+from PyAitD.app.shell import parse_args
+from PyAitD.app.config import default_settings
 from PyAitD.engine.effects import ChooseCharacter
 
 
@@ -26,7 +26,7 @@ def test_parse_args_distinguishes_normal_boot_from_explicit_floor_zero():
 
 
 def test_normal_main_opens_character_selection_before_run(monkeypatch, tmp_path):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     game = SimpleNamespace(active_modal=None, open_modal=lambda effect: setattr(game, "active_modal", effect))
     seen = []
     monkeypatch.setattr(main, "init_game", lambda data, hero=0: game)
@@ -39,7 +39,7 @@ def test_normal_main_opens_character_selection_before_run(monkeypatch, tmp_path)
 
 @pytest.mark.parametrize("args", (["--floor", "0"], ["--combat-venue"], ["--mouse-combat-fixture"]))
 def test_explicit_debug_starts_bypass_character_selection(monkeypatch, tmp_path, args):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     game = SimpleNamespace(active_modal=None)
     seen = []
     monkeypatch.setattr(main, "init_game", lambda data, hero=0: game)
@@ -62,7 +62,7 @@ def test_parse_args_overrides():
 
 
 def test_main_rejects_nonzero_floor_without_calling_run(monkeypatch, tmp_path):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     monkeypatch.setattr(main, "init_game", lambda data, hero=0: SimpleNamespace())
     calls = []
@@ -75,7 +75,7 @@ def test_main_rejects_nonzero_floor_without_calling_run(monkeypatch, tmp_path):
 
 
 def test_main_combat_venue_calls_enter_combat_venue_once_before_run(monkeypatch, tmp_path):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     game = SimpleNamespace()
     calls = []
@@ -105,7 +105,7 @@ def test_parse_args_selects_a_fixture_hero():
 
 
 def test_main_mouse_combat_fixture_uses_the_requested_hero(monkeypatch, tmp_path):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     game = SimpleNamespace()
     heroes = []
@@ -125,7 +125,7 @@ def test_main_mouse_combat_fixture_uses_the_requested_hero(monkeypatch, tmp_path
 
 
 def test_main_mouse_combat_fixture_runs_its_own_setup(monkeypatch, tmp_path):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     game = SimpleNamespace()
     calls = []
@@ -161,10 +161,10 @@ def test_unknown_pygame_key_falls_back_to_defaults_with_a_path_named_notice(tmp_
     # whose key names pygame does not know must load cleanly, and only the
     # input compilation (which owns the pygame key table) may fall back to
     # defaults -- recording a notice that names the offending file.
-    from PyAitD.__main__ import configure_session_input, load_runtime_session
-    from PyAitD.config import SCHEMA, default_settings
+    from PyAitD.app.shell import configure_session_input, load_runtime_session
+    from PyAitD.app.config import SCHEMA, default_settings
     from PyAitD.render.render_options import RenderOptions
-    from PyAitD.ui import InputBuffer
+    from PyAitD.app.ui import InputBuffer
 
     bindings = {name: list(keys) for name, keys in default_settings().bindings.items()}
     bindings["UP"] = ["not-a-real-pygame-key"]
@@ -187,8 +187,8 @@ def test_unknown_pygame_key_falls_back_to_defaults_with_a_path_named_notice(tmp_
 
 
 def test_render_cli_flags_override_settings_for_the_session():
-    from PyAitD.__main__ import apply_render_overrides, parse_args
-    from PyAitD.config import default_settings
+    from PyAitD.app.shell import apply_render_overrides, parse_args
+    from PyAitD.app.config import default_settings
     args = parse_args(["--render-scale", "2", "--shading", "flat", "--overrides", "/tmp/ov"])
     settings = apply_render_overrides(default_settings(), args)
     assert (settings.render.scale, settings.render.shading, settings.render.background_filter,
@@ -200,8 +200,8 @@ def test_render_cli_flags_override_settings_for_the_session():
 def test_each_render_flag_overrides_only_its_own_field():
     from dataclasses import replace
 
-    from PyAitD.__main__ import apply_render_overrides, parse_args
-    from PyAitD.config import default_settings
+    from PyAitD.app.shell import apply_render_overrides, parse_args
+    from PyAitD.app.config import default_settings
 
     base = default_settings()
 
@@ -219,23 +219,23 @@ def test_each_render_flag_overrides_only_its_own_field():
 
 
 def test_no_render_flags_leaves_settings_completely_unchanged():
-    from PyAitD.__main__ import apply_render_overrides, parse_args
-    from PyAitD.config import default_settings
+    from PyAitD.app.shell import apply_render_overrides, parse_args
+    from PyAitD.app.config import default_settings
 
     base = default_settings()
     assert apply_render_overrides(base, parse_args([])) == base
 
 
 def test_out_of_range_render_scale_is_clamped_not_rejected():
-    from PyAitD.__main__ import apply_render_overrides, parse_args
-    from PyAitD.config import default_settings
+    from PyAitD.app.shell import apply_render_overrides, parse_args
+    from PyAitD.app.config import default_settings
 
     assert apply_render_overrides(default_settings(), parse_args(["--render-scale", "0"])).render.scale == 1
     assert apply_render_overrides(default_settings(), parse_args(["--render-scale", "99"])).render.scale == 8
 
 
 def test_invalid_shading_and_background_filter_are_rejected_by_argparse_choices():
-    from PyAitD.__main__ import parse_args
+    from PyAitD.app.shell import parse_args
 
     with pytest.raises(SystemExit):
         parse_args(["--shading", "cartoon"])
@@ -244,7 +244,7 @@ def test_invalid_shading_and_background_filter_are_rejected_by_argparse_choices(
 
 
 def test_render_cli_flags_default_to_none_meaning_keep_the_settings_value():
-    from PyAitD.__main__ import parse_args
+    from PyAitD.app.shell import parse_args
 
     args = parse_args([])
     assert args.render_scale is None
@@ -257,8 +257,8 @@ def test_render_cli_overrides_do_not_persist_to_the_settings_file(tmp_path):
     # Session-only: apply_render_overrides must never be written back to the
     # settings file, and must not flip settings_dirty (which is what would
     # cause a later save to pick it up).
-    from PyAitD.__main__ import apply_render_overrides, load_runtime_session, parse_args
-    from PyAitD.config import SCHEMA, default_settings
+    from PyAitD.app.shell import apply_render_overrides, load_runtime_session, parse_args
+    from PyAitD.app.config import SCHEMA, default_settings
 
     settings_file = tmp_path / "settings.json"
     settings_file.write_text(json.dumps({
@@ -292,11 +292,11 @@ def test_config_menu_save_does_not_persist_untouched_cli_render_overrides(tmp_pa
 
     import pygame
 
-    from PyAitD.__main__ import (
+    from PyAitD.app.shell import (
         _apply_system_result, apply_render_overrides, load_runtime_session, parse_args,
     )
-    from PyAitD.config import SCHEMA, default_settings
-    from PyAitD.ui import InputBuffer, SystemMenuResult
+    from PyAitD.app.config import SCHEMA, default_settings
+    from PyAitD.app.ui import InputBuffer, SystemMenuResult
 
     pygame.init()
     settings_file = tmp_path / "settings.json"
@@ -346,12 +346,12 @@ def test_config_menu_save_persists_a_render_field_the_player_actually_cycled(tmp
 
     import pygame
 
-    from PyAitD.__main__ import (
+    from PyAitD.app.shell import (
         _apply_system_result, apply_render_overrides, load_runtime_session, parse_args,
     )
-    from PyAitD.config import SCHEMA, default_settings
+    from PyAitD.app.config import SCHEMA, default_settings
     from PyAitD.render.render_options import cycle_shading
-    from PyAitD.ui import InputBuffer, SystemMenuResult
+    from PyAitD.app.ui import InputBuffer, SystemMenuResult
 
     pygame.init()
     settings_file = tmp_path / "settings.json"
@@ -393,8 +393,8 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(monkey
     import numpy as np
     import pygame
 
-    import PyAitD.__main__ as main
-    from PyAitD import ui
+    import PyAitD.app.shell as main
+    from PyAitD.app import ui
     from PyAitD.engine.effects import GameMode, InputMode
 
     game = SimpleNamespace(

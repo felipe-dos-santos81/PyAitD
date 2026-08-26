@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from PyAitD.engine.playworld import play_tick
-from PyAitD.engine.effects import OpenInventory
+from PyAitD.engine.effects import FoundResult, OpenInventory
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.interaction import (
     apply_found_result, apply_inventory_result, inventory_actions,
     inventory_items, request_found,
 )
-from PyAitD.ui import FoundResult, InputBuffer, InventoryResult
+from PyAitD.app.ui import InputBuffer, InventoryResult
 
 
 def test_attic_lamp_find_take_use_and_drop_checkpoint(data_dir):

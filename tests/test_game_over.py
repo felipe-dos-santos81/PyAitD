@@ -4,12 +4,12 @@
 never mid-loop."""
 import pytest
 
-from PyAitD.__main__ import route_command, route_mouse
+from PyAitD.app.shell import route_command, route_mouse
 from PyAitD.engine.effects import GameMode, GameOver
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.playworld import play_tick
-from PyAitD.ui import Command, InputBuffer, ModalSession
+from PyAitD.app.ui import Command, InputBuffer, ModalSession
 
 
 def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, monkeypatch):

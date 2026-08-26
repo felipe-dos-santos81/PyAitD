@@ -6,13 +6,13 @@ import pygame
 import pytest
 
 from PyAitD.engine.assets import Assets
-from PyAitD.config import default_settings
-from PyAitD.engine.effects import ReadText, ShowFound, ShowPicture, TimedMessage
+from PyAitD.app.config import default_settings
+from PyAitD.engine.effects import FoundResult, ReadText, ShowFound, ShowPicture, TimedMessage
 from PyAitD.engine.game import init_game
 from PyAitD.engine.text import BookToken
-from PyAitD.ui import (
+from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
-    FoundPresenter, FoundResult, InventoryPresenter, ReadingPresenter, ReadingResult,
+    FoundPresenter, InventoryPresenter, ReadingPresenter, ReadingResult,
     SystemMenuPage, SystemMenuPresenter,
     draw_big_cadre, layout_book,
     overlay_messages, render_character_select, render_cursor, render_found,
@@ -66,7 +66,7 @@ def test_cursor_marks_the_frame_without_mutating_the_input():
 
 
 def test_hit_feedback_marks_the_supplied_box_in_high_contrast_without_mutation():
-    from PyAitD import ui
+    from PyAitD.app import ui
 
     source = np.full((200, 320, 3), 80, dtype=np.uint8)
     original = source.copy()
@@ -232,7 +232,7 @@ def test_system_menu_is_a_logical_rgb_frame(data_dir, page):
 
 
 def test_configuration_lists_graphics_rows_inside_the_screen():
-    from PyAitD.ui import SystemMenuLayout, config_row_count
+    from PyAitD.app.ui import SystemMenuLayout, config_row_count
     rows = SystemMenuLayout.rows(SystemMenuPage.CONFIG)
     assert len(rows) == config_row_count()
     assert all(r.bottom <= 200 for r in rows)
@@ -250,7 +250,7 @@ def test_system_menu_row_label_mismatch_raises_instead_of_hiding_back_to_menu(mo
     # target is real -- a fully hidden but clickable row). strict=True turns
     # that drift into a loud failure instead of a silent, hard-to-notice UI
     # bug.
-    import PyAitD.ui as ui_module
+    import PyAitD.app.ui as ui_module
 
     monkeypatch.setattr(ui_module.SystemMenuLayout, "MAIN_ROWS", ui_module.SystemMenuLayout.MAIN_ROWS[:-1])
     fake_sprite = np.zeros((20, 20, 3), dtype=np.uint8)
@@ -263,7 +263,7 @@ def test_system_menu_row_label_mismatch_raises_instead_of_hiding_back_to_menu(mo
 
 
 def test_transparent_canvas_and_rgba_round_trip():
-    from PyAitD.ui import _to_frame, _to_surface, transparent_canvas
+    from PyAitD.app.ui import _to_frame, _to_surface, transparent_canvas
     canvas = transparent_canvas()
     assert canvas.shape == (200, 320, 4) and canvas.max() == 0
     surface = _to_surface(canvas)
@@ -275,7 +275,7 @@ def test_transparent_canvas_and_rgba_round_trip():
 
 
 def test_play_hud_and_cursor_keep_the_canvas_transparent_elsewhere():
-    from PyAitD.ui import render_cursor, render_play_hud, transparent_canvas
+    from PyAitD.app.ui import render_cursor, render_play_hud, transparent_canvas
     out = render_play_hud(transparent_canvas(), inventory_available=True)
     out = render_cursor(out, (160, 100), "walk")
     assert out.shape == (200, 320, 4)
@@ -284,7 +284,7 @@ def test_play_hud_and_cursor_keep_the_canvas_transparent_elsewhere():
 
 
 def test_game_over_not_ready_is_identity_on_the_canvas():
-    from PyAitD.ui import render_game_over, transparent_canvas
+    from PyAitD.app.ui import render_game_over, transparent_canvas
     canvas = transparent_canvas()
     scene = np.zeros((200, 320, 3), np.uint8)
     assert render_game_over(canvas, scene, False) is canvas

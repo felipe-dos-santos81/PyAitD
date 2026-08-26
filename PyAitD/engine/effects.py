@@ -13,6 +13,12 @@ class GameMode(Enum):
     SYSTEM_MENU = auto()
 
 
+class FoundResult(Enum):
+    # the Take/Leave prompt's answer; consumed by interaction.apply_found_result
+    TAKE = auto()
+    LEAVE = auto()
+
+
 class AfterLife(Enum):
     NONE = auto()
     FINISH_TAKE = auto()

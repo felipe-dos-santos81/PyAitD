@@ -11,14 +11,14 @@ import numpy as np
 import pygame
 import pytest
 
-from PyAitD.__main__ import configure_session_input, load_runtime_session
-from PyAitD.config import (
+from PyAitD.app.shell import configure_session_input, load_runtime_session
+from PyAitD.app.config import (
     SCHEMA, Control, Settings, default_settings, replace_binding, save_settings,
 )
 from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu
 from PyAitD.engine.game import init_game
 from PyAitD.engine.playworld import play_tick as real_play_tick
-from PyAitD.ui import (
+from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, Command, InputBuffer, ModalSession,
     SettingsNoticeLayout, SystemMenuLayout, SystemMenuPage, event_to_input,
 )
@@ -51,7 +51,7 @@ def _key(code):
 
 
 def _run_shell(monkeypatch, game, session, next_events, *, observe_tick=None):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
     renderer = _HeadlessRenderer()
     ticks = itertools.count(0, 20)
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: renderer)
@@ -91,7 +91,7 @@ def _observe_input_snapshots(monkeypatch):
 def _pygame_runtime():
     # pygame.quit() invalidates ui's module-level font cache; drop it so the
     # next journey re-creates fonts against a fresh pygame init
-    from PyAitD import ui
+    from PyAitD.app import ui
     pygame.init()
     try:
         yield
@@ -107,7 +107,7 @@ def _pygame_runtime():
 def test_one_click_hero_journey_through_the_real_loop(
     data_dir, monkeypatch, portrait, expected_hero, body_archive, anim_archive,
 ):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir)
     game.open_modal(ChooseCharacter())
@@ -160,7 +160,7 @@ def test_one_click_hero_journey_through_the_real_loop(
 def test_keyboard_hero_journey_backs_out_and_starts_emily(data_dir, monkeypatch):
     # RIGHT, ACCEPT enters Carnby's story; CANCEL returns to the portraits;
     # LEFT, OPEN_INVENTORY enters Emily's story; OPEN_INVENTORY starts her.
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir)
     game.open_modal(ChooseCharacter())
@@ -382,7 +382,7 @@ def test_menu_entry_and_exit_never_replay_held_input(data_dir, monkeypatch):
 def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
     data_dir, monkeypatch, tmp_path,
 ):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     path = tmp_path / "settings.json"
     path.write_text("{ definitely not json", encoding="utf-8")
@@ -508,7 +508,7 @@ def test_letterbox_click_does_not_crash_or_dismiss_the_notice(
 def test_death_restart_keeps_live_settings_and_drops_input_transients(
     data_dir, tmp_path, monkeypatch,
 ):
-    import PyAitD.__main__ as main
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir)
     game.restart_requested = True
@@ -577,7 +577,7 @@ def test_mouse_only_remap_journey_binds_through_the_key_picker(data_dir, monkeyp
     # A pointer-only user rebinds ACTION without any physical key: the control
     # row opens the picker, hover previews a cell, one click binds it, and the
     # menu returns to Configuration with the same row selected.
-    from PyAitD.ui import PICKABLE_KEYS
+    from PyAitD.app.ui import PICKABLE_KEYS
     game = init_game(data_dir)
     path = tmp_path / "settings.json"
     session = load_runtime_session(path)
