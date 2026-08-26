@@ -89,6 +89,11 @@ CAPABILITY_ROUTES = {
     PlayerCapability.STARTUP_MENU_ACTIVATE: MouseRoute(
         "left_click", "startup menu row", frozenset({GameMode.STARTUP_MENU}),
     ),
+    # session-conditional: the contract has no representation for session
+    # state, so this route's GameMode.PLAY membership is true only while
+    # session.cutscene (shell.py) -- an ordinary PLAY left click walks or
+    # interacts instead. GameMode.CUTSCENE_END has no such condition: that
+    # mode IS the cutscene's terminal CutsceneFinished modal.
     PlayerCapability.SKIP_CUTSCENE: MouseRoute(
         "left_click", "anywhere during the opening cutscene", frozenset({GameMode.PLAY, GameMode.CUTSCENE_END}),
     ),
