@@ -1,7 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """PlayWorld is the simulation tick, importable without pygame or the Renderer."""
-import subprocess
-import sys
 
 import pytest
 
@@ -12,21 +10,13 @@ from PyAitD.engine.interaction import PLAYER_PUSH_ANIM
 from PyAitD.engine.playworld import _anim_pass, play_tick
 from PyAitD.app.ui import InputBuffer
 
-# Runs in a fresh interpreter: pytest (and this module, via InputBuffer) has
-# pygame loaded in-process, so sys.modules is only meaningful out-of-process.
-_PURITY_PROBE = """
-import sys, PyAitD.engine.playworld, PyAitD.engine.anim_action
-# the layer rule, then the third-party names a direct import would pull in
-leaked = {m for m in sys.modules if m.startswith(("PyAitD.app", "PyAitD.render")) or m in ("pygame", "moderngl", "OpenGL")}
-sys.exit(", ".join(sorted(leaked)) or None)
-"""
+from tests.purity import assert_presentation_free
 
 
 def test_playworld_does_not_import_the_presentation_layer():
-    out = subprocess.run([sys.executable, "-c", _PURITY_PROBE], capture_output=True, text=True)
-    assert out.returncode == 0, (
-        f"PyAitD.engine.playworld pulled in {out.stderr.strip()} — the tick must stay "
-        f"importable without the presentation layer so it can run headless"
+    assert_presentation_free(
+        "PyAitD.engine.playworld", "PyAitD.engine.anim_action",
+        why=" — the tick must stay importable without the presentation layer so it can run headless",
     )
 
 

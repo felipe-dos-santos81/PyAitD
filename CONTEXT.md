@@ -66,7 +66,7 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `engine/assets.py` | Parse-once registries over the LRU: bodies, anims, LISTLIFE scripts, LISTTRAK tracks |
 | `engine/game.py` | `Game` state: CVars (45, DEFINES big-endian), script vars (207), 292 world objects, 128 actor slots, `init_game`/`spawn_stage_actors` (FITD LoadWorld + GenereActiveList) |
 | `engine/life.py` | VM core: fetch loop, 0x8000 actor-switch, control flow, `Trace`, `core_table()` (the game-neutral opcode slots); dispatch reads the filled table from `vm.game.profile.opcode_table` and the not-in-floor set from `vm.game.profile.reduced_dispatch` |
-| `games/base.py` | `GameProfile`: PAK names, hero archives, CVar names, DEFINES endianness, opcode table, dead opcodes, reduced dispatch, debug venues |
+| `games/base.py` | `GameProfile`: PAK names, hero archives, CVar names, DEFINES endianness, opcode table, reduced dispatch, debug venues |
 | `games/aitd1/profile.py` | The AITD1 instance; `games/__init__.load_profile("aitd1")` |
 | `games/aitd1/life_ops.py`, `games/aitd1/life_reduced.py` | Full-dispatch opcode handlers + not-in-floor reduced set |
 | `engine/eval_var.py` | evalVar tagged-s16 argument system (all AITD1 property codes) |

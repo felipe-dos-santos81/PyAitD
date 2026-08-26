@@ -1,7 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import itertools
-import subprocess
-import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -31,20 +29,11 @@ from PyAitD.games.aitd1.mouse_contract import (
 from PyAitD.app.ui import Command
 from PyAitD.games.aitd1.profile import AITD1
 
-
-_PURITY_PROBE = r"""
-import sys
-import PyAitD.games.aitd1.mouse_contract
-leaked = {"pygame", "moderngl", "PyAitD.app.ui", "PyAitD.render.render"} & sys.modules.keys()
-raise SystemExit(", ".join(sorted(leaked)) if leaked else 0)
-"""
+from tests.purity import assert_presentation_free
 
 
 def test_mouse_contract_is_presentation_free():
-    result = subprocess.run(
-        [sys.executable, "-c", _PURITY_PROBE], capture_output=True, text=True,
-    )
-    assert result.returncode == 0, result.stderr
+    assert_presentation_free("PyAitD.games.aitd1.mouse_contract")
 
 
 def test_every_capability_has_exactly_one_route():

@@ -1,7 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import json
-import subprocess
-import sys
 
 import pytest
 
@@ -10,6 +8,8 @@ from PyAitD.app.config import (
     replace_binding, save_settings, settings_path, validate_settings,
 )
 from PyAitD.render.render_options import RenderOptions
+
+from tests.purity import assert_presentation_free
 
 
 EXPECTED = {
@@ -69,8 +69,7 @@ def test_settings_paths_are_platform_specific(tmp_path):
 
 
 def test_config_module_does_not_import_pygame():
-    probe = "import sys, PyAitD.app.config; raise SystemExit('pygame' in sys.modules)"
-    assert subprocess.run([sys.executable, "-c", probe]).returncode == 0
+    assert_presentation_free("PyAitD.app.config", forbidden=("pygame",))
 
 
 INVALID_PAYLOADS = {

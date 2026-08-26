@@ -1,6 +1,4 @@
 # SPDX-License-Identifier: GPL-2.0-only
-import subprocess
-import sys
 
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
@@ -8,18 +6,13 @@ from PyAitD.engine.navmesh import COVER_SCALE, cover_polys
 from PyAitD.engine.picking import pick_floor, pick_floor_any_room, pick_floor_in_room, project_floor_point
 from PyAitD.engine.world import CameraState
 
-_PURITY_PROBE = """
-import sys, PyAitD.engine.picking
-leaked = {"PyAitD.app.ui", "PyAitD.render.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
-sys.exit(", ".join(sorted(leaked)) or None)
-"""
+from tests.purity import assert_presentation_free
 
 
 def test_picking_does_not_import_the_presentation_layer():
-    out = subprocess.run([sys.executable, "-c", _PURITY_PROBE], capture_output=True, text=True)
-    assert out.returncode == 0, (
-        f"PyAitD.engine.picking pulled in {out.stderr.strip()} — picking is pure math "
-        f"and must not need a window; __main__ passes it logical coordinates"
+    assert_presentation_free(
+        "PyAitD.engine.picking",
+        why=" — picking is pure math and must not need a window; the shell passes it logical coordinates",
     )
 
 

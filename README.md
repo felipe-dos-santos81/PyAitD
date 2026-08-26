@@ -15,6 +15,20 @@ Game data defaults to `data/aitd1/Alone in the Dark 1.app/Contents/Resources/gam
 at the repo root; override with `data=` on any make target or `--data DIR`.
 Tests honor env `PYAITD_DATA` and skip when data is absent.
 
+## Layout
+
+```
+PyAitD/engine/   simulation ported from FITD — no pygame, no GL, no game constants
+PyAitD/render/   frame description → pixels (GL and software backends)
+PyAitD/games/    per-game GameProfile + opcode handlers; aitd1/ is the only game
+PyAitD/app/      window, event pump, settings, CLI
+tools/           proofs, exporters, the AI regeneration script
+```
+
+`render/` and `games/` import only `engine/`; `engine/` imports none of the
+others; `app/` may import everything. `tests/test_layering.py` enforces it. `AGENTS.md` says where new
+code goes and how to split a module; `CONTEXT.md` maps every file.
+
 ## Run
 
 ```bash

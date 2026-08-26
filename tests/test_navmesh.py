@@ -1,6 +1,4 @@
 # SPDX-License-Identifier: GPL-2.0-only
-import subprocess
-import sys
 
 from PyAitD.engine.actors import cube_intersect
 from PyAitD.engine.floor import Floor
@@ -9,18 +7,13 @@ from PyAitD.engine.navmesh import COVER_SCALE, GRID_STEP, agent_extent, build_co
 from PyAitD.engine.world import is_in_poly
 from PyAitD.games.aitd1.profile import AITD1
 
-_PURITY_PROBE = """
-import sys, PyAitD.engine.navmesh
-leaked = {"PyAitD.app.ui", "PyAitD.render.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
-sys.exit(", ".join(sorted(leaked)) or None)
-"""
+from tests.purity import assert_presentation_free
 
 
 def test_navmesh_does_not_import_the_presentation_layer():
-    out = subprocess.run([sys.executable, "-c", _PURITY_PROBE], capture_output=True, text=True)
-    assert out.returncode == 0, (
-        f"PyAitD.engine.navmesh pulled in {out.stderr.strip()} — the mesh must stay "
-        f"importable without the presentation layer so it can build headless"
+    assert_presentation_free(
+        "PyAitD.engine.navmesh",
+        why=" — the mesh must stay importable without the presentation layer so it can build headless",
     )
 
 

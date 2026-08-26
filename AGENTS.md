@@ -58,23 +58,67 @@ the test suite is the only gate. Never mass-reformat.
   extra s16; `walkStep` outputs are crossed (xOut→animMoveZ); FITD's
   preserved bugs (e.g. LM_WAIT_GAME_OVER second wait) stay.
 
+## Package layout
+
+`tests/test_layering.py` enforces the import rules below by AST scan (every
+file under a package, subpackages included); `tests/purity.py` re-checks the
+headless ones at runtime. A rule that is not in one of those two files is not
+a rule — add the test with the rule.
+
+| Package | Owns | May import |
+|---|---|---|
+| `PyAitD/engine/` | The simulation, ported from FITD with `file:line` citations: formats, PAK/floor data, `Game` state, LIFE VM core, actors, animation, tracks, collision, navmesh, picking, `playworld` tick. Game-neutral: reads per-game facts from `game.profile`. | stdlib, NumPy, `engine` |
+| `PyAitD/render/` | `FrameDescription` → pixels: scene description, geometry, both backends, asset resolution, override export/check. | `engine` |
+| `PyAitD/games/<id>/` | Everything FITD branches on `g_gameId`: the `GameProfile` instance, the game's opcode handlers and reduced dispatch, debug venues, the mouse contract. `games/base.py` holds the dataclass. | `engine` |
+| `PyAitD/app/` | Window, the single event pump, settings schema/persistence, CLI, UI screens. | everything |
+| `tools/` | Standalone scripts: PNG encoding, proofs, the one AI-service caller. | everything |
+
+`__main__.py` owns nothing but the re-export of `app.shell.main`.
+
+**Where new code goes**
+
+- Ports FITD behaviour (cite `file:line`) and does not depend on which game is
+  loaded → `engine/`.
+- Depends on the game — a PAK name, CVar name, opcode number, hero archive,
+  debug venue, anything FITD guards with `g_gameId` → `games/<id>/`, exposed
+  through a `GameProfile` field the engine reads via `game.profile`. Never an
+  `engine/` module constant, never `if profile.name == "aitd1"` in `engine/`.
+- Touches pygame or moderngl → `render/` (only `GRAPHICS_OWNERS` in
+  `tests/test_layering.py` may import them) or `app/`.
+- Input, menus, settings, CLI flags → `app/`.
+- Writes PNGs, spawns processes, calls an external service → `tools/`.
+
+**Growing the engine**
+
+- A module that outgrows one responsibility (`game.py`, `interaction.py`,
+  `playworld.py` are the candidates, ~500-600 lines each) becomes a
+  subpackage: `engine/game/{state,boot,objects}.py` with the public names
+  re-exported from `engine/game/__init__.py` so every importer and test keeps
+  `from PyAitD.engine.game import init_game`. Move with `git mv`; the layering
+  scan covers subpackages automatically. Split by responsibility, not by size.
+- A new engine capability (save/load, audio, sequences) is a new `engine/`
+  module that takes its game facts through new `GameProfile` fields, with the
+  AITD1 values in `games/aitd1/profile.py` and a pin in
+  `tests/test_game_profile.py`. Effects the app must react to are `effects.py`
+  dataclasses emitted through `game.emit`, never a callback into `app/`.
+- A second game is `games/<id>/profile.py` plus a `PROFILES` entry in
+  `games/__init__.py`. If the engine needs a branch to support it, the branch
+  belongs in a profile field (data or callable), and the seam is documented in
+  `games/base.py`'s docstring.
+- Known seams still hard-coded to AITD1 inside `engine/`, listed so nobody
+  closes them ad hoc: `floor.py` resolves `ITD_RESS`/palette entry 3 itself;
+  `life.py` fixes `NUM_OPCODES`, the `core_table()` slot numbers and
+  `_REDUCED_ALLOWED`; `formats.py` record layouts; `interaction.py`'s
+  `COMBAT_ACTIONS`/`PLAYER_*_ANIM`/`PLAYER_TRACK_MODES` indices. Close one by
+  moving it into `GameProfile` with a test, not by adding a second copy.
+
 ## Conventions
 
 - `# SPDX-License-Identifier: GPL-2.0-only` first line of every Python file.
-- Package layering (`tests/test_layering.py` enforces it): `PyAitD/engine/`
-  imports no pygame, moderngl, `render`, `games`, or `app`; `render/` imports
-  `engine` only; `games/` imports `engine` only; `app/` may import everything.
-  `__main__.py` owns nothing but the re-export of `app.shell.main`.
-- Game-specific constants live in one `GameProfile`
-  (`games/base.py`; `games/aitd1/profile.py` is the only instance): PAK names,
-  hero archives, CVar names, DEFINES endianness, the filled opcode table,
-  dead opcodes, reduced dispatch, debug venues. `Assets`, `Game`, the VM and
-  the shell read them from `game.profile` — never re-add module constants.
-- Inside `render/`: `scene`, `geometry`, `render_options`, `background_export`,
-  `override_check` import neither pygame nor moderngl;
-  `asset_resolver` touches pygame in exactly one function (`load_png_rgb`);
-  `render_soft` uses `pygame.draw` but never moderngl; `render_gl` owns all
-  moderngl; `render` owns the window and both. `scene.build_frame` returns an
+- Inside `render/`: every module is pygame- and moderngl-free except the
+  `GRAPHICS_OWNERS` — `asset_resolver` touches pygame in exactly one function
+  (`load_png_rgb`); `render_soft` uses `pygame.draw` but never moderngl;
+  `render_gl` owns all moderngl; `render` owns the window and both. `scene.build_frame` returns an
   immutable `FrameDescription` whose `palette` and `background.pixels` alias
   shared decode caches — read them, never write.
 - `app/ui.py` never mutates world/actor/inventory/LIFE state; `app/config.py`

@@ -2,7 +2,7 @@
 """Package rules from docs/superpowers/specs/2026-08-26-engine-package-reorganization-design.md.
 
 engine/  imports no pygame, moderngl, render, games, app
-render/  imports engine only (never games or app); its pure modules import neither pygame nor moderngl
+render/  imports engine only (never games or app); only GRAPHICS_OWNERS touch pygame/moderngl
 games/   imports engine only
 app/     may import everything
 """
@@ -12,16 +12,24 @@ import pathlib
 
 import pytest
 
+from tests.purity import PRESENTATION
+
 ROOT = pathlib.Path(__file__).resolve().parents[1] / "PyAitD"
 
 FORBIDDEN = {
-    "engine": ("pygame", "moderngl", "PyAitD.render", "PyAitD.games", "PyAitD.app"),
+    "engine": PRESENTATION + ("PyAitD.games",),
     "render": ("PyAitD.games", "PyAitD.app"),
     "games": ("pygame", "moderngl", "PyAitD.render", "PyAitD.app"),
 }
-# render modules that must stay free of both graphics libraries
-PURE_RENDER = ("scene", "geometry", "render_options", "background_export", "override_check")
-NO_MODERNGL = ("render_soft", "asset_resolver")
+# The only render modules allowed to import a graphics library, and which one.
+# Every other module under render/ is pure by construction -- a new
+# render/lighting.py that imports pygame fails without being listed anywhere.
+GRAPHICS_OWNERS = {
+    "render_gl": ("pygame", "moderngl"),
+    "render_soft": ("pygame",),
+    "render": ("pygame", "moderngl"),
+    "asset_resolver": ("pygame",),   # in exactly one function, pinned below
+}
 
 
 def _names(node):
@@ -62,16 +70,26 @@ def test_package_imports_only_what_the_layering_allows(package):
     assert not bad, "\n".join(bad)
 
 
-@pytest.mark.parametrize("module", PURE_RENDER)
-def test_pure_render_modules_import_no_graphics_library(module):
-    names = set(_imports(ROOT / "render" / f"{module}.py"))
-    assert not any(n.startswith(("pygame", "moderngl")) for n in names), names
+def _graphics_imports(path):
+    return {n for n in _imports(path) if n.startswith(("pygame", "moderngl"))}
 
 
-@pytest.mark.parametrize("module", NO_MODERNGL)
+def test_pure_render_modules_import_no_graphics_library():
+    bad = {
+        path.name: names
+        for path in _modules("render")
+        if path.stem not in GRAPHICS_OWNERS and path.name != "__init__.py"
+        for names in [_graphics_imports(path)]
+        if names
+    }
+    assert not bad, bad
+
+
+@pytest.mark.parametrize("module", sorted(GRAPHICS_OWNERS))
 def test_software_side_never_imports_moderngl(module):
-    names = set(_imports(ROOT / "render" / f"{module}.py"))
-    assert not any(n.startswith("moderngl") for n in names), names
+    # each owner touches only the library it is declared for
+    names = _graphics_imports(ROOT / "render" / f"{module}.py")
+    assert all(n.startswith(GRAPHICS_OWNERS[module]) for n in names), names
 
 
 def test_asset_resolver_touches_pygame_in_exactly_one_function():

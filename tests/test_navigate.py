@@ -1,6 +1,4 @@
 # SPDX-License-Identifier: GPL-2.0-only
-import subprocess
-import sys
 
 from PyAitD.engine.effects import NavIntent
 from PyAitD.engine.game import Actor
@@ -9,16 +7,11 @@ from PyAitD.engine.navigate import (
 )
 from PyAitD.engine.tracks import cap_objet
 
-_PURITY_PROBE = """
-import sys, PyAitD.engine.navigate
-leaked = {"PyAitD.app.ui", "PyAitD.render.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
-sys.exit(", ".join(sorted(leaked)) or None)
-"""
+from tests.purity import assert_presentation_free
 
 
 def test_navigate_does_not_import_the_presentation_layer():
-    out = subprocess.run([sys.executable, "-c", _PURITY_PROBE], capture_output=True, text=True)
-    assert out.returncode == 0, f"PyAitD.engine.navigate pulled in {out.stderr.strip()}"
+    assert_presentation_free("PyAitD.engine.navigate")
 
 
 class _Game:
