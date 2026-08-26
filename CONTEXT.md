@@ -7,7 +7,9 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 - Repo: `/Users/felipe.dos.santos/code/mine/m-aitd` (branch `main`)
 - FITD reference: `/Users/felipe.dos.santos/code/theirs/FITD/FitdLib/` (authoritative for all game logic)
 - Game data: `data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK`
-- Python 3.12, `.venv/`; deps: pygame-ce, moderngl, numpy, pytest (no more)
+- Python 3.12, `.venv/`; deps: pygame-ce, moderngl, numpy, pytest (no more) — plus the
+  optional `ai` extra (`google-genai`, `make install-ai`) used only by `tools/regenerate_backgrounds.py`
+- Version 0.5.0 (`pyproject.toml`); GPL-2.0-only
 
 ## Commands
 
@@ -20,6 +22,14 @@ make prove                   # M3a proof: parse-all 563 scripts/45 tracks/tables
 make prove-combat            # M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
 make prove-mouse-only        # mouse contract + real-data attic/combat/restart/hold-push journeys
 make prove-shell             # M4a1 proof: shell, configuration, mouse contract, real-loop journeys
+make prove-m3b               # M3b focused interaction suite, headless
+make prove-mouse             # M3d navmesh coverage for every camera-visible room
+make prove-mouse-accessibility # effective-target/hover/touch/takeover gate
+make prove-graphics          # attic + combat fixtures at every shading mode -> docs/graphics-proof/
+make export-backgrounds      # originals + guides + manifest -> data/aitd1/overrides (out=, floors=, scale=, force=1)
+make check-overrides         # validate an override dir as the game loads it (overrides=DIR, proof=1 side-by-sides)
+make regenerate-backgrounds  # Gemini describe+render -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); GEMINI_API_KEY + make install-ai
+make run overrides=DIR       # play with an override directory (e.g. data/aitd1/overrides-ai)
 ```
 
 ## Where we are
@@ -33,11 +43,12 @@ make prove-shell             # M4a1 proof: shell, configuration, mouse contract,
 | M3c | Combat: HIT/FIRE/THROW animActions, floor-5 combat venue, multi-floor `FloorStart`, the real death script → GAME_OVER → restart | done (one open ruling: the restart boundary after the death cinematic, `docs/m3c-combat-proof.md`) |
 | M3d | Mouse-only point-and-click input | done |
 | M3e | Mouse reachability: HUD inventory, clicked native melee, exhaustive mouse contract | done (the clicked route was corrected from force-2 throw to native melee; `docs/mouse-accessibility-hardening-proof.md`) |
-| M4a1 | Shell: character select, system menu, remappable controls, sticky Action, settings persistence, settings notice overlay | automated gates green (`make prove-shell`); windowed accessibility pass pending (`docs/m4a1-shell-proof.md`) |
-| Mouse hold-to-push | Held approach/engage for scripted movable furniture | automated gates green; windowed accessibility pass pending (`docs/mouse-hold-push-proof.md`) |
+| M4a1 | Shell: character select, system menu, remappable controls, sticky Action, settings persistence, settings notice overlay | done — automated gates green (`make prove-shell`); the windowed pass is attested by the mouse accessibility hardening proof, which supersedes the pending rows in `docs/m4a1-shell-proof.md` |
+| Mouse hold-to-push | Held approach/engage for scripted movable furniture | done — automated gates green; windowed pass attested via the hardening proof, superseding `docs/mouse-hold-push-proof.md` |
 | Mouse accessibility hardening | Effective targets, optional pure hover, physical/touch parity, target precedence, atomic modal takeover, exhaustive contract gate | done — automated gates green and user-attested windowed standard-mouse/macOS-Accessibility-Keyboard passes for Emily and Carnby (`docs/mouse-accessibility-hardening-proof.md`) |
 | Enhanced graphics scene layer | Higher-resolution actor rendering, per-vertex shading, GPU mask erasure, background upscale filters, asset override directory, GL fallback | automated gates green; windowed attestation pending (`docs/enhanced-graphics-proof.md`) |
-| M4 | Menus, audio, save/load, ending/completability | later |
+| AI background regeneration | Export originals + structure guides + manifest, validate override dirs as the game loads them, optional Gemini describe+render regeneration | done — `make export-backgrounds` / `check-overrides` / `regenerate-backgrounds`; `docs/ai-background-regeneration.md` |
+| M4a2 / M4b / M4c | Save/load, audio + sequences, ending/completability | next (plans drafted under `docs/superpowers/plans/2026-08-24-m4*`) |
 
 Design docs live in `docs/superpowers/specs/` and `docs/superpowers/plans/`
 (one spec + one task-level TDD plan per milestone). `docs/life-vm-opcodes.md`
@@ -76,8 +87,12 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `picking.py` | Screen->world: floor homography fitted from the real projection, actor bbox hit-test |
 | `navigate.py` | Mouse follower: NavIntent -> one tick of steering + mirrored joyd |
 | `mouse_contract.py` | Pygame-free declaration of current player capabilities, per-mode one-button routes, and reviewed legacy command replacements (`KEYBOARD_ONLY_DECISIONS` is empty: remap capture has a clickable key picker) |
+| `text.py` | Pure parsers for system texts and book/letter token streams (readable items) |
+| `background_export.py` | Pure export description: per-camera original background, depth-culled structure guide geometry, manifest records (layout shared with `asset_resolver.override_background_path`) |
+| `override_check.py` | Pure validation of an override directory exactly as `AssetResolver` would load it; structural manifest checks |
 | `config.py` | Pygame-free settings schema (v1), platform settings path, validated load, atomic save |
 | `__main__.py` | Process shell: event pump, fixed-step accumulator, `_scene_frame` view assembly, modal routing, one present per frame |
+| `tools/` | CLI proofs and pipelines: `prove_mouse`, `prove_combat`, `prove_graphics`, `export_backgrounds`, `check_overrides`, `regenerate_backgrounds` (the only module that talks to an AI service; PNG encoding lives here, not in `PyAitD/`) |
 
 ## Fidelity notes (hard-won)
 
@@ -238,6 +253,24 @@ action runner.
   bounded stall share idempotent cancellation. Pushing never asserts Action.
 - Focused proof: `make prove-mouse-only`; evidence:
   `docs/mouse-hold-push-proof.md`.
+
+## AI background regeneration boundary
+
+- `background_export.py` and `override_check.py` are pure like `scene.py`;
+  `tools/export_backgrounds.py` and `tools/check_overrides.py` do the PNG I/O.
+  The export layout is `asset_resolver.override_background_path`'s
+  (`DIR/backgrounds/floor<NN>/camera<NNN>.png` + `DIR/palette.png`) — change
+  both or neither. `manifest.json` merges across `--force` floor subsets and is
+  written atomically.
+- `tools/regenerate_backgrounds.py` reads an export dir, asks Gemini for a
+  description then an image per camera, fits the result to 1280x800, and
+  writes `data/aitd1/overrides-ai` plus `prompts.json` (a resumable prompt
+  cache saved after every camera). The client is duck-typed and injected in
+  tests; `google-genai` is imported only inside `make_client`.
+- Output dirs `overrides/` and `overrides-ai/` are git-ignored; a missing
+  override file falls back silently, a corrupt one warns and falls back.
+- Evidence: `docs/ai-background-regeneration.md`; spec/plan under
+  `docs/superpowers/*/2026-08-25-{ai,gemini}-background-regeneration*`.
 
 ## Testing conventions
 

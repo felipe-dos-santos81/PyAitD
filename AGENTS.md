@@ -17,7 +17,9 @@ make prove-graphics # render attic + combat fixtures at every shading mode to do
 make export-backgrounds # originals + guides + manifest to data/aitd1/overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1)
 make check-overrides # validate data/aitd1/overrides (or overrides=DIR) as the game loads it; proof=1 renders side-by-sides
 make regenerate-backgrounds # Gemini describe+render data/aitd1/overrides -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); needs GEMINI_API_KEY + make install-ai
-make run           # play via character select; floor=0 debug bypass, data="..." trace=/tmp/t.log optional
+make prove-combat  # M3c combat venue proof (pytest gate)
+make prove-mouse   # M3d navmesh coverage for every camera-visible room
+make run           # play via character select; floor=0 debug bypass, overrides=DIR (only passed when given), data="..." trace=/tmp/t.log optional
 ```
 
 Any test touching rendering/pygame needs `SDL_VIDEODRIVER=dummy`. After
@@ -77,7 +79,8 @@ the test suite is the only gate. Never mass-reformat.
   `asset_resolver.override_background_path`'s — change both or neither.
 - `tools/regenerate_backgrounds.py` is the only module that may talk to an
   AI service; its unit tests inject a fake client and never touch the
-  network.
+  network. `GEMINI_API_KEY` comes from the environment (a `.env` is
+  git-ignored); never commit keys or generated `overrides*/` output.
 - `skel.skin`'s integer projection stays authoritative for picking, masks and
   the mouse contract; `draw_list` entries must stay byte-identical.
   `scene.CameraView` is a parallel float path for rendering only and is

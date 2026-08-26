@@ -20,6 +20,8 @@ Tests honor env `PYAITD_DATA` and skip when data is absent.
 
 ```bash
 make run                # boots into character selection (floor=0 bypasses it for debugging)
+make run overrides=data/aitd1/overrides-ai   # play with regenerated backgrounds
+make run-combat         # floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
 ```
 
 Pick Emily or Carnby by mouse or keyboard, then play. Mouse (default):
@@ -61,7 +63,7 @@ export-backgrounds` writes the originals plus structure guides and a
 manifest into `data/aitd1/overrides` (git-ignored; `out=DIR` to choose another), and `make check-overrides`
 validates the results the way the game loads them. `make regenerate-backgrounds`
 (optional; needs `make install-ai` and `GEMINI_API_KEY`) does the
-regeneration with Gemini into `data/aitd1/overrides-ai`. See
+regeneration with Gemini into `data/aitd1/overrides-ai` (git-ignored, resumable; `dry=1` lists work). See
 [docs/ai-background-regeneration.md](docs/ai-background-regeneration.md).
 
 ## Tests

@@ -13,3 +13,6 @@ docs/graphics-proof/*.png
 docs/graphics-proof/overrides/
 overrides/
 overrides-ai/
+.env
+.claude/
+.taskmaster/
