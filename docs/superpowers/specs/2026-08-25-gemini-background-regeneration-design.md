@@ -17,7 +17,7 @@ directory the game and `make check-overrides` already understand.
 - Lives in this repo under `tools/`, using the official `google-genai`
   SDK. This amends two standing rules, both updated by this work:
   - `AGENTS.md` "Dependencies fixed … Add nothing" gains one exception:
-    the optional extra `ai = ["google-genai>=1.0"]`. The engine, the test
+    the optional extra `ai = ["google-genai>=1.38"]`. The engine, the test
     suite and every other tool still import nothing new.
   - The earlier spec's non-goal "Calling any AI service from this repo"
     is superseded for this one tool; that spec's text gets a one-line
@@ -42,9 +42,10 @@ directory the game and `make check-overrides` already understand.
   SDK installed succeeds; only a real run without it fails, with the exact
   message `google-genai is not installed: run .venv/bin/pip install -e ".[dev,ai]"`
   and exit 2.
-- No Pillow. Decoding, cropping, scaling and encoding go through pygame
-  (`pygame.image.load` from a `BytesIO`, `Surface.subsurface`,
-  `pygame.transform.smoothscale`, and `tools/export_backgrounds.save_png`).
+- No Pillow. Decoding and scaling go through pygame (`pygame.image.load`
+  from a `BytesIO`, `pygame.transform.smoothscale`); the crop is numpy
+  array slicing on the decoded pixels, and
+  `tools/export_backgrounds.save_png` writes the result.
 - The unit suite never touches the network: every test injects a fake
   client. The one live test is skipped unless both `GEMINI_API_KEY` and
   `PYAITD_LIVE_AI=1` are set.
@@ -59,7 +60,7 @@ directory the game and `make check-overrides` already understand.
 |---|---|---|
 | `tools/regenerate_backgrounds.py` | Everything: discovery, prompt cache, the two Gemini calls, post-processing, CLI. Pure helpers are module-level functions so tests reach them without a client. | pygame (post-processing), `google-genai` (lazy, `make_client` only) |
 | `Makefile` `regenerate-backgrounds` | `in=overrides out=overrides-ai floors= style= force=1 dry=1 text_model= image_model=` | — |
-| `pyproject.toml` | `[project.optional-dependencies] ai = ["google-genai>=1.0"]` | — |
+| `pyproject.toml` | `[project.optional-dependencies] ai = ["google-genai>=1.38"]` | — |
 | `docs/ai-background-regeneration.md` | New section "2b. Regenerate with Gemini" between Regenerate and Check | — |
 | `README.md`, `AGENTS.md` | One line each: the target and the dependency exception | — |
 | `tests/test_regenerate_backgrounds.py` | Unit tests with a fake client; one live test | pygame |
@@ -70,7 +71,7 @@ directory the game and `make check-overrides` already understand.
 DEFAULT_TEXT_MODEL = "gemini-2.5-flash"
 DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image"
 TARGET_SIZE = (1280, 800)            # 4 × 320×200
-GENERATE_ASPECT = "3:2"              # nearest Gemini ratio wider than 16:10; cropped after
+GENERATE_ASPECT = "3:2"              # nearest Gemini ratio to 16:10 (3:2 is narrower); extra height is centre-cropped after
 PROMPTS_FILE = "prompts.json"
 
 @dataclasses.dataclass(frozen=True)
@@ -86,7 +87,7 @@ def describe_prompt(guide_present: bool) -> str
 def generation_prompt(description: str, style: str, guide_present: bool) -> str
 def describe(client, model: str, cam: Camera) -> str
 def generate(client, model: str, cam: Camera, prompt: str) -> bytes
-def fit_to_target(png_bytes: bytes) -> pygame.Surface
+def fit_to_target(png_bytes: bytes) -> np.ndarray  # (800, 1280, 3) uint8
 def load_prompts(path) -> dict; def save_prompts(path, prompts) -> None   # atomic
 def make_client() -> object
 def regenerate(cams, out_dir, *, client, text_model, image_model, style,
@@ -118,15 +119,18 @@ fake client in tests implements exactly that.
    never overwritten without `--force`.
 4. **Generate.** Send `[original PNG part, guide PNG part (if any),
    generation_prompt(prompt, style, guide_present)]` to the image model
-   with `response_modalities=["IMAGE"]` and
-   `image_config=ImageConfig(aspect_ratio=GENERATE_ASPECT)`. Take the
-   first `inline_data` part whose `mime_type` starts with `image/`; none →
-   that camera fails ("no image in response").
-5. **Fit.** `fit_to_target`: decode; center-crop to the largest 16:10
-   rectangle (exact integer maths:
+   with `response_modalities=["TEXT", "IMAGE"]` (image-only is rejected by
+   some image models) and
+   `image_config=ImageConfig(aspect_ratio=GENERATE_ASPECT)` — `ImageConfig`
+   first shipped in `google-genai` 1.38, hence the `>=1.38` floor. Take the
+   first `inline_data` part with non-empty data whose `mime_type` starts
+   with `image/`; none → that camera fails ("no image in response").
+5. **Fit.** `fit_to_target`: decode with `pygame.image.load`, convert to an
+   `(h, w, 3)` uint8 array with `pygame.surfarray.array3d`; center-crop to
+   the largest 16:10 rectangle with numpy slicing (exact integer maths:
    `if w*10 > h*16: new_w = h*16//10 else new_h = w*10//16`); `smoothscale`
-   to `TARGET_SIZE`. Always yields 1280×800, so `check-overrides` reports
-   neither `aspect` nor `size`.
+   to `TARGET_SIZE` and convert back to an array. Always yields 1280×800
+   uint8, so `check-overrides` reports neither `aspect` nor `size`.
 6. **Write.** `save_png(surface, OUT/backgrounds/<key>.png)` (temp +
    `os.replace`, from `tools/export_backgrounds`). After the run, copy
    `IN/manifest.json` to `OUT/manifest.json` if present and not already
@@ -195,8 +199,9 @@ the doc says to run `.venv/bin/pip install -e ".[dev,ai]"` once.
 
 ## Testing (`tests/test_regenerate_backgrounds.py`)
 
-Fixture: a temp `IN` built with `save_png` from numpy arrays: floors 0 and
-1, two cameras each, one camera without a guide, plus a `manifest.json`.
+Fixture: a temp `IN` built with `save_png` from numpy arrays: three
+cameras — `floor00/camera000` (with guide), `floor00/camera001` (no
+guide), `floor01/camera000` (with guide) — plus a `manifest.json`.
 A `FakeClient` records every `generate_content` call and returns, per
 model, a canned `.text` or a response object carrying a PNG's bytes
 (generated in the test at 1536×1024, i.e. 3:2). Tests:
@@ -207,7 +212,7 @@ model, a canned `.text` or a response object carrying a PNG's bytes
   `guide_present`; style appended verbatim.
 - `describe`: contents contain the source bytes, the guide bytes when
   present, and the text; returns the stripped `.text`.
-- `generate`: `response_modalities == ["IMAGE"]`, aspect `3:2`, returns the
+- `generate`: `response_modalities == ["TEXT", "IMAGE"]`, aspect `3:2`, returns the
   bytes of the first image part; no image part → `RuntimeError`.
 - `fit_to_target`: 1536×1024 → 1280×800; a 1000×1000 input crops to
   1000×625 then scales; a 16:10 input is not cropped (pixel check on a
@@ -217,7 +222,7 @@ model, a canned `.text` or a response object carrying a PNG's bytes
   camera with `sha256` of the source; second run makes zero client calls
   (resume); `--force` re-calls both models; a hand-edited prompt survives
   a run without `--force`; a client that raises for one camera yields
-  `(done=3, failed=1)` and the other three files; `manifest.json` copied.
+  `(done=2, failed=1)` and the other two files; `manifest.json` copied.
 - `main`: `--dry-run` exits 0 and creates no client and no files; missing
   key → 2; no cameras → 2; failed camera → 1.
 - Round trip: `regenerate` output passed to `override_check.check_overrides`

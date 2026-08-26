@@ -4,8 +4,9 @@ PyAitD can play with replacement camera backgrounds from an override
 directory (`--overrides DIR`, see README). This workflow exports the
 originals with structural guides so you can regenerate them in any external
 image tool — ControlNet, image-to-image, an upscaler, a paint program — and
-checks the results the way the game will load them. Nothing here calls an
-AI service; the repo ships no model, no key and no game data.
+checks the results the way the game will load them. Only the optional `make
+regenerate-backgrounds` step calls an AI service (Gemini, your key); the
+repo ships no model, no key and no game data.
 
 ## 1. Export
 
@@ -49,6 +50,34 @@ mapping is also in `manifest.json` under `legend`.
 Masks, collision and walkable areas are engine data, not pixels: they do
 not change when the background does. A plate that redraws doors or stairs
 elsewhere will look wrong in play even though it loads fine.
+
+## 2b. Regenerate with Gemini (optional, in-repo)
+
+    .venv/bin/pip install -e ".[dev,ai]"          # once: google-genai
+    export GEMINI_API_KEY=...                     # never stored by the tool
+    make regenerate-backgrounds dry=1             # list what would run, no calls
+    make regenerate-backgrounds                   # ./overrides -> ./overrides-ai
+    make regenerate-backgrounds floors=0 style="Sunlit, warm, clean." force=1
+
+For each `backgrounds/floorNN/cameraNNN.png` (with its guide when present)
+the tool asks `gemini-2.5-flash` for a scene description, stores it in
+`overrides-ai/prompts.json`, then asks `gemini-2.5-flash-image` to render
+that description with the original and guide as references. The result is
+centre-cropped to 16:10 and scaled to 1280x800, so `check-overrides` never
+reports `aspect` or `size` for it. `manifest.json` is copied across so
+coverage counts every output as `regenerated`.
+
+- Cameras that already exist in the output are skipped; rerun after an
+  interruption and it continues. `force=1` redoes them and their prompts.
+- Edit a prompt in `prompts.json`, delete that camera's PNG and rerun to
+  regenerate only it with your wording.
+- A camera that fails (quota, no image returned) is logged and skipped;
+  exit status 1 means at least one failed, rerun to retry.
+- `text_model=` / `image_model=` override the models; `in=` and `out_ai=`
+  the directories.
+
+Then `make check-overrides overrides=overrides-ai proof=1` and
+`make run overrides=overrides-ai`.
 
 ## 3. Check
 

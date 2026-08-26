@@ -6,7 +6,7 @@
 
 **Architecture:** One module `tools/regenerate_backgrounds.py` with pure helpers (discover, prompts, prompt cache, fit-to-target) and two thin client-facing functions (`describe`, `generate`) whose `client` is duck-typed so tests inject a fake. `google-genai` is imported lazily in `make_client` only. Post-processing uses pygame + numpy; PNG writing reuses `tools/export_backgrounds.save_png`.
 
-**Tech Stack:** Python 3.12, pygame-ce, NumPy, pytest; `google-genai>=1.0` as the optional extra `ai`.
+**Tech Stack:** Python 3.12, pygame-ce, NumPy, pytest; `google-genai>=1.38` as the optional extra `ai`.
 
 **Spec:** `docs/superpowers/specs/2026-08-25-gemini-background-regeneration-design.md`
 
@@ -45,7 +45,7 @@
 ```toml
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-ai = ["google-genai>=1.0"]
+ai = ["google-genai>=1.38"]
 ```
 `.gitignore`: append a line `overrides-ai/`.
 

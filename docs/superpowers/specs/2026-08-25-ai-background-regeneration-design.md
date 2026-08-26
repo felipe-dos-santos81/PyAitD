@@ -214,4 +214,5 @@ rule).
 - Resizing, renaming, cropping or otherwise repairing AI output.
 - Regenerating masks, collision, cover zones or palette to match a
   regenerated plate.
-- Calling any AI service from this repo.
+- Calling any AI service from this repo (superseded for one tool by
+  `2026-08-25-gemini-background-regeneration-design.md`).
