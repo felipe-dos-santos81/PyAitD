@@ -3,18 +3,15 @@
 import logging
 
 from PyAitD.engine.actors import cube_intersect
-from PyAitD.engine.anim import ANIM_ONCE, ANIM_REPEAT, ANIM_UNINTERRUPTABLE, init_anim
+from PyAitD.engine.anim import init_anim
 from PyAitD.engine.effects import AddMessage, BeginTake, ReadText, ShowPicture
 from PyAitD.engine.game import AF_ANIMATED, AF_MASK, FloorStart, _zv_cube, _zv_max, _zv_rot, relocate_actor
 from PyAitD.engine.life import eval_var, read_s16
 from PyAitD.engine.realvalue import init_real_value, update_actor_rotation
-from PyAitD.engine.tracks import gere_manual_rot, init_deplacement, process_track
+from PyAitD.engine.tracks import gere_manual_rot, init_deplacement
 from PyAitD.engine.world import room_delta
 
-log = logging.getLogger("PyAitD.engine.life")
-
-# CVAR_NAMES.index("KILLED_SORCERER"); literal to avoid importing profile.py, which imports this module
-KILLED_SORCERER = 12
+log = logging.getLogger(__name__)
 
 
 def _add_room(a, zv):
@@ -398,7 +395,7 @@ def op_sample_then(vm):
 def op_light(vm):
     # life.cpp:1877: lightOff = 2 - (v << 1); skipped if KILLED_SORCERER
     v = 2 - (read_s16(vm) << 1)
-    if not vm.game.cvars[KILLED_SORCERER]:
+    if not vm.game.cvars[vm.game.profile.cvar_index("KILLED_SORCERER")]:
         vm.game.light_off = v
 
 

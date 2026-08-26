@@ -384,7 +384,7 @@ def parse_vars(raw):
     return list(struct.unpack_from(f"<{n}h", raw, 0))
 
 
-def parse_defines(raw, big_endian=True):
+def parse_defines(raw, *, big_endian):
     # DEFINES.ITD: 45 CVars stored big-endian; LoadWorld byteswaps (main.cpp:1151)
     n = len(raw) // 2
     return list(struct.unpack_from(f"{'>' if big_endian else '<'}{n}H", raw, 0))

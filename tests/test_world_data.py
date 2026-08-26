@@ -28,7 +28,7 @@ def test_vars_golden(data_dir):
 def test_defines_golden(data_dir):
     raw = (pathlib.Path(data_dir) / "DEFINES.ITD").read_bytes()
     assert len(raw) == 90
-    cvars = parse_defines(raw)
+    cvars = parse_defines(raw, big_endian=True)
     assert len(cvars) == 45
     assert cvars[:9] == [49, 270, 700, 18, 6, 19, 20, 1, 0]
     assert cvars[7] == 1   # WORLD_NUM_PERSO

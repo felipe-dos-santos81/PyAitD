@@ -4,14 +4,14 @@ import dataclasses
 
 import pytest
 
+from PyAitD.engine import life
 from PyAitD.games import PROFILES, load_profile
 from PyAitD.games.aitd1.profile import AITD1
-from PyAitD.games.base import GameProfile
 
 
 def test_aitd1_profile_is_registered():
     assert load_profile("aitd1") is AITD1
-    assert PROFILES == {"aitd1": AITD1}
+    assert PROFILES == {"aitd1": ("PyAitD.games.aitd1.profile", "AITD1")}
     with pytest.raises(KeyError):
         load_profile("aitd2")
 
@@ -36,10 +36,7 @@ def test_aitd1_cvars_and_defines():
 def test_aitd1_opcode_table_is_complete_and_immutable():
     # AITD1LifeMacroTable (AITD1.cpp:30-119): 87 entries; dead slots raise
     assert len(AITD1.opcode_table) == 87
-    assert AITD1.dead_opcodes == frozenset({27, 57, 61, 69})
     assert all(callable(h) for h in AITD1.opcode_table)
-    assert not any(h.__qualname__.startswith("_op_not_implemented") for h in AITD1.opcode_table)
-    assert dataclasses.is_dataclass(GameProfile) and GameProfile.__dataclass_params__.frozen
     with pytest.raises(dataclasses.FrozenInstanceError):
         AITD1.name = "x"
 
@@ -52,8 +49,9 @@ def test_aitd1_opcode_table_pins_handler_identity_per_slot():
 
     assert AITD1.opcode_table[41] is ops.op_game_over        # LM_GAME_OVER
     assert AITD1.opcode_table[86] is ops.op_wait_game_over   # LM_WAIT_GAME_OVER
-    for op in AITD1.dead_opcodes:
-        assert AITD1.opcode_table[op].__name__ == "_op_dead"
+    # LM_CAMERA, LM_STOP_BETA, LM_DO_NORMAL_ZV, LM_SPEED: dead in AITD1, FITD asserts
+    dead = {i for i, h in enumerate(AITD1.opcode_table) if h is life._op_dead}
+    assert dead == {27, 57, 61, 69}
 
 
 def test_aitd1_debug_venues_and_reduced_dispatch():

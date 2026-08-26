@@ -12,7 +12,6 @@ GAME_PALETTE_ENTRY = 3
 
 class Assets:
     def __init__(self, data_dir, profile, hero=0):
-        self.profile = profile
         self.body_archive_name, self.anim_archive_name = profile.hero_archives(hero)
         self._bodies_pak = str(find_pak(data_dir, self.body_archive_name))
         self._anims_pak = str(find_pak(data_dir, self.anim_archive_name))

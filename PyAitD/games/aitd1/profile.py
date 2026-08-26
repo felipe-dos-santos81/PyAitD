@@ -17,9 +17,6 @@ CVAR_NAMES = (
     "KILLED_SORCERER", "LIGHT_OBJECT", "FOG_FLAG", "DEAD_PERSO",
 )
 
-DEAD_OPCODES = frozenset({27, 57, 61, 69})  # LM_CAMERA, LM_STOP_BETA, LM_DO_NORMAL_ZV, LM_SPEED
-
-
 def _opcode_table():
     # opcode numbers per AITD1LifeMacroTable (AITD1.cpp:30-119)
     table = life.core_table()
@@ -103,7 +100,6 @@ AITD1 = GameProfile(
     cvar_names=CVAR_NAMES,
     defines_big_endian=True,
     opcode_table=_opcode_table(),
-    dead_opcodes=DEAD_OPCODES,
     reduced_dispatch=reduced_dispatch,
     debug_venues=MappingProxyType({
         "combat-venue": scenario.enter_combat_venue,

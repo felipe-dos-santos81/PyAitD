@@ -21,7 +21,6 @@ class GameProfile:
     cvar_names: tuple
     defines_big_endian: bool
     opcode_table: tuple      # index == opcode; every slot callable(vm)
-    dead_opcodes: frozenset  # slots whose handler raises (FITD dead macros)
     reduced_dispatch: object # callable(vm, opcode, world_idx): not-in-floor ops
     debug_venues: Mapping    # CLI venue name -> callable(game)
 

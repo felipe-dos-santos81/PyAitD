@@ -9,7 +9,7 @@ from PyAitD.engine.realvalue import start_chrono
 class VM:
     __slots__ = (
         "script", "pc", "game", "owner_idx", "cur_idx", "switch_val",
-        "exit", "suspended", "after", "subject_idx", "release_actor_idx",
+        "exit", "suspended", "after", "subject_idx", "release_actor_idx", "table",
     )
 
     def __init__(self, script, game, owner_idx, *, pc=0, after=AfterLife.NONE,
@@ -17,6 +17,7 @@ class VM:
         self.script = script
         self.pc = pc
         self.game = game
+        self.table = game.profile.opcode_table
         self.owner_idx = owner_idx
         self.cur_idx = owner_idx
         self.switch_val = 0
@@ -211,7 +212,7 @@ def process_life(game, actor_idx, life_num, *, pc=0, after=AfterLife.NONE,
 
 
 def _dispatch(vm, op):
-    table = vm.game.profile.opcode_table
+    table = vm.table
     idx = op & 0x7FFF
     if idx >= len(table):
         raise ValueError(
