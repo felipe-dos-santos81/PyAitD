@@ -65,14 +65,15 @@ Findings, one line each, then a per-floor coverage summary:
 | `missing` | counted, not listed: the original is used | nothing |
 
 Exit status is 1 when any `invalid` or `aspect` finding exists. Coverage
-(`regenerated / original / missing / invalid`) compares each file's pixels
-with the sha256 recorded in `manifest.json` at export time, so untouched
-exports count as `original`.
+(`regenerated / original / missing / invalid / aspect`) compares each file's
+pixels with the sha256 recorded in `manifest.json` at export time, so
+untouched exports count as `original`.
 
 ## 4. Play
 
     make run overrides=~/aitd-overrides
     .venv/bin/python -m PyAitD --overrides ~/aitd-overrides --background-filter bilinear
 
-The CLI flag is session-only; the in-game Configuration screen persists an
-override directory like every other setting.
+`--overrides` applies to the current session only and is never persisted --
+there is no Configuration row for it; pass `make run overrides=DIR` (or the
+flag) each time.
