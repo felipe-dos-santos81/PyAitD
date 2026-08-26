@@ -48,3 +48,15 @@ def test_main_exports_screens_and_manifest(tmp_path, monkeypatch):
     assert manifest["schema"] == 2 and manifest["cameras"] == []
     assert [s["entry"] for s in manifest["screens"]] == list(be.SCREEN_ENTRIES)
     assert (out / "screens" / "ress13.png").is_file()
+
+
+def test_real_screens_export_and_check_round_trip(data_dir, tmp_path):
+    from PyAitD.render import override_check as oc
+    from tools.export_backgrounds import load_assets
+    assets = load_assets(data_dir)
+    records = xb.export_screens(assets, tmp_path, 1)
+    assert len(records) == 7 and all(r["size"] == [320, 200] for r in records)
+    findings = oc.check_screens(tmp_path, assets)
+    assert findings == []            # every exported original loads and is 320x200
+    cov = oc.screen_coverage(tmp_path, assets, be.export_manifest([], data_dir, 1, screens=records))
+    assert cov == {"regenerated": 0, "original": 7, "missing": 0, "invalid": 0}

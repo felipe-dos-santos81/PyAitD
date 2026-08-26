@@ -270,6 +270,8 @@ action runner.
   (`DIR/backgrounds/floor<NN>/camera<NNN>.png` + `DIR/palette.png`) — change
   both or neither. `manifest.json` merges across `--force` floor subsets and is
   written atomically.
+- `screens/ressNN.png` overrides full-screen resources; `app/ui.screen_surface`
+  scales them to 320x200 at composite time.
 - `tools/regenerate_backgrounds.py` reads an export dir, asks Gemini for a
   description then an image per camera, fits the result to 1280x800, and
   writes `data/aitd1/overrides-ai` plus `prompts.json` (a resumable prompt
