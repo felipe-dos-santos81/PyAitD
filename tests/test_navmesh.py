@@ -21,7 +21,7 @@ def test_navmesh_does_not_import_the_presentation_layer():
 
 
 def test_cover_grid_shape_and_union_are_pinned(data_dir):
-    mesh = build_cover_grid(Floor(data_dir, 0), 0)
+    mesh = build_cover_grid(Floor(data_dir, 0, AITD1), 0)
     assert (mesh.x0, mesh.z0, mesh.step) == (-7540, -4970, 100)
     assert mesh.shape == (151, 141)
     assert int(mesh.walkable.sum()) == 13976
@@ -31,7 +31,7 @@ def test_cover_grid_matches_fitd_is_in_poly_cell_for_cell(data_dir):
     # The mesh must never disagree with the predicate the engine itself uses
     # for camera switching (playworld._camera_switch). A generic even-odd fill
     # disagrees on 64 of these cells; vectorising test_cross_product does not.
-    floor = Floor(data_dir, 0)
+    floor = Floor(data_dir, 0, AITD1)
     mesh = build_cover_grid(floor, 0)
     polys = cover_polys(floor, 0)
     mismatches = []
@@ -46,7 +46,7 @@ def test_cover_grid_matches_fitd_is_in_poly_cell_for_cell(data_dir):
 
 def test_room_without_cover_zones_has_no_mesh(data_dir):
     # floor 4 room 1 has camera_indices == [] — no camera views it
-    assert build_cover_grid(Floor(data_dir, 4), 1) is None
+    assert build_cover_grid(Floor(data_dir, 4, AITD1), 1) is None
 
 
 def _hero_agent(data_dir):
@@ -61,7 +61,7 @@ def test_agent_extent_is_rotation_invariant(data_dir):
 
 def test_room_mesh_walkable_count_is_pinned(data_dir):
     _game, hero = _hero_agent(data_dir)
-    mesh = build_room_mesh(Floor(data_dir, 0), 0, agent_extent(hero))
+    mesh = build_room_mesh(Floor(data_dir, 0, AITD1), 0, agent_extent(hero))
     assert int(mesh.walkable.sum()) == 11120
 
 
@@ -69,7 +69,7 @@ def test_blocking_agrees_with_check_hard_col(data_dir):
     # The mesh's notion of "solid" must be the engine's: cube_intersect against
     # room.hard_cols, all three axes, no type filtering.
     game, hero = _hero_agent(data_dir)
-    floor = Floor(data_dir, 0)
+    floor = Floor(data_dir, 0, AITD1)
     half, y0, y1 = agent_extent(hero)
     mesh = build_room_mesh(floor, 0, (half, y0, y1))
     cover = build_cover_grid(floor, 0)
@@ -94,7 +94,7 @@ def test_room_links_never_block(data_dir):
     _half, y0, y1 = agent_extent(hero)
     total = blocking = 0
     for number in range(8):
-        for room in Floor(data_dir, number).rooms:
+        for room in Floor(data_dir, number, AITD1).rooms:
             for col in room.hard_cols:
                 if col.type != 4:
                     continue
@@ -139,7 +139,7 @@ def _segment_is_walkable(mesh, p, q):
 
 def test_path_between_two_walkable_points_is_walkable_throughout(data_dir):
     _game, hero = _hero_agent(data_dir)
-    floor = Floor(data_dir, 0)
+    floor = Floor(data_dir, 0, AITD1)
     mesh = build_room_mesh(floor, 0, agent_extent(hero))
     start = mesh.center_of(108, 34)              # the hero's own cell
     goal = mesh.center_of(145, 78)               # the type-10 sce zone, component 0
@@ -179,7 +179,7 @@ def test_string_pull_never_cuts_a_blocked_diagonal_corner():
 
 def test_path_is_string_pulled_not_a_cell_staircase(data_dir):
     _game, hero = _hero_agent(data_dir)
-    mesh = build_room_mesh(Floor(data_dir, 0), 0, agent_extent(hero))
+    mesh = build_room_mesh(Floor(data_dir, 0, AITD1), 0, agent_extent(hero))
     path = find_path(mesh, mesh.center_of(108, 34), mesh.center_of(145, 78))
     # 37 cells of X travel alone; an unsmoothed path would return dozens of hops
     assert len(path) <= 8
@@ -187,7 +187,7 @@ def test_path_is_string_pulled_not_a_cell_staircase(data_dir):
 
 def test_path_to_an_unreachable_cell_is_none(data_dir):
     _game, hero = _hero_agent(data_dir)
-    mesh = build_room_mesh(Floor(data_dir, 0), 0, agent_extent(hero))
+    mesh = build_room_mesh(Floor(data_dir, 0, AITD1), 0, agent_extent(hero))
     blocked = next(
         mesh.center_of(i, j)
         for i in range(mesh.shape[0]) for j in range(mesh.shape[1])
@@ -198,7 +198,7 @@ def test_path_to_an_unreachable_cell_is_none(data_dir):
 
 def test_nearest_walkable_snaps_a_blocked_click(data_dir):
     _game, hero = _hero_agent(data_dir)
-    mesh = build_room_mesh(Floor(data_dir, 0), 0, agent_extent(hero))
+    mesh = build_room_mesh(Floor(data_dir, 0, AITD1), 0, agent_extent(hero))
     blocked = next(
         mesh.center_of(i, j)
         for i in range(mesh.shape[0]) for j in range(mesh.shape[1])
@@ -210,7 +210,7 @@ def test_nearest_walkable_snaps_a_blocked_click(data_dir):
 
 def test_mesh_cache_returns_the_same_object_for_the_same_room(data_dir):
     _game, hero = _hero_agent(data_dir)
-    floor = Floor(data_dir, 0)
+    floor = Floor(data_dir, 0, AITD1)
     cache = MeshCache()
     agent = agent_extent(hero)
     first = cache.mesh_for(floor, 0, agent)
@@ -227,7 +227,7 @@ def test_snapping_a_clicked_object_needs_more_rings_than_a_clicked_floor(data_di
     # its own, wider constant. Censused over all 22 interactable world objects
     # on all 8 floors, the worst needs 8 rings; this one needs 7.
     game, hero = _hero_agent(data_dir)
-    mesh = build_room_mesh(Floor(data_dir, 0), 0, agent_extent(hero))
+    mesh = build_room_mesh(Floor(data_dir, 0, AITD1), 0, agent_extent(hero))
     target = game.actors[10]
     assert game.world_objects[target.index_in_world].found_life != -1, "fixture moved"
     assert not mesh.is_walkable(target.room_x, target.room_z)

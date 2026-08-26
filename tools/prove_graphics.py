@@ -35,7 +35,7 @@ def _boot(data_dir, name):
     if name == "combat":
         enter_combat_venue(game)
     game.num_camera = game.new_num_camera
-    return game, Floor(data_dir, game.current_floor)
+    return game, Floor(data_dir, game.current_floor, game.profile)
 
 
 def render_fixture(data_dir, name, scale, shading, ctx):

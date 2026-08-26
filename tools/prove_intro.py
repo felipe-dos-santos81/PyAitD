@@ -35,13 +35,13 @@ def _boot(data_dir):
     game = init_game(data_dir, AITD1, hero=0)
     start_game(game, *AITD1.intro_start)
     game.allow_system_menu = False
-    return game, Floor(data_dir, game.current_floor)
+    return game, Floor(data_dir, game.current_floor, game.profile)
 
 
 def _step(data_dir, game, floor):
     play_tick(game, floor, InputBuffer())
     if floor.number != game.current_floor:
-        floor = Floor(data_dir, game.current_floor)
+        floor = Floor(data_dir, game.current_floor, game.profile)
     if game.mode.name != "PLAY" and not isinstance(game.active_modal, CutsceneFinished):
         apply_reading_result(game, ReadingResult(True))
     return floor

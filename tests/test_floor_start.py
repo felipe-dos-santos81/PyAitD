@@ -13,6 +13,13 @@ import pytest
 pytestmark = pytest.mark.engine
 
 
+def test_floor_requires_a_profile(data_dir):
+    # No default: a default palette pak/entry inside engine/ would be the
+    # AITD1 hardcode this seam exists to remove.
+    with pytest.raises(TypeError):
+        Floor(data_dir, 0)
+
+
 def test_relocate_actor_rebases_zv_and_zeroes_steps(data_dir):
     game = init_game(data_dir, AITD1)
     idx = game.current_camera_target_actor
@@ -74,7 +81,7 @@ def test_natural_lm_stage_records_a_reenterable_floor_start(data_dir, monkeypatc
     # entry camera, not an assumption.
     game = init_game(data_dir, AITD1)
     enter_combat_venue(game)
-    floor = Floor(data_dir, 5)
+    floor = Floor(data_dir, 5, AITD1)
     game.current_floor_data = floor
     game.num_camera = game.new_num_camera
     game.flag_init_view = 0
@@ -101,7 +108,7 @@ def test_natural_lm_stage_records_a_reenterable_floor_start(data_dir, monkeypatc
 
     # finish the handoff the outer loop performs: swap the Floor, enter the
     # recorded boundary, then InitView.
-    floor = Floor(data_dir, 6)
+    floor = Floor(data_dir, 6, AITD1)
     game.current_floor_data = floor
     assert len(floor.rooms[6].camera_indices) > game.floor_start.camera_slot
     enter_floor_start(game, game.floor_start)

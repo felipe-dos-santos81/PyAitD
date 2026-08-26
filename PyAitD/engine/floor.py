@@ -7,9 +7,6 @@ from PyAitD.engine.mask import create_aitd1_mask
 from PyAitD.engine.mask_geometry import mask_polygons
 from PyAitD.engine.pak import Pak, find_pak
 
-PALETTE_PAK = "ITD_RESS"
-PALETTE_ENTRY = 3
-
 
 @functools.lru_cache(maxsize=64)
 def load_entry(pak_path, index):
@@ -21,7 +18,7 @@ def cache_clear():
 
 
 class Floor:
-    def __init__(self, data_dir, number):
+    def __init__(self, data_dir, number, profile):
         self.number = number
         etage = find_pak(data_dir, f"ETAGE{number:02d}")
         self._images = find_pak(data_dir, f"CAMERA{number:02d}")
@@ -29,8 +26,8 @@ class Floor:
         self.camera_raw = load_entry(str(etage), 1)
         self.cameras = parse_cameras(self.camera_raw)
         self.camera_data_offsets = camera_offsets(self.camera_raw)
-        palette_pak = find_pak(data_dir, PALETTE_PAK)
-        self.palette = decode_palette(load_entry(str(palette_pak), PALETTE_ENTRY))
+        palette_pak = find_pak(data_dir, profile.resource_pak)
+        self.palette = decode_palette(load_entry(str(palette_pak), profile.palette_entry))
         self._num_images = Pak(self._images).count
         self._camera_images = {}
         self._masks = {}

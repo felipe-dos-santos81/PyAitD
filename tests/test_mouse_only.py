@@ -155,7 +155,7 @@ def test_real_data_combat_action_set_is_exactly_32(data_dir):
     for object_idx, action in offered:
         game = init_game(data_dir, AITD1)
         enter_combat_venue(game)
-        floor = Floor(data_dir, game.current_floor)
+        floor = Floor(data_dir, game.current_floor, AITD1)
         _finish_take(game, object_idx)
         choose_inventory_action(game, object_idx, action)
         hero = game.actors[game.current_camera_target_actor]
@@ -237,7 +237,7 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, monkeypatch, hero_
     import PyAitD.app.shell as main
 
     game = init_game(data_dir, AITD1, hero=hero_id)
-    floor = Floor(data_dir, game.current_floor)
+    floor = Floor(data_dir, game.current_floor, AITD1)
     # Opening LIFE performs an unrelated begin_take(object 2), which publishes
     # Action 0x800 on its first boot tick.  Complete that real bootstrap before
     # measuring the held path; do not hide an Action emitted while held.
@@ -455,7 +455,7 @@ def test_mouse_combat_fixture_has_a_real_visible_attack_target_after_equip(data_
     enter_mouse_combat_fixture(game)
     choose_inventory_action(game, 38, 23)
     game.num_camera = game.new_num_camera
-    floor = Floor(data_dir, game.current_floor)
+    floor = Floor(data_dir, game.current_floor, AITD1)
     enemy_idx = game.world_objects[222].obj_index
 
     _frame, draw_list = main._scene_frame(
@@ -491,7 +491,7 @@ def test_mouse_journey_one_click_attack_swings_the_held_saber(data_dir, monkeypa
     hero_idx = game.current_camera_target_actor
     enemy_idx = game.world_objects[222].obj_index
     enemy = game.actors[enemy_idx]
-    floor = Floor(data_dir, game.current_floor)
+    floor = Floor(data_dir, game.current_floor, AITD1)
     geometry_renderer = _HeadlessRenderer()
 
     observed = {"states": set(), "hit": None, "target_box": None}

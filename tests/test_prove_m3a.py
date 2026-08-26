@@ -51,7 +51,7 @@ def test_headless_boot_ticks(data_dir):
     trace_path = "/tmp/m3a_trace.log"
     game = init_game(data_dir, AITD1, hero=0)
     game.trace = Trace(trace_path)
-    floor = Floor(data_dir, game.current_floor)
+    floor = Floor(data_dir, game.current_floor, AITD1)
     buf = InputBuffer()
     for tick in range(60):
         play_tick(game, floor, buf)

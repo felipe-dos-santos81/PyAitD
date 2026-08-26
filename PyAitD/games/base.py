@@ -17,6 +17,7 @@ class GameProfile:
     tracks_pak: str
     text_pak: str
     resource_pak: str
+    palette_entry: int       # resource_pak entry holding the 768-byte VGA palette
     heroes: tuple            # ((body_archive, anim_archive), ...) indexed by hero
     cvar_names: tuple
     defines_big_endian: bool

@@ -6,6 +6,7 @@ import numpy as np
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.mask import create_aitd1_mask, fill_poly
 from PyAitD.engine.mask_geometry import MaskDraw, iter_mask_records, mask_polygons, triangulate_polygon
+from PyAitD.games.aitd1.profile import AITD1
 import pytest
 
 pytestmark = pytest.mark.engine
@@ -190,7 +191,7 @@ def test_create_aitd1_mask_matches_hand_computed_bitmaps_and_bboxes():
 
 
 def test_polygons_rasterize_to_the_bitmap_masks(data_dir):
-    floor = Floor(data_dir, 0)
+    floor = Floor(data_dir, 0, AITD1)
     for cam_idx in range(len(floor.cameras)):
         off = floor.camera_data_offsets[cam_idx]
         bitmaps = create_aitd1_mask(floor.camera_raw, off)
@@ -208,7 +209,7 @@ def test_polygons_rasterize_to_the_bitmap_masks(data_dir):
 
 
 def test_ids_are_positional_and_floor_caches(data_dir):
-    floor = Floor(data_dir, 0)
+    floor = Floor(data_dir, 0, AITD1)
     draws = floor.mask_draws(0)
     assert [d.id for d in draws] == list(range(len(draws)))
     assert floor.mask_draws(0) is draws

@@ -16,7 +16,7 @@ pytestmark = [pytest.mark.engine, pytest.mark.journey]
 def boot_intro(data_dir, hero=0):
     game = init_game(data_dir, AITD1, hero=hero)
     start_game(game, *AITD1.intro_start)
-    return game, Floor(data_dir, game.current_floor)
+    return game, Floor(data_dir, game.current_floor, AITD1)
 
 
 def run_intro(data_dir, game, floor, ticks, on_modal=None):
@@ -28,7 +28,7 @@ def run_intro(data_dir, game, floor, ticks, on_modal=None):
     for t in range(ticks):
         play_tick(game, floor, buf)
         if floor.number != game.current_floor:
-            floor = Floor(data_dir, game.current_floor)
+            floor = Floor(data_dir, game.current_floor, AITD1)
             events.append((t, "floor", game.current_floor, game.current_room))
         if game.mode.name != "PLAY":
             events.append((t, type(game.active_modal).__name__))

@@ -48,7 +48,7 @@ def test_attic_lamp_find_take_use_and_drop_checkpoint(data_dir):
     # LM_DROP (life.cpp:1510) -> drop(vars[9], 1) -> PutAtObjet (main.cpp:3948)
     # -> DeleteInventoryObjet (main.cpp:2356) + foundFlag |= 0x4000.
     assert game.vars[9] == lamp_idx
-    floor = Floor(data_dir, 0)
+    floor = Floor(data_dir, 0, AITD1)
     for _ in range(200):
         if lamp_idx not in inventory_items(game):
             break

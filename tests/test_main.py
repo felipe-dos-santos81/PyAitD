@@ -468,6 +468,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(monkey
     import PyAitD.app.shell as main
     from PyAitD.app import ui
     from PyAitD.engine.effects import GameMode, InputMode
+    from PyAitD.games.aitd1.profile import AITD1
 
     game = SimpleNamespace(
         _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,
@@ -477,6 +478,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(monkey
         current_camera_target_actor=-1,
         inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
         current_inventory=0, status_screen_allowed=1, assets=object(),
+        profile=AITD1,
     )
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])

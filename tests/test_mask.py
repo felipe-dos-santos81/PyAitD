@@ -2,6 +2,7 @@
 import numpy as np
 
 from PyAitD.engine.mask import fill_poly
+from PyAitD.games.aitd1.profile import AITD1
 import pytest
 
 pytestmark = pytest.mark.engine
@@ -31,7 +32,7 @@ def test_masks_tagged_with_viewed_room(data_dir):
     from PyAitD.engine.mask import create_aitd1_mask
     import pathlib
     d = pathlib.Path(data_dir)
-    floor = Floor(d, 0)
+    floor = Floor(d, 0, AITD1)
     masks = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[0])
     assert masks
     assert all(m.viewed_room == 0 for m in masks)
@@ -42,7 +43,7 @@ def test_masks_retain_actor_trigger_rectangles(data_dir):
     from PyAitD.engine.mask import create_aitd1_mask
     import pathlib
     d = pathlib.Path(data_dir)
-    floor = Floor(d, 0)
+    floor = Floor(d, 0, AITD1)
 
     masks = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[0])
 

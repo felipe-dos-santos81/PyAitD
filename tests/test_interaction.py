@@ -130,7 +130,7 @@ def test_hold_action_target_rejects_an_out_of_range_world_backlink(data_dir):
 
 def test_hold_action_approach_is_outside_the_wardrobe_footprint(data_dir):
     game = init_game(data_dir, AITD1)
-    floor = Floor(data_dir, game.current_floor)
+    floor = Floor(data_dir, game.current_floor, AITD1)
     hero_idx = game.current_camera_target_actor
     wardrobe_idx = game.world_objects[4].obj_index
     result = hold_action_approach(game, floor, hero_idx, wardrobe_idx)

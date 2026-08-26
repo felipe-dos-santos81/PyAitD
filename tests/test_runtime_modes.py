@@ -467,7 +467,7 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
     assert init_calls == [(staging._data_dir, 1)]
     assert new_game is not staging
     assert new_game.trace is staging.trace
-    assert floor_calls == [(new_game._data_dir, new_game.current_floor)]
+    assert floor_calls == [(new_game._data_dir, new_game.current_floor, new_game.profile)]
     assert isinstance(new_buffer, InputBuffer) and new_buffer.bindings is not None
     assert (new_session.settings_error, new_session.settings_dirty) == (
         "named error", True,
@@ -852,7 +852,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
             assert session.found.hover is None
         boundaries.append(boundary)
 
-    def load_floor(_data_dir, number):
+    def load_floor(_data_dir, number, _profile):
         if game.active_modal is not None:
             assert_takeover_clean("floor-load")
         return SimpleNamespace(
@@ -1311,6 +1311,7 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
         current_camera_target_actor=-1,
         inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
         current_inventory=0, status_screen_allowed=1, assets=object(),
+        profile=AITD1,
     )
 
     def spy_restart_session(game):

@@ -100,6 +100,7 @@ AITD1 = GameProfile(
     tracks_pak="LISTTRAK",
     text_pak="ENGLISH",
     resource_pak="ITD_RESS",
+    palette_entry=3,
     heroes=(("LISTBODY", "LISTANIM"), ("LISTBOD2", "LISTANI2")),
     cvar_names=CVAR_NAMES,
     defines_big_endian=True,

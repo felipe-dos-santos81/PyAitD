@@ -219,6 +219,7 @@ def test_vm_dispatches_through_the_game_profile():
     table[0] = lambda vm: seen.append("hit")
     profile = GameProfile(
         name="stub", lifes_pak="", tracks_pak="", text_pak="", resource_pak="",
+        palette_entry=3,
         heroes=(), cvar_names=(), defines_big_endian=True,
         opcode_table=tuple(table),
         reduced_dispatch=lambda vm, op, w: None, reduced_allowed=frozenset(),

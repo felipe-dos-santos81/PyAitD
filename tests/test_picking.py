@@ -34,7 +34,7 @@ def test_pick_floor_round_trips_projected_points(data_dir):
     # screen must round-trip at least one of them, so a regression narrowed
     # to one camera angle (e.g. a _quad_of corner-selection bug) cannot hide
     # behind other cameras' successes.
-    floor = Floor(data_dir, 0)
+    floor = Floor(data_dir, 0, AITD1)
     game = init_game(data_dir, AITD1)
     floor_y = game.actors[game.current_camera_target_actor].world_y
     checked = 0
@@ -70,7 +70,7 @@ def test_pick_floor_round_trips_projected_points(data_dir):
 
 
 def test_pick_floor_outside_every_cover_polygon_is_none(data_dir):
-    floor = Floor(data_dir, 0)
+    floor = Floor(data_dir, 0, AITD1)
     # top-left corner of the 320x200 logical surface is ceiling, never floor
     assert pick_floor((2, 2), floor, 0, 0, 0) is None
 
@@ -155,7 +155,7 @@ def test_actor_bbox_clamps_rather_than_drops_a_straddling_actor():
 def test_pick_floor_in_room_uses_that_room_s_own_origin(data_dir):
     # room 0 of floor 0 is the only room, so the global-camera form must agree
     # exactly with the slot form it generalises
-    floor = Floor(data_dir, 0)
+    floor = Floor(data_dir, 0, AITD1)
     game = init_game(data_dir, AITD1)
     floor_y = game.actors[game.current_camera_target_actor].world_y
     global_cam = floor.rooms[0].camera_indices[0]
@@ -170,7 +170,7 @@ def test_pick_floor_in_room_uses_that_room_s_own_origin(data_dir):
 
 
 def test_pick_floor_any_room_reports_which_room_it_hit(data_dir):
-    floor = Floor(data_dir, 0)
+    floor = Floor(data_dir, 0, AITD1)
     game = init_game(data_dir, AITD1)
     floor_y = game.actors[game.current_camera_target_actor].world_y
     state = _state(floor, 0, 0)
@@ -187,7 +187,7 @@ def test_pick_floor_any_room_prefers_the_hero_s_own_room(data_dir):
     # in BOTH rooms camera 0 views, so the hero's room is what breaks the tie
     # rather than the only candidate. Camera 0 lists its viewed rooms as
     # [6, 0], so without the preference room 6 would win in both directions.
-    floor = Floor(data_dir, 1)
+    floor = Floor(data_dir, 1, AITD1)
     screen = (178, 181)
     floor_y = 0
     for room_idx in (0, 6):

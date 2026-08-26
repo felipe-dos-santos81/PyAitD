@@ -84,3 +84,13 @@ def test_aitd1_start_floors_follow_startAITD1():
     fields = {f.name: f for f in dataclasses.fields(AITD1)}
     assert fields["intro_start"].default is None
     assert fields["game_start"].default == (0, 0)
+
+
+def test_aitd1_palette_entry_pins_the_resource_palette_slot():
+    # ITD_RESS entry 3 is the 768-byte VGA palette (6 bits per channel).
+    # Both engine/floor.py and engine/assets.py used to hardcode the 3.
+    assert AITD1.palette_entry == 3
+    from PyAitD.engine import assets, floor
+    assert not hasattr(floor, "PALETTE_PAK")
+    assert not hasattr(floor, "PALETTE_ENTRY")
+    assert not hasattr(assets, "GAME_PALETTE_ENTRY")

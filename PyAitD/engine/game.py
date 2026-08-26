@@ -179,7 +179,7 @@ class Game:
     def rooms_of_floor(self, floor_number):
         # roomDataTable port: global room indices, entry per room in the ETAGE pak
         if floor_number not in self._rooms_by_floor:
-            self._rooms_by_floor[floor_number] = Floor(self._data_dir, floor_number).rooms
+            self._rooms_by_floor[floor_number] = Floor(self._data_dir, floor_number, self.profile).rooms
         return self._rooms_by_floor[floor_number]
 
     def camera_param(self, slot):

@@ -19,7 +19,7 @@ def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, monkeyp
     import PyAitD.engine.playworld as playworld
 
     game = init_game(data_dir, AITD1)
-    floor = Floor(data_dir, game.current_floor)
+    floor = Floor(data_dir, game.current_floor, AITD1)
     live = [i for i, actor in enumerate(game.actors) if actor.index_in_world >= 0]
     assert len(live) > 1, "the test needs more than one live actor to prove the loop finished"
     seen = []
@@ -102,7 +102,7 @@ def test_game_over_during_a_cutscene_is_cutscene_finished(data_dir, monkeypatch)
 
     game = init_game(data_dir, AITD1)
     game.allow_system_menu = False      # PlayWorld(allowSystemMenu=0): mainLoop.cpp:185 break, not death
-    floor = Floor(data_dir, game.current_floor)
+    floor = Floor(data_dir, game.current_floor, AITD1)
     monkeypatch.setattr(playworld, "run_life", lambda current, frame: setattr(current, "flag_game_over", 1) or True)
     monkeypatch.setattr(playworld, "life_gate", lambda actor: actor.index_in_world >= 0)
     assert play_tick(game, floor, InputBuffer()) is False

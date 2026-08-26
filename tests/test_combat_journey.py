@@ -31,7 +31,7 @@ pytestmark = [pytest.mark.engine, pytest.mark.journey]
 def _venue(data_dir):
     game = init_game(data_dir, AITD1)
     enter_combat_venue(game)
-    return game, Floor(data_dir, 5), game.world_objects[222].obj_index
+    return game, Floor(data_dir, 5, AITD1), game.world_objects[222].obj_index
 
 
 def test_obj222_real_script_hits_and_hero_consumes_same_tick(data_dir):
@@ -99,7 +99,7 @@ def _journey_to_game_over(data_dir, budget=12000):
         play_tick(game, floor, InputBuffer())
         if floor.number != game.current_floor:
             # the outer loop owns Floor I/O (__main__.run does exactly this)
-            floor = Floor(data_dir, game.current_floor)
+            floor = Floor(data_dir, game.current_floor, AITD1)
     return game, saw_death_life
 
 

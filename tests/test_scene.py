@@ -18,7 +18,7 @@ pytestmark = pytest.mark.render
 def _boot(data_dir):
     game = init_game(data_dir, AITD1)
     game.num_camera = game.new_num_camera
-    floor = Floor(data_dir, game.current_floor)
+    floor = Floor(data_dir, game.current_floor, AITD1)
     return game, floor
 
 
@@ -133,7 +133,7 @@ def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir):
     from PyAitD.render.geometry import pose_geometry
     from PyAitD.engine.assets import Assets
     assets = Assets(data_dir, AITD1)
-    floor = Floor(data_dir, 0)
+    floor = Floor(data_dir, 0, AITD1)
     checked_any = False
     for room in floor.rooms:
         for cam_idx in room.camera_indices:

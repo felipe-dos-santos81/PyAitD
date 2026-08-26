@@ -26,7 +26,7 @@ def _settled_venue(data_dir):
     # This floor-picking regression owns camera slot 5 independently of the
     # manual mouse-combat fixture's now-visible camera-0 lane.
     relocate_actor(game, hero_idx, 5, 4, -7400, -4010, -1000)
-    floor = Floor(data_dir, game.current_floor)
+    floor = Floor(data_dir, game.current_floor, AITD1)
     game.num_camera = game.new_num_camera
     play_tick(game, floor, InputBuffer())  # one tick: the camera settles
     return game, floor

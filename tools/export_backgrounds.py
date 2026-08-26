@@ -33,12 +33,17 @@ from PyAitD.engine.pak import PakError
 from PyAitD.games import load_profile
 
 
+# This tool exports AITD1 data and has no Game to take a profile from, so it
+# resolves the profile itself -- the one place the game id is named here.
+PROFILE = load_profile("aitd1")
+
+
 def load_floor(data_dir, number):
-    return Floor(data_dir, number)
+    return Floor(data_dir, number, PROFILE)
 
 
 def load_assets(data_dir):
-    return Assets(data_dir, load_profile("aitd1"))
+    return Assets(data_dir, PROFILE)
 
 
 def parse_floors(text):

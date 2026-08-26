@@ -7,8 +7,6 @@ from PyAitD.engine.formats import decode_image, decode_palette, parse_anim, pars
 from PyAitD.engine.pak import Pak, find_pak
 from PyAitD.engine.text import parse_book_tokens, parse_system_texts
 
-GAME_PALETTE_ENTRY = 3
-
 
 class Assets:
     def __init__(self, data_dir, profile, hero=0):
@@ -30,7 +28,7 @@ class Assets:
         self.book_pages = {}  # ui-layer wrapped page layout, keyed by text entry
         self._resource_screens = {}
         self._cadre_sprites = None
-        self._game_palette = decode_palette(load_entry(self._resource_pak, GAME_PALETTE_ENTRY))
+        self._game_palette = decode_palette(load_entry(self._resource_pak, profile.palette_entry))
 
     def body(self, index):
         if not 0 <= index < self.num_bodies:

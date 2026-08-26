@@ -27,7 +27,7 @@ def main(argv):
     agent = agent_extent(game.actors[game.current_camera_target_actor])
     built = skipped = empty = 0
     for number in range(8):
-        floor = Floor(data, number)
+        floor = Floor(data, number, game.profile)
         for room_idx, room in enumerate(floor.rooms):
             mesh = build_room_mesh(floor, room_idx, agent)
             if mesh is None:
