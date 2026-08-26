@@ -1178,6 +1178,14 @@ def main(argv=None):
         # run(), following the title -> credits -> menu -> selector flow
         # (startAITD1); PLAY never ticks or presents until _hero_branch
         # replaces the staging game with the confirmed hero's game.
+        # Invariant: this is the only modal ever opened before a ModalSession
+        # exists (session is constructed below, then handed to run()) -- so
+        # ShowTitle's presenter must be reset-clean by construction, since no
+        # session.reset_for(effect) call has run yet to clean it. A route_*
+        # branch that reads/mutates session.title before reset_for observes
+        # this exact effect identity is exactly the bug fixed in 16be7dd
+        # (route_mouse dispatched before reset_for while route_command reset
+        # first, silently swallowing the title screen's first click).
         game.open_modal(ShowTitle())
     session = load_runtime_session(settings_path())
     # Session-only: this replaces session.settings in memory, but
