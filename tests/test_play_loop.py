@@ -757,7 +757,7 @@ from PyAitD.app.shell import _is_interactable, resolve_play_click, route_play_cl
 from PyAitD.engine.effects import GameMode
 from PyAitD.engine.game import AF_ANIMATED, AF_FOUNDABLE
 from PyAitD.engine.interaction import _finish_take, inventory_items
-from PyAitD.scenario import enter_combat_venue
+from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.app.ui import InputBuffer, ModalSession, PlayLayout
 
 

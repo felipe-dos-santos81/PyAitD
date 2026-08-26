@@ -23,7 +23,7 @@ from PyAitD.engine.effects import (
     OpenInventory, OpenSystemMenu, ReadText, ShowFound, ShowPicture,
 )
 from PyAitD.engine.game import init_game
-from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
+from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter, Command,
     InputBuffer, ModalLayout, ModalSession, ReadingResult, SettingsNoticeLayout,

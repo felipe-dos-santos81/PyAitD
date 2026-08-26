@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from PyAitD.engine.game import init_game
 from PyAitD.engine.interaction import inventory_items
-from PyAitD.scenario import (
+from PyAitD.games.aitd1.scenario import (
     COMBAT_VENUE, enter_combat_venue, enter_mouse_combat_fixture,
 )
 

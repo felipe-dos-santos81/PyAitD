@@ -23,7 +23,7 @@ from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import SHADING_MODES, RenderOptions
-from PyAitD.scenario import enter_combat_venue
+from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.render.scene import build_frame
 
 FIXTURES = ("attic", "combat")

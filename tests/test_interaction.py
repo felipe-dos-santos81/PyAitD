@@ -296,7 +296,7 @@ def test_cancel_held_intent_stops_and_rearms_stand_idempotently(data_dir):
 def test_cancel_held_intent_forces_one_coherent_stand_request(
         data_dir, protected_request,
 ):
-    from PyAitD.life_ops import ANIM_REPEAT, ANIM_UNINTERRUPTABLE
+    from PyAitD.engine.anim import ANIM_REPEAT, ANIM_UNINTERRUPTABLE
 
     game = init_game(data_dir)
     hero = game.actors[game.current_camera_target_actor]

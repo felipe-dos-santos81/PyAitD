@@ -84,7 +84,7 @@ def _refresh_held_target(game, hero, mesh):
         PLAYER_PUSH_ANIM, cancel_nav_intent, hold_action_approach,
         is_hold_action_target,
     )
-    from PyAitD.life_ops import init_anim
+    from PyAitD.engine.anim import init_anim
 
     intent = game.nav_intent
     world_idx = intent.target_object_idx

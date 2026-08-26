@@ -11,7 +11,7 @@ from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game, relocate_actor
 from PyAitD.engine.picking import _camera_state_global, pick_floor_any_room, project_floor_point
 from PyAitD.engine.playworld import play_tick
-from PyAitD.scenario import enter_mouse_combat_fixture
+from PyAitD.games.aitd1.scenario import enter_mouse_combat_fixture
 from PyAitD.app.ui import InputBuffer
 
 

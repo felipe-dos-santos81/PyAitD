@@ -108,7 +108,7 @@ def test_hit_fire_throw_arm_only_when_init_anim_accepts(data_dir, monkeypatch):
     accepted = iter((0, 1, 1, 1))
     calls = []
     monkeypatch.setattr(
-        "PyAitD.life_ops.init_anim",
+        "PyAitD.games.aitd1.life_ops.init_anim",
         lambda current, anim, kind, nxt: calls.append((anim, kind, nxt)) or next(accepted),
     )
 
@@ -140,7 +140,7 @@ def test_hit_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(data
     actor.anim_action_param = 77
     actor.hot_point_id = 88
     actor.hit_force = 44
-    monkeypatch.setattr("PyAitD.life_ops.init_anim", lambda *args: 0)
+    monkeypatch.setattr("PyAitD.games.aitd1.life_ops.init_anim", lambda *args: 0)
 
     # LM_END (11) placed immediately after the operands: if op_hit consumed
     # the wrong number of words, the VM would either misread a trailing
@@ -163,7 +163,7 @@ def test_fire_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(dat
     actor.anim_action_param = 77
     actor.hot_point_id = 88
     actor.hit_force = 44
-    monkeypatch.setattr("PyAitD.life_ops.init_anim", lambda *args: 0)
+    monkeypatch.setattr("PyAitD.games.aitd1.life_ops.init_anim", lambda *args: 0)
 
     result = _run(game, 53, 200, 4, 5, 60, 12, 201, 11, actor=actor_idx)
 
@@ -181,7 +181,7 @@ def test_throw_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(da
     actor.anim_action_param = 77
     actor.hot_point_id = 88
     actor.hit_force = 44
-    monkeypatch.setattr("PyAitD.life_ops.init_anim", lambda *args: 0)
+    monkeypatch.setattr("PyAitD.games.aitd1.life_ops.init_anim", lambda *args: 0)
 
     thrown_idx = 13
     world = game.world_objects[thrown_idx]

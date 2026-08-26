@@ -460,7 +460,7 @@ def cancel_nav_intent(game):
     hero_idx = game.current_camera_target_actor
     if hero_idx == -1:
         return
-    from PyAitD.life_ops import init_anim
+    from PyAitD.engine.anim import init_anim
     hero = game.actors[hero_idx]
     hero.speed = 0
     hero.direction = 0

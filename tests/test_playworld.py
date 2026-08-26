@@ -369,7 +369,7 @@ def test_stationary_target_does_not_replan_away_the_approach_stall(data_dir):
 
 
 def test_active_push_suppresses_the_verified_pending_walk_request(data_dir):
-    from PyAitD.life_ops import ANIM_REPEAT
+    from PyAitD.engine.anim import ANIM_REPEAT
 
     game = init_game(data_dir)
     floor = Floor(data_dir, game.current_floor)
@@ -390,7 +390,7 @@ def test_active_push_suppresses_the_verified_pending_walk_request(data_dir):
 
 
 def test_active_push_preserves_an_unrelated_uninterruptible_animation_request(data_dir):
-    from PyAitD.life_ops import ANIM_UNINTERRUPTABLE
+    from PyAitD.engine.anim import ANIM_UNINTERRUPTABLE
 
     game = init_game(data_dir)
     floor = Floor(data_dir, game.current_floor)
@@ -548,7 +548,7 @@ def test_anim_pass_refreshes_before_anim_and_strikes_after_dec(monkeypatch, data
 def _latched_attack(data_dir):
     """A mouse-mode game whose InputBuffer holds an accepted target click."""
     from PyAitD.engine.interaction import _finish_take
-    from PyAitD.scenario import enter_mouse_combat_fixture
+    from PyAitD.games.aitd1.scenario import enter_mouse_combat_fixture
 
     game = init_game(data_dir, hero=0)
     enter_mouse_combat_fixture(game)

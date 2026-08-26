@@ -21,7 +21,7 @@ from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import AF_ANIMATED, init_game, relocate_actor
 from PyAitD.engine.life import process_life
 from PyAitD.engine.playworld import TICK_MS, play_tick
-from PyAitD.scenario import COMBAT_VENUE, enter_combat_venue
+from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.app.ui import InputBuffer, ModalSession, render_game_over, transparent_canvas
 
 

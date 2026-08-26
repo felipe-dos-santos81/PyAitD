@@ -21,7 +21,7 @@ from PyAitD.engine.pak import PakError
 from PyAitD.engine.playworld import TICK_MS, play_tick
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import BACKGROUND_FILTERS, SHADING_MODES, validate_render_options
-from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
+from PyAitD.games.aitd1.scenario import enter_combat_venue, enter_mouse_combat_fixture
 from PyAitD.render.scene import build_frame
 from PyAitD.app.ui import (
     Command, InputBuffer, ModalSession, configure_input, event_to_input,

@@ -1,7 +1,42 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Animation state machine port (FITD anim.cpp SetAnimObjet/SetInterAnimObjet)."""
 
+from PyAitD.engine.game import AF_ANIMATED
 from PyAitD.engine.world import trunc_div as _trunc_div
+
+ANIM_ONCE = 0
+ANIM_REPEAT = 1
+ANIM_UNINTERRUPTABLE = 2
+
+
+def init_anim(actor, anim_num, anim_type, anim_info):
+    # anim.cpp:51 InitAnim, AITD1 path (M3a subset: no SetAnimObjet mesh switch)
+    if anim_num == actor.anim:
+        if not (actor.object_type & AF_ANIMATED):
+            actor.object_type |= AF_ANIMATED
+            actor.anim_type = anim_type
+            actor.anim_info = anim_info
+            return 1
+        actor.anim_type = anim_type
+        actor.anim_info = anim_info
+        return 0
+    if anim_num == -1:
+        actor.new_anim = -2
+        return 1
+    if not (actor.object_type & AF_ANIMATED):
+        actor.object_type |= AF_ANIMATED
+        actor.new_anim = anim_num
+        actor.new_anim_type = anim_type
+        actor.new_anim_info = anim_info
+        return 1
+    if actor.anim_type & ANIM_UNINTERRUPTABLE:
+        return 0
+    if actor.new_anim_type & ANIM_UNINTERRUPTABLE:
+        return 0
+    actor.new_anim = anim_num
+    actor.new_anim_type = anim_type
+    actor.new_anim_info = anim_info
+    return 1
 
 
 def patch_inter_angle(previous, next_, bp, bx):

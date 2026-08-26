@@ -5,7 +5,7 @@ from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import FloorStart, enter_floor_start, init_game, relocate_actor
 from PyAitD.engine.life import process_life
 from PyAitD.engine.playworld import play_tick
-from PyAitD.scenario import enter_combat_venue
+from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.app.ui import InputBuffer
 
 

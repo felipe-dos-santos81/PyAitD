@@ -20,9 +20,9 @@ from PyAitD.engine.interaction import (
     inventory_items, PLAYER_PUSH_ANIM,
 )
 from PyAitD.engine.playworld import play_tick
-from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
+from PyAitD.games.aitd1.scenario import enter_combat_venue, enter_mouse_combat_fixture
 from PyAitD.app.ui import InputBuffer, ModalLayout, PlayLayout
-from PyAitD.mouse_contract import (
+from PyAitD.games.aitd1.mouse_contract import (
     ALL_MODES, CAPABILITY_ROUTES, COMMAND_MOUSE_CAPABILITIES,
     KEYBOARD_ONLY_DECISIONS, LEGACY_COMMAND_REPLACEMENTS,
     MODE_MOUSE_CAPABILITIES, MOUSE_INTERACTION_DECISIONS, MouseRoute,
@@ -33,7 +33,7 @@ from PyAitD.app.ui import Command
 
 _PURITY_PROBE = r"""
 import sys
-import PyAitD.mouse_contract
+import PyAitD.games.aitd1.mouse_contract
 leaked = {"pygame", "moderngl", "PyAitD.app.ui", "PyAitD.render.render"} & sys.modules.keys()
 raise SystemExit(", ".join(sorted(leaked)) if leaked else 0)
 """

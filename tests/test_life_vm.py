@@ -162,7 +162,7 @@ def test_opcode_87_raises(data_dir):
 
 def test_reduced_lm_type_sets_flags(data_dir):
     # LM_TYPE(40) with 0x8000 on out-of-floor object: reduced dispatch
-    # (PyAitD.life_reduced, task 8) — world-obj flags TYPE_MASK update
+    # (PyAitD.games.aitd1.life_reduced, task 8) — world-obj flags TYPE_MASK update
     game = init_game(data_dir, hero=0)
     unspawned = next(i for i, o in enumerate(game.world_objects) if o.obj_index == -1)
     game.assets = _FakeAssets(script=_script(0x8000 | 40, unspawned, 0x10, 12))
