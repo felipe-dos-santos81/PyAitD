@@ -95,3 +95,35 @@ def save_prompts(path, prompts):
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(prompts, indent=1, sort_keys=True))
     os.replace(tmp, path)
+
+
+def image_part(path):
+    return {"inline_data": {"mime_type": "image/png", "data": pathlib.Path(path).read_bytes()}}
+
+
+def _reference_parts(cam):
+    parts = [image_part(cam.source)]
+    if cam.guide is not None:
+        parts.append(image_part(cam.guide))
+    return parts
+
+
+def describe(client, model, cam):
+    """One text-model call: original (+ guide) -> scene prompt."""
+    contents = _reference_parts(cam) + [describe_prompt(cam.guide is not None)]
+    response = client.models.generate_content(model=model, contents=contents)
+    return (response.text or "").strip()
+
+
+def generate(client, model, cam, prompt):
+    """One image-model call: original (+ guide) + prompt -> image bytes.
+    `prompt` is the full generation prompt (caller composes it)."""
+    contents = _reference_parts(cam) + [prompt]
+    config = {"response_modalities": ["IMAGE"], "image_config": {"aspect_ratio": GENERATE_ASPECT}}
+    response = client.models.generate_content(model=model, contents=contents, config=config)
+    for candidate in response.candidates or ():
+        for part in candidate.content.parts or ():
+            data = getattr(part, "inline_data", None)
+            if data is not None and (data.mime_type or "").startswith("image/"):
+                return data.data
+    raise RuntimeError("no image in response")
