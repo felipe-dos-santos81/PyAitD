@@ -6,6 +6,8 @@ from PyAitD.engine.assets import Assets
 from PyAitD.engine.text import BookToken, parse_book_tokens, parse_system_texts
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def test_system_text_parser_decodes_ids_and_cp437():
     texts = parse_system_texts(b"@20:You Find\r\n@103:A Photograph\r\n")

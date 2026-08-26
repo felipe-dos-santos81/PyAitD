@@ -4,6 +4,8 @@ import pytest
 from PyAitD.engine.game import NUM_MAX_OBJECT, Game, init_game, game_step_tick, spawn_stage_actors
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def test_init_golden(data_dir):
     game = init_game(data_dir, AITD1, hero=0)

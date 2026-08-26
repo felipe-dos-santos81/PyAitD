@@ -2,6 +2,9 @@
 import pathlib
 
 from PyAitD.engine.formats import parse_defines, parse_objets, parse_priority, parse_vars
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def test_objets_golden(data_dir):

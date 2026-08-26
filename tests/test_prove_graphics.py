@@ -10,6 +10,8 @@ import pytest
 from PyAitD.render.render_options import SHADING_MODES
 from tools.prove_graphics import FIXTURES, _parse_args, main, output_paths, render_fixture
 
+pytestmark = pytest.mark.tools
+
 
 def test_render_fixture_produces_scaled_frames(data_dir, gl_ctx):
     rgb = render_fixture(data_dir, "attic", scale=2, shading="smooth", ctx=gl_ctx)

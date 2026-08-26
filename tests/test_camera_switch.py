@@ -4,6 +4,9 @@ import struct
 from PyAitD.engine.formats import parse_cover_zones
 from PyAitD.engine.pak import Pak
 from PyAitD.engine.world import find_best_camera, is_in_poly
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def test_cover_zones_real_data(data_dir):

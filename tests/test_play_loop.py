@@ -10,6 +10,8 @@ from PyAitD.engine.life import life_gate
 from PyAitD.engine.navmesh import agent_extent
 from PyAitD.engine.picking import project_floor_point
 
+pytestmark = [pytest.mark.shell, pytest.mark.journey]
+
 
 def test_life_gate(data_dir):
     game = init_game(data_dir, AITD1, hero=0)

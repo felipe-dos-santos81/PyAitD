@@ -2,6 +2,9 @@
 import struct
 
 from PyAitD.engine.explode import explode, ExplodeError
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def _entry_payload(data, off):

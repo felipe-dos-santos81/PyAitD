@@ -3,6 +3,9 @@ from PyAitD.render.render_options import (
     BACKGROUND_FILTERS, SHADING_MODES, RenderOptions, cycle_filter, cycle_scale,
     cycle_shading, validate_render_options,
 )
+import pytest
+
+pytestmark = pytest.mark.render
 
 
 def test_defaults():

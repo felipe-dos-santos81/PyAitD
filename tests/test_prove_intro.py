@@ -2,6 +2,9 @@
 import pathlib
 
 from tools.prove_intro import _parse_args, output_paths, visited_cameras
+import pytest
+
+pytestmark = pytest.mark.tools
 
 
 def test_parse_args_defaults():

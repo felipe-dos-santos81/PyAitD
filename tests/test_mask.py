@@ -2,6 +2,9 @@
 import numpy as np
 
 from PyAitD.engine.mask import fill_poly
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def test_fill_triangle():

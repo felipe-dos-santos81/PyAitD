@@ -25,6 +25,8 @@ from PyAitD.app.ui import (
     SettingsNoticeLayout, SystemMenuLayout, SystemMenuPage, event_to_input,
 )
 
+pytestmark = [pytest.mark.shell, pytest.mark.journey]
+
 
 _FRAME = np.zeros((200, 320, 3), dtype=np.uint8)
 

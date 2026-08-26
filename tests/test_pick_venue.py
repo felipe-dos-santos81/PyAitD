@@ -14,6 +14,9 @@ from PyAitD.engine.playworld import play_tick
 from PyAitD.games.aitd1.scenario import enter_mouse_combat_fixture
 from PyAitD.app.ui import InputBuffer
 from PyAitD.games.aitd1.profile import AITD1
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def _settled_venue(data_dir):

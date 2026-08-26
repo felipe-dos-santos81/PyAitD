@@ -4,6 +4,9 @@ from types import SimpleNamespace
 from PyAitD.engine.formats import Zone
 from PyAitD.engine.interaction import gere_dec
 from PyAitD.games.aitd1.profile import AITD1
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def room(wx, wy, wz, zones=()):

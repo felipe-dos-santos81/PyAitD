@@ -31,6 +31,8 @@ from PyAitD.games.aitd1.profile import AITD1
 
 from tests.purity import assert_presentation_free
 
+pytestmark = [pytest.mark.shell, pytest.mark.journey]
+
 
 def test_mouse_contract_is_presentation_free():
     assert_presentation_free("PyAitD.games.aitd1.mouse_contract")

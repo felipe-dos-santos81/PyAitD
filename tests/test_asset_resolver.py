@@ -9,6 +9,8 @@ from PyAitD.render.asset_resolver import (
     AssetResolver, ImageAsset, load_png_rgb, override_background_path, override_palette_path,
 )
 
+pytestmark = pytest.mark.render
+
 
 def _floor(number=3):
     original = np.full((200, 320, 3), 7, dtype=np.uint8)

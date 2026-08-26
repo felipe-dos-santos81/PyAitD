@@ -7,6 +7,8 @@ from PyAitD.engine.game import init_game
 from PyAitD.engine.life import process_life, read_s16, VM
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def _script(*words):
     # 0x8000-flagged opcodes don't fit 'h': re-sign so they pack as intended

@@ -5,6 +5,9 @@ from PyAitD.engine.actors import check_object_col
 from PyAitD.engine.game import AF_FOUNDABLE, AF_MOVABLE, init_game
 from PyAitD.engine.interaction import resolve_actor_contacts
 from PyAitD.games.aitd1.profile import AITD1
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def live_actor(game, index, room, zv, flags=0, world_idx=0):

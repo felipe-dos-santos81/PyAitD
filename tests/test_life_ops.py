@@ -4,6 +4,9 @@ import struct
 from PyAitD.engine.game import FloorStart, init_game
 from PyAitD.engine.life import process_life
 from PyAitD.games.aitd1.profile import AITD1
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 class _FakeAssets:

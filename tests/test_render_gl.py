@@ -12,6 +12,8 @@ from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
 from PyAitD.engine.skel import RenderResult
 from PyAitD.engine.world import CameraState
 
+pytestmark = pytest.mark.render
+
 
 def _palette():
     palette = np.zeros((256, 3), dtype=np.uint8)

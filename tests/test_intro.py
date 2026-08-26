@@ -10,6 +10,8 @@ from PyAitD.engine.playworld import play_tick
 from PyAitD.app.ui import InputBuffer, ReadingResult
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = [pytest.mark.engine, pytest.mark.journey]
+
 
 def boot_intro(data_dir, hero=0):
     game = init_game(data_dir, AITD1, hero=hero)

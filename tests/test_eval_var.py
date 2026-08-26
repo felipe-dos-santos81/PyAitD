@@ -8,6 +8,8 @@ from PyAitD.engine.game import init_game
 from PyAitD.engine.life import VM
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def _vm(game, *words):
     # pack as u16 bit patterns; read_s16 sign-extends (tags like 0x8020 don't fit '<h')

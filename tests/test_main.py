@@ -10,6 +10,8 @@ from PyAitD.app.shell import parse_args
 from PyAitD.app.config import default_settings
 from PyAitD.engine.effects import ShowTitle
 
+pytestmark = pytest.mark.shell
+
 
 def test_parse_args_defaults():
     args = parse_args([])

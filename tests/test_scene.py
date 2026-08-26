@@ -10,6 +10,9 @@ from PyAitD.render.scene import CameraView, FrameDescription, build_frame, mask_
 from PyAitD.engine.skel import skin
 from PyAitD.engine.world import CameraState
 from PyAitD.games.aitd1.profile import AITD1
+import pytest
+
+pytestmark = pytest.mark.render
 
 
 def _boot(data_dir):

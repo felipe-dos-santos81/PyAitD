@@ -14,6 +14,9 @@ from PyAitD.render.render_soft import SoftwareBackend
 from PyAitD.render.scene import CameraView, FrameDescription
 from PyAitD.app.ui import transparent_canvas
 from PyAitD.engine.world import CameraState
+import pytest
+
+pytestmark = pytest.mark.render
 
 
 def test_fit_quad_exact_multiple():

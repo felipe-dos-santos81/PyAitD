@@ -77,3 +77,31 @@ def test_marker_parser_ignores_function_level_marks(tmp_path):
 
 def test_registered_vocabulary_is_exactly_the_declared_one():
     assert registered_markers() == set(SUBJECTS) | set(CROSS)
+
+
+def test_every_test_file_declares_exactly_one_subject():
+    missing, multiple = [], []
+    for path in all_test_files():
+        subjects = markers_of(path) & set(SUBJECTS)
+        if not subjects:
+            missing.append(path.name)
+        elif len(subjects) > 1:
+            multiple.append((path.name, sorted(subjects)))
+    assert not missing, f"no subject marker: {missing}"
+    assert not multiple, f"more than one subject marker: {multiple}"
+
+
+def test_subjects_partition_the_suite_and_only_known_markers_are_used():
+    by_subject = {s: set() for s in SUBJECTS}
+    for path in all_test_files():
+        used = markers_of(path)
+        unknown = used - set(SUBJECTS) - set(CROSS)
+        assert not unknown, f"{path.name} uses unregistered marker(s) {sorted(unknown)}"
+        for subject in used & set(SUBJECTS):
+            by_subject[subject].add(path.name)
+    union = set().union(*by_subject.values())
+    assert union == {p.name for p in all_test_files()}, "subjects do not cover every file"
+    for a in SUBJECTS:
+        for b in SUBJECTS:
+            if a < b:
+                assert not (by_subject[a] & by_subject[b]), f"{a} and {b} overlap"

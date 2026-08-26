@@ -10,6 +10,8 @@ from PyAitD.engine.effects import (
 from PyAitD.engine.game import init_game
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def test_game_initializes_fitd_inventory_and_effect_state(data_dir):
     game = init_game(data_dir, AITD1)

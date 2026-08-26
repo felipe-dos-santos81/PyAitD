@@ -7,6 +7,8 @@ from PyAitD.render.geometry import BodyGeometry, icosphere, pose_geometry, verte
 from PyAitD.engine.skel import pose_vertices
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.render
+
 
 def _cube_body():
     v = [(-100, -100, -100), (100, -100, -100), (100, 100, -100), (-100, 100, -100),

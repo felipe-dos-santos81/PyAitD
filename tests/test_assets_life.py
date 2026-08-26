@@ -4,6 +4,8 @@ import pytest
 from PyAitD.engine.assets import Assets
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def test_counts(data_dir):
     assets = Assets(data_dir, AITD1)

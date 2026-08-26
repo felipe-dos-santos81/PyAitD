@@ -5,6 +5,8 @@ import pytest
 from PyAitD.engine.formats import decode_image, decode_palette
 from PyAitD.engine.pak import Pak
 
+pytestmark = pytest.mark.engine
+
 
 def test_palette_golden_values(data_dir):
     pak = Pak(data_dir / "ITD_RESS.PAK")

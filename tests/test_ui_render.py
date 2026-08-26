@@ -22,6 +22,8 @@ from PyAitD.app.ui import (
     screen_surface, transparent_canvas,
 )
 
+pytestmark = pytest.mark.shell
+
 
 def test_modal_renderers_return_logical_rgb_frames(data_dir):
     pygame.font.init()

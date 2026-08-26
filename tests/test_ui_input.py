@@ -10,6 +10,8 @@ from PyAitD.app.ui import (
     configure_input, event_to_input, reset_input,
 )
 
+pytestmark = pytest.mark.shell
+
 
 def key(kind, value, *, repeat=False):
     return pygame.event.Event(kind, key=value, repeat=repeat)

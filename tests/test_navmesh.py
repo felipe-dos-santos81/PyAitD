@@ -8,6 +8,9 @@ from PyAitD.engine.world import is_in_poly
 from PyAitD.games.aitd1.profile import AITD1
 
 from tests.purity import assert_presentation_free
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def test_navmesh_does_not_import_the_presentation_layer():

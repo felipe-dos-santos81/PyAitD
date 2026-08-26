@@ -8,6 +8,8 @@ from PyAitD.engine import life
 from PyAitD.games import PROFILES, load_profile
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def test_aitd1_profile_is_registered():
     assert load_profile("aitd1") is AITD1

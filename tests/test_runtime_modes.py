@@ -33,6 +33,8 @@ from PyAitD.app.ui import (
     SystemMenuLayout, SystemMenuPage, SystemMenuPresenter, SystemMenuResult,
 )
 
+pytestmark = pytest.mark.shell
+
 
 def _hover_game_snapshot(game):
     return (

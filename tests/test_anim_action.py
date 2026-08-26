@@ -13,6 +13,8 @@ from PyAitD.engine.game import AF_ANIMATED, AF_BOXIFY, AF_MOVABLE, AF_SPECIAL, i
 from PyAitD.engine.skel import hot_point as skel_hot_point
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def _live_actors(data_dir, count):
     game = init_game(data_dir, AITD1)

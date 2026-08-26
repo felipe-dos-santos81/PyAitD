@@ -7,6 +7,9 @@ from PyAitD.engine.picking import pick_floor, pick_floor_any_room, pick_floor_in
 from PyAitD.engine.world import CameraState
 
 from tests.purity import assert_presentation_free
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def test_picking_does_not_import_the_presentation_layer():
