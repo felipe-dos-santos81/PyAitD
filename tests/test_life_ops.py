@@ -199,7 +199,7 @@ def test_throw_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(da
 
 def test_reduced_stage_onto_the_current_floor_requests_a_spawn(data_dir):
     # FITD regenerates the active list every frame (mainLoop.cpp:249,
-    # GenereActiveList main.cpp:3959), so a world object moved onto the
+    # GenereActiveList main.cpp:1990), so a world object moved onto the
     # current floor by the reduced LM_STAGE (life.cpp:620) spawns next frame.
     # This port gates the scan on flag_genere_aff_list: the reduced op must
     # raise it.

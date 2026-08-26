@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """The floor-7 opening: FITD startGame(7, 1, 0) (AITD1.cpp:356). Real data;
 golden ticks pinned from the 2026-08-26 headless spike."""
-import pytest
-
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game, start_game
 from PyAitD.engine.interaction import apply_reading_result
