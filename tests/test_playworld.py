@@ -34,7 +34,7 @@ def test_play_tick_advances_the_world_without_a_display(data_dir):
     # No Renderer, no display, and no SDL_VIDEODRIVER needed. Constructing the
     # InputBuffer still imports pygame: it is a pygame-free dataclass that lives
     # in ui.py, whose module scope evaluates pygame.K_* and pygame.Rect.
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     floor = Floor(data_dir, game.current_floor)
     buf = InputBuffer()
     start = game.timer
@@ -47,10 +47,11 @@ def test_play_tick_advances_the_world_without_a_display(data_dir):
 from PyAitD.engine.effects import GameMode, InputMode, NavIntent
 from PyAitD.engine.navmesh import agent_extent
 from PyAitD.engine.playworld import apply_play_input
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def test_keyboard_mode_still_reads_the_input_buffer(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.input_mode = InputMode.KEYBOARD
     buf = InputBuffer()
     buf.held_joyd = 5
@@ -62,7 +63,7 @@ def test_keyboard_mode_still_reads_the_input_buffer(data_dir):
 
 
 def test_mouse_mode_ignores_the_keyboard_buffer(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     buf = InputBuffer()
     buf.held_joyd = 5
     apply_play_input(game, buf)
@@ -70,7 +71,7 @@ def test_mouse_mode_ignores_the_keyboard_buffer(data_dir):
 
 
 def test_mouse_mode_mirrors_the_follower_joystick(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     # apply_play_input is called directly here (not through play_tick), so the
     # Floor that _apply_mouse_input's mesh build needs must be stashed by hand
     # — play_tick normally does this at the top of every tick.
@@ -98,7 +99,7 @@ def _push_point(intent, target):
 
 @pytest.mark.parametrize("hero_id", (0, 1))
 def test_engaged_wardrobe_retargets_and_never_asserts_action(data_dir, hero_id):
-    game = init_game(data_dir, hero=hero_id)
+    game = init_game(data_dir, AITD1, hero=hero_id)
     floor = Floor(data_dir, game.current_floor)
     hero = game.actors[game.current_camera_target_actor]
     target = game.actors[game.world_objects[4].obj_index]
@@ -123,7 +124,7 @@ def test_engaged_wardrobe_retargets_and_never_asserts_action(data_dir, hero_id):
 
 
 def test_held_intent_cancels_when_release_is_observed(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.current_floor_data = floor
     target = game.actors[game.world_objects[4].obj_index]
@@ -144,7 +145,7 @@ def test_held_intent_cancels_when_the_live_target_is_invalid(
 ):
     from PyAitD.engine.interaction import hold_action_approach
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.current_floor_data = floor
     world = game.world_objects[4]
@@ -179,7 +180,7 @@ def test_latched_world_target_cancels_if_slot_points_at_another_eligible_actor(
 ):
     from PyAitD.engine.interaction import hold_action_approach, is_hold_action_target
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.current_floor_data = floor
     hero_idx = game.current_camera_target_actor
@@ -208,7 +209,7 @@ def test_held_intent_cancels_an_out_of_range_actor_world_backlink(
 ):
     from PyAitD.engine.interaction import hold_action_approach
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.current_floor_data = floor
     world = game.world_objects[4]
@@ -239,7 +240,7 @@ def test_held_intent_cancels_when_hero_and_target_leave_the_route_origin_togethe
 ):
     from PyAitD.engine.interaction import apply_click_intent, hold_action_approach
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.current_floor_data = floor
     hero_idx = game.current_camera_target_actor
@@ -280,7 +281,7 @@ def test_held_intent_cancels_when_hero_and_target_leave_the_route_origin_togethe
 def test_approach_replans_after_its_snapshotted_target_moves(data_dir):
     from PyAitD.engine.interaction import hold_action_approach
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.current_floor_data = floor
     hero_idx = game.current_camera_target_actor
@@ -326,7 +327,7 @@ def test_approach_replans_after_its_snapshotted_target_moves(data_dir):
 def test_stationary_target_does_not_replan_away_the_approach_stall(data_dir):
     from PyAitD.engine.interaction import hold_action_approach
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.current_floor_data = floor
     hero_idx = game.current_camera_target_actor
@@ -371,7 +372,7 @@ def test_stationary_target_does_not_replan_away_the_approach_stall(data_dir):
 def test_active_push_suppresses_the_verified_pending_walk_request(data_dir):
     from PyAitD.engine.anim import ANIM_REPEAT
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.current_floor_data = floor
     hero = game.actors[game.current_camera_target_actor]
@@ -392,7 +393,7 @@ def test_active_push_suppresses_the_verified_pending_walk_request(data_dir):
 def test_active_push_preserves_an_unrelated_uninterruptible_animation_request(data_dir):
     from PyAitD.engine.anim import ANIM_UNINTERRUPTABLE
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.current_floor_data = floor
     hero = game.actors[game.current_camera_target_actor]
@@ -413,7 +414,7 @@ def test_active_push_preserves_an_unrelated_uninterruptible_animation_request(da
 
 
 def test_stale_off_route_collision_witness_does_not_redirect_contact(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.current_floor_data = floor
     hero_idx = game.current_camera_target_actor
@@ -438,7 +439,7 @@ def test_real_wardrobe_moves_only_after_life_enables_it(data_dir, hero_id):
     from PyAitD.engine.game import AF_MOVABLE
     from PyAitD.engine.interaction import hold_action_approach
 
-    game = init_game(data_dir, hero=hero_id)
+    game = init_game(data_dir, AITD1, hero=hero_id)
     floor = Floor(data_dir, game.current_floor)
     # The real opening scripts perform an unrelated begin_take(object 2) on
     # their first pass, which sets Action 0x800 for that boot tick.  Complete
@@ -475,7 +476,7 @@ def test_hero_walks_to_a_clicked_destination_and_arrives(data_dir):
     from PyAitD.engine.navigate import ARRIVE_DISTANCE
     from PyAitD.engine.realvalue import give_distance_2d
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     hero = game.actors[game.current_camera_target_actor]
     # Deliberately NOT set here. Object data spawns the hero in track mode 1
@@ -532,7 +533,7 @@ def test_anim_pass_refreshes_before_anim_and_strikes_after_dec(monkeypatch, data
     # entries to `calls` and the hero supplies the whole calls[:4] slice —
     # the contract pinned here is refresh-before-anim, strike-after-dec, in
     # that order, for the armed actor.
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     idx = game.current_camera_target_actor
     game.actors[idx].anim_action_type = WAIT_FRAPPE_ANIM
     game.actors[idx].hot_point_id = 0
@@ -550,7 +551,7 @@ def _latched_attack(data_dir):
     from PyAitD.engine.interaction import _finish_take
     from PyAitD.games.aitd1.scenario import enter_mouse_combat_fixture
 
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     enter_mouse_combat_fixture(game)
     game.current_floor_data = Floor(data_dir, game.current_floor)
     _finish_take(game, 38)
@@ -664,7 +665,7 @@ def test_held_push_on_the_rocking_horse_never_wedges_the_hero(data_dir):
     from PyAitD.engine.interaction import apply_click_intent, hold_action_approach
     from PyAitD.engine.navmesh import agent_extent, nearest_walkable
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     buf = InputBuffer()
     play_tick(game, floor, buf)

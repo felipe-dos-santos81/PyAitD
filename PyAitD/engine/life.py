@@ -211,19 +211,19 @@ def process_life(game, actor_idx, life_num, *, pc=0, after=AfterLife.NONE,
 
 
 def _dispatch(vm, op):
+    table = vm.game.profile.opcode_table
     idx = op & 0x7FFF
-    if idx >= len(LIFETABLE):
+    if idx >= len(table):
         raise ValueError(
-            f"opcode {idx} out of range 0..{len(LIFETABLE) - 1} "
+            f"opcode {idx} out of range 0..{len(table) - 1} "
             f"(life of actor {vm.owner_idx}, byte {vm.pc - 2})"
         )
-    LIFETABLE[idx](vm)
+    table[idx](vm)
 
 
 def _dispatch_reduced(vm, op, world_idx):
     # world-object-field ops on game.world_objects[world_idx]
-    from PyAitD.games.aitd1.life_reduced import reduced_dispatch
-    reduced_dispatch(vm, op & 0x7FFF, world_idx)
+    vm.game.profile.reduced_dispatch(vm, op & 0x7FFF, world_idx)
 
 
 def life_gate(actor):
@@ -261,84 +261,3 @@ def core_table():
     table[61] = _op_dead                       # LM_DO_NORMAL_ZV
     table[69] = _op_dead                       # LM_SPEED
     return table
-
-
-# ponytail: removed in the GameProfile switch-over (Task 6); until then the VM
-# still dispatches through this module-level table.
-def _install_handlers():
-    # Task 8 wiring (opcode numbers per AITD1LifeMacroTable, AITD1.cpp:30-119)
-    from PyAitD.games.aitd1 import life_ops as ops
-    from PyAitD.engine.tracks import process_track
-    table = core_table()
-    table[0] = lambda vm: process_track(vm.game, vm.actor)  # LM_DO_MOVE
-    table[1] = ops.op_anim_once
-    table[2] = ops.op_anim_all_once
-    table[3] = ops.op_body
-    table[13] = ops.op_anim_repeat
-    table[14] = ops.op_anim_move
-    table[15] = ops.op_move
-    table[16] = ops.op_hit
-    table[17] = ops.op_message
-    table[18] = ops.op_message_value
-    table[30] = ops.op_found
-    table[31] = ops.op_life
-    table[32] = ops.op_delete
-    table[33] = ops.op_take
-    table[34] = ops.op_in_hand
-    table[35] = ops.op_read
-    table[36] = ops.op_anim_sample
-    table[37] = ops.op_special
-    table[38] = ops.op_do_real_zv
-    table[39] = ops.op_sample
-    table[40] = ops.op_type
-    table[41] = ops.op_game_over
-    table[42] = ops.op_manual_rot
-    table[43] = ops.op_rnd_freq
-    table[44] = ops.op_music
-    table[45] = ops.op_set_beta
-    table[46] = ops.op_do_rot_zv
-    table[47] = ops.op_stage
-    table[48] = ops.op_found_name
-    table[49] = ops.op_found_flag
-    table[50] = ops.op_found_life
-    table[51] = ops.op_camera_target
-    table[52] = ops.op_drop
-    table[53] = ops.op_fire
-    table[54] = ops.op_test_col
-    table[55] = ops.op_found_body
-    table[56] = ops.op_set_alpha
-    table[58] = ops.op_do_max_zv
-    table[59] = ops.op_put
-    table[60] = ops.op_c_var
-    table[62] = ops.op_do_carre_zv
-    table[63] = ops.op_sample_then
-    table[64] = ops.op_light
-    table[65] = ops.op_shaking
-    table[66] = ops.op_inventory
-    table[67] = ops.op_found_weight
-    table[68] = ops.op_up_coor_y
-    table[70] = ops.op_put_at
-    table[71] = ops.op_def_zv
-    table[72] = ops.op_hit_object
-    table[73] = ops.op_get_hard_clip
-    table[74] = ops.op_angle
-    table[75] = ops.op_rep_sample
-    table[76] = ops.op_throw
-    table[77] = ops.op_water
-    table[78] = ops.op_picture
-    table[79] = ops.op_stop_sample
-    table[80] = ops.op_next_music
-    table[81] = ops.op_fade_music
-    table[82] = ops.op_stop_hit_object
-    table[83] = ops.op_copy_angle
-    table[84] = ops.op_end_sequence
-    table[85] = ops.op_sample_then_repeat
-    table[86] = ops.op_wait_game_over
-    return table
-
-
-LIFETABLE = _install_handlers()
-
-for _i, _h in enumerate(LIFETABLE):
-    if _h.__qualname__.startswith("_op_not_implemented"):
-        raise RuntimeError(f"life LIFETABLE slot {_i} left unimplemented")

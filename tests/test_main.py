@@ -29,7 +29,7 @@ def test_normal_main_opens_character_selection_before_run(monkeypatch, tmp_path)
     import PyAitD.app.shell as main
     game = SimpleNamespace(active_modal=None, open_modal=lambda effect: setattr(game, "active_modal", effect))
     seen = []
-    monkeypatch.setattr(main, "init_game", lambda data, hero=0: game)
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
     monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(main, "run", lambda g, trace, session=None: seen.append((g, session)) or 0)
     assert main.main(["--data", str(tmp_path)]) == 0
@@ -42,9 +42,14 @@ def test_explicit_debug_starts_bypass_character_selection(monkeypatch, tmp_path,
     import PyAitD.app.shell as main
     game = SimpleNamespace(active_modal=None)
     seen = []
-    monkeypatch.setattr(main, "init_game", lambda data, hero=0: game)
-    monkeypatch.setattr(main, "enter_combat_venue", lambda value: None)
-    monkeypatch.setattr(main, "enter_mouse_combat_fixture", lambda value: None)
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
+    monkeypatch.setattr(
+        main, "load_profile",
+        lambda name: SimpleNamespace(debug_venues={
+            "combat-venue": lambda value: None,
+            "mouse-combat-fixture": lambda value: None,
+        }),
+    )
     monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(
         main, "run",
@@ -64,7 +69,7 @@ def test_parse_args_overrides():
 def test_main_rejects_nonzero_floor_without_calling_run(monkeypatch, tmp_path):
     import PyAitD.app.shell as main
 
-    monkeypatch.setattr(main, "init_game", lambda data, hero=0: SimpleNamespace())
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: SimpleNamespace())
     calls = []
     monkeypatch.setattr(main, "run", lambda *args: calls.append("run"))
 
@@ -79,8 +84,13 @@ def test_main_combat_venue_calls_enter_combat_venue_once_before_run(monkeypatch,
 
     game = SimpleNamespace()
     calls = []
-    monkeypatch.setattr(main, "init_game", lambda data, hero=0: game)
-    monkeypatch.setattr(main, "enter_combat_venue", lambda g: calls.append(("venue", g)))
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
+    monkeypatch.setattr(
+        main, "load_profile",
+        lambda name: SimpleNamespace(debug_venues={
+            "combat-venue": lambda g: calls.append(("venue", g)),
+        }),
+    )
     monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(main, "run", lambda g, trace, session=None: calls.append(("run", g)))
 
@@ -111,9 +121,12 @@ def test_main_mouse_combat_fixture_uses_the_requested_hero(monkeypatch, tmp_path
     heroes = []
     monkeypatch.setattr(
         main, "init_game",
-        lambda data, hero=0: heroes.append(hero) or game,
+        lambda data, profile, hero=0: heroes.append(hero) or game,
     )
-    monkeypatch.setattr(main, "enter_mouse_combat_fixture", lambda g: None)
+    monkeypatch.setattr(
+        main, "load_profile",
+        lambda name: SimpleNamespace(debug_venues={"mouse-combat-fixture": lambda g: None}),
+    )
     monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(main, "run", lambda g, trace, session=None: 0)
 
@@ -129,10 +142,12 @@ def test_main_mouse_combat_fixture_runs_its_own_setup(monkeypatch, tmp_path):
 
     game = SimpleNamespace()
     calls = []
-    monkeypatch.setattr(main, "init_game", lambda data, hero=0: game)
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
     monkeypatch.setattr(
-        main, "enter_mouse_combat_fixture",
-        lambda g: calls.append(("mouse fixture", g)),
+        main, "load_profile",
+        lambda name: SimpleNamespace(debug_venues={
+            "mouse-combat-fixture": lambda g: calls.append(("mouse fixture", g)),
+        }),
     )
     monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(main, "run", lambda g, trace, session=None: calls.append(("run", g)) or 0)
@@ -412,7 +427,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(monkey
     renderer_options = []
     resolver_calls = []
 
-    monkeypatch.setattr(main, "init_game", lambda data, hero=0: game)
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
     monkeypatch.setattr(
         main, "load_runtime_session",
         lambda path: SimpleNamespace(

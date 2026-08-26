@@ -13,6 +13,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.navmesh import agent_extent, build_room_mesh
+from PyAitD.games.aitd1.profile import AITD1
 
 DEFAULT_DATA = (
     pathlib.Path(__file__).resolve().parent.parent
@@ -22,7 +23,7 @@ DEFAULT_DATA = (
 
 def main(argv):
     data = pathlib.Path(argv[0]) if argv else DEFAULT_DATA
-    game = init_game(data)
+    game = init_game(data, AITD1)
     agent = agent_extent(game.actors[game.current_camera_target_actor])
     built = skipped = empty = 0
     for number in range(8):

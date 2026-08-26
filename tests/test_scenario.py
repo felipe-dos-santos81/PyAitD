@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from PyAitD.engine.game import init_game
 from PyAitD.engine.interaction import inventory_items
+from PyAitD.games.aitd1.profile import AITD1
 from PyAitD.games.aitd1.scenario import (
     COMBAT_VENUE, enter_combat_venue, enter_mouse_combat_fixture,
 )
 
 
 def test_combat_venue_uses_the_supported_floor_start(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     enter_combat_venue(game)
     enemy_idx = game.world_objects[222].obj_index
     enemy = game.actors[enemy_idx]
@@ -21,7 +22,7 @@ def test_combat_venue_uses_the_supported_floor_start(data_dir):
 
 
 def test_mouse_combat_fixture_is_deterministic_and_does_not_change_m3c_start(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     enter_mouse_combat_fixture(game)
     hero = game.actors[game.current_camera_target_actor]
     enemy = game.actors[game.world_objects[222].obj_index]
@@ -31,7 +32,7 @@ def test_mouse_combat_fixture_is_deterministic_and_does_not_change_m3c_start(dat
     assert (enemy.room_x, enemy.room_y, enemy.room_z) == (5500, -4010, 5000)
     assert (enemy.life, enemy.life_mode, enemy.track_mode, enemy.speed) == (-1, -1, 0, 0)
 
-    control = init_game(data_dir)
+    control = init_game(data_dir, AITD1)
     enter_combat_venue(control)
     control_enemy = control.actors[control.world_objects[222].obj_index]
     assert inventory_items(control) == ()

@@ -9,6 +9,7 @@ from PyAitD.engine.game import AF_TRIGGER, Actor, Game, init_game
 from PyAitD.engine.tracks import (
     cap_objet, face_toward, get_room_link, init_deplacement, process_track,
 )
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def _actor():
@@ -16,14 +17,14 @@ def _actor():
 
 
 def test_init_deplacement_track_mode(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 3, 7)
     assert (a.track_mode, a.track_number, a.position_in_track, a.mark) == (3, 7, 0, -1)
 
 
 def test_track_end_stops(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 3, 0)
     a.speed = 4
@@ -35,7 +36,7 @@ def test_track_end_stops(data_dir):
 
 
 def test_track_walk_and_repeat(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 3, 0)
     game.assets = _FakeAssets(track=struct.pack("<hh", 5, 3))  # TL_WALK, TL_REPEAT
@@ -47,7 +48,7 @@ def test_track_walk_and_repeat(data_dir):
 
 
 def test_track_init_coor_warps(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 3, 0)
     game.assets = _FakeAssets(track=struct.pack("<hhhhh", 0, 0, 100, 50, 200))
@@ -58,7 +59,7 @@ def test_track_init_coor_warps(data_dir):
 
 
 def test_track_manual_forward(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 1, 0)
     game.local_joyd = 1
@@ -72,7 +73,7 @@ def test_track_manual_forward(data_dir):
 
 
 def test_track_manual_backward(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 1, 0)
     game.local_joyd = 2
@@ -82,7 +83,7 @@ def test_track_manual_backward(data_dir):
 
 
 def test_track_run(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 3, 0)
     game.assets = _FakeAssets(track=struct.pack("<h", 6))  # TL_RUN
@@ -92,7 +93,7 @@ def test_track_run(data_dir):
 
 
 def test_track_goto_reached_advances(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 3, 0)
     game.assets = _FakeAssets(track=struct.pack("<hhhh", 1, 0, 0, 0))  # TL_GOTO at current pos
@@ -101,7 +102,7 @@ def test_track_goto_reached_advances(data_dir):
 
 
 def test_track_goto_3d_reached_advances(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 3, 0)
     game.assets = _FakeAssets(track=struct.pack("<hhhhhh", 15, 0, 0, 0, 0, 0))
@@ -110,7 +111,7 @@ def test_track_goto_3d_reached_advances(data_dir):
 
 
 def test_track_set_angle_arrives(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 3, 0)
     game.assets = _FakeAssets(track=struct.pack("<hh", 9, 0))  # TL_SET_ANGLE to 0
@@ -121,7 +122,7 @@ def test_track_set_angle_arrives(data_dir):
 
 
 def test_track_flags_macros(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 3, 0)
     game.assets = _FakeAssets(track=struct.pack("<hhhh", 10, 11, 13, 14))
@@ -137,7 +138,7 @@ def test_track_flags_macros(data_dir):
 
 
 def test_track_memo_coor_and_angle(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 3, 0)
     game.assets = _FakeAssets(track=struct.pack("<hhhhhhh", 16, 19, 1, 2, 3, 0, 0))
@@ -152,7 +153,7 @@ def test_track_memo_coor_and_angle(data_dir):
 
 
 def test_track_unknown_macros_raise(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     for macro in (8, 12, 20):  # TL_BACK, TL_SET_DIST, TL_CLOSE: no case in FITD
         a = _actor()
         init_deplacement(a, 3, 0)
@@ -162,7 +163,7 @@ def test_track_unknown_macros_raise(data_dir):
 
 
 def test_track_follow_stops_when_target_not_in_floor(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 2, 0)
     game.world_objects[0].obj_index = -1
@@ -172,7 +173,7 @@ def test_track_follow_stops_when_target_not_in_floor(data_dir):
 
 
 def test_track_follow_walks_to_target(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = _actor()
     init_deplacement(a, 2, 0)
     game.world_objects[0].obj_index = 5

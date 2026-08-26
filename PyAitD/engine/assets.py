@@ -7,35 +7,25 @@ from PyAitD.engine.formats import decode_image, decode_palette, parse_anim, pars
 from PyAitD.engine.pak import Pak, find_pak
 from PyAitD.engine.text import parse_book_tokens, parse_system_texts
 
-BODY_ARCHIVES = ("LISTBODY", "LISTBOD2")
-ANIM_ARCHIVES = ("LISTANIM", "LISTANI2")
-BODIES_PAK = BODY_ARCHIVES[0]
-ANIMS_PAK = ANIM_ARCHIVES[0]
-LIFES_PAK = "LISTLIFE"
-TRACKS_PAK = "LISTTRAK"
-TEXT_PAK = "ENGLISH"
-RESOURCE_PAK = "ITD_RESS"
 GAME_PALETTE_ENTRY = 3
 
 
 class Assets:
-    def __init__(self, data_dir, hero=0):
-        if hero not in (0, 1):
-            raise ValueError(f"hero must be 0 or 1, got {hero}")
-        self.body_archive_name = BODY_ARCHIVES[hero]
-        self.anim_archive_name = ANIM_ARCHIVES[hero]
+    def __init__(self, data_dir, profile, hero=0):
+        self.profile = profile
+        self.body_archive_name, self.anim_archive_name = profile.hero_archives(hero)
         self._bodies_pak = str(find_pak(data_dir, self.body_archive_name))
         self._anims_pak = str(find_pak(data_dir, self.anim_archive_name))
-        self._lifes_pak = str(find_pak(data_dir, LIFES_PAK))
-        self._tracks_pak = str(find_pak(data_dir, TRACKS_PAK))
+        self._lifes_pak = str(find_pak(data_dir, profile.lifes_pak))
+        self._tracks_pak = str(find_pak(data_dir, profile.tracks_pak))
         self.num_bodies = Pak(self._bodies_pak).count
         self.num_anims = Pak(self._anims_pak).count
         self.num_lifes = Pak(self._lifes_pak).count
         self.num_tracks = Pak(self._tracks_pak).count
         self._bodies = {}
         self._anims = {}
-        self._text_pak = str(find_pak(data_dir, TEXT_PAK))
-        self._resource_pak = str(find_pak(data_dir, RESOURCE_PAK))
+        self._text_pak = str(find_pak(data_dir, profile.text_pak))
+        self._resource_pak = str(find_pak(data_dir, profile.resource_pak))
         self._system_texts = parse_system_texts(load_entry(self._text_pak, 0))
         self._book_tokens = {}
         self.book_pages = {}  # ui-layer wrapped page layout, keyed by text entry

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from PyAitD.engine.formats import Zone
 from PyAitD.engine.interaction import gere_dec
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def room(wx, wy, wz, zones=()):
@@ -11,7 +12,7 @@ def room(wx, wy, wz, zones=()):
 
 def test_room_zone_rebases_room_coordinates_and_requests_camera_change(monkeypatch, data_dir):
     from PyAitD.engine.game import init_game
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     actor_idx = game.current_camera_target_actor
     actor = game.actors[actor_idx]
     actor.room = 0
@@ -29,7 +30,7 @@ def test_room_zone_rebases_room_coordinates_and_requests_camera_change(monkeypat
 
 def test_scenario_and_floor_life_zones_write_fitd_fields(monkeypatch, data_dir):
     from PyAitD.engine.game import init_game
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     actor = game.actors[0]
     actor.room = 0
     actor.room_x = actor.room_y = actor.room_z = 0

@@ -4,6 +4,7 @@ import struct
 from PyAitD.engine.effects import AddMessage, BeginTake, ReadText, ShowFound, ShowPicture
 from PyAitD.engine.game import init_game
 from PyAitD.engine.life import process_life
+from PyAitD.games.aitd1.profile import AITD1
 
 
 class Scripts:
@@ -20,13 +21,13 @@ def run(game, *words):
 
 
 def test_message_effect_is_immediate_and_script_finishes(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     assert run(game, 17, 100, 18, 101, 999, 12) is None
     assert list(game.immediate_effects) == [AddMessage(100), AddMessage(101)]
 
 
 def test_found_read_and_picture_suspend_at_next_opcode(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.timer = 300
     frame = run(game, 30, 44, 20, 1, 12)
     assert game.active_modal == ShowFound(44, False)
@@ -45,7 +46,7 @@ def test_found_read_and_picture_suspend_at_next_opcode(data_dir):
 
 
 def test_found_metadata_preserves_high_flag_bits(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     world_idx = game.actors[0].index_in_world
     world = game.world_objects[world_idx]
     world.found_flag = 0xE000

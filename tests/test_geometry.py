@@ -5,6 +5,7 @@ import pytest
 from PyAitD.engine.formats import Body, Group, Primitive
 from PyAitD.render.geometry import BodyGeometry, icosphere, pose_geometry, vertex_groups
 from PyAitD.engine.skel import pose_vertices
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def _cube_body():
@@ -98,7 +99,7 @@ def test_point_types_mirror_formats_prim_point_like():
 
 def test_every_body_in_the_data_poses_without_nan(data_dir):
     from PyAitD.engine.assets import Assets
-    assets = Assets(data_dir)
+    assets = Assets(data_dir, AITD1)
     for num in range(assets.num_bodies):
         body = assets.body(num)
         states = [(0, (0, 0, 0))] * len(body.groups)

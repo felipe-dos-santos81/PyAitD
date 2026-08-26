@@ -23,10 +23,11 @@ from PyAitD.engine.life import process_life
 from PyAitD.engine.playworld import TICK_MS, play_tick
 from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.app.ui import InputBuffer, ModalSession, render_game_over, transparent_canvas
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def _venue(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     enter_combat_venue(game)
     return game, Floor(data_dir, 5), game.world_objects[222].obj_index
 

@@ -12,7 +12,7 @@ from PyAitD.engine.picking import project_floor_point
 
 
 def test_life_gate(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     a = game.actors[0]
     a.life, a.life_mode = -1, -1
     assert not life_gate(a)
@@ -28,7 +28,7 @@ def test_apply_play_input_mapping(data_dir):
     from PyAitD.engine.effects import InputMode
     from PyAitD.engine.playworld import apply_play_input
     from PyAitD.app.ui import InputBuffer
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     # this asserts the keyboard mapping specifically; mouse is the default
     # input_mode (task 9: playworld — wire the follower into the input
     # snapshot), so it must be selected explicitly to exercise this path.
@@ -43,7 +43,7 @@ def test_apply_play_input_mapping(data_dir):
 def test_sticky_action_pulse_is_visible_for_exactly_one_keyboard_tick(data_dir):
     from PyAitD.engine.effects import InputMode
     from PyAitD.engine.playworld import apply_play_input
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.input_mode = InputMode.KEYBOARD
     state = InputBuffer(action_pulse=True)
     apply_play_input(game, state)
@@ -54,7 +54,7 @@ def test_sticky_action_pulse_is_visible_for_exactly_one_keyboard_tick(data_dir):
 
 def test_mouse_mode_ignores_and_consumes_a_stale_sticky_pulse(data_dir):
     from PyAitD.engine.playworld import apply_play_input
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     state = InputBuffer(action_pulse=True)
     apply_play_input(game, state)
     assert state.action_pulse is False
@@ -116,7 +116,7 @@ def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, monkeypatch
     presented = []
     event_batches = iter([[], [main.pygame.event.Event(main.pygame.QUIT)]])
     times = iter([0, 40, 40])
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     hit_actor_idx = game.current_camera_target_actor
     hit_actor = game.actors[hit_actor_idx]
     ticks = []
@@ -172,7 +172,7 @@ def test_run_expires_hit_feedback_instead_of_latching_forever(data_dir, monkeypa
         [], [], [main.pygame.event.Event(main.pygame.QUIT)],
     ])
     times = iter([0, 20, 200, 1000])
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     hit_actor_idx = game.current_camera_target_actor
     hit_actor = game.actors[hit_actor_idx]
     ticks = []
@@ -259,7 +259,7 @@ def test_escape_opens_the_system_menu_and_pauses_play_ticks(data_dir, monkeypatc
         main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
     )
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     assert main.run(game) == 0
     assert game.mode is GameMode.SYSTEM_MENU
     assert "tick" not in calls, "PLAY ticks must pause while the menu is open"
@@ -602,7 +602,7 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeyp
         _data_dir="ignored", current_floor=0, trace=None, new_num_camera=0,
         assets="new-assets-marker",
     )
-    monkeypatch.setattr(main, "init_game", lambda data, hero: new_game)
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero: new_game)
     monkeypatch.setattr(main, "Floor", lambda *a: SimpleNamespace(number=0))
     monkeypatch.setattr(main, "_take_over_play_input", lambda *a: None)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (None, []))
@@ -611,7 +611,7 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeyp
     settings = dc_replace(default_settings(), render=RenderOptions(override_dir="/custom/dir"))
     session = ModalSession(settings=settings)
     session.pending_hero = 1
-    old_game = SimpleNamespace(_data_dir="ignored", trace=None)
+    old_game = SimpleNamespace(_data_dir="ignored", trace=None, profile="ignored-profile")
 
     with _pygame_runtime():
         result = main._hero_branch(old_game, SimpleNamespace(), session, InputBuffer())
@@ -681,7 +681,7 @@ def test_gere_anim_walk_step(data_dir):
     from PyAitD.engine.actors import gere_anim
     from PyAitD.engine.formats import Animation, Frame
 
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     actor = game.actors[game.current_camera_target_actor]
     actor.beta = 0x300
     actor.anim = 0
@@ -708,7 +708,7 @@ def test_gere_anim_one_shot_rearm(data_dir):
     from PyAitD.engine.actors import gere_anim
     from PyAitD.engine.formats import Animation, Frame
 
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     actor = game.actors[game.current_camera_target_actor]
     actor.anim = 0
     actor.anim_type = 2  # not repeat (bit 0 clear) + uninterruptable
@@ -759,6 +759,7 @@ from PyAitD.engine.game import AF_ANIMATED, AF_FOUNDABLE
 from PyAitD.engine.interaction import _finish_take, inventory_items
 from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.app.ui import InputBuffer, ModalSession, PlayLayout
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def _state_for(floor, room_idx, cam_slot):
@@ -775,7 +776,7 @@ def _state_for(floor, room_idx, cam_slot):
 
 
 def test_a_floor_click_becomes_a_walk_intent(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     hero = game.actors[game.current_camera_target_actor]
@@ -789,7 +790,7 @@ def test_a_floor_click_becomes_a_walk_intent(data_dir):
 
 
 def test_a_click_on_an_actor_becomes_a_target_intent(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     # The draw list only contains body-bearing actors. The target itself must
@@ -807,7 +808,7 @@ def test_a_click_on_an_actor_becomes_a_target_intent(data_dir):
 
 
 def test_opening_wardrobe_resolves_and_routes_as_a_held_push(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     actor_idx = game.world_objects[4].obj_index
@@ -828,7 +829,7 @@ def test_latched_push_cursor_survives_pointer_drift(data_dir):
     from PyAitD.app.shell import _play_cursor_kind
     from PyAitD.engine.interaction import apply_click_intent
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     apply_click_intent(game, 10, 20, 0, 4, requires_hold=True)
@@ -842,7 +843,7 @@ def test_latched_push_cursor_survives_pointer_drift(data_dir):
 def test_mouseup_cancels_only_a_hold_required_intent(data_dir):
     from PyAitD.engine.interaction import apply_click_intent, cancel_held_nav_intent
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     hero = game.actors[game.current_camera_target_actor]
     apply_click_intent(game, 100, 200, hero.room)
     assert cancel_held_nav_intent(game) is False
@@ -857,7 +858,7 @@ def test_pointer_invalidation_routes_mouseup_and_focus_loss(data_dir):
     import PyAitD.app.shell as main
     from PyAitD.engine.interaction import apply_click_intent
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     hero = game.actors[game.current_camera_target_actor]
     for event in (
         main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1),
@@ -908,7 +909,7 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     from PyAitD.engine.interaction import apply_click_intent
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     hero = game.actors[game.current_camera_target_actor]
     apply_click_intent(game, 100, 200, hero.room, 4, requires_hold=True)
     input_buffer = InputBuffer(
@@ -961,7 +962,7 @@ def test_held_push_inventory_modal_takeover_is_clean_before_play_resumes(
     from PyAitD.engine.interaction import apply_click_intent
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.num_camera = game.new_num_camera
     _finish_take(game, 38)
     hero = game.actors[game.current_camera_target_actor]
@@ -1030,7 +1031,7 @@ def test_run_routes_physical_and_touch_down_through_the_same_held_push_path(
     from PyAitD.engine.interaction import is_hold_action_target
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     wardrobe_idx = game.world_objects[4].obj_index
     replacement_idx = game.world_objects[6].obj_index
     assert is_hold_action_target(game, replacement_idx) is True
@@ -1088,7 +1089,7 @@ def test_run_routes_physical_and_touch_down_to_the_same_inventory_modal(
     import PyAitD.app.shell as main
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.num_camera = game.new_num_camera
     _finish_take(game, 38)
     input_buffer = InputBuffer()
@@ -1135,7 +1136,7 @@ def test_run_routes_physical_and_touch_down_to_the_same_inventory_modal(
 
 
 def test_inert_body_intercepts_the_floor_and_stays_blocked(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     actor_idx = game.world_objects[8].obj_index
@@ -1146,7 +1147,7 @@ def test_inert_body_intercepts_the_floor_and_stays_blocked(data_dir):
 
 
 def test_a_click_on_nothing_leaves_the_intent_alone(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     route_play_click(game, ModalSession(), floor, (2, 2), [])
@@ -1186,7 +1187,7 @@ def test_clicking_floor_zero_s_interactable_walks_there_and_dispatches(data_dir)
     from PyAitD.engine.playworld import play_tick
     from PyAitD.app.ui import InputBuffer
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     # the draw list is what a click can hit: only actors with a body are in it
@@ -1241,7 +1242,7 @@ def test_a_play_click_is_ignored_in_keyboard_mode(data_dir):
     # nothing is worse than no click, so the cursor is hidden in that mode too
     # (run() only renders it in mouse mode) and the resolver refuses outright.
     from PyAitD.engine.effects import InputMode
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     screen = _floor_screen_point(game, floor, 1500, 0)
@@ -1260,7 +1261,7 @@ def test_the_cursor_and_the_click_come_from_one_resolution(data_dir):
     # room's floor drew the red "blocked" X and then walked there anyway. Both
     # now go through resolve_play_click, and this pins the agreement: whatever
     # the cursor shows is exactly what clicking does.
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     points = [(x, y) for x in range(10, 320, 23) for y in range(20, 200, 17)]
@@ -1282,7 +1283,7 @@ def test_the_cursor_and_the_click_come_from_one_resolution(data_dir):
 def test_a_walk_click_always_lands_on_a_walkable_cell(data_dir):
     # the cursor promises "walk", so the destination must really be on the mesh
     from PyAitD.engine.navmesh import agent_extent
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     hero = game.actors[game.current_camera_target_actor]
@@ -1302,7 +1303,7 @@ def _cross_room_target_setup(data_dir):
     """Hero in floor 1 room 0, an interactable actor in room 7 (a 12000-unit
     origin delta), plus a draw list that makes the actor the click target."""
     from PyAitD.engine.game import AF_FOUNDABLE
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.current_floor = 1
     floor = Floor(data_dir, 1)
     game.num_camera = 0
@@ -1387,7 +1388,7 @@ def test_a_same_room_target_passes_the_hero_position_unchanged(data_dir):
 def test_inventory_hud_wins_before_world_resolution(data_dir, monkeypatch):
     import PyAitD.engine.picking as picking
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     _finish_take(game, 38)
@@ -1406,7 +1407,7 @@ def test_inventory_hud_effective_padding_has_priority_and_exclusive_far_edges(
 ):
     import PyAitD.engine.picking as picking
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     _finish_take(game, 38)
@@ -1434,7 +1435,7 @@ def test_inventory_hud_effective_padding_has_priority_and_exclusive_far_edges(
 
 
 def test_combat_actor_resolves_attack_or_blocked_not_walk(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     enter_combat_venue(game)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
@@ -1457,7 +1458,7 @@ def _expanded_target_candidates(game):
 
 
 def test_expansion_only_overlap_keeps_the_frontmost_actor(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     candidates = _expanded_target_candidates(game)
@@ -1479,7 +1480,7 @@ def test_original_actor_hit_wins_over_a_frontmost_expanded_actor(data_dir):
     from PyAitD.app.shell import expand_actor_targets
     from PyAitD.engine.picking import pick_actor
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     candidates = _expanded_target_candidates(game)
@@ -1501,7 +1502,7 @@ def test_original_actor_hit_wins_over_a_frontmost_expanded_actor(data_dir):
 def test_expanded_actor_target_wins_before_floor_walking(data_dir, monkeypatch):
     import PyAitD.engine.picking as picking
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     actor_idx = _expanded_target_candidates(game)[0]
@@ -1521,7 +1522,7 @@ def test_expanded_actor_target_wins_before_floor_walking(data_dir, monkeypatch):
 
 
 def test_hud_click_opens_inventory_without_navigation(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     _finish_take(game, 38)
@@ -1534,7 +1535,7 @@ def test_hud_click_opens_inventory_without_navigation(data_dir):
 def test_inventory_click_keeps_priority_over_an_active_held_push(data_dir):
     from PyAitD.engine.interaction import apply_click_intent
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     _finish_take(game, 38)
@@ -1548,7 +1549,7 @@ def test_inventory_click_keeps_priority_over_an_active_held_push(data_dir):
 
 
 def test_attack_click_delegates_actor_index(data_dir, monkeypatch):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     enter_combat_venue(game)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
@@ -1575,7 +1576,7 @@ def test_attack_click_latches_native_mouse_combat(data_dir):
     # existing focus/modal/input-mode reset already clears it.
     from PyAitD.engine.interaction import choose_inventory_action
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     enter_combat_venue(game)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
@@ -1597,7 +1598,7 @@ def test_attack_click_latches_native_mouse_combat(data_dir):
 
 
 def test_a_refused_attack_click_leaves_no_latch(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     enter_combat_venue(game)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
@@ -1616,7 +1617,7 @@ def test_a_refused_attack_click_leaves_no_latch(data_dir):
 
 def _click_to_attack(data_dir):
     """Drive one accepted target click and hand back its latched buffer."""
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     enter_combat_venue(game)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
@@ -1676,7 +1677,7 @@ def test_focus_loss_cannot_leave_an_attack_to_resume_later(data_dir):
 def test_attack_click_keeps_priority_over_an_active_held_push(data_dir, monkeypatch):
     from PyAitD.engine.interaction import apply_click_intent
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     enter_combat_venue(game)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
@@ -1701,7 +1702,7 @@ def test_attack_click_keeps_priority_over_an_active_held_push(data_dir, monkeypa
 def test_world_down_routes_normally_after_a_held_push_is_cancelled(data_dir):
     from PyAitD.engine.interaction import apply_click_intent, cancel_held_nav_intent
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     game.num_camera = game.new_num_camera
     replacement_idx = game.world_objects[6].obj_index
@@ -1754,7 +1755,7 @@ def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
     monkeypatch.setattr(main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None))
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     hit_actor_idx = game.current_camera_target_actor
     game.actors[hit_actor_idx].hit_by = 17
     draw_list.append((hit_actor_idx, (100, 60, 200, 160)))
@@ -1801,7 +1802,7 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, monkeyp
         main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
     )
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.open_modal(ChooseCharacter())
     assert main.run(game) == 0
 

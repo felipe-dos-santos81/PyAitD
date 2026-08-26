@@ -18,6 +18,7 @@ from PyAitD.app.config import (
 from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu
 from PyAitD.engine.game import init_game
 from PyAitD.engine.playworld import play_tick as real_play_tick
+from PyAitD.games.aitd1.profile import AITD1
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, Command, InputBuffer, ModalSession,
     SettingsNoticeLayout, SystemMenuLayout, SystemMenuPage, event_to_input,
@@ -109,14 +110,14 @@ def test_one_click_hero_journey_through_the_real_loop(
 ):
     import PyAitD.app.shell as main
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.open_modal(ChooseCharacter())
     session = ModalSession()
     replacements = []
     real_init_game = main.init_game
 
-    def spy_init_game(data, hero=0):
-        new_game = real_init_game(data, hero=hero)
+    def spy_init_game(data, profile, hero=0):
+        new_game = real_init_game(data, profile, hero=hero)
         # snapshot at replacement time: the first PLAY tick runs the real boot
         # scripts, which grant an object (the inventory is not empty by then)
         replacements.append((new_game, list(new_game.inventory_count)))
@@ -162,14 +163,14 @@ def test_keyboard_hero_journey_backs_out_and_starts_emily(data_dir, monkeypatch)
     # LEFT, OPEN_INVENTORY enters Emily's story; OPEN_INVENTORY starts her.
     import PyAitD.app.shell as main
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.open_modal(ChooseCharacter())
     session = ModalSession()
     replacements = []
     real_init_game = main.init_game
 
-    def spy_init_game(data, hero=0):
-        new_game = real_init_game(data, hero=hero)
+    def spy_init_game(data, profile, hero=0):
+        new_game = real_init_game(data, profile, hero=hero)
         replacements.append(new_game)
         return new_game
 
@@ -212,7 +213,7 @@ def test_keyboard_hero_journey_backs_out_and_starts_emily(data_dir, monkeypatch)
 
 
 def test_menu_remap_sticky_save_and_reload_journey(data_dir, monkeypatch, tmp_path):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     path = tmp_path / "settings.json"
     session = load_runtime_session(path)
     assert session.settings_error is None
@@ -282,7 +283,7 @@ def test_menu_remap_sticky_save_and_reload_journey(data_dir, monkeypatch, tmp_pa
 def test_capture_consumes_the_captured_key_exclusively(data_dir, monkeypatch):
     # During ACTION capture a Return press becomes the binding; it must not
     # also reach the reducer and activate/toggle a row in the same frame.
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     session = ModalSession()
     state = {"frames": 0}
 
@@ -321,7 +322,7 @@ def test_capture_consumes_the_captured_key_exclusively(data_dir, monkeypatch):
 def test_menu_entry_and_exit_never_replay_held_input(data_dir, monkeypatch):
     import PyAitD.engine.playworld as playworld
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.input_mode = InputMode.KEYBOARD
     session = ModalSession()
 
@@ -390,7 +391,7 @@ def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
     assert session.settings_error is not None
     assert str(path) in session.settings_error
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.open_modal(ChooseCharacter())
 
     # the hero replacement swaps run()'s game AND session atomically, so the
@@ -399,8 +400,8 @@ def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
     real_init_game = main.init_game
     real_modal_session = main.ModalSession
 
-    def spy_init_game(data, hero=0):
-        live["game"] = real_init_game(data, hero=hero)
+    def spy_init_game(data, profile, hero=0):
+        live["game"] = real_init_game(data, profile, hero=hero)
         return live["game"]
 
     def spy_modal_session(*args, **kwargs):
@@ -480,7 +481,7 @@ def test_letterbox_click_does_not_crash_or_dismiss_the_notice(
     session = load_runtime_session(path)
     assert session.settings_error is not None
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.open_modal(ChooseCharacter())
 
     monkeypatch.setattr(
@@ -510,7 +511,7 @@ def test_death_restart_keeps_live_settings_and_drops_input_transients(
 ):
     import PyAitD.app.shell as main
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.restart_requested = True
     remapped = replace_binding(default_settings(), Control.UP, "q")
     settings = Settings(remapped.bindings, True)
@@ -578,7 +579,7 @@ def test_mouse_only_remap_journey_binds_through_the_key_picker(data_dir, monkeyp
     # row opens the picker, hover previews a cell, one click binds it, and the
     # menu returns to Configuration with the same row selected.
     from PyAitD.app.ui import PICKABLE_KEYS
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     path = tmp_path / "settings.json"
     session = load_runtime_session(path)
     state = {"frames": 0}

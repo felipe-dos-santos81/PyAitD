@@ -5,6 +5,7 @@ import pytest
 
 from PyAitD.engine.game import init_game
 from PyAitD.engine.life import process_life, read_s16, VM
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def _script(*words):
@@ -13,7 +14,7 @@ def _script(*words):
 
 
 def _make_game(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     return game
 
 
@@ -29,7 +30,7 @@ def test_goto_loop_exits(data_dir):
 def test_conditionals(data_dir):
     # synthetic: evalVar literal forms only
     # IF_EGAL a==b -> skip jump (2-byte jump word), else jump
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.assets = _FakeAssets(script=_script(
         4, -1, 7, -1, 7, 2,    # IF_EGAL 7==7, jump +2 (skipped)
         10, 1,                 # GOTO +1 (skips the END)
@@ -44,7 +45,7 @@ def test_conditionals(data_dir):
 
 
 def test_if_false_jumps(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.assets = _FakeAssets(script=_script(
         4, -1, 7, -1, 6, 1,    # IF_EGAL 7==6 false -> jump +1 word: skips RET, hits END
         11,
@@ -55,7 +56,7 @@ def test_if_false_jumps(data_dir):
 
 
 def test_return_and_end_equivalent(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.assets = _FakeAssets(script=_script(11))
     game.actors[0].life = 0
     process_life(game, 0, 0)
@@ -64,7 +65,7 @@ def test_return_and_end_equivalent(data_dir):
 
 
 def test_switch_case(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.assets = _FakeAssets(script=_script(
         25, -1, 2,     # SWITCH evalVar -> 2
         26, 1, 1,      # CASE 1: no match, jump +1 word -> skips END, hits RET
@@ -76,7 +77,7 @@ def test_switch_case(data_dir):
 
 
 def test_actor_switch_flag(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     # find a spawned actor (in floor -> full dispatch on the switched actor)
     spawned = next(i for i, a in enumerate(game.actors) if a.index_in_world != -1)
     world_idx = game.actors[spawned].index_in_world
@@ -89,7 +90,7 @@ def test_actor_switch_flag(data_dir):
 
 def test_switch_flag_negative_world_idx_raises(data_dir):
     # FITD life.cpp:492-496 asserts on world idx -1; Python must not wrap
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.assets = _FakeAssets(script=_script(0x8000 | 11, -1))
     game.actors[0].life = 0
     with pytest.raises(ValueError):
@@ -98,7 +99,7 @@ def test_switch_flag_negative_world_idx_raises(data_dir):
 
 def test_eval_var_script_var(data_dir):
     # evalVar tag 0: read game.vars[idx]; true branch skips jump onto END
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.vars[0] = 5
     game.assets = _FakeAssets(script=_script(
         4, 0, 0, -1, 5, 1,    # IF_EGAL vars[0]==5 true -> skip jump -> END
@@ -110,7 +111,7 @@ def test_eval_var_script_var(data_dir):
 
 
 def test_unknown_opcode_raises(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.assets = _FakeAssets(script=_script(90))
     game.actors[0].life = 0
     with pytest.raises(ValueError):
@@ -119,7 +120,7 @@ def test_unknown_opcode_raises(data_dir):
 
 def test_var_ops(data_dir):
     # LM_VAR/INC/DEC/ADD/SUB on game.vars (life.cpp:2194-2237)
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.vars[0] = 0
     game.assets = _FakeAssets(script=_script(
         19, 0, -1, 5,     # LM_VAR vars[0] = 5
@@ -135,7 +136,7 @@ def test_var_ops(data_dir):
 
 
 def test_life_mode(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.actors[0].life_mode = 0
     game.assets = _FakeAssets(script=_script(24, 2, 24, 2, 12))
     game.actors[0].life = 0
@@ -144,7 +145,7 @@ def test_life_mode(data_dir):
 
 
 def test_start_chrono(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.timer = 7
     game.assets = _FakeAssets(script=_script(28, 12))
     game.actors[0].life = 0
@@ -153,7 +154,7 @@ def test_start_chrono(data_dir):
 
 
 def test_opcode_87_raises(data_dir):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.assets = _FakeAssets(script=_script(87))
     game.actors[0].life = 0
     with pytest.raises(ValueError):
@@ -163,7 +164,7 @@ def test_opcode_87_raises(data_dir):
 def test_reduced_lm_type_sets_flags(data_dir):
     # LM_TYPE(40) with 0x8000 on out-of-floor object: reduced dispatch
     # (PyAitD.games.aitd1.life_reduced, task 8) — world-obj flags TYPE_MASK update
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     unspawned = next(i for i, o in enumerate(game.world_objects) if o.obj_index == -1)
     game.assets = _FakeAssets(script=_script(0x8000 | 40, unspawned, 0x10, 12))
     game.actors[0].life = 0
@@ -173,7 +174,7 @@ def test_reduced_lm_type_sets_flags(data_dir):
 
 def test_reduced_disallowed_raises(data_dir):
     # LM_RETURN(11) with 0x8000 on out-of-floor object: not in reduced set
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     unspawned = next(i for i, o in enumerate(game.world_objects) if o.obj_index == -1)
     game.assets = _FakeAssets(script=_script(0x8000 | 11, unspawned, 12))
     game.actors[0].life = 0
@@ -183,7 +184,7 @@ def test_reduced_disallowed_raises(data_dir):
 
 @pytest.mark.parametrize("op", [27, 57, 61, 69])  # LM_CAMERA, LM_STOP_BETA, LM_DO_NORMAL_ZV, LM_SPEED
 def test_dead_opcode_raises(data_dir, op):
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.assets = _FakeAssets(script=_script(op))
     game.actors[0].life = 0
     with pytest.raises(ValueError):
@@ -191,7 +192,7 @@ def test_dead_opcode_raises(data_dir, op):
 
 
 def test_completed_script_returns_no_continuation(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     assert process_life(game, 0, game.actors[0].life) is None
 
 
@@ -204,3 +205,24 @@ class _FakeAssets:
 
     def track(self, index):
         return b""
+
+
+def test_vm_dispatches_through_the_game_profile():
+    # a one-opcode profile proves the VM owns no table of its own
+    from types import SimpleNamespace
+    from PyAitD.engine import life
+    from PyAitD.games.base import GameProfile
+    seen = []
+    table = life.core_table()
+    table[0] = lambda vm: seen.append("hit")
+    profile = GameProfile(
+        name="stub", lifes_pak="", tracks_pak="", text_pak="", resource_pak="",
+        heroes=(), cvar_names=(), defines_big_endian=True,
+        opcode_table=tuple(table), dead_opcodes=frozenset(),
+        reduced_dispatch=lambda vm, op, w: None, debug_venues={},
+    )
+    game = SimpleNamespace(profile=profile)
+    vm = life.VM(b"", game, 0)
+    life._dispatch(vm, 0)
+    assert seen == ["hit"]
+    assert not hasattr(life, "LIFETABLE")

@@ -9,10 +9,11 @@ from PyAitD.engine.mask_geometry import MaskDraw
 from PyAitD.render.scene import CameraView, FrameDescription, build_frame, mask_applies_to_actor
 from PyAitD.engine.skel import skin
 from PyAitD.engine.world import CameraState
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def _boot(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.num_camera = game.new_num_camera
     floor = Floor(data_dir, game.current_floor)
     return game, floor
@@ -128,7 +129,7 @@ def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir):
     # domain the bound was calibrated over -- see _on_screen.
     from PyAitD.render.geometry import pose_geometry
     from PyAitD.engine.assets import Assets
-    assets = Assets(data_dir)
+    assets = Assets(data_dir, AITD1)
     floor = Floor(data_dir, 0)
     checked_any = False
     for room in floor.rooms:

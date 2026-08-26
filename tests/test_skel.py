@@ -5,6 +5,7 @@ from PyAitD.engine.formats import Body, Group, Primitive
 from PyAitD.engine.game import init_game
 from PyAitD.engine.skel import hot_point, pose_vertices, skin
 from PyAitD.engine.world import CameraState
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def _cube_body():
@@ -111,7 +112,7 @@ def test_hot_point_is_the_shared_posed_base_vertex():
 
 
 def test_real_combat_bodies_share_the_named_base_vertex(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     for body_num in (234, game.actors[game.current_camera_target_actor].body_num):
         body = game.assets.body(body_num)
         states = [(0, (0x20, 0x40, 0x10)) for _ in body.groups]
@@ -124,6 +125,6 @@ def test_real_combat_bodies_share_the_named_base_vertex(data_dir):
 def test_hot_point_zero_and_bad_group_contracts(data_dir):
     plain = _cube_body()
     assert hot_point(plain, [], (0, 0, 0), 0) == (0, 0, 0)
-    body = init_game(data_dir).assets.body(234)
+    body = init_game(data_dir, AITD1).assets.body(234)
     with pytest.raises(ValueError, match=r"body with 24 groups has hot-point group 24"):
         hot_point(body, [(0, (0, 0, 0))] * len(body.groups), (0, 0, 0), len(body.groups))

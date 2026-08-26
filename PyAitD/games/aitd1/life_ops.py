@@ -13,6 +13,7 @@ from PyAitD.engine.world import room_delta
 
 log = logging.getLogger("PyAitD.engine.life")
 
+# CVAR_NAMES.index("KILLED_SORCERER"); literal to avoid importing profile.py, which imports this module
 KILLED_SORCERER = 12
 
 

@@ -13,10 +13,11 @@ from PyAitD.engine.picking import _camera_state_global, pick_floor_any_room, pro
 from PyAitD.engine.playworld import play_tick
 from PyAitD.games.aitd1.scenario import enter_mouse_combat_fixture
 from PyAitD.app.ui import InputBuffer
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def _settled_venue(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     enter_mouse_combat_fixture(game)
     hero_idx = game.current_camera_target_actor
     # This floor-picking regression owns camera slot 5 independently of the

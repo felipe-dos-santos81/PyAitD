@@ -10,6 +10,7 @@ from PyAitD.app.config import default_settings
 from PyAitD.engine.effects import FoundResult, ReadText, ShowFound, ShowPicture, TimedMessage
 from PyAitD.engine.game import init_game
 from PyAitD.engine.text import BookToken
+from PyAitD.games.aitd1.profile import AITD1
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
     FoundPresenter, InventoryPresenter, ReadingPresenter, ReadingResult,
@@ -24,7 +25,7 @@ from PyAitD.app.ui import (
 
 def test_modal_renderers_return_logical_rgb_frames(data_dir):
     pygame.font.init()
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     frames = [
         render_found(
             ShowFound(13, False), FoundPresenter(), game.assets,
@@ -50,7 +51,7 @@ def test_book_layout_preserves_tab_prefix_and_center_flag():
 
 def test_message_overlay_does_not_mutate_source_frame(data_dir):
     pygame.font.init()
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     source = np.zeros((200, 320, 3), dtype=np.uint8)
     result = overlay_messages(source, [TimedMessage(100), None, None, None, None], game.assets)
     assert np.count_nonzero(source) == 0
@@ -133,7 +134,7 @@ def test_game_over_locked_frame_is_identical_and_ready_frame_is_overlayed():
 def test_big_cadre_pins_fitd_interior_and_ring(data_dir):
     surface = pygame.Surface((320, 200))
     surface.fill((0, 0, 0))
-    interior = draw_big_cadre(surface, Assets(data_dir).cadre_bank(), (160, 100), (320, 200))
+    interior = draw_big_cadre(surface, Assets(data_dir, AITD1).cadre_bank(), (160, 100), (320, 200))
     assert interior == pygame.Rect(8, 8, 304, 184)
     frame = pygame.surfarray.array3d(surface).swapaxes(0, 1)
     assert np.count_nonzero(frame) > 0, "the cadre ring drew nothing"
@@ -142,7 +143,7 @@ def test_big_cadre_pins_fitd_interior_and_ring(data_dir):
 
 
 def test_character_portraits_restore_art_inside_fitd_cadre(data_dir):
-    assets = Assets(data_dir)
+    assets = Assets(data_dir, AITD1)
     base = assets.resource_screen(10)
     frame = render_character_select(CharacterSelectPresenter(choice=0), assets)
     left = CharacterLayout.PORTRAITS[0]
@@ -152,7 +153,7 @@ def test_character_portraits_restore_art_inside_fitd_cadre(data_dir):
 
 
 def test_hover_preview_overrides_keyboard_selection_without_changing_it(data_dir):
-    assets = Assets(data_dir)
+    assets = Assets(data_dir, AITD1)
     scene = np.zeros((200, 320, 3), dtype=np.uint8)
 
     found = FoundPresenter(choice=FoundResult.TAKE, hover=FoundResult.LEAVE)
@@ -200,7 +201,7 @@ def test_hover_preview_overrides_keyboard_selection_without_changing_it(data_dir
 def test_story_composes_the_opposite_intro_half_and_expected_text(
     data_dir, choice, hero, copied,
 ):
-    assets = Assets(data_dir)
+    assets = Assets(data_dir, AITD1)
     presenter = CharacterSelectPresenter(choice=choice, phase=CharacterPhase.STORY)
     frame = render_character_select(presenter, assets)
     intro = assets.resource_screen(14)
@@ -225,7 +226,7 @@ def test_settings_notice_overlays_without_mutating_the_mode_frame():
 @pytest.mark.parametrize("page", tuple(SystemMenuPage))
 def test_system_menu_is_a_logical_rgb_frame(data_dir, page):
     frame = render_system_menu(
-        SystemMenuPresenter(page=page), default_settings(), Assets(data_dir),
+        SystemMenuPresenter(page=page), default_settings(), Assets(data_dir, AITD1),
     )
     assert frame.shape == (200, 320, 3)
     assert frame.dtype == np.uint8

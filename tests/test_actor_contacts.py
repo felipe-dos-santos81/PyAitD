@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from PyAitD.engine.actors import check_object_col
 from PyAitD.engine.game import AF_FOUNDABLE, AF_MOVABLE, init_game
 from PyAitD.engine.interaction import resolve_actor_contacts
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def live_actor(game, index, room, zv, flags=0, world_idx=0):
@@ -19,7 +20,7 @@ def live_actor(game, index, room, zv, flags=0, world_idx=0):
 
 
 def test_check_object_col_adjusts_candidate_to_other_room(data_dir, monkeypatch):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     for actor in game.actors:
         actor.index_in_world = -1
     live_actor(game, 0, 0, (0, 10, 0, 10, 0, 10), world_idx=1)
@@ -31,7 +32,7 @@ def test_check_object_col_adjusts_candidate_to_other_room(data_dir, monkeypatch)
 
 
 def test_foundable_contact_opens_modal_without_blocking_step(data_dir, monkeypatch):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.timer = 300
     for actor in game.actors:
         actor.index_in_world = -1
@@ -47,7 +48,7 @@ def test_foundable_contact_opens_modal_without_blocking_step(data_dir, monkeypat
 
 
 def test_movable_contact_pushes_when_destination_is_clear(data_dir, monkeypatch):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     for actor in game.actors:
         actor.index_in_world = -1
     mover = live_actor(game, 0, 0, (0, 10, 0, 10, 0, 10), world_idx=1)

@@ -7,10 +7,11 @@ from PyAitD.engine.life import process_life
 from PyAitD.engine.playworld import play_tick
 from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.app.ui import InputBuffer
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def test_relocate_actor_rebases_zv_and_zeroes_steps(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     idx = game.current_camera_target_actor
     actor = game.actors[idx]
     actor.step_x, actor.step_y, actor.step_z = 11, 12, 13
@@ -32,7 +33,7 @@ def test_relocate_actor_rebases_zv_and_zeroes_steps(data_dir):
 
 def test_enter_floor_start_applies_transition_postconditions(data_dir, monkeypatch):
     import PyAitD.engine.game as game_module
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     calls = []
     real_spawn = game_module.spawn_stage_actors
     monkeypatch.setattr(
@@ -52,7 +53,7 @@ def test_enter_floor_start_applies_transition_postconditions(data_dir, monkeypat
 
 
 def test_init_game_records_the_real_hero_start(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     hero = game.actors[game.current_camera_target_actor]
     assert game.floor_start == FloorStart(
         hero.stage, hero.room, hero.room_x, hero.room_y, hero.room_z, 0,
@@ -68,7 +69,7 @@ def test_natural_lm_stage_records_a_reenterable_floor_start(data_dir, monkeypatc
     # slot matches, and its `int newNumCamera = 0` (room.cpp:112) is what
     # reaches NewNumCamera (room.cpp:193). Slot 0 is therefore the observed
     # entry camera, not an assumption.
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     enter_combat_venue(game)
     floor = Floor(data_dir, 5)
     game.current_floor_data = floor

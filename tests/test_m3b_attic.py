@@ -8,10 +8,11 @@ from PyAitD.engine.interaction import (
     inventory_items, request_found,
 )
 from PyAitD.app.ui import InputBuffer, InventoryResult
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def test_attic_lamp_find_take_use_and_drop_checkpoint(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.timer = 300
     lamp_idx = 13
     lamp = game.world_objects[lamp_idx]

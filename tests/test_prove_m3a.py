@@ -8,10 +8,11 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 from PyAitD.engine.assets import Assets
 from PyAitD.engine.formats import parse_defines, parse_objets, parse_priority, parse_vars
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def test_all_scripts_fetch(data_dir):
-    assets = Assets(data_dir)
+    assets = Assets(data_dir, AITD1)
     assert assets.num_lifes == 563
     for i in range(assets.num_lifes):
         raw = assets.life(i)
@@ -20,7 +21,7 @@ def test_all_scripts_fetch(data_dir):
 
 
 def test_all_tracks_fetch(data_dir):
-    assets = Assets(data_dir)
+    assets = Assets(data_dir, AITD1)
     assert assets.num_tracks == 45
     for i in range(assets.num_tracks):
         assert len(assets.track(i)) >= 2
@@ -45,7 +46,7 @@ def test_headless_boot_ticks(data_dir):
     from PyAitD.app.ui import InputBuffer
 
     trace_path = "/tmp/m3a_trace.log"
-    game = init_game(data_dir, hero=0)
+    game = init_game(data_dir, AITD1, hero=0)
     game.trace = Trace(trace_path)
     floor = Floor(data_dir, game.current_floor)
     buf = InputBuffer()

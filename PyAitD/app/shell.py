@@ -21,7 +21,7 @@ from PyAitD.engine.pak import PakError
 from PyAitD.engine.playworld import TICK_MS, play_tick
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import BACKGROUND_FILTERS, SHADING_MODES, validate_render_options
-from PyAitD.games.aitd1.scenario import enter_combat_venue, enter_mouse_combat_fixture
+from PyAitD.games import load_profile
 from PyAitD.render.scene import build_frame
 from PyAitD.app.ui import (
     Command, InputBuffer, ModalSession, configure_input, event_to_input,
@@ -796,12 +796,12 @@ def restart_session(old_game):
     # screen are M4, and restart is the only option that keeps the game
     # playable end-to-end. No Floor I/O here -- the caller (run's atomic
     # restart branch) owns loading the Floor for the reconstructed game.
-    hero = old_game.cvars[8]
+    hero = old_game.cvars[old_game.profile.cvar_index("CHOOSE_PERSO")]
     input_mode = old_game.input_mode
     trace = old_game.trace
     data_dir = old_game._data_dir
     floor_start = old_game.floor_start
-    new_game = init_game(data_dir, hero=hero)
+    new_game = init_game(data_dir, old_game.profile, hero=hero)
     new_game.input_mode = input_mode
     new_game.trace = trace
     from PyAitD.engine.interaction import sync_player_track_mode
@@ -823,7 +823,7 @@ def _hero_branch(game, renderer, session, input_buffer=None):
         return None
     _take_over_play_input(game, session, input_buffer)
     try:
-        new_game = init_game(game._data_dir, hero=session.pending_hero)
+        new_game = init_game(game._data_dir, game.profile, hero=session.pending_hero)
         new_floor = Floor(new_game._data_dir, new_game.current_floor)
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -1068,11 +1068,12 @@ def run(game, trace_path=None, session=None, resolver=None):
 
 def main(argv=None):
     args = parse_args(argv)
+    profile = load_profile("aitd1")
     try:
         # The debug starts bypass the character selector, so --hero is the only
         # way to reach Emily's copy of a fixture; a normal boot still opens the
         # selector below and replaces this staging game with the chosen hero's.
-        game = init_game(args.data, hero=args.hero)
+        game = init_game(args.data, profile, hero=args.hero)
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -1084,9 +1085,9 @@ def main(argv=None):
         )
         return 2
     if args.mouse_combat_fixture:
-        enter_mouse_combat_fixture(game)
+        profile.debug_venues["mouse-combat-fixture"](game)
     elif args.combat_venue:
-        enter_combat_venue(game)
+        profile.debug_venues["combat-venue"](game)
     debug_start = (
         args.floor is not None or args.combat_venue or args.mouse_combat_fixture
     )

@@ -11,10 +11,11 @@ from PyAitD.engine.anim_action import (
 from PyAitD.engine.formats import Zone
 from PyAitD.engine.game import AF_ANIMATED, AF_BOXIFY, AF_MOVABLE, AF_SPECIAL, init_game
 from PyAitD.engine.skel import hot_point as skel_hot_point
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def _live_actors(data_dir, count):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     live = [i for i, actor in enumerate(game.actors) if actor.index_in_world >= 0]
     assert len(live) >= count
     selected = live[:count]
@@ -199,7 +200,7 @@ def test_refresh_hot_point_uses_zero_states_when_actor_has_no_anim(monkeypatch, 
 
 
 def test_throw_setup_activates_released_object_then_launches(data_dir, monkeypatch):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     thrower_idx = game.current_camera_target_actor
     thrower = game.actors[thrower_idx]
     object_idx = 13
@@ -644,7 +645,7 @@ def test_do_tir_miss_resets_without_publishing_hit(monkeypatch, data_dir):
 
 
 def _thrown_game(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     actor_idx = next(
         i for i, actor in enumerate(game.actors)
         if actor.index_in_world >= 0 and i != game.current_camera_target_actor

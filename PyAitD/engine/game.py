@@ -24,15 +24,6 @@ AF_FOUNDABLE = 0x0080
 AF_FALLABLE = 0x0100
 AF_MASK = AF_ANIMATED + AF_MOVABLE + AF_TRIGGER + AF_FOUNDABLE + AF_FALLABLE + 0x400
 
-AITD1_CVAR_NAMES = (
-    "SAMPLE_PAGE", "BODY_FLAMME", "MAX_WEIGHT_LOADABLE", "TEXTE_CREDITS",
-    "SAMPLE_TONNERRE", "INTRO_DETECTIVE", "INTRO_HERITIERE", "WORLD_NUM_PERSO",
-    "CHOOSE_PERSO", "SAMPLE_CHOC", "SAMPLE_PLOUF", "REVERSE_OBJECT",
-    "KILLED_SORCERER", "LIGHT_OBJECT", "FOG_FLAG", "DEAD_PERSO",
-)
-
-FOG_FLAG = AITD1_CVAR_NAMES.index("FOG_FLAG")
-
 
 @dataclass
 class RealValue:
@@ -117,14 +108,15 @@ class FloorStart:
 
 
 class Game:
-    def __init__(self, data_dir, hero=0):
+    def __init__(self, data_dir, profile, hero=0):
+        self.profile = profile
         self._data_dir = data_dir
         self._rooms_by_floor = {}
-        self.assets = Assets(data_dir, hero=hero)
+        self.assets = Assets(data_dir, profile, hero=hero)
         self.world_objects = parse_objets((data_dir / "OBJETS.ITD").read_bytes())
         self.actors = [Actor() for _ in range(NUM_MAX_OBJECT)]
-        self.cvars = parse_defines((data_dir / "DEFINES.ITD").read_bytes())
-        self.cvars[8] = hero  # CHOOSE_PERSO (startGame backs up and restores it)
+        self.cvars = parse_defines((data_dir / "DEFINES.ITD").read_bytes(), big_endian=profile.defines_big_endian)
+        self.cvars[profile.cvar_index("CHOOSE_PERSO")] = hero  # startGame backs up and restores it
         self.vars = parse_vars((data_dir / "VARS.ITD").read_bytes())
         self.timer = 0
         self._last_time_forward = 0  # FITD lastTimeForward static (track.cpp:151)
@@ -402,7 +394,7 @@ def _delete_objet(game, index):
     if actor.index_in_world == -2:  # flow
         actor.index_in_world = -1
         if actor.anim == 4:
-            game.cvars[FOG_FLAG] = 0
+            game.cvars[game.profile.cvar_index("FOG_FLAG")] = 0
         return
     if actor.index_in_world >= 0:
         obj = game.world_objects[actor.index_in_world]
@@ -592,9 +584,9 @@ def game_step_tick(game):
     game.timer += 1
 
 
-def init_game(data_dir, hero=0):
+def init_game(data_dir, profile, hero=0):
     from PyAitD.engine.interaction import sync_player_track_mode  # interaction imports game
-    game = Game(data_dir, hero=hero)
+    game = Game(data_dir, profile, hero=hero)
     spawn_stage_actors(game)
     # object data spawns the hero in track mode 1 (tank); the default input mode
     # is the mouse, and mode 1 would eat the follower's mirrored joyd as keyboard

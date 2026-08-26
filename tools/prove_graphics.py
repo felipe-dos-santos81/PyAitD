@@ -25,12 +25,13 @@ from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import SHADING_MODES, RenderOptions
 from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.render.scene import build_frame
+from PyAitD.games.aitd1.profile import AITD1
 
 FIXTURES = ("attic", "combat")
 
 
 def _boot(data_dir, name):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     if name == "combat":
         enter_combat_venue(game)
     game.num_camera = game.new_num_camera

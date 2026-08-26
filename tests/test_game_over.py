@@ -10,12 +10,13 @@ from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.playworld import play_tick
 from PyAitD.app.ui import Command, InputBuffer, ModalSession
+from PyAitD.games.aitd1.profile import AITD1
 
 
 def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, monkeypatch):
     import PyAitD.engine.playworld as playworld
 
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor = Floor(data_dir, game.current_floor)
     live = [i for i, actor in enumerate(game.actors) if actor.index_in_world >= 0]
     assert len(live) > 1, "the test needs more than one live actor to prove the loop finished"
@@ -40,7 +41,7 @@ def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, monkeyp
 
 
 def _game_over_session(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.open_modal(GameOver())
     session = ModalSession()
     session.reset_for(game.active_modal)
@@ -66,7 +67,7 @@ def test_game_over_command_ready_at_2000ms_requests_restart(data_dir, command):
 
 
 def test_game_over_accepts_any_left_click_only_after_delay(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     game.open_modal(GameOver())
     session = ModalSession()
     session.reset_for(game.active_modal)

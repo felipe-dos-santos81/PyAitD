@@ -7,6 +7,7 @@ from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.navmesh import COVER_SCALE, GRID_STEP, agent_extent, build_cover_grid, build_room_mesh, cover_polys
 from PyAitD.engine.world import is_in_poly
+from PyAitD.games.aitd1.profile import AITD1
 
 _PURITY_PROBE = """
 import sys, PyAitD.engine.navmesh
@@ -53,7 +54,7 @@ def test_room_without_cover_zones_has_no_mesh(data_dir):
 
 
 def _hero_agent(data_dir):
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     return game, game.actors[game.current_camera_target_actor]
 
 

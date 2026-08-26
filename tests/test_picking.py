@@ -39,7 +39,7 @@ def test_pick_floor_round_trips_projected_points(data_dir):
     # to one camera angle (e.g. a _quad_of corner-selection bug) cannot hide
     # behind other cameras' successes.
     floor = Floor(data_dir, 0)
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor_y = game.actors[game.current_camera_target_actor].world_y
     checked = 0
     for cam_slot in range(len(floor.rooms[0].camera_indices)):
@@ -80,6 +80,7 @@ def test_pick_floor_outside_every_cover_polygon_is_none(data_dir):
 
 
 from PyAitD.engine.picking import ACTOR_PICK_PAD, actor_bbox, pick_actor
+from PyAitD.games.aitd1.profile import AITD1
 
 
 class _FakeResult:
@@ -159,7 +160,7 @@ def test_pick_floor_in_room_uses_that_room_s_own_origin(data_dir):
     # room 0 of floor 0 is the only room, so the global-camera form must agree
     # exactly with the slot form it generalises
     floor = Floor(data_dir, 0)
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor_y = game.actors[game.current_camera_target_actor].world_y
     global_cam = floor.rooms[0].camera_indices[0]
     state = _state(floor, 0, 0)
@@ -174,7 +175,7 @@ def test_pick_floor_in_room_uses_that_room_s_own_origin(data_dir):
 
 def test_pick_floor_any_room_reports_which_room_it_hit(data_dir):
     floor = Floor(data_dir, 0)
-    game = init_game(data_dir)
+    game = init_game(data_dir, AITD1)
     floor_y = game.actors[game.current_camera_target_actor].world_y
     state = _state(floor, 0, 0)
     poly = cover_polys(floor, 0)[0]
