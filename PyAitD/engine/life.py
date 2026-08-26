@@ -231,103 +231,113 @@ def life_gate(actor):
 
 
 # AITD1LifeMacroTable (AITD1.cpp:30-119, life.h:7-93): 87 entries, index == enum value.
-LIFETABLE = [_op_not_implemented(i) for i in range(87)]
-LIFETABLE[4] = _make_if(lambda a, b: a == b)   # LM_IF_EGAL
-LIFETABLE[5] = _make_if(lambda a, b: a != b)   # LM_IF_DIFFERENT
-LIFETABLE[6] = _make_if(lambda a, b: a >= b)   # LM_IF_SUP_EGAL
-LIFETABLE[7] = _make_if(lambda a, b: a > b)    # LM_IF_SUP
-LIFETABLE[8] = _make_if(lambda a, b: a <= b)   # LM_IF_INF_EGAL
-LIFETABLE[9] = _make_if(lambda a, b: a < b)    # LM_IF_INF
-LIFETABLE[10] = _op_goto                       # LM_GOTO
-LIFETABLE[11] = _op_end                        # LM_RETURN
-LIFETABLE[12] = _op_end                        # LM_END
-LIFETABLE[19] = _op_var                        # LM_VAR
-LIFETABLE[20] = _op_inc                        # LM_INC
-LIFETABLE[21] = _op_dec                        # LM_DEC
-LIFETABLE[22] = _op_add                        # LM_ADD
-LIFETABLE[23] = _op_sub                        # LM_SUB
-LIFETABLE[24] = _op_life_mode                  # LM_LIFE_MODE
-LIFETABLE[25] = _op_switch                     # LM_SWITCH
-LIFETABLE[26] = _op_case                       # LM_CASE
-LIFETABLE[27] = _op_dead                       # LM_CAMERA
-LIFETABLE[28] = _op_start_chrono               # LM_START_CHRONO
-LIFETABLE[29] = _op_multi_case                 # LM_MULTI_CASE
-LIFETABLE[57] = _op_dead                       # LM_STOP_BETA
-LIFETABLE[61] = _op_dead                       # LM_DO_NORMAL_ZV
-LIFETABLE[69] = _op_dead                       # LM_SPEED
+# The engine fills only the game-neutral slots; a GameProfile installs the rest.
+NUM_OPCODES = 87
 
 
+def core_table():
+    table = [_op_not_implemented(i) for i in range(NUM_OPCODES)]
+    table[4] = _make_if(lambda a, b: a == b)   # LM_IF_EGAL
+    table[5] = _make_if(lambda a, b: a != b)   # LM_IF_DIFFERENT
+    table[6] = _make_if(lambda a, b: a >= b)   # LM_IF_SUP_EGAL
+    table[7] = _make_if(lambda a, b: a > b)    # LM_IF_SUP
+    table[8] = _make_if(lambda a, b: a <= b)   # LM_IF_INF_EGAL
+    table[9] = _make_if(lambda a, b: a < b)    # LM_IF_INF
+    table[10] = _op_goto                       # LM_GOTO
+    table[11] = _op_end                        # LM_RETURN
+    table[12] = _op_end                        # LM_END
+    table[19] = _op_var                        # LM_VAR
+    table[20] = _op_inc                        # LM_INC
+    table[21] = _op_dec                        # LM_DEC
+    table[22] = _op_add                        # LM_ADD
+    table[23] = _op_sub                        # LM_SUB
+    table[24] = _op_life_mode                  # LM_LIFE_MODE
+    table[25] = _op_switch                     # LM_SWITCH
+    table[26] = _op_case                       # LM_CASE
+    table[27] = _op_dead                       # LM_CAMERA
+    table[28] = _op_start_chrono               # LM_START_CHRONO
+    table[29] = _op_multi_case                 # LM_MULTI_CASE
+    table[57] = _op_dead                       # LM_STOP_BETA
+    table[61] = _op_dead                       # LM_DO_NORMAL_ZV
+    table[69] = _op_dead                       # LM_SPEED
+    return table
+
+
+# ponytail: removed in the GameProfile switch-over (Task 6); until then the VM
+# still dispatches through this module-level table.
 def _install_handlers():
     # Task 8 wiring (opcode numbers per AITD1LifeMacroTable, AITD1.cpp:30-119)
     from PyAitD.games.aitd1 import life_ops as ops
     from PyAitD.engine.tracks import process_track
-    LIFETABLE[0] = lambda vm: process_track(vm.game, vm.actor)  # LM_DO_MOVE
-    LIFETABLE[1] = ops.op_anim_once
-    LIFETABLE[2] = ops.op_anim_all_once
-    LIFETABLE[3] = ops.op_body
-    LIFETABLE[13] = ops.op_anim_repeat
-    LIFETABLE[14] = ops.op_anim_move
-    LIFETABLE[15] = ops.op_move
-    LIFETABLE[16] = ops.op_hit
-    LIFETABLE[17] = ops.op_message
-    LIFETABLE[18] = ops.op_message_value
-    LIFETABLE[30] = ops.op_found
-    LIFETABLE[31] = ops.op_life
-    LIFETABLE[32] = ops.op_delete
-    LIFETABLE[33] = ops.op_take
-    LIFETABLE[34] = ops.op_in_hand
-    LIFETABLE[35] = ops.op_read
-    LIFETABLE[36] = ops.op_anim_sample
-    LIFETABLE[37] = ops.op_special
-    LIFETABLE[38] = ops.op_do_real_zv
-    LIFETABLE[39] = ops.op_sample
-    LIFETABLE[40] = ops.op_type
-    LIFETABLE[41] = ops.op_game_over
-    LIFETABLE[42] = ops.op_manual_rot
-    LIFETABLE[43] = ops.op_rnd_freq
-    LIFETABLE[44] = ops.op_music
-    LIFETABLE[45] = ops.op_set_beta
-    LIFETABLE[46] = ops.op_do_rot_zv
-    LIFETABLE[47] = ops.op_stage
-    LIFETABLE[48] = ops.op_found_name
-    LIFETABLE[49] = ops.op_found_flag
-    LIFETABLE[50] = ops.op_found_life
-    LIFETABLE[51] = ops.op_camera_target
-    LIFETABLE[52] = ops.op_drop
-    LIFETABLE[53] = ops.op_fire
-    LIFETABLE[54] = ops.op_test_col
-    LIFETABLE[55] = ops.op_found_body
-    LIFETABLE[56] = ops.op_set_alpha
-    LIFETABLE[58] = ops.op_do_max_zv
-    LIFETABLE[59] = ops.op_put
-    LIFETABLE[60] = ops.op_c_var
-    LIFETABLE[62] = ops.op_do_carre_zv
-    LIFETABLE[63] = ops.op_sample_then
-    LIFETABLE[64] = ops.op_light
-    LIFETABLE[65] = ops.op_shaking
-    LIFETABLE[66] = ops.op_inventory
-    LIFETABLE[67] = ops.op_found_weight
-    LIFETABLE[68] = ops.op_up_coor_y
-    LIFETABLE[70] = ops.op_put_at
-    LIFETABLE[71] = ops.op_def_zv
-    LIFETABLE[72] = ops.op_hit_object
-    LIFETABLE[73] = ops.op_get_hard_clip
-    LIFETABLE[74] = ops.op_angle
-    LIFETABLE[75] = ops.op_rep_sample
-    LIFETABLE[76] = ops.op_throw
-    LIFETABLE[77] = ops.op_water
-    LIFETABLE[78] = ops.op_picture
-    LIFETABLE[79] = ops.op_stop_sample
-    LIFETABLE[80] = ops.op_next_music
-    LIFETABLE[81] = ops.op_fade_music
-    LIFETABLE[82] = ops.op_stop_hit_object
-    LIFETABLE[83] = ops.op_copy_angle
-    LIFETABLE[84] = ops.op_end_sequence
-    LIFETABLE[85] = ops.op_sample_then_repeat
-    LIFETABLE[86] = ops.op_wait_game_over
+    table = core_table()
+    table[0] = lambda vm: process_track(vm.game, vm.actor)  # LM_DO_MOVE
+    table[1] = ops.op_anim_once
+    table[2] = ops.op_anim_all_once
+    table[3] = ops.op_body
+    table[13] = ops.op_anim_repeat
+    table[14] = ops.op_anim_move
+    table[15] = ops.op_move
+    table[16] = ops.op_hit
+    table[17] = ops.op_message
+    table[18] = ops.op_message_value
+    table[30] = ops.op_found
+    table[31] = ops.op_life
+    table[32] = ops.op_delete
+    table[33] = ops.op_take
+    table[34] = ops.op_in_hand
+    table[35] = ops.op_read
+    table[36] = ops.op_anim_sample
+    table[37] = ops.op_special
+    table[38] = ops.op_do_real_zv
+    table[39] = ops.op_sample
+    table[40] = ops.op_type
+    table[41] = ops.op_game_over
+    table[42] = ops.op_manual_rot
+    table[43] = ops.op_rnd_freq
+    table[44] = ops.op_music
+    table[45] = ops.op_set_beta
+    table[46] = ops.op_do_rot_zv
+    table[47] = ops.op_stage
+    table[48] = ops.op_found_name
+    table[49] = ops.op_found_flag
+    table[50] = ops.op_found_life
+    table[51] = ops.op_camera_target
+    table[52] = ops.op_drop
+    table[53] = ops.op_fire
+    table[54] = ops.op_test_col
+    table[55] = ops.op_found_body
+    table[56] = ops.op_set_alpha
+    table[58] = ops.op_do_max_zv
+    table[59] = ops.op_put
+    table[60] = ops.op_c_var
+    table[62] = ops.op_do_carre_zv
+    table[63] = ops.op_sample_then
+    table[64] = ops.op_light
+    table[65] = ops.op_shaking
+    table[66] = ops.op_inventory
+    table[67] = ops.op_found_weight
+    table[68] = ops.op_up_coor_y
+    table[70] = ops.op_put_at
+    table[71] = ops.op_def_zv
+    table[72] = ops.op_hit_object
+    table[73] = ops.op_get_hard_clip
+    table[74] = ops.op_angle
+    table[75] = ops.op_rep_sample
+    table[76] = ops.op_throw
+    table[77] = ops.op_water
+    table[78] = ops.op_picture
+    table[79] = ops.op_stop_sample
+    table[80] = ops.op_next_music
+    table[81] = ops.op_fade_music
+    table[82] = ops.op_stop_hit_object
+    table[83] = ops.op_copy_angle
+    table[84] = ops.op_end_sequence
+    table[85] = ops.op_sample_then_repeat
+    table[86] = ops.op_wait_game_over
+    return table
 
 
-_install_handlers()
+LIFETABLE = _install_handlers()
 
 for _i, _h in enumerate(LIFETABLE):
     if _h.__qualname__.startswith("_op_not_implemented"):
