@@ -40,6 +40,15 @@ def reduced_dispatch(vm, opcode, world_idx):
         w.x = read_s16(vm)
         w.y = read_s16(vm)
         w.z = read_s16(vm)
+        # FITD's GenereActiveList runs every frame (mainLoop.cpp:249; spawn
+        # scan main.cpp:3959), so an object moved onto the current floor is
+        # live next frame. This port gates that scan on flag_genere_aff_list
+        # (playworld._genere_active_list): raise it here or the intro's
+        # director (life 547 -> object 288) never spawns its next act.
+        # ponytail: an unconditional per-frame scan is the faithful upgrade;
+        # it changes spawn timing everywhere and the goldens pinned on it.
+        if w.stage == vm.game.current_floor:
+            vm.game.flag_genere_aff_list = 1
     elif opcode == 54:  # LM_TEST_COL
         if read_s16(vm):
             w.flags |= 0x20

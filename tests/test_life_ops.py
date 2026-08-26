@@ -195,3 +195,24 @@ def test_throw_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(da
     assert (result.anim_action_param, result.hot_point_id, result.hit_force) == (77, 88, 44)
     assert world.gamma == gamma
     assert world.found_flag == found_flag
+
+
+def test_reduced_stage_onto_the_current_floor_requests_a_spawn(data_dir):
+    # FITD regenerates the active list every frame (mainLoop.cpp:249,
+    # GenereActiveList main.cpp:3959), so a world object moved onto the
+    # current floor by the reduced LM_STAGE (life.cpp:620) spawns next frame.
+    # This port gates the scan on flag_genere_aff_list: the reduced op must
+    # raise it.
+    from types import SimpleNamespace
+    from PyAitD.games.aitd1.life_reduced import reduced_dispatch
+    game = init_game(data_dir, AITD1, hero=0)
+    game.flag_genere_aff_list = 0
+    vm = SimpleNamespace(game=game, script=struct.pack("<5h", 0, 2, 10, 20, 30), pc=0)
+    reduced_dispatch(vm, 47, 288)
+    w = game.world_objects[288]
+    assert (w.stage, w.room, w.x, w.y, w.z) == (0, 2, 10, 20, 30)
+    assert game.flag_genere_aff_list == 1
+    game.flag_genere_aff_list = 0
+    vm = SimpleNamespace(game=game, script=struct.pack("<5h", 5, 0, 0, 0, 0), pc=0)
+    reduced_dispatch(vm, 47, 288)
+    assert game.flag_genere_aff_list == 0    # another floor: no request
