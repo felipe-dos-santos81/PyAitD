@@ -78,15 +78,24 @@ avoid.
 
 ```python
     def load_floor(self, number):
-        """The Floor loader for anyone holding a Game: threads self.profile so
-        callers need neither the profile nor self._data_dir. Uncached by
-        design -- callers hold their own floor and reload only when
-        current_floor changes."""
+        """The Floor loader for callers outside Game: threads self.profile so
+        they need neither the profile nor self._data_dir. Uncached by design
+        -- callers hold their own floor and reload only when current_floor
+        changes. Game's own internals (rooms_of_floor) construct Floor
+        directly, so a test stubbing load_floor cannot starve them."""
         return Floor(self._data_dir, number, self.profile)
 ```
 
-`Game.rooms_of_floor` routes through it, keeping its own `_rooms_by_floor`
-rooms cache unchanged.
+`Game.rooms_of_floor` **does not** route through `load_floor`; it keeps
+constructing `Floor(self._data_dir, floor_number, self.profile)` itself, with
+its `_rooms_by_floor` rooms cache unchanged. This is deliberate. Twenty tests
+stub floor loading to keep the shell off real data (see "The cost" below), and
+several of them must patch `Game.load_floor` at *class* level because the
+shell builds the game internally. Were `rooms_of_floor` to share that method,
+a class-level stub would also replace the engine's own room lookups —
+coupling that the current `main.Floor` patch point does not have.
+`rooms_of_floor` is one line of profile threading inside `Game`, not a caller
+that needs the seam.
 
 Callers that hold a `Game` switch to the factory:
 
