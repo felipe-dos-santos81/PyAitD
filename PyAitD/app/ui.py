@@ -12,7 +12,7 @@ import pygame
 from PyAitD.app.config import (
     Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
 )
-from PyAitD.engine.effects import ChooseCharacter, FoundResult, OpenSystemMenu
+from PyAitD.engine.effects import ChooseCharacter, FoundResult, OpenStartupMenu, OpenSystemMenu, ShowTitle
 from PyAitD.render.background_export import (
     PORTRAIT_RECTS, READING_CLOSE_RECT, READING_NEXT_RECT, READING_PREV_RECT,
 )
@@ -1001,6 +1001,9 @@ class ModalSession:
     reading: ReadingPresenter = field(default_factory=ReadingPresenter)
     character: CharacterSelectPresenter = field(default_factory=CharacterSelectPresenter)
     system_menu: SystemMenuPresenter = field(default_factory=SystemMenuPresenter)
+    title: "TitlePresenter" = None
+    startup: "StartupMenuPresenter" = None
+    booted_via_menu: bool = False
     settings: Settings = field(default_factory=default_settings)
     settings_path: Path | None = None
     settings_error: str | None = None
@@ -1016,6 +1019,13 @@ class ModalSession:
     pending_hero: int | None = None
     elapsed_ms: int = 0
     last_effect: object = field(default=None, repr=False)
+
+    def __post_init__(self):
+        from PyAitD.app.startup import StartupMenuPresenter, TitlePresenter
+        if self.title is None:
+            self.title = TitlePresenter()
+        if self.startup is None:
+            self.startup = StartupMenuPresenter()
 
     def reset_for(self, effect):
         if effect is self.last_effect:
@@ -1033,6 +1043,12 @@ class ModalSession:
             self.character = CharacterSelectPresenter()
         elif isinstance(effect, OpenSystemMenu):
             self.system_menu = SystemMenuPresenter()
+        elif isinstance(effect, ShowTitle):
+            from PyAitD.app.startup import TitlePresenter
+            self.title = TitlePresenter()
+        elif isinstance(effect, OpenStartupMenu):
+            from PyAitD.app.startup import StartupMenuPresenter
+            self.startup = StartupMenuPresenter()
 
 
 def hit_test_reading(pos, page, page_count):

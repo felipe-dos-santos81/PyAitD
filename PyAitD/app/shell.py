@@ -11,7 +11,7 @@ import pygame
 
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.app.config import default_settings, load_settings, save_settings, settings_path
-from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode
+from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenStartupMenu, ShowTitle
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import enter_floor_start, init_game
 from PyAitD.engine.life import Trace
@@ -135,7 +135,25 @@ def replacement_session(session):
         settings_dirty=session.settings_dirty,
         disk_render=session.disk_render,
         render_touched=session.render_touched,
+        booted_via_menu=session.booted_via_menu,
     )
+
+
+def continue_available(session):
+    # M4a2 save/load replaces this with a real check of the save slots.
+    return False
+
+
+def open_startup_menu(game, session):
+    game.close_modal()
+    game.open_modal(OpenStartupMenu())
+    session.booted_via_menu = True
+    session.reset_for(game.active_modal)
+
+
+def _credits_entry(game):
+    # AITD1.cpp:159 Lire(CVars[TEXTE_CREDITS] + 1, ...)
+    return game.cvars[game.profile.cvar_index("TEXTE_CREDITS")] + 1
 
 
 def _scene_frame(game, floor, renderer, resolver):
@@ -557,6 +575,15 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
     # A keyboard command makes the owning keyboard cursor authoritative until
     # a later MOUSEMOTION establishes a new preview.
     route_hover(game, session, None)
+    if isinstance(game.active_modal, ShowTitle):
+        from PyAitD.app.startup import reduce_title
+        if reduce_title(session.title, modal_command) is not None:
+            open_startup_menu(game, session)
+        return True
+    if isinstance(game.active_modal, OpenStartupMenu):
+        from PyAitD.app.startup import reduce_startup_menu
+        result = reduce_startup_menu(session.startup, modal_command, continue_enabled=continue_available(session))
+        return _apply_startup_result(game, session, input_buffer, result)
     if isinstance(game.active_modal, ChooseCharacter):
         from PyAitD.app.ui import reduce_character_select
         result = reduce_character_select(session.character, modal_command)
@@ -564,6 +591,9 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
             if result.hero is not None:
                 session.pending_hero = result.hero
             if result.quit:
+                if session.booted_via_menu:
+                    open_startup_menu(game, session)
+                    return True
                 return False
         return True
     if isinstance(game.active_modal, ShowFound):
@@ -596,6 +626,23 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
     if isinstance(game.active_modal, GameOver):
         return _route_game_over_command(game, session, modal_command)
     raise RuntimeError(f"unroutable modal {type(game.active_modal).__name__}")
+
+
+def _apply_startup_result(game, session, input_buffer, result):
+    if result is None:
+        return True
+    if result.new_game:
+        game.close_modal()
+        game.open_modal(ChooseCharacter())
+        session.reset_for(game.active_modal)
+        if input_buffer is not None:
+            reset_input(input_buffer)
+        return True
+    if result.quit:
+        if input_buffer is not None:
+            reset_input(input_buffer)
+        return False
+    return True   # continue_game cannot be produced while continue_available is False
 
 
 def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
@@ -632,6 +679,20 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
         if session.system_menu.page is not old_page:
             session.system_menu.hover = None
         return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
+    if isinstance(effect, ShowTitle):
+        from PyAitD.app.startup import hit_test_title, reduce_title
+        if hit_test_title(logical_pos) and reduce_title(session.title, Command.ACCEPT) is not None:
+            open_startup_menu(game, session)
+        return True
+    if isinstance(effect, OpenStartupMenu):
+        from PyAitD.app.startup import hit_test_startup, reduce_startup_menu
+        enabled = continue_available(session)
+        hit = hit_test_startup(logical_pos, continue_enabled=enabled)
+        if hit is None:
+            return True
+        session.startup.cursor = hit
+        result = reduce_startup_menu(session.startup, Command.ACCEPT, continue_enabled=enabled)
+        return _apply_startup_result(game, session, input_buffer, result)
     session.reset_for(effect)
     if isinstance(effect, ChooseCharacter):
         hit = hit_test_character(logical_pos, session.character)
@@ -728,6 +789,12 @@ def route_hover(game, session, logical_pos):
             hit_test_system_menu(logical_pos, session.system_menu)
             if logical_pos is not None else None
         )
+    elif isinstance(effect, OpenStartupMenu):
+        from PyAitD.app.startup import hit_test_startup
+        session.startup.hover = (
+            hit_test_startup(logical_pos, continue_enabled=continue_available(session))
+            if logical_pos is not None else None
+        )
 
 
 def _auto_dismiss_picture(game, session):
@@ -770,6 +837,14 @@ def render_active_mode(game, session, renderer, resolver=None):
     if isinstance(effect, ChooseCharacter):
         # the selector owns the whole frame; the staged PLAY scene is never shown
         return render_character_select(session.character, game.assets, resolver)
+    if isinstance(effect, ShowTitle):
+        from PyAitD.app.startup import render_title
+        return render_title(session.title, game.assets, resolver or AssetResolver(game.assets, None),
+                             session.elapsed_ms, _credits_entry(game))
+    if isinstance(effect, OpenStartupMenu):
+        from PyAitD.app.startup import render_startup_menu
+        return render_startup_menu(session.startup, game.assets, resolver or AssetResolver(game.assets, None),
+                                    continue_enabled=continue_available(session))
     if isinstance(effect, ShowFound):
         world = game.world_objects[effect.object_idx]
         return render_found(effect, session.found, game.assets, game.assets.system_text(world.found_name))
@@ -1014,6 +1089,9 @@ def run(game, trace_path=None, session=None, resolver=None):
             accumulator = 0
             session.elapsed_ms += elapsed
             _auto_dismiss_picture(game, session)
+            if isinstance(game.active_modal, ShowTitle):
+                from PyAitD.app.startup import advance_title
+                advance_title(session.title, session.elapsed_ms)
         if was_play and game.mode is not GameMode.PLAY:
             # Simulation-raised effects (found, reading, picture, game over)
             # cross the boundary inside play_tick.  Command/pointer routes use
@@ -1092,10 +1170,11 @@ def main(argv=None):
         args.floor is not None or args.combat_venue or args.mouse_combat_fixture
     )
     if not debug_start:
-        # Normal boot stages floor zero but opens the character selector
-        # before run(); PLAY never ticks or presents until _hero_branch
+        # Normal boot stages floor zero but opens the title screen before
+        # run(), following the title -> credits -> menu -> selector flow
+        # (startAITD1); PLAY never ticks or presents until _hero_branch
         # replaces the staging game with the confirmed hero's game.
-        game.open_modal(ChooseCharacter())
+        game.open_modal(ShowTitle())
     session = load_runtime_session(settings_path())
     # Session-only: this replaces session.settings in memory, but
     # session.disk_render (captured above, before this call) stays the

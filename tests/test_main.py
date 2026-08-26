@@ -8,7 +8,7 @@ import pytest
 
 from PyAitD.app.shell import parse_args
 from PyAitD.app.config import default_settings
-from PyAitD.engine.effects import ChooseCharacter
+from PyAitD.engine.effects import ShowTitle
 
 
 def test_parse_args_defaults():
@@ -25,7 +25,7 @@ def test_parse_args_distinguishes_normal_boot_from_explicit_floor_zero():
     assert parse_args(["--floor", "0"]).floor == 0
 
 
-def test_normal_main_opens_character_selection_before_run(monkeypatch, tmp_path):
+def test_normal_main_opens_the_title_before_run(monkeypatch, tmp_path):
     import PyAitD.app.shell as main
     game = SimpleNamespace(active_modal=None, open_modal=lambda effect: setattr(game, "active_modal", effect))
     seen = []
@@ -33,7 +33,7 @@ def test_normal_main_opens_character_selection_before_run(monkeypatch, tmp_path)
     monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(main, "run", lambda g, trace, session=None: seen.append((g, session)) or 0)
     assert main.main(["--data", str(tmp_path)]) == 0
-    assert isinstance(game.active_modal, ChooseCharacter)
+    assert isinstance(game.active_modal, ShowTitle)
     assert seen and seen[0][0] is game
 
 

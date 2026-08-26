@@ -10,7 +10,8 @@ import pygame
 import pytest
 
 from PyAitD.app.shell import (
-    _apply_system_result, _capture_keydown, replacement_session, restart_session,
+    _apply_system_result, _capture_keydown, continue_available, open_startup_menu,
+    replacement_session, restart_session,
     route_command, render_active_mode, route_hover, route_mouse,
 )
 from PyAitD.app.config import (
@@ -20,11 +21,12 @@ from PyAitD.render.render_options import RenderOptions
 from PyAitD.engine.playworld import apply_play_input
 from PyAitD.engine.effects import (
     ChooseCharacter, FoundResult, GameMode, GameOver, InputMode, NavDecision, NavIntent,
-    OpenInventory, OpenSystemMenu, ReadText, ShowFound, ShowPicture,
+    OpenInventory, OpenStartupMenu, OpenSystemMenu, ReadText, ShowFound, ShowPicture, ShowTitle,
 )
 from PyAitD.engine.game import init_game
 from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.games.aitd1.profile import AITD1
+from PyAitD.app.startup import StartupLayout, StartupRow, TitlePhase, TITLE_TIMEOUT_MS
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter, Command,
     InputBuffer, ModalLayout, ModalSession, ReadingResult, SettingsNoticeLayout,
@@ -1378,3 +1380,70 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     assert window[-1] == "_scene_frame"
     assert "play_tick" not in window
     assert "present" not in window
+
+
+def test_title_pages_by_command_then_opens_the_menu(data_dir):
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    assert route_command(game, session, Command.ACCEPT) is True
+    assert session.title.phase is TitlePhase.CREDITS and isinstance(game.active_modal, ShowTitle)
+    assert route_command(game, session, Command.ACCEPT) is True
+    assert isinstance(game.active_modal, OpenStartupMenu) and session.booted_via_menu
+
+
+def test_title_click_advances_like_a_command(data_dir):
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    route_mouse(game, session, (5, 5))
+    route_mouse(game, session, (5, 5))
+    assert isinstance(game.active_modal, OpenStartupMenu)
+
+
+def test_menu_new_game_opens_the_selector_and_escape_returns(data_dir):
+    game = init_game(data_dir, AITD1)
+    session = ModalSession()
+    open_startup_menu(game, session)
+    assert route_command(game, session, Command.ACCEPT) is True
+    assert isinstance(game.active_modal, ChooseCharacter)
+    assert route_command(game, session, Command.CANCEL) is True          # back, not quit
+    assert isinstance(game.active_modal, OpenStartupMenu)
+
+
+def test_selector_escape_still_quits_without_a_menu(data_dir):
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ChooseCharacter())
+    assert route_command(game, ModalSession(), Command.CANCEL) is False
+
+
+def test_menu_quit_row_ends_the_loop_and_continue_is_inert(data_dir):
+    game = init_game(data_dir, AITD1)
+    session = ModalSession()
+    open_startup_menu(game, session)
+    assert continue_available(session) is False
+    row = StartupLayout.ROWS[StartupRow.CONTINUE.value]
+    assert route_mouse(game, session, row.center) is True and isinstance(game.active_modal, OpenStartupMenu)
+    row = StartupLayout.ROWS[StartupRow.QUIT.value]
+    assert route_mouse(game, session, row.center) is False
+
+
+def test_menu_hover_previews_rows(data_dir):
+    game = init_game(data_dir, AITD1)
+    session = ModalSession()
+    open_startup_menu(game, session)
+    route_hover(game, session, StartupLayout.ROWS[2].center)
+    assert session.startup.hover == 2
+    route_hover(game, session, None)
+    assert session.startup.hover is None
+
+
+def test_render_active_mode_draws_title_and_menu(data_dir):
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    session = ModalSession()
+    renderer = SimpleNamespace(scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8))
+    game.open_modal(ShowTitle())
+    assert render_active_mode(game, session, renderer).shape == (200, 320, 3)
+    open_startup_menu(game, session)
+    assert render_active_mode(game, session, renderer).shape == (200, 320, 3)
