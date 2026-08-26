@@ -291,3 +291,40 @@ def test_game_over_not_ready_is_identity_on_the_canvas():
     assert render_game_over(canvas, scene, False) is canvas
     ready = render_game_over(canvas, scene, True)
     assert ready.shape == (200, 320, 3)
+
+
+from PyAitD.render.asset_resolver import AssetResolver, override_screen_path
+from PyAitD.render import background_export as be
+
+
+def test_character_layout_portraits_come_from_the_export_guide_rects():
+    assert tuple(tuple(r) for r in CharacterLayout.PORTRAITS) == be.PORTRAIT_RECTS
+
+
+def test_character_select_uses_a_screen_override_outside_the_portraits(data_dir, tmp_path):
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    path = override_screen_path(tmp_path, 10)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"png")
+    plate = np.zeros((400, 640, 3), np.uint8)
+    plate[:, :, 1] = 255                                     # solid green at 2x
+    resolver = AssetResolver(game.assets, tmp_path, load_png=lambda p: plate)
+    frame = render_character_select(CharacterSelectPresenter(), game.assets, resolver)
+    assert frame.shape == (200, 320, 3)
+    assert tuple(frame[196, 318]) == (0, 255, 0)             # outside portraits and cadre: the override
+    x, y, w, h = be.PORTRAIT_RECTS[1]
+    # The unhovered portrait isn't special-cased: it's part of resource 10's
+    # background, so the override covers it too, same as the rest of the screen.
+    assert tuple(frame[y + 5, x + 5]) == (0, 255, 0)
+    original = render_character_select(CharacterSelectPresenter(), game.assets)
+    assert tuple(original[y + 5, x + 5]) != (0, 255, 0)      # sanity: real art there with no override
+
+
+def test_reading_and_picture_accept_a_resolver(data_dir):
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    resolver = AssetResolver(game.assets, None)
+    a = render_reading(ReadText(1, 0), ReadingPresenter(), game.assets, resolver)
+    b = render_picture(ShowPicture(10, 60, 4), game.assets, resolver)
+    assert a.shape == (200, 320, 3) and b.shape == (200, 320, 3)

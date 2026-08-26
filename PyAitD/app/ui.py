@@ -12,7 +12,9 @@ from PyAitD.app.config import (
     Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
 )
 from PyAitD.engine.effects import ChooseCharacter, FoundResult, OpenSystemMenu
+from PyAitD.render.background_export import PORTRAIT_RECTS
 from PyAitD.render.render_options import RenderOptions, cycle_filter, cycle_scale, cycle_shading
+from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.text import BookToken
 
 GRAPHICS_ROWS = 3
@@ -501,10 +503,7 @@ class PlayLayout:
 
 
 class CharacterLayout:
-    PORTRAITS = (
-        pygame.Rect(10, 10, 140, 181),
-        pygame.Rect(170, 10, 140, 181),
-    )
+    PORTRAITS = tuple(pygame.Rect(*rect) for rect in PORTRAIT_RECTS)
     PORTRAIT_HIT_ROWS = effective_rects(PORTRAITS)
     STORY = pygame.Rect(0, 0, 320, 200)
 
@@ -585,6 +584,22 @@ def _to_frame(surface):
         alpha = pygame.surfarray.array_alpha(surface).swapaxes(0, 1)
         return np.ascontiguousarray(np.dstack([rgb, alpha]))
     return np.ascontiguousarray(rgb)
+
+
+def screen_surface(resolver, entry):
+    """An ITD_RESS full-screen resource as a 320x200 surface. An override of
+    any other size is smooth-scaled down/up here so every rect the callers
+    blit over (portraits, text columns, cadre) stays in 320x200 space.
+    ponytail: compositing at override resolution is the upgrade path."""
+    asset = resolver.resource_screen(entry)
+    surface = _to_surface(np.ascontiguousarray(asset.pixels))
+    if surface.get_size() != (320, 200):
+        surface = pygame.transform.smoothscale(surface, (320, 200))
+    return surface
+
+
+def _resolver_or_originals(assets, resolver):
+    return resolver if resolver is not None else AssetResolver(assets, None)
 
 
 def _button(surface, rect, label, selected=False, size=18):
@@ -697,8 +712,9 @@ def render_found(effect, presenter, assets, found_name):
     return _to_frame(surface)
 
 
-def render_picture(effect, assets):
-    return np.ascontiguousarray(assets.resource_screen(effect.resource_index).copy())
+def render_picture(effect, assets, resolver=None):
+    resolver = _resolver_or_originals(assets, resolver)
+    return _to_frame(screen_surface(resolver, effect.resource_index))
 
 
 def overlay_messages(frame, messages, assets):
@@ -766,8 +782,9 @@ def reading_pages(effect, assets):
     return pages
 
 
-def render_reading(effect, presenter, assets):
-    surface = _to_surface(assets.resource_screen({0: 6, 1: 7, 2: 8}[effect.kind]).copy())
+def render_reading(effect, presenter, assets, resolver=None):
+    resolver = _resolver_or_originals(assets, resolver)
+    surface = screen_surface(resolver, {0: 6, 1: 7, 2: 8}[effect.kind])
     pages = reading_pages(effect, assets)
     y = 20
     font = _font(16)
@@ -809,22 +826,22 @@ def render_inventory(presenter, assets, scene_frame, object_names, action_names)
     return _to_frame(surface)
 
 
-def render_character_select(presenter, assets):
+def render_character_select(presenter, assets, resolver=None):
     # FITD character select: resource 10 background, cadre around the hovered
     # portrait (left choice 0 = Emily hero 1, right choice 1 = Carnby hero 0);
     # STORY copies the opposite half of resource 14 plus book text 20/21.
-    base = assets.resource_screen(10)
-    surface = _to_surface(base.copy())
+    resolver = _resolver_or_originals(assets, resolver)
+    surface = screen_surface(resolver, 10)
+    base = surface.copy()
     choice = (presenter.hover if presenter.hover is not None
               and presenter.phase is CharacterPhase.PORTRAITS else presenter.choice)
     center = ((80, 100), (240, 100))[choice]
     draw_big_cadre(surface, assets.cadre_bank(), center, (160, 200))
     portrait = CharacterLayout.PORTRAITS[choice]
-    surface.blit(_to_surface(base[portrait.top:portrait.bottom,
-                                  portrait.left:portrait.right]), portrait.topleft)
+    surface.blit(base, portrait.topleft, portrait)
     if presenter.phase is CharacterPhase.PORTRAITS:
         return _to_frame(surface)
-    intro = _to_surface(assets.resource_screen(14))
+    intro = screen_surface(resolver, 14)
     if presenter.choice == 0:
         surface.blit(intro, (160, 0), pygame.Rect(160, 0, 160, 200))
         entry, text_x = 21, 165

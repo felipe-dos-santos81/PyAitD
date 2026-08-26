@@ -860,7 +860,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
             assert_takeover_clean("scene-frame")
         return frame, []
 
-    def assert_clean_before_render(_game, _session, _frame):
+    def assert_clean_before_render(_game, _session, _frame, *_args):
         assert_takeover_clean("modal-render")
         return frame
 

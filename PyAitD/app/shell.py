@@ -744,7 +744,7 @@ def _auto_dismiss_picture(game, session):
     return True
 
 
-def render_active_mode(game, session, renderer):
+def render_active_mode(game, session, renderer, resolver=None):
     """`renderer` is the live Renderer, not a pre-computed thumbnail: only
     the two branches below that actually paint a scene thumbnail behind
     their modal (OpenInventory, GameOver) call `renderer.scene_thumbnail()`,
@@ -769,7 +769,7 @@ def render_active_mode(game, session, renderer):
         return render_system_menu(session.system_menu, session.settings, game.assets)
     if isinstance(effect, ChooseCharacter):
         # the selector owns the whole frame; the staged PLAY scene is never shown
-        return render_character_select(session.character, game.assets)
+        return render_character_select(session.character, game.assets, resolver)
     if isinstance(effect, ShowFound):
         world = game.world_objects[effect.object_idx]
         return render_found(effect, session.found, game.assets, game.assets.system_text(world.found_name))
@@ -781,9 +781,9 @@ def render_active_mode(game, session, renderer):
             tuple(game.assets.system_text(i) for i in action_ids),
         )
     if isinstance(effect, ReadText):
-        return render_reading(effect, session.reading, game.assets)
+        return render_reading(effect, session.reading, game.assets, resolver)
     if isinstance(effect, ShowPicture):
-        return render_picture(effect, game.assets)
+        return render_picture(effect, game.assets, resolver)
     if isinstance(effect, GameOver):
         return render_game_over(
             transparent_canvas(), renderer.scene_thumbnail(), _game_over_ready(session, effect),
@@ -1024,7 +1024,7 @@ def run(game, trace_path=None, session=None, resolver=None):
             for actor_idx, deadline in hit_feedback_deadlines.items()
             if deadline > now
         }
-        composed = render_active_mode(game, session, renderer)
+        composed = render_active_mode(game, session, renderer, resolver)
         composed = render_hit_feedback(
             composed,
             _hit_feedback_rects(game, draw_list, hit_feedback_deadlines),
