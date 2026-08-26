@@ -92,6 +92,28 @@ def test_main_refuses_to_overwrite_existing_export_without_force(tmp_path, monke
     assert (load_png_rgb(out / "backgrounds/floor00/camera000.png") == checker_pixels(0)).all()
 
 
+def test_main_writes_manifest_via_tmp_and_replace(tmp_path, monkeypatch):
+    _patch_floors(monkeypatch, {0})
+    out = tmp_path / "ov"
+    assert xb.main([str(tmp_path), "--out", str(out), "--floors", "0"]) == 0
+    assert sorted(p.name for p in out.iterdir()) == ["backgrounds", "guides", "manifest.json"]
+
+
+def test_main_force_subset_keeps_other_floors_in_manifest(tmp_path, monkeypatch, capsys):
+    """--force on a floor subset must not make untouched floors' originals
+    look regenerated: their manifest records have to survive the merge."""
+    _patch_floors(monkeypatch, {0, 1})
+    monkeypatch.setattr(co, "load_floor", xb.load_floor)
+    out = tmp_path / "ov"
+    assert xb.main([str(tmp_path), "--out", str(out), "--floors", "0-1"]) == 0
+    assert xb.main([str(tmp_path), "--out", str(out), "--floors", "0", "--force"]) == 0
+    m = json.loads((out / "manifest.json").read_text())
+    assert sorted((c["floor"], c["camera"]) for c in m["cameras"]) == [(0, 0), (1, 0)]
+    assert co.main([str(tmp_path), str(out), "--floors", "0-1"]) == 0
+    text = capsys.readouterr().out
+    assert "floor 01: regenerated 0 / original 1 / missing 0 / invalid 0 / aspect 0" in text
+
+
 def test_makefile_and_gitignore_mention_export():
     mk = open("Makefile").read()
     assert "export-backgrounds:" in mk and "export-backgrounds" in mk.split(".PHONY:")[1].split("\n")[0]

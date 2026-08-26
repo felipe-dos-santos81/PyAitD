@@ -21,7 +21,7 @@ import sys
 import numpy as np
 
 from PyAitD.background_export import (
-    background_rel_path, export_manifest, guide_overlay, guide_rel_path, manifest_record,
+    MANIFEST_SCHEMA, background_rel_path, export_manifest, guide_overlay, guide_rel_path, manifest_record,
 )
 from PyAitD.floor import Floor
 from PyAitD.pak import PakError
@@ -57,6 +57,38 @@ def save_png(path, rgb):
     with open(tmp, "wb") as f:
         pygame.image.save(surface, f, "png")
     os.replace(tmp, path)
+
+
+def _merge_manifest_records(out_dir, new_records):
+    """Merge `new_records` over out_dir/manifest.json's existing `cameras`,
+    keyed by (floor, camera) with new records winning, so a --force
+    re-export of a floor subset does not lose other floors' records (and
+    make them look `regenerated` under coverage()). Falls back to
+    `new_records` alone when there is no readable, schema-matching
+    manifest to merge onto."""
+    manifest_path = pathlib.Path(out_dir) / "manifest.json"
+    if not manifest_path.is_file():
+        return list(new_records)
+    try:
+        existing = json.loads(manifest_path.read_text())
+    except (OSError, ValueError):
+        return list(new_records)
+    if not isinstance(existing, dict) or existing.get("schema") != MANIFEST_SCHEMA:
+        return list(new_records)
+    merged = {(c["floor"], c["camera"]): c for c in existing.get("cameras", [])}
+    for rec in new_records:
+        merged[(rec["floor"], rec["camera"])] = rec
+    return list(merged.values())
+
+
+def save_manifest(out_dir, manifest):
+    """Write manifest.json via `.tmp` + os.replace, like save_png, so an
+    interrupted run never leaves a truncated manifest.json behind."""
+    path = pathlib.Path(out_dir) / "manifest.json"
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(manifest, indent=1))
+    os.replace(tmp, path)
+    return path
 
 
 def export_floor(floor, out_dir, guide_scale, save=save_png):
@@ -117,9 +149,9 @@ def main(argv=None):
         print("error: no floor exported", file=sys.stderr)
         return 2
     args.out.mkdir(parents=True, exist_ok=True)
+    records = _merge_manifest_records(args.out, records)
     manifest = export_manifest(records, args.data.resolve(), args.guide_scale)
-    (args.out / "manifest.json").write_text(json.dumps(manifest, indent=1))
-    print(args.out / "manifest.json")
+    print(save_manifest(args.out, manifest))
     return 0
 
 
