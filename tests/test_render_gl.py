@@ -3,12 +3,12 @@ import moderngl
 import numpy as np
 import pytest
 
-from PyAitD.asset_resolver import ImageAsset
-from PyAitD.geometry import BodyGeometry
-from PyAitD.mask_geometry import MaskDraw
-from PyAitD.render_gl import GLBackend, camera_matrix
-from PyAitD.render_options import RenderOptions
-from PyAitD.scene import ActorDraw, CameraView, FrameDescription
+from PyAitD.render.asset_resolver import ImageAsset
+from PyAitD.render.geometry import BodyGeometry
+from PyAitD.engine.mask_geometry import MaskDraw
+from PyAitD.render.render_gl import GLBackend, camera_matrix
+from PyAitD.render.render_options import RenderOptions
+from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
 from PyAitD.engine.skel import RenderResult
 from PyAitD.engine.world import CameraState
 
@@ -399,7 +399,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
     # created before it -- _select_backend's except clause never gets a
     # live GLBackend reference to release() them through, since the
     # constructor call itself raised.
-    import PyAitD.render_gl as render_gl_module
+    import PyAitD.render.render_gl as render_gl_module
 
     def boom(*_a, **_k):
         raise RuntimeError("icosphere blew up")

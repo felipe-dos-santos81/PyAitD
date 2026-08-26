@@ -9,7 +9,7 @@ from PyAitD.config import (
     SCHEMA, Control, REMAPPABLE_CONTROLS, Settings, default_settings, load_settings,
     replace_binding, save_settings, settings_path, validate_settings,
 )
-from PyAitD.render_options import RenderOptions
+from PyAitD.render.render_options import RenderOptions
 
 
 EXPECTED = {

@@ -8,9 +8,9 @@ import moderngl
 import numpy as np
 import pygame
 
-from PyAitD.render_gl import GLBackend
-from PyAitD.render_options import RenderOptions
-from PyAitD.render_soft import SoftwareBackend
+from PyAitD.render.render_gl import GLBackend
+from PyAitD.render.render_options import RenderOptions
+from PyAitD.render.render_soft import SoftwareBackend
 
 _VSH = """
 #version 330
@@ -126,7 +126,7 @@ class Renderer:
             self.backend = GLBackend(self._ctx, options)
             self.options = options
         except Exception as exc:
-            logging.getLogger("PyAitD.render").warning("GL backend unavailable: %s", exc)
+            logging.getLogger("PyAitD.render.render").warning("GL backend unavailable: %s", exc)
             self.backend = SoftwareBackend()
             self.options = replace(options, scale=1)
             self.fallback_notice = "Enhanced rendering unavailable"
@@ -154,7 +154,7 @@ class Renderer:
         try:
             self.backend.draw(frame)
         except Exception as exc:
-            logging.getLogger("PyAitD.render").warning(
+            logging.getLogger("PyAitD.render.render").warning(
                 "%s.draw failed, falling back to software: %s",
                 type(self.backend).__name__, exc,
             )

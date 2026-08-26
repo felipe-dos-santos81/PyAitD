@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import numpy as np
 
-from PyAitD.asset_resolver import AssetResolver
+from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.formats import Body, Camera, Group, Room
 from PyAitD.engine.game import init_game
-from PyAitD.mask_geometry import MaskDraw
-from PyAitD.scene import CameraView, FrameDescription, build_frame, mask_applies_to_actor
+from PyAitD.engine.mask_geometry import MaskDraw
+from PyAitD.render.scene import CameraView, FrameDescription, build_frame, mask_applies_to_actor
 from PyAitD.engine.skel import skin
 from PyAitD.engine.world import CameraState
 
@@ -126,7 +126,7 @@ def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir):
     # -- a flat 0.5px bound is only true far from the camera; see
     # CameraView.project's docstring. Also restricted to the on-screen
     # domain the bound was calibrated over -- see _on_screen.
-    from PyAitD.geometry import pose_geometry
+    from PyAitD.render.geometry import pose_geometry
     from PyAitD.engine.assets import Assets
     assets = Assets(data_dir)
     floor = Floor(data_dir, 0)
@@ -426,7 +426,7 @@ def test_build_frame_assembles_frame_description_from_stubs(monkeypatch):
     # name at import time, so it must be patched directly; _legacy_stub_scene
     # re-imports from PyAitD.engine.actors on every call, so patching the source
     # module's attribute is enough for it to pick up the fake too.
-    monkeypatch.setattr("PyAitD.scene.anim_player_for", fake_anim_player_for)
+    monkeypatch.setattr("PyAitD.render.scene.anim_player_for", fake_anim_player_for)
     monkeypatch.setattr("PyAitD.engine.actors.anim_player_for", fake_anim_player_for)
 
     frame, draw_list = build_frame(game, floor, resolver)

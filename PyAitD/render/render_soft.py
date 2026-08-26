@@ -7,7 +7,7 @@ depth: the software stand-in for the per-actor depth buffer."""
 import numpy as np
 import pygame
 
-from PyAitD.geometry import POLY_TYPES
+from PyAitD.render.geometry import POLY_TYPES
 from PyAitD.engine.mask import fill_poly
 
 W, H = 320, 200

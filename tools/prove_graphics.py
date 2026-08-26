@@ -18,13 +18,13 @@ import sys
 
 import numpy as np
 
-from PyAitD.asset_resolver import AssetResolver
+from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
-from PyAitD.render_gl import GLBackend
-from PyAitD.render_options import SHADING_MODES, RenderOptions
+from PyAitD.render.render_gl import GLBackend
+from PyAitD.render.render_options import SHADING_MODES, RenderOptions
 from PyAitD.scenario import enter_combat_venue
-from PyAitD.scene import build_frame
+from PyAitD.render.scene import build_frame
 
 FIXTURES = ("attic", "combat")
 

@@ -4,7 +4,7 @@ import functools
 
 from PyAitD.engine.formats import camera_offsets, decode_image, decode_palette, parse_cameras, parse_rooms
 from PyAitD.engine.mask import create_aitd1_mask
-from PyAitD.mask_geometry import mask_polygons
+from PyAitD.engine.mask_geometry import mask_polygons
 from PyAitD.engine.pak import Pak, find_pak
 
 PALETTE_PAK = "ITD_RESS"

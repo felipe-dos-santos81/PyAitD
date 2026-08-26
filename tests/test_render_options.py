@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.render_options import (
+from PyAitD.render.render_options import (
     BACKGROUND_FILTERS, SHADING_MODES, RenderOptions, cycle_filter, cycle_scale,
     cycle_shading, validate_render_options,
 )

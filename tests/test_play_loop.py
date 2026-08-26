@@ -433,7 +433,7 @@ def test_run_constructs_renderer_with_the_session_s_render_options(monkeypatch, 
     import PyAitD.__main__ as main
     from dataclasses import replace as dc_replace
     from PyAitD.config import default_settings
-    from PyAitD.render_options import RenderOptions
+    from PyAitD.render.render_options import RenderOptions
 
     render_options = RenderOptions(scale=6, shading="flat", background_filter="xbr")
     settings = dc_replace(default_settings(), render=render_options)
@@ -515,7 +515,7 @@ def test_run_builds_one_resolver_and_threads_it_through_scene_frame_calls(monkey
     import PyAitD.__main__ as main
     from dataclasses import replace as dc_replace
     from PyAitD.config import default_settings
-    from PyAitD.render_options import RenderOptions
+    from PyAitD.render.render_options import RenderOptions
 
     settings = dc_replace(
         default_settings(), render=RenderOptions(override_dir="/tmp/custom-override"),
@@ -573,7 +573,7 @@ def test_resolver_for_wraps_new_assets_with_the_given_override_dir():
     `getattr(resolver, "_override_dir", None)` design)."""
     import PyAitD.__main__ as main
     from pathlib import Path
-    from PyAitD.asset_resolver import AssetResolver
+    from PyAitD.render.asset_resolver import AssetResolver
 
     resolver = main._resolver_for("assets-marker", "/custom/override")
     assert isinstance(resolver, AssetResolver)
@@ -593,9 +593,9 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeyp
     exercised for real."""
     import PyAitD.__main__ as main
     from dataclasses import replace as dc_replace
-    from PyAitD.asset_resolver import AssetResolver
+    from PyAitD.render.asset_resolver import AssetResolver
     from PyAitD.config import default_settings
-    from PyAitD.render_options import RenderOptions
+    from PyAitD.render.render_options import RenderOptions
     from pathlib import Path
 
     new_game = SimpleNamespace(
@@ -627,9 +627,9 @@ def test_restart_branch_builds_its_resolver_from_the_session_s_override_dir(monk
     above, for _restart_branch."""
     import PyAitD.__main__ as main
     from dataclasses import replace as dc_replace
-    from PyAitD.asset_resolver import AssetResolver
+    from PyAitD.render.asset_resolver import AssetResolver
     from PyAitD.config import default_settings
-    from PyAitD.render_options import RenderOptions
+    from PyAitD.render.render_options import RenderOptions
     from pathlib import Path
 
     new_game = SimpleNamespace(

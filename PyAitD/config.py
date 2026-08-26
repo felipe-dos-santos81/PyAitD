@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 
-from PyAitD.render_options import RenderOptions, validate_render_options
+from PyAitD.render.render_options import RenderOptions, validate_render_options
 
 
 SCHEMA = 2

@@ -34,8 +34,8 @@ def test_scene_and_render_gl_share_the_one_sin_cos_implementation():
     # function object from here; pin that identity so a reintroduced local
     # copy (in either module) fails this test instead of silently
     # reintroducing the duplication (and the divergence risk).
-    import PyAitD.render_gl as render_gl_module
-    import PyAitD.scene as scene_module
+    import PyAitD.render.render_gl as render_gl_module
+    import PyAitD.render.scene as scene_module
 
     assert render_gl_module.sin_cos is sin_cos
     assert scene_module.sin_cos is sin_cos

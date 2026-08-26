@@ -10,7 +10,7 @@ from PyAitD.engine.world import is_in_poly
 
 _PURITY_PROBE = """
 import sys, PyAitD.engine.navmesh
-leaked = {"PyAitD.ui", "PyAitD.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
+leaked = {"PyAitD.ui", "PyAitD.render.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
 sys.exit(", ".join(sorted(leaked)) or None)
 """
 

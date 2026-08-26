@@ -5,13 +5,13 @@ import moderngl
 import numpy as np
 import pygame
 
-import PyAitD.render as render
-from PyAitD.asset_resolver import ImageAsset
-from PyAitD.render import Renderer, _rgba, composite_ui, fit_quad
-from PyAitD.render_gl import GLBackend
-from PyAitD.render_options import RenderOptions
-from PyAitD.render_soft import SoftwareBackend
-from PyAitD.scene import CameraView, FrameDescription
+import PyAitD.render.render as render
+from PyAitD.render.asset_resolver import ImageAsset
+from PyAitD.render.render import Renderer, _rgba, composite_ui, fit_quad
+from PyAitD.render.render_gl import GLBackend
+from PyAitD.render.render_options import RenderOptions
+from PyAitD.render.render_soft import SoftwareBackend
+from PyAitD.render.scene import CameraView, FrameDescription
 from PyAitD.ui import transparent_canvas
 from PyAitD.engine.world import CameraState
 

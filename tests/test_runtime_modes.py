@@ -16,7 +16,7 @@ from PyAitD.__main__ import (
 from PyAitD.config import (
     REMAPPABLE_CONTROLS, Control, Settings, default_settings, load_settings,
 )
-from PyAitD.render_options import RenderOptions
+from PyAitD.render.render_options import RenderOptions
 from PyAitD.engine.playworld import apply_play_input
 from PyAitD.engine.effects import (
     ChooseCharacter, GameMode, GameOver, InputMode, NavDecision, NavIntent, OpenInventory,
@@ -456,7 +456,7 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
     assert result is not None
     (new_game, new_floor, new_session, new_buffer, accumulator,
      draw_list, hover, scene_frame, last, exit_status, new_resolver) = result
-    from PyAitD.asset_resolver import AssetResolver
+    from PyAitD.render.asset_resolver import AssetResolver
     assert isinstance(new_resolver, AssetResolver)
     assert new_resolver._assets is new_game.assets
     assert init_calls == [(staging._data_dir, 1)]

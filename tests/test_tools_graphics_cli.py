@@ -6,7 +6,7 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import numpy as np
 import pytest
 
-from PyAitD.asset_resolver import load_png_rgb
+from PyAitD.render.asset_resolver import load_png_rgb
 from tests.stub_floor import StubFloor, checker_pixels
 from tools import check_overrides as co
 from tools import export_backgrounds as xb
@@ -195,7 +195,7 @@ def test_makefile_mentions_check_and_run_overrides():
 def test_exported_originals_render_pixel_identical_through_override_path(data_dir, tmp_path):
     """DIR straight from export, used as --overrides, changes nothing."""
     from PyAitD.engine.floor import Floor
-    from PyAitD.asset_resolver import AssetResolver
+    from PyAitD.render.asset_resolver import AssetResolver
     out = tmp_path / "ov"
     assert xb.main([str(data_dir), "--out", str(out), "--floors", "0"]) == 0
     floor = Floor(data_dir, 0)

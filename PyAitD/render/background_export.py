@@ -10,7 +10,7 @@ import numpy as np
 
 from PyAitD.engine.formats import parse_cover_zones
 from PyAitD.engine.navmesh import COVER_SCALE
-from PyAitD.scene import CameraView
+from PyAitD.render.scene import CameraView
 from PyAitD.engine.world import CameraState
 
 W, H = 320, 200

@@ -3,7 +3,7 @@
 import numpy as np
 
 from PyAitD.engine.formats import Camera, Room, ViewedRoom, Zone
-from PyAitD.mask_geometry import MaskDraw
+from PyAitD.engine.mask_geometry import MaskDraw
 
 W, H = 320, 200
 

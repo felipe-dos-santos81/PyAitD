@@ -10,10 +10,10 @@ from dataclasses import dataclass
 import numpy as np
 
 from PyAitD.engine.actors import anim_player_for, sort_actor_indices
-from PyAitD.asset_resolver import ImageAsset
+from PyAitD.render.asset_resolver import ImageAsset
 from PyAitD.engine.cos_table import sin_cos
-from PyAitD.geometry import BodyGeometry, pose_geometry
-from PyAitD.mask_geometry import MaskDraw
+from PyAitD.render.geometry import BodyGeometry, pose_geometry
+from PyAitD.engine.mask_geometry import MaskDraw
 from PyAitD.engine.picking import actor_bbox
 from PyAitD.engine.skel import RenderResult, skin
 from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y, CameraState

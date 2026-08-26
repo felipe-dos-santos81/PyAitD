@@ -11,7 +11,7 @@ import pytest
 from PyAitD.engine.anim_action import (
     FRAPPE_OK, HANDLED_ACTIONS, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME,
 )
-from PyAitD.asset_resolver import AssetResolver
+from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.effects import GameMode, NavIntent
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import AF_ANIMATED, AF_MOVABLE, init_game
@@ -34,7 +34,7 @@ from PyAitD.ui import Command
 _PURITY_PROBE = r"""
 import sys
 import PyAitD.mouse_contract
-leaked = {"pygame", "moderngl", "PyAitD.ui", "PyAitD.render"} & sys.modules.keys()
+leaked = {"pygame", "moderngl", "PyAitD.ui", "PyAitD.render.render"} & sys.modules.keys()
 raise SystemExit(", ".join(sorted(leaked)) if leaked else 0)
 """
 

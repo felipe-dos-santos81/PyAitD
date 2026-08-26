@@ -19,7 +19,7 @@ from PyAitD.ui import InputBuffer
 _PURITY_PROBE = """
 import sys, PyAitD.engine.playworld, PyAitD.engine.anim_action
 # the layer rule, then the third-party names a direct import would pull in
-leaked = {"PyAitD.ui", "PyAitD.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
+leaked = {m for m in sys.modules if m == "PyAitD.ui" or m.startswith("PyAitD.render") or m in ("pygame", "moderngl", "OpenGL")}
 sys.exit(", ".join(sorted(leaked)) or None)
 """
 

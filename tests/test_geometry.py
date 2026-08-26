@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from PyAitD.engine.formats import Body, Group, Primitive
-from PyAitD.geometry import BodyGeometry, icosphere, pose_geometry, vertex_groups
+from PyAitD.render.geometry import BodyGeometry, icosphere, pose_geometry, vertex_groups
 from PyAitD.engine.skel import pose_vertices
 
 
@@ -92,7 +92,7 @@ def test_icosphere_arrays_are_read_only():
 
 def test_point_types_mirror_formats_prim_point_like():
     from PyAitD.engine.formats import _PRIM_POINT_LIKE
-    from PyAitD.geometry import POINT_TYPES
+    from PyAitD.render.geometry import POINT_TYPES
     assert POINT_TYPES == tuple(_PRIM_POINT_LIKE)
 
 

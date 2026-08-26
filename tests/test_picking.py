@@ -10,7 +10,7 @@ from PyAitD.engine.world import CameraState
 
 _PURITY_PROBE = """
 import sys, PyAitD.engine.picking
-leaked = {"PyAitD.ui", "PyAitD.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
+leaked = {"PyAitD.ui", "PyAitD.render.render", "pygame", "moderngl", "OpenGL"} & sys.modules.keys()
 sys.exit(", ".join(sorted(leaked)) or None)
 """
 

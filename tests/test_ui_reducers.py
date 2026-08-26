@@ -105,7 +105,7 @@ def test_configuration_cursor_wraps_across_all_rows():
 def test_graphics_rows_cycle_render_options():
     from dataclasses import replace
     from PyAitD.ui import GRAPHICS_ROWS, config_row_count
-    from PyAitD.render_options import RenderOptions
+    from PyAitD.render.render_options import RenderOptions
     assert GRAPHICS_ROWS == 3 and config_row_count() == 2 + len(REMAPPABLE_CONTROLS) + 3
     first = 1 + len(REMAPPABLE_CONTROLS)
     settings = default_settings()

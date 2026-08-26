@@ -12,7 +12,7 @@ from PyAitD.config import (
     Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
 )
 from PyAitD.engine.effects import ChooseCharacter, OpenSystemMenu
-from PyAitD.render_options import RenderOptions, cycle_filter, cycle_scale, cycle_shading
+from PyAitD.render.render_options import RenderOptions, cycle_filter, cycle_scale, cycle_shading
 from PyAitD.engine.text import BookToken
 
 GRAPHICS_ROWS = 3

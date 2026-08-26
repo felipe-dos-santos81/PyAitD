@@ -7,7 +7,7 @@ import pathlib
 import numpy as np
 import pytest
 
-from PyAitD.render_options import SHADING_MODES
+from PyAitD.render.render_options import SHADING_MODES
 from tools.prove_graphics import FIXTURES, _parse_args, main, output_paths, render_fixture
 
 

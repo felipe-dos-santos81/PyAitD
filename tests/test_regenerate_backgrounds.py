@@ -12,9 +12,9 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import numpy as np
 import pytest
 
-from PyAitD.asset_resolver import load_png_rgb
-from PyAitD.background_export import export_manifest
-from PyAitD import override_check as oc
+from PyAitD.render.asset_resolver import load_png_rgb
+from PyAitD.render.background_export import export_manifest
+from PyAitD.render import override_check as oc
 from tests.stub_floor import checker_pixels, StubFloor
 from tools import export_backgrounds as xb
 from tools import regenerate_backgrounds as rb

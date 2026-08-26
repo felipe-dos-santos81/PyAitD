@@ -7,8 +7,8 @@ accepts, and vice versa. PNG decoding is asset_resolver.load_png_rgb.
 from dataclasses import dataclass
 from pathlib import Path
 
-from PyAitD.asset_resolver import AssetResolver, load_png_rgb, override_background_path
-from PyAitD.background_export import sha256_rgb
+from PyAitD.render.asset_resolver import AssetResolver, load_png_rgb, override_background_path
+from PyAitD.render.background_export import sha256_rgb
 
 ERROR_KINDS = ("invalid", "aspect")
 _ASPECT = 320 / 200

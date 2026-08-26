@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import numpy as np
 
-from PyAitD.asset_resolver import ImageAsset
-from PyAitD.geometry import BodyGeometry
-from PyAitD.mask_geometry import MaskDraw
-from PyAitD.render_soft import SoftwareBackend
-from PyAitD.scene import ActorDraw, CameraView, FrameDescription
+from PyAitD.render.asset_resolver import ImageAsset
+from PyAitD.render.geometry import BodyGeometry
+from PyAitD.engine.mask_geometry import MaskDraw
+from PyAitD.render.render_soft import SoftwareBackend
+from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
 from PyAitD.engine.skel import PrimEntry, RenderResult
 from PyAitD.engine.world import CameraState
 

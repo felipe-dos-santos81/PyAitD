@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from PyAitD.asset_resolver import (
+from PyAitD.render.asset_resolver import (
     AssetResolver, ImageAsset, load_png_rgb, override_background_path, override_palette_path,
 )
 

@@ -20,7 +20,7 @@ import sys
 
 import numpy as np
 
-from PyAitD.background_export import (
+from PyAitD.render.background_export import (
     MANIFEST_SCHEMA, background_rel_path, export_manifest, guide_overlay, guide_rel_path, manifest_record,
 )
 from PyAitD.engine.floor import Floor

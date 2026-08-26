@@ -9,7 +9,7 @@ import sys
 
 import pygame
 
-from PyAitD.asset_resolver import AssetResolver
+from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.config import default_settings, load_settings, save_settings, settings_path
 from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode
 from PyAitD.engine.floor import Floor
@@ -19,10 +19,10 @@ from PyAitD.engine.pak import PakError
 # imported by name, not module-qualified: run() reads play_tick as a module
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.engine.playworld import TICK_MS, play_tick
-from PyAitD.render import Renderer
-from PyAitD.render_options import BACKGROUND_FILTERS, SHADING_MODES, validate_render_options
+from PyAitD.render.render import Renderer
+from PyAitD.render.render_options import BACKGROUND_FILTERS, SHADING_MODES, validate_render_options
 from PyAitD.scenario import enter_combat_venue, enter_mouse_combat_fixture
-from PyAitD.scene import build_frame
+from PyAitD.render.scene import build_frame
 from PyAitD.ui import (
     Command, InputBuffer, ModalSession, configure_input, event_to_input,
     hit_test_settings_notice, render_cursor, render_hit_feedback, render_play_hud,

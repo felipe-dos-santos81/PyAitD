@@ -3,7 +3,7 @@ import hashlib
 
 import numpy as np
 
-from PyAitD import background_export as be
+from PyAitD.render import background_export as be
 
 
 def _blank(h=20, w=30):
@@ -118,7 +118,7 @@ def test_export_manifest_envelope():
 
 
 def test_rel_paths_match_asset_resolver_layout(tmp_path):
-    from PyAitD.asset_resolver import override_background_path
+    from PyAitD.render.asset_resolver import override_background_path
     assert (tmp_path / be.background_rel_path(5, 12)) == override_background_path(tmp_path, 5, 12)
     assert be.guide_rel_path(5, 12) == "guides/floor05/camera012.png"
 
@@ -235,7 +235,7 @@ def test_guide_overlay_real_camera_matches_integer_projection(data_dir):
     x, y, z = box.x1 - state.x, box.y2 - state.y, box.z1 - state.z
     ix, iy, idepth = state.project(*transform_point(x, y, z, state))
     assert idepth > 50, "pick a corner in front of the camera for this test"
-    from PyAitD.scene import CameraView
+    from PyAitD.render.scene import CameraView
     fx, fy, fdepth = CameraView(state).project([(box.x1, box.y2, box.z1)])[0]
     tol = 12.0 if fdepth < 2000 else 1.0
     assert abs(fx - ix) <= tol and abs(fy - iy) <= tol
