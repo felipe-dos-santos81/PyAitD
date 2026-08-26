@@ -14,6 +14,8 @@ make prove-mouse-only # one-button contract + real mouse journeys, including hel
 make prove-shell   # M4a1 shell/config/mouse-contract + real-loop journeys
 make prove-mouse-accessibility # focused effective-target/hover/touch/takeover gate
 make prove-graphics # render attic + combat fixtures at every shading mode to docs/graphics-proof/
+make export-backgrounds out=DIR # originals + guides + manifest for external AI regeneration (floors=, scale=, force=1)
+make check-overrides overrides=DIR # validate an override dir as the game loads it; proof=1 renders side-by-sides
 make run           # play via character select; floor=0 debug bypass, data="..." trace=/tmp/t.log optional
 ```
 
@@ -69,6 +71,9 @@ the test suite is the only gate. Never mass-reformat.
   all moderngl; `render.py` owns the window and both. `scene.build_frame`
   returns an immutable `FrameDescription` whose `palette` and
   `background.pixels` alias shared decode caches — read them, never write.
+- `background_export.py` and `override_check.py` are pure like `scene.py`;
+  PNG encoding lives only in `tools/`. The export directory layout is
+  `asset_resolver.override_background_path`'s — change both or neither.
 - `skel.skin`'s integer projection stays authoritative for picking, masks and
   the mouse contract; `draw_list` entries must stay byte-identical.
   `scene.CameraView` is a parallel float path for rendering only and is

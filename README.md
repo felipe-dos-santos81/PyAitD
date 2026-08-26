@@ -55,6 +55,12 @@ the Configuration screen's Graphics rows persist like every other setting.
 If no GL 3.3 context is available, rendering falls back to the software
 backend at scale 1 with a settings notice; the game always runs.
 
+To regenerate the backgrounds with an external AI tool, `make
+export-backgrounds out=DIR` writes the originals plus structure guides and a
+manifest into an override directory, and `make check-overrides overrides=DIR`
+validates the results the way the game loads them. See
+[docs/ai-background-regeneration.md](docs/ai-background-regeneration.md).
+
 ## Tests
 
 ```bash
@@ -67,6 +73,7 @@ make prove-mouse-only   # one-button accessibility contract + journeys (M3e)
 make prove-shell        # shell, configuration, mouse contract, real-loop journeys (M4a1)
 make prove-mouse-accessibility # focused effective-target, hover, touch, and takeover gate
 make prove-graphics     # render attic + combat fixtures at every shading mode to docs/graphics-proof/
+make check-overrides overrides=DIR proof=1  # validate regenerated backgrounds; side-by-sides to docs/graphics-proof/overrides/
 ```
 
 Mouse accessibility hardening is automated by `make prove-mouse-accessibility`
