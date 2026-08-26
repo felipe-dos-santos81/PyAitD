@@ -220,3 +220,16 @@ def test_docs_reference_the_workflow():
         assert needle in doc, needle
     assert "ai-background-regeneration.md" in open("README.md").read()
     assert "make export-backgrounds" in open("AGENTS.md").read()
+
+
+def test_check_overrides_runs_as_a_plain_script(tmp_path):
+    """`make check-overrides` invokes tools/check_overrides.py as a script, so
+    sys.path[0] is tools/ and `tools.export_backgrounds` must still import."""
+    import subprocess
+    import sys
+    proc = subprocess.run(
+        [sys.executable, "tools/check_overrides.py", str(tmp_path / "nope"), str(tmp_path)],
+        capture_output=True, text=True, env={**os.environ, "SDL_VIDEODRIVER": "dummy"},
+    )
+    assert proc.returncode == 2, proc.stderr
+    assert "ModuleNotFoundError" not in proc.stderr

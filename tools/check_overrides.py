@@ -24,7 +24,12 @@ from PyAitD.render_gl import GLBackend
 from PyAitD.render_options import RenderOptions
 from PyAitD.scene import CameraView, FrameDescription
 from PyAitD.world import CameraState
-from tools.export_backgrounds import load_floor, parse_floors, save_png
+# Run as a script (`python tools/check_overrides.py`), sys.path[0] is tools/,
+# not the repo root, so the sibling module is only reachable through the
+# package when the root is added explicitly.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from tools.export_backgrounds import load_floor, parse_floors, save_png  # noqa: E402
 
 DEFAULT_PROOF_DIR = pathlib.Path("docs/graphics-proof/overrides")
 
