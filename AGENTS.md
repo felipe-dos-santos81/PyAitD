@@ -19,7 +19,7 @@ make check-overrides # validate data/aitd1/overrides (or overrides=DIR) as the g
 make regenerate-backgrounds # Gemini describe+render data/aitd1/overrides -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); needs the `agy` CLI on PATH
 make prove-combat  # M3c combat venue proof (pytest gate)
 make prove-mouse   # M3d navmesh coverage for every camera-visible room
-make run           # play via character select; floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
+make run           # play via title -> menu -> character select; floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
 ```
 
 Any test touching rendering/pygame needs `SDL_VIDEODRIVER=dummy`. After

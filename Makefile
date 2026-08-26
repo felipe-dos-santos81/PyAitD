@@ -69,7 +69,7 @@ prove-shell: install ## M4a1 proof: shell, configuration, mouse contract, and re
 		tests/test_config.py tests/test_assets.py tests/test_effects.py \
 		tests/test_ui_input.py tests/test_ui_reducers.py tests/test_ui_mouse.py \
 		tests/test_ui_render.py tests/test_runtime_modes.py tests/test_main.py \
-		tests/test_mouse_only.py tests/test_shell_journeys.py -q
+		tests/test_mouse_only.py tests/test_startup.py tests/test_shell_journeys.py -q
 
 prove-mouse: install ## M3d proof: build the navmesh for every camera-visible room, every floor (usage: make prove-mouse data="path/to/INDARK")
 	$(PYTHON) tools/prove_mouse.py "$(data)"

@@ -242,6 +242,10 @@ action runner.
   settings-notice first refusal, and the atomic game/floor/session/input
   replacement (`_hero_branch`/`_restart_branch` + one tuple assignment).
 - `Game` owns no settings; settings never enter world state.
+- `app/startup.py` owns the title/credits/menu presenters; `shell.open_startup_menu`
+  is the one entry into the menu; `continue_available` is the M4a2 seam; no
+  idle-timeout demo (FITD `MainMenu` 0x10000-unit timeout) — a later milestone
+  adds it with the intro cutscene.
 - Normal boot stages floor zero but never ticks or presents PLAY before
   character confirmation; explicit `--floor 0`, `--combat-venue`, and
   `--mouse-combat-fixture` bypass the selector.

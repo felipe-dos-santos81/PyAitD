@@ -15,7 +15,8 @@ from PyAitD.app.shell import configure_session_input, load_runtime_session
 from PyAitD.app.config import (
     SCHEMA, Control, Settings, default_settings, replace_binding, save_settings,
 )
-from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu
+from PyAitD.app.startup import StartupLayout, StartupRow
+from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu, ShowTitle
 from PyAitD.engine.game import init_game
 from PyAitD.engine.playworld import play_tick as real_play_tick
 from PyAitD.games.aitd1.profile import AITD1
@@ -627,3 +628,70 @@ def test_mouse_only_remap_journey_binds_through_the_key_picker(data_dir, monkeyp
     assert game.mode is GameMode.PLAY
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["bindings"]["ACTION"] == ["q"]
+
+
+def test_journey_title_menu_select_play_by_mouse(data_dir, monkeypatch, tmp_path):
+    # title -> credits -> menu -> New game -> Emily's portrait -> her story
+    # page -> the atomic hero replacement -> PLAY, all through the real
+    # run() event pump and the real shell render dispatch.
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    path = tmp_path / "settings.json"
+    session = load_runtime_session(path)
+    seen = []
+    frames = iter([
+        # a bare frame first: render_active_mode's session.reset_for(effect)
+        # only fires once per effect identity, and route_mouse's ShowTitle
+        # branch (unlike route_command's) never calls reset_for itself; without
+        # this frame the first click's reduce_title mutation would be the
+        # frame that triggers that one-time reset and get wiped by it
+        [],
+        [_left_click((160, 100))],                                        # title -> credits
+        [_left_click((160, 100))],                                        # credits -> menu
+        [_left_click(StartupLayout.ROWS[StartupRow.NEW_GAME.value].center)],
+        [_left_click(CharacterLayout.PORTRAITS[0].center)],               # Emily portrait -> story
+        [_left_click((160, 100))],                                        # story page -> confirm
+        [], [],                                                           # hero branch + one PLAY frame
+        [_quit()],
+    ])
+
+    def next_events():
+        return next(frames, [_quit()])
+
+    def observe_tick(game_, floor, buf):
+        seen.append(game_.cvars[AITD1.cvar_index("CHOOSE_PERSO")])
+        return real_play_tick(game_, floor, buf)
+
+    _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
+    assert seen and seen[0] == 1                                          # Emily is hero 1
+
+
+def test_journey_title_menu_select_play_by_keyboard(data_dir, monkeypatch, tmp_path):
+    # same title -> credits -> menu -> New game path, but by keyboard: Return
+    # (bound to INVENTORY_CONFIRM, translated to ACCEPT by every non-PLAY
+    # modal router) advances the title/credits/menu, Escape bounces out of
+    # the selector back to the menu, Right + Return picks Carnby and starts.
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    path = tmp_path / "settings.json"
+    session = load_runtime_session(path)
+    seen = []
+    frames = iter([
+        [_key(pygame.K_RETURN)], [_key(pygame.K_RETURN)],                 # title, credits
+        [_key(pygame.K_RETURN)],                                          # New game
+        [_key(pygame.K_ESCAPE)],                                          # back to menu
+        [_key(pygame.K_RETURN)],                                          # New game again
+        [_key(pygame.K_RIGHT)], [_key(pygame.K_RETURN)], [_key(pygame.K_RETURN)],   # Carnby, story, confirm
+        [], [],
+        [_quit()],
+    ])
+
+    def next_events():
+        return next(frames, [_quit()])
+
+    def observe_tick(game_, floor, buf):
+        seen.append(game_.cvars[AITD1.cvar_index("CHOOSE_PERSO")])
+        return real_play_tick(game_, floor, buf)
+
+    _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
+    assert seen and seen[0] == 0                                          # Carnby is hero 0

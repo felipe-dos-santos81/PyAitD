@@ -19,6 +19,17 @@ Run 2026-08-24 on macOS 26.6.2 (arm64) with the real game data
   in 13.81s`.
 - `make prove`: PASS — `4 passed in 0.22s` (`tests/test_prove_m3a.py`).
 
+Run 2026-08-26 on macOS 26.6.2 (arm64), adding the title/menu boot flow
+(`app/startup.py`) and its two real-loop journeys, plus `tests/test_startup.py`
+added to `prove-shell`.
+
+- `make prove-shell`: PASS — `263 passed in 13.51s` (adds `tests/test_startup.py`
+  and the two `test_journey_title_menu_select_play_by_*` cases to the file
+  list above; run under `SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy`).
+- `make test` (`.venv/bin/pytest -q`): PASS — `964 passed, 1 skipped, 1 xfailed
+  in 42.22s`.
+- `make prove`: PASS — `4 passed in 0.35s` (`tests/test_prove_m3a.py`).
+
 `tests/test_shell_journeys.py` drives the real `run()` event pump with
 synthetic pygame events and the real shell render dispatch
 (`render_active_mode` is not patched):
@@ -33,6 +44,7 @@ synthetic pygame events and the real shell render dispatch
 | Corrupt boot / forced save failure | PASS | Corrupt JSON boots to defaults with a notice naming the path; Dismiss click and ACCEPT dismissal clear only the notice — character select and menu modes/presenters unchanged; the Back boundary saved exactly once |
 | Death restart | PASS | Dirty/live remap, sticky flag, settings path, and visible error survive `_restart_branch`; input transient state does not |
 | Process-level reload | PASS | Two independent `load_runtime_session` calls around a real `save_settings` read bytes off disk, not a reused object |
+| Startup menu journeys (mouse, keyboard) | PASS | automated, `make prove-shell`: title click/Return -> credits click/Return -> menu New game -> character select -> confirmed hero reaches PLAY; keyboard journey also bounces Escape out of the selector back to the menu before re-entering |
 
 ## Windowed one-button/keyboard evidence — PENDING
 
