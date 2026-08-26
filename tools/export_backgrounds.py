@@ -24,8 +24,8 @@ import sys
 import numpy as np
 
 from PyAitD.render.background_export import (
-    SCREEN_ENTRIES, SUPPORTED_SCHEMAS, background_rel_path, export_manifest, guide_overlay, guide_rel_path,
-    manifest_record, screen_guide, screen_guide_rel_path, screen_record, screen_rel_path,
+    SCREEN_ENTRIES, SCREEN_NAMES, SUPPORTED_SCHEMAS, background_rel_path, export_manifest, guide_overlay,
+    guide_rel_path, manifest_record, screen_guide, screen_guide_rel_path, screen_record, screen_rel_path,
 )
 from PyAitD.engine.assets import Assets
 from PyAitD.engine.floor import Floor
@@ -118,13 +118,19 @@ def export_floor(floor, out_dir, guide_scale, save=save_png):
 
 
 def export_screens(assets, out_dir, guide_scale, save=save_png):
+    # Per-entry, like export_floor's per-camera loop: one damaged ITD_RESS
+    # entry must not discard the records for entries already written to
+    # disk earlier in the loop (a whole-loop try/except did exactly that).
     out_dir = pathlib.Path(out_dir)
     records = []
     for entry in SCREEN_ENTRIES:
-        pixels = assets.resource_screen(entry)
-        save(out_dir / screen_rel_path(entry), pixels)
-        save(out_dir / screen_guide_rel_path(entry), screen_guide(pixels, entry, guide_scale))
-        records.append(screen_record(entry, pixels))
+        try:
+            pixels = assets.resource_screen(entry)
+            save(out_dir / screen_rel_path(entry), pixels)
+            save(out_dir / screen_guide_rel_path(entry), screen_guide(pixels, entry, guide_scale))
+            records.append(screen_record(entry, pixels))
+        except (PakError, FileNotFoundError, OSError, ValueError) as exc:
+            print(f"warning: screen {entry} ({SCREEN_NAMES[entry]}) skipped: {exc}", file=sys.stderr)
     return records
 
 
@@ -154,7 +160,8 @@ def main(argv=None):
     except ValueError:
         print(f"error: bad --floors {args.floors!r}", file=sys.stderr)
         return 2
-    for sub in ("backgrounds", "screens"):
+    subs = ("backgrounds", "screens") if args.screens else ("backgrounds",)
+    for sub in subs:
         if (args.out / sub).exists() and not args.force:
             print(f"error: {args.out / sub} exists; pass --force to overwrite "
                   "(this discards regenerated images)", file=sys.stderr)

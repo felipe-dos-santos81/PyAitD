@@ -23,6 +23,23 @@ def test_export_screens_writes_plate_guide_and_records(tmp_path):
     assert saved[tmp_path / "guides" / "screens" / "ress10.png"] == (400 + be.GUIDE_FOOTER, 640, 3)
 
 
+def test_export_screens_continues_after_a_damaged_entry(tmp_path, capsys):
+    """A single damaged ITD_RESS entry must not discard the records/files of
+    entries already exported earlier in the loop, nor block the ones after
+    it -- the way a whole-loop try/except (which this replaces) would."""
+    def resource_screen(entry):
+        if entry == 8:
+            raise ValueError("ITD_RESS.PAK: entry 8 is 100 bytes; expected 64000")
+        return np.full((200, 320, 3), entry, np.uint8)
+    assets = SimpleNamespace(resource_screen=resource_screen)
+    records = xb.export_screens(assets, tmp_path, 1)
+    assert [r["entry"] for r in records] == [e for e in be.SCREEN_ENTRIES if e != 8]
+    assert (tmp_path / "screens" / "ress06.png").is_file()       # before the damaged entry: kept
+    assert (tmp_path / "screens" / "ress10.png").is_file()       # after the damaged entry: still ran
+    assert not (tmp_path / "screens" / "ress08.png").exists()
+    assert "screen 8 (CARNET) skipped" in capsys.readouterr().err
+
+
 def test_merge_keeps_other_kinds_records(tmp_path):
     manifest = be.export_manifest([{"floor": 0, "camera": 0, "sha256": "a"}], "/d", 4,
                                   screens=[{"entry": 10, "sha256": "s"}])
@@ -36,6 +53,18 @@ def test_merge_keeps_other_kinds_records(tmp_path):
 def test_main_refuses_existing_screens_without_force(tmp_path, monkeypatch):
     (tmp_path / "out" / "screens").mkdir(parents=True)
     assert xb.main([str(tmp_path), "--out", str(tmp_path / "out")]) == 3
+
+
+def test_main_no_screens_ignores_existing_screens_dir(tmp_path, monkeypatch):
+    """--no-screens does not write screens/, so an existing screens/ (e.g.
+    from a previous --screens run) must not block it -- only backgrounds/,
+    which this run does write, should still be guarded."""
+    from tests.stub_floor import StubFloor
+    monkeypatch.setattr(xb, "load_floor", lambda data, n: StubFloor(number=n))
+    out = tmp_path / "out"
+    (out / "screens").mkdir(parents=True)
+    assert xb.main([str(tmp_path), "--out", str(out), "--floors", "0", "--no-screens"]) == 0
+    assert (out / "backgrounds").is_dir()
 
 
 def test_main_exports_screens_and_manifest(tmp_path, monkeypatch):

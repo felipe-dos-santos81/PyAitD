@@ -273,7 +273,11 @@ def main(argv=None):
     args = _parse_args(argv)
     cams = discover(args.in_dir, set(parse_floors(args.floors)), screens=args.screens)
     if not cams:
-        print(f"no cameras under {args.in_dir}/backgrounds", file=sys.stderr)
+        # discover() looks under both backgrounds/ and (unless --no-screens)
+        # screens/; naming only backgrounds/ here was misleading once a
+        # directory with screens but no cameras became a legitimate input.
+        print(f"nothing to regenerate under {args.in_dir}: no backgrounds/ cameras"
+              + ("" if not args.screens else " and no screens/ plates"), file=sys.stderr)
         return 2
     
     done, failed = regenerate(cams, args.out, text_model=args.text_model,
