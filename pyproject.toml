@@ -22,3 +22,12 @@ include = ["PyAitD*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+    "engine: simulation, LIFE VM, formats, actors, animation, tracks, collision, navmesh, picking, AITD1 opcode handlers",
+    "render: FrameDescription to pixels: scene, geometry, both backends, asset resolution, override export and check",
+    "shell: app/: window, event pump, settings schema and persistence, CLI, UI screens and modals",
+    "tools: standalone scripts under tools/",
+    "meta: the repo's own rules rather than its behaviour",
+    "journey: drives the real run() event pump or a long real-data simulation",
+]
