@@ -61,3 +61,12 @@ def test_aitd1_debug_venues_and_reduced_dispatch():
         "combat-venue": scenario.enter_combat_venue,
         "mouse-combat-fixture": scenario.enter_mouse_combat_fixture,
     }
+
+
+def test_aitd1_start_floors_follow_startAITD1():
+    # AITD1.cpp:352-361: startGame(7, 1, 0) is the intro, startGame(0, 0, 1) the game
+    assert AITD1.intro_start == (7, 1)
+    assert AITD1.game_start == (0, 0)
+    fields = {f.name: f for f in dataclasses.fields(AITD1)}
+    assert fields["intro_start"].default is None
+    assert fields["game_start"].default == (0, 0)

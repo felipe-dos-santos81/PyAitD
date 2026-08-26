@@ -23,6 +23,11 @@ class GameProfile:
     opcode_table: tuple      # index == opcode; every slot callable(vm)
     reduced_dispatch: object # callable(vm, opcode, world_idx): not-in-floor ops
     debug_venues: Mapping    # CLI venue name -> callable(game)
+    # (stage, room) FITD's per-game boot passes to startGame (AITD1.cpp:352-361):
+    # the scripted opening with allowSystemMenu=0, or None when the game has
+    # none, and the playable start with allowSystemMenu=1.
+    intro_start: tuple | None = None
+    game_start: tuple = (0, 0)
 
     def cvar_index(self, name):
         return self.cvar_names.index(name)
