@@ -102,7 +102,7 @@ def test_export_manifest_envelope():
     floor = StubFloor()
     recs = [be.manifest_record(floor, 0, checker_pixels())]
     m = be.export_manifest(recs, "/data/INDARK", 4)
-    assert m["schema"] == be.MANIFEST_SCHEMA == 1
+    assert m["schema"] == be.MANIFEST_SCHEMA
     assert m["data_dir"] == "/data/INDARK"
     assert m["guide_scale"] == 4
     assert m["legend"] == {"red": "masks", "blue": "collision", "green": "walkable"}
@@ -235,3 +235,48 @@ def test_guide_overlay_real_camera_matches_integer_projection(data_dir):
     assert abs(fx - ix) <= tol and abs(fy - iy) <= tol
     g = be.guide_overlay(floor, cam_idx, 1)
     assert g.shape == (212, 320, 3)
+
+
+def test_screen_paths_mirror_the_resolver_layout():
+    from PyAitD.render.asset_resolver import override_screen_path
+    import pathlib
+    assert be.screen_rel_path(10) == "screens/ress10.png"
+    assert be.screen_guide_rel_path(10) == "guides/screens/ress10.png"
+    assert pathlib.Path("/x") / be.screen_rel_path(6) == override_screen_path("/x", 6)
+
+
+def test_screen_entries_and_guides_are_consistent():
+    assert be.SCREEN_ENTRIES == (6, 7, 8, 10, 12, 13, 14)
+    assert 11 not in be.SCREEN_ENTRIES
+    assert set(be.SCREEN_GUIDES) == set(be.SCREEN_ENTRIES) == set(be.SCREEN_NAMES)
+    for entry, rects in be.SCREEN_GUIDES.items():
+        assert rects, entry
+        for x, y, w, h in rects:
+            assert 0 <= x and 0 <= y and x + w <= 320 and y + h <= 200, (entry, (x, y, w, h))
+
+
+def test_screen_record_fields():
+    pixels = np.full((200, 320, 3), 3, np.uint8)
+    rec = be.screen_record(10, pixels)
+    assert rec["entry"] == 10 and rec["name"] == "PERSO_CHOICE"
+    assert rec["source"] == "screens/ress10.png" and rec["guide"] == "guides/screens/ress10.png"
+    assert rec["size"] == [320, 200]
+    assert rec["sha256"] == hashlib.sha256(pixels.tobytes()).hexdigest()
+    assert rec["blits"] == [list(r) for r in be.SCREEN_GUIDES[10]]
+
+
+def test_screen_guide_draws_blit_rects_and_legend():
+    pixels = np.zeros((200, 320, 3), np.uint8)
+    img = be.screen_guide(pixels, 10, 2)
+    assert img.shape == (400 + be.GUIDE_FOOTER, 640, 3)
+    x, y, w, h = be.SCREEN_GUIDES[10][0]
+    assert tuple(img[y * 2, x * 2]) == be.COLOR_BLIT            # top-left corner of the first rect
+    assert tuple(img[(y + h - 1) * 2, (x + w - 1) * 2]) == be.COLOR_BLIT
+    assert tuple(img[400 + 2, 2]) == be.COLOR_MASK             # legend footer, first swatch
+
+
+def test_manifest_v2_carries_screens_and_accepts_v1():
+    m = be.export_manifest([], "/data", 4, screens=[{"entry": 13}])
+    assert m["schema"] == 2 and m["screens"] == [{"entry": 13}]
+    assert be.export_manifest([], "/data", 4)["screens"] == []
+    assert be.SUPPORTED_SCHEMAS == (1, 2)

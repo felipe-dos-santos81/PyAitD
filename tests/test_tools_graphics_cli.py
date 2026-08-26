@@ -2,11 +2,13 @@
 import json
 import os
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from PyAitD.render.asset_resolver import load_png_rgb
+from PyAitD.render.asset_resolver import load_png_rgb, override_screen_path
+from PyAitD.render import background_export as be
 from tests.stub_floor import StubFloor, checker_pixels
 from tools import check_overrides as co
 from tools import export_backgrounds as xb
@@ -59,7 +61,7 @@ def test_main_exports_requested_floors_and_manifest(tmp_path, monkeypatch, capsy
     rc = xb.main([str(tmp_path), "--out", str(out), "--floors", "0-1", "--guide-scale", "2"])
     assert rc == 0
     m = json.loads((out / "manifest.json").read_text())
-    assert m["schema"] == 1 and m["guide_scale"] == 2 and m["data_dir"] == str(tmp_path.resolve())
+    assert m["schema"] == be.MANIFEST_SCHEMA and m["guide_scale"] == 2 and m["data_dir"] == str(tmp_path.resolve())
     assert [(c["floor"], c["camera"]) for c in m["cameras"]] == [(0, 0), (1, 0)]
     assert load_png_rgb(out / "guides/floor01/camera000.png").shape == (412, 640, 3)
 
@@ -174,6 +176,26 @@ def test_render_proof_writes_side_by_side(gl_ctx, tmp_path, monkeypatch):
     assert path == tmp_path / "proof" / "floor00-camera000.png"
     assert load_png_rgb(path).shape == (800, 2 * 1280, 3)
     assert co.render_proof(gl_ctx, floor, 0, tmp_path / "empty", tmp_path / "proof") is None
+
+
+def test_render_screen_proof_writes_side_by_side_and_resizes_mismatched_override(tmp_path):
+    original = checker_pixels(3)                            # (200, 320, 3): matches ITD_RESS screens
+    assets = SimpleNamespace(resource_screen=lambda entry: original)
+    ov = tmp_path / "ov"
+    override = checker_pixels(9)[:100, :160]                # deliberately not 4x the original (800x1280)
+    path = override_screen_path(ov, 10)
+    path.parent.mkdir(parents=True)
+    xb.save_png(path, override)
+
+    result = co.render_screen_proof(assets, 10, ov, tmp_path / "proof")
+    assert result == tmp_path / "proof" / "screen-ress10.png"
+    img = load_png_rgb(result)
+    assert img.shape == (800, 2 * 1280, 3)                  # both halves resized to the 4x-original size
+    left, right = img[:, :1280], img[:, 1280:]
+    assert (left == be.nearest_upscale(original, 4)).all()
+    assert not (left == right).all()                        # the (resized) override differs from the original
+
+    assert co.render_screen_proof(assets, 10, tmp_path / "empty", tmp_path / "proof") is None
 
 
 def test_check_main_proof_without_gl_prints_notice(tmp_path, monkeypatch, capsys):

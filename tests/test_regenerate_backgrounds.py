@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+import pathlib
 import re
 import subprocess
 import types as _t
@@ -347,8 +348,16 @@ def test_main_dry_run_needs_no_api_calls(tmp_path, capsys):
 def test_main_exit_codes(tmp_path, capsys):
     in_dir = make_in_dir(tmp_path)
     assert rb.main([str(tmp_path / "empty"), "--out", str(tmp_path / "out")]) == 2
-    assert "no cameras" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "nothing to regenerate" in err
+    assert "backgrounds/" in err and "screens/" in err   # --screens defaults on: both are named
     assert not (tmp_path / "out").exists()
+
+
+def test_main_exit_message_omits_screens_when_disabled(tmp_path, capsys):
+    assert rb.main([str(tmp_path / "empty"), "--out", str(tmp_path / "out"), "--no-screens"]) == 2
+    err = capsys.readouterr().err
+    assert "backgrounds/" in err and "screens/" not in err
 
 
 def test_main_runs_with_injected_subprocess_and_reports_failures(tmp_path, monkeypatch, capsys):
@@ -373,8 +382,52 @@ def test_regenerate_aborts_after_consecutive_failures(tmp_path, monkeypatch):
     logs = []
     fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={1, 2, 3, 4})
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
+
     assert _run(tmp_path, fake, log=logs.append) == (0, 3)
     assert fake.image_calls == 3
     assert logs[-1] == "aborting after 3 consecutive failures"
+
+
+def test_discover_includes_screens_after_cameras(tmp_path):
+    in_dir = make_in_dir(tmp_path)
+    xb.save_png(in_dir / "screens" / "ress10.png", checker_pixels(1))
+    xb.save_png(in_dir / "guides" / "screens" / "ress10.png", np.zeros((412, 640, 3), np.uint8))
+    xb.save_png(in_dir / "screens" / "ress13.png", checker_pixels(2))
+    items = rb.discover(in_dir, None)
+    assert [c.key for c in items][-2:] == ["screens/ress10", "screens/ress13"]
+    assert items[-2].floor == -1 and items[-2].camera == 10
+    assert items[-2].guide == in_dir / "guides" / "screens" / "ress10.png" and items[-1].guide is None
+    assert all(c.floor >= 0 for c in rb.discover(in_dir, None, screens=False))
+
+
+def test_regenerate_screens_land_under_screens_and_copy_manifest(tmp_path, monkeypatch):
+    """regenerate()'s `backgrounds/{key}.png` vs `{key}.png` branch is what
+    makes the output directory directly usable as --overrides DIR for
+    screens too -- nothing exercised regenerate() with a screen item before
+    this, so a typo there (e.g. `backgrounds/screens/ress10.png`) would have
+    passed every other test silently. This also covers the untested
+    _copy_manifest depth arithmetic on a screens-only run (depth=1, not the
+    depth=2 every other regenerate() test exercises via cameras)."""
+    in_dir = tmp_path / "in"
+    xb.save_png(in_dir / "screens" / "ress10.png", checker_pixels(1))
+    manifest = export_manifest([], "stub", 4, screens=[{"entry": 10, "sha256": "s"}])
+    xb.save_manifest(in_dir, manifest)
+    cams = rb.discover(in_dir, None)
+    assert [c.key for c in cams] == ["screens/ress10"]
+    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)))
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    out = tmp_path / "out"
+
+    assert rb.regenerate(cams, out, text_model="t", image_model="image", style="s",
+                         force=False, dry_run=False, log=lambda *_: None) == (1, 0)
+    assert (out / "screens" / "ress10.png").is_file()
+    assert not (out / "backgrounds").exists()
+    assert json.loads((out / "manifest.json").read_text()) == manifest
+
+
+def test_screen_prompts_ask_for_plain_blit_regions():
+    cam = rb.Camera(-1, 10, pathlib.Path("s.png"), pathlib.Path("g.png"), "screens/ress10")
+    text = rb.generation_prompt("a hall", "", True, screen=True)
+    assert "blue" in text and "drawn there by the game" in text
+    assert "walkable" not in text
 

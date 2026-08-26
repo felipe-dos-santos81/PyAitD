@@ -10,7 +10,8 @@ import pygame
 import pytest
 
 from PyAitD.app.shell import (
-    _apply_system_result, _capture_keydown, replacement_session, restart_session,
+    _apply_system_result, _capture_keydown, continue_available, open_startup_menu,
+    replacement_session, restart_session,
     route_command, render_active_mode, route_hover, route_mouse,
 )
 from PyAitD.app.config import (
@@ -20,11 +21,12 @@ from PyAitD.render.render_options import RenderOptions
 from PyAitD.engine.playworld import apply_play_input
 from PyAitD.engine.effects import (
     ChooseCharacter, FoundResult, GameMode, GameOver, InputMode, NavDecision, NavIntent,
-    OpenInventory, OpenSystemMenu, ReadText, ShowFound, ShowPicture,
+    OpenInventory, OpenStartupMenu, OpenSystemMenu, ReadText, ShowFound, ShowPicture, ShowTitle,
 )
 from PyAitD.engine.game import init_game
 from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.games.aitd1.profile import AITD1
+from PyAitD.app.startup import StartupLayout, StartupRow, TitlePhase, TITLE_TIMEOUT_MS
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter, Command,
     InputBuffer, ModalLayout, ModalSession, ReadingResult, SettingsNoticeLayout,
@@ -860,7 +862,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
             assert_takeover_clean("scene-frame")
         return frame, []
 
-    def assert_clean_before_render(_game, _session, _frame):
+    def assert_clean_before_render(_game, _session, _frame, *_args):
         assert_takeover_clean("modal-render")
         return frame
 
@@ -1378,3 +1380,215 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     assert window[-1] == "_scene_frame"
     assert "play_tick" not in window
     assert "present" not in window
+
+
+def test_title_pages_by_command_then_opens_the_menu(data_dir):
+    from PyAitD.app.startup import credits_page_count
+
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    page_count = credits_page_count(
+        game.assets, game.cvars[game.profile.cvar_index("TEXTE_CREDITS")] + 1,
+    )
+    assert route_command(game, session, Command.ACCEPT) is True
+    assert session.title.phase is TitlePhase.CREDITS and isinstance(game.active_modal, ShowTitle)
+    # every page but the last stays on ShowTitle; only the last hands off
+    for page in range(1, page_count):
+        assert route_command(game, session, Command.ACCEPT) is True
+        assert session.title.page == page and isinstance(game.active_modal, ShowTitle)
+    assert route_command(game, session, Command.ACCEPT) is True
+    assert isinstance(game.active_modal, OpenStartupMenu) and session.booted_via_menu
+
+
+def test_title_click_advances_like_a_command(data_dir):
+    from PyAitD.app.startup import credits_page_count
+
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    page_count = credits_page_count(
+        game.assets, game.cvars[game.profile.cvar_index("TEXTE_CREDITS")] + 1,
+    )
+    for _ in range(page_count + 1):  # TITLE->CREDITS, then every credits page
+        if isinstance(game.active_modal, OpenStartupMenu):
+            break
+        route_mouse(game, session, (5, 5))
+    assert isinstance(game.active_modal, OpenStartupMenu)
+
+
+def test_title_click_survives_the_first_render_active_mode_reset(data_dir):
+    # Regression: route_mouse's ShowTitle branch used to call reduce_title
+    # BEFORE session.reset_for(effect) ran for the first time against this
+    # ShowTitle instance -- unlike route_command, which resets first. Since
+    # render_active_mode also calls session.reset_for(effect) every frame,
+    # and reset_for only resets an effect the first time it observes that
+    # exact identity, the click's TITLE -> CREDITS mutation used to get
+    # silently replaced by a fresh TitlePresenter() the moment
+    # render_active_mode ran afterwards: the player's first click on the
+    # title screen did nothing.
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    renderer = SimpleNamespace(scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8))
+    assert session.title.phase is TitlePhase.TITLE
+    route_mouse(game, session, (5, 5))
+    assert session.title.phase is TitlePhase.CREDITS
+    render_active_mode(game, session, renderer)
+    assert session.title.phase is TitlePhase.CREDITS, (
+        "the click's phase change must survive the first render_active_mode reset"
+    )
+
+
+def test_run_advances_the_title_past_its_timeout_with_no_input(data_dir, monkeypatch):
+    # Important 3: run()'s non-PLAY branch calls advance_title every frame,
+    # but nothing exercised it through the real event loop -- deleting those
+    # lines left the whole suite green. Pump run() with a monkeypatched
+    # get_ticks the way the journeys do, but past TITLE_TIMEOUT_MS, and with
+    # no input at all: the title must reach CREDITS on the clock alone.
+    import PyAitD.app.shell as main
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    idle_frames = TITLE_TIMEOUT_MS // 20 + 5   # comfortably past the timeout
+    event_batches = iter(
+        [[] for _ in range(idle_frames)] + [[pygame.event.Event(pygame.QUIT)]]
+    )
+    ticks = itertools.count(0, 20)
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
+        present=lambda image: None,
+        close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(ticks))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
+    )
+    monkeypatch.setattr(main.pygame.display, "set_caption", lambda *args: None)
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda *args: None)
+
+    assert main.run(game, session=session) == 0
+    assert session.title.phase is TitlePhase.CREDITS
+    assert isinstance(game.active_modal, ShowTitle), "the timeout advances the phase, not the modal"
+
+
+def test_menu_new_game_opens_the_selector_and_escape_returns(data_dir):
+    game = init_game(data_dir, AITD1)
+    session = ModalSession()
+    open_startup_menu(game, session)
+    assert route_command(game, session, Command.ACCEPT) is True
+    assert isinstance(game.active_modal, ChooseCharacter)
+    assert route_command(game, session, Command.CANCEL) is True          # back, not quit
+    assert isinstance(game.active_modal, OpenStartupMenu)
+
+
+def test_selector_escape_still_quits_without_a_menu(data_dir):
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ChooseCharacter())
+    assert route_command(game, ModalSession(), Command.CANCEL) is False
+
+
+def test_menu_quit_row_ends_the_loop_and_continue_is_inert(data_dir):
+    game = init_game(data_dir, AITD1)
+    session = ModalSession()
+    open_startup_menu(game, session)
+    assert continue_available(session) is False
+    row = StartupLayout.ROWS[StartupRow.CONTINUE.value]
+    assert route_mouse(game, session, row.center) is True and isinstance(game.active_modal, OpenStartupMenu)
+    row = StartupLayout.ROWS[StartupRow.QUIT.value]
+    assert route_mouse(game, session, row.center) is False
+
+
+def test_menu_hover_previews_rows(data_dir):
+    game = init_game(data_dir, AITD1)
+    session = ModalSession()
+    open_startup_menu(game, session)
+    route_hover(game, session, StartupLayout.ROWS[2].center)
+    assert session.startup.hover == 2
+    route_hover(game, session, None)
+    assert session.startup.hover is None
+
+
+def test_render_active_mode_draws_title_and_menu(data_dir):
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    session = ModalSession()
+    renderer = SimpleNamespace(scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8))
+    game.open_modal(ShowTitle())
+    assert render_active_mode(game, session, renderer).shape == (200, 320, 3)
+    open_startup_menu(game, session)
+    assert render_active_mode(game, session, renderer).shape == (200, 320, 3)
+
+
+from PyAitD.app.shell import _boot_hero, _cutscene_end_branch
+from PyAitD.engine.effects import CutsceneFinished
+
+
+class _Renderer:
+    def scene_thumbnail(self):
+        return np.zeros((200, 320, 3), np.uint8)
+
+    def compose_scene(self, frame):
+        # _boot_hero's own _scene_frame call (unmocked here, unlike the
+        # monkeypatched _hero_branch/_restart_branch tests above) needs a
+        # real compose_scene stand-in; the returned frame is not asserted on.
+        return frame
+
+
+def test_boot_hero_cutscene_stages_the_intro(data_dir):
+    game = init_game(data_dir, AITD1)
+    session = ModalSession()
+    replaced = _boot_hero(game, _Renderer(), session, InputBuffer(), 1, cutscene=True)
+    new_game, new_floor, new_session = replaced[0], replaced[1], replaced[2]
+    assert (new_game.current_floor, new_game.current_room) == AITD1.intro_start
+    assert new_floor.number == 7
+    assert new_game.allow_system_menu is False and new_session.cutscene is True
+    assert new_game.cvars[AITD1.cvar_index("CHOOSE_PERSO")] == 1
+
+
+def test_boot_hero_plain_boots_the_attic(data_dir):
+    game = init_game(data_dir, AITD1)
+    replaced = _boot_hero(game, _Renderer(), ModalSession(), InputBuffer(), 0, cutscene=False)
+    new_game, new_session = replaced[0], replaced[2]
+    assert (new_game.current_floor, new_game.current_room) == AITD1.game_start
+    assert new_game.allow_system_menu is True and new_session.cutscene is False
+
+
+def test_cutscene_end_branch_hands_over_to_the_attic_with_the_same_hero(data_dir):
+    game = init_game(data_dir, AITD1, hero=1)
+    session = ModalSession(cutscene=True)
+    assert _cutscene_end_branch(game, _Renderer(), session, InputBuffer()) is None
+    game.open_modal(CutsceneFinished())
+    replaced = _cutscene_end_branch(game, _Renderer(), session, InputBuffer())
+    assert replaced is not None
+    new_game, new_session = replaced[0], replaced[2]
+    assert new_game.cvars[AITD1.cvar_index("CHOOSE_PERSO")] == 1
+    assert (new_game.current_floor, new_game.current_room) == AITD1.game_start
+    assert new_session.cutscene is False and new_game.active_modal is None
+
+
+def test_skip_flag_ends_the_cutscene_from_play(data_dir):
+    game = init_game(data_dir, AITD1)
+    session = ModalSession(cutscene=True, skip_cutscene=True)
+    assert _cutscene_end_branch(game, _Renderer(), session, InputBuffer()) is not None
+
+
+def test_cutscene_swallows_play_commands_and_marks_skip(data_dir):
+    game = init_game(data_dir, AITD1)
+    session = ModalSession(cutscene=True)
+    assert route_command(game, session, Command.CANCEL) is True
+    assert game.active_modal is None and session.skip_cutscene is True   # no system menu opened
+
+
+def test_cutscene_finished_renders_the_frozen_scene(data_dir):
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    game.open_modal(CutsceneFinished())
+    frame = render_active_mode(game, ModalSession(cutscene=True), _Renderer())
+    assert frame.shape == (200, 320, 4) and frame[..., 3].max() == 0      # transparent: scene shows through

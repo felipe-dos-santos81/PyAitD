@@ -157,6 +157,10 @@ class Game:
         self.current_inventory = 0
         self.messages = [None] * 5
         self.status_screen_allowed = 1
+        # startGame's allowSystemMenu (main.cpp:4134): False for the scripted
+        # opening, where FlagGameOver ends the sequence (CutsceneFinished)
+        # instead of killing the player, and any input ends it early.
+        self.allow_system_menu = True
         # mouse navigation state (see docs/superpowers/specs/2026-08-23-...)
         self.input_mode = InputMode.MOUSE
         self.nav_intent = None
@@ -580,6 +584,26 @@ def enter_floor_start(game, floor_start):
     game.num_camera = -1
 
 
+def start_game(game, stage, room):
+    # startGame (main.cpp:4134) minus PlayWorld: initVars resets the camera
+    # and world targets (main.cpp:1235-1236), LoadEtage(stage), NumCamera=-1,
+    # ChangeSalle(room), NewNumCamera=0, FlagInitView=2. The hero is NOT
+    # relocated: world data decides which objects live on `stage`. A staged
+    # start has no restart point (floor_start) until a script sets one.
+    game.current_camera_target_actor = -1
+    game.current_world_target = -1
+    game.current_floor = game.new_num_etage = stage
+    game.flag_change_etage = 0
+    change_salle(game, room)
+    game.new_num_salle = room
+    game.new_num_camera = 0
+    game.flag_init_view = 2
+    spawn_stage_actors(game)
+    game.flag_genere_aff_list = 0
+    game.num_camera = -1
+    game.floor_start = None
+
+
 def game_step_tick(game):
     game.timer += 1
 
@@ -587,11 +611,17 @@ def game_step_tick(game):
 def init_game(data_dir, profile, hero=0):
     from PyAitD.engine.interaction import sync_player_track_mode  # interaction imports game
     game = Game(data_dir, profile, hero=hero)
+    # profile.game_start (games/base.py): the floor/room the playable start
+    # boots onto directly -- NOT via start_game, which resets camera/world
+    # targets and clears floor_start (see games/base.py's docstring). AITD1's
+    # value is (0, 0), matching the hardcode this replaces; a second game
+    # with a different attic floor would need only its own profile value.
+    game.current_floor, floor_room = profile.game_start
     spawn_stage_actors(game)
     # object data spawns the hero in track mode 1 (tank); the default input mode
     # is the mouse, and mode 1 would eat the follower's mirrored joyd as keyboard
     sync_player_track_mode(game)
-    change_salle(game, 0)
+    change_salle(game, floor_room)
     game.new_num_camera = 0
     game.flag_init_view = 2
     hero = game.actors[game.current_camera_target_actor]

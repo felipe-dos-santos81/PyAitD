@@ -2,11 +2,13 @@
 import os
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
+from types import SimpleNamespace
+
 import numpy as np
 
 from PyAitD.render import override_check as oc
-from PyAitD.render.asset_resolver import AssetResolver, load_png_rgb, override_background_path
-from PyAitD.render.background_export import export_manifest, manifest_record, sha256_rgb
+from PyAitD.render.asset_resolver import AssetResolver, load_png_rgb, override_background_path, override_screen_path
+from PyAitD.render.background_export import SCREEN_ENTRIES, export_manifest, manifest_record, screen_record, sha256_rgb
 from tests.stub_floor import StubFloor, checker_pixels
 
 
@@ -100,3 +102,31 @@ def test_summarize_lines(tmp_path):
 def test_summarize_without_coverage():
     text = oc.summarize([], None)
     assert "coverage: no manifest" in text
+
+
+def _screen_assets():
+    plates = {e: np.full((200, 320, 3), e, np.uint8) for e in SCREEN_ENTRIES}
+    return SimpleNamespace(resource_screen=lambda e: plates[e]), plates
+
+
+def test_check_screens_reports_missing_invalid_and_aspect(tmp_path):
+    assets, _ = _screen_assets()
+    bad = override_screen_path(tmp_path, 10); bad.parent.mkdir(parents=True); bad.write_bytes(b"x")
+    wide = override_screen_path(tmp_path, 13); wide.write_bytes(b"x")
+    images = {bad: np.zeros((2, 2), np.uint8), wide: np.zeros((200, 640, 3), np.uint8)}
+    findings = oc.check_screens(tmp_path, assets, load_png=lambda p: images[p])
+    by_entry = {f.camera: f.kind for f in findings}
+    assert by_entry[10] == "invalid" and by_entry[13] == "aspect" and by_entry[6] == "missing"
+    assert all(f.floor == -1 for f in findings)
+
+
+def test_screen_coverage_distinguishes_original_from_regenerated(tmp_path):
+    assets, plates = _screen_assets()
+    manifest = export_manifest([], "/d", 4, screens=[screen_record(e, plates[e]) for e in SCREEN_ENTRIES])
+    same = override_screen_path(tmp_path, 10); same.parent.mkdir(parents=True); same.write_bytes(b"x")
+    new = override_screen_path(tmp_path, 14); new.write_bytes(b"x")
+    images = {same: plates[10], new: np.ones((200, 320, 3), np.uint8)}
+    cov = oc.screen_coverage(tmp_path, assets, manifest, load_png=lambda p: images[p])
+    assert cov == {"regenerated": 1, "original": 1, "missing": 5, "invalid": 0}
+    text = oc.summarize([], {}, cov)
+    assert "screens: regenerated 1 / original 1 / missing 5 / invalid 0" in text

@@ -11,6 +11,9 @@ class GameMode(Enum):
     GAME_OVER = auto()
     CHARACTER_SELECT = auto()
     SYSTEM_MENU = auto()
+    TITLE = auto()
+    STARTUP_MENU = auto()
+    CUTSCENE_END = auto()
 
 
 class FoundResult(Enum):
@@ -66,6 +69,18 @@ class OpenSystemMenu:
 
 
 @dataclass(frozen=True)
+class ShowTitle:
+    # startup only: AITD1.cpp:121 makeIntroScreens (title, then credits page)
+    pass
+
+
+@dataclass(frozen=True)
+class OpenStartupMenu:
+    # startup only: startupMenu.cpp:35 MainMenu
+    pass
+
+
+@dataclass(frozen=True)
 class ReadText:
     text_index: int
     kind: int
@@ -86,9 +101,17 @@ class GameOver:
     delay_units: int = 120
 
 
+@dataclass(frozen=True)
+class CutsceneFinished:
+    # PlayWorld(allowSystemMenu=0) breaks on FlagGameOver (mainLoop.cpp:185):
+    # the scripted opening's terminal, not a death. The app replaces the game.
+    pass
+
+
 ModalEffect = (
     ShowFound | OpenInventory | ReadText | ShowPicture | GameOver
-    | ChooseCharacter | OpenSystemMenu
+    | ChooseCharacter | OpenSystemMenu | ShowTitle | OpenStartupMenu
+    | CutsceneFinished
 )
 ImmediateEffect = AddMessage | BeginTake
 
@@ -100,8 +123,11 @@ MODAL_MODE = {
     ShowPicture: GameMode.READING,
     ChooseCharacter: GameMode.CHARACTER_SELECT,
     OpenSystemMenu: GameMode.SYSTEM_MENU,
+    ShowTitle: GameMode.TITLE,
+    OpenStartupMenu: GameMode.STARTUP_MENU,
 }
 MODAL_MODE[GameOver] = GameMode.GAME_OVER
+MODAL_MODE[CutsceneFinished] = GameMode.CUTSCENE_END
 
 
 @dataclass

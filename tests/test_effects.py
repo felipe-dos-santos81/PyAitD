@@ -56,3 +56,15 @@ def test_shell_effects_use_the_existing_modal_mode_mapping(data_dir, effect, mod
     game = init_game(data_dir, AITD1)
     game.open_modal(effect)
     assert game.mode is mode
+
+
+def test_startup_effects_map_to_their_modes():
+    from PyAitD.engine.effects import GameMode, MODAL_MODE, OpenStartupMenu, ShowTitle
+    assert MODAL_MODE[ShowTitle] is GameMode.TITLE
+    assert MODAL_MODE[OpenStartupMenu] is GameMode.STARTUP_MENU
+    assert ShowTitle() == ShowTitle() and OpenStartupMenu() == OpenStartupMenu()
+
+
+def test_cutscene_finished_maps_to_its_mode():
+    from PyAitD.engine.effects import CutsceneFinished, GameMode, MODAL_MODE
+    assert MODAL_MODE[CutsceneFinished] is GameMode.CUTSCENE_END

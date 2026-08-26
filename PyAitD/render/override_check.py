@@ -7,8 +7,8 @@ accepts, and vice versa. PNG decoding is asset_resolver.load_png_rgb.
 from dataclasses import dataclass
 from pathlib import Path
 
-from PyAitD.render.asset_resolver import AssetResolver, load_png_rgb, override_background_path
-from PyAitD.render.background_export import sha256_rgb
+from PyAitD.render.asset_resolver import AssetResolver, load_png_rgb, override_background_path, override_screen_path
+from PyAitD.render.background_export import SCREEN_ENTRIES, sha256_rgb
 
 ERROR_KINDS = ("invalid", "aspect")
 _ASPECT = 320 / 200
@@ -82,23 +82,73 @@ def coverage(override_dir, floors, manifest, *, load_png=load_png_rgb):
     return out
 
 
-def summarize(findings, cov):
+def _each_screen(override_dir, assets, load_png):
+    resolver = AssetResolver(assets, override_dir, load_png=load_png)
+    for entry in SCREEN_ENTRIES:
+        yield entry, override_screen_path(override_dir, entry), resolver
+
+
+def check_screens(override_dir, assets, *, load_png=load_png_rgb):
+    """At most one Finding per screen; `floor` is -1, `camera` is the entry."""
+    findings = []
+    for entry, path, resolver in _each_screen(override_dir, assets, load_png):
+        if not path.is_file():
+            findings.append(Finding(-1, entry, path, "missing", "original will be used"))
+            continue
+        asset = resolver.resource_screen(entry)
+        if not asset.is_override:
+            findings.append(Finding(-1, entry, path, "invalid", resolver.failures.get(path, "rejected")))
+            continue
+        h, w = asset.pixels.shape[:2]
+        if abs(w / h - _ASPECT) > _ASPECT * _ASPECT_TOL:
+            findings.append(Finding(-1, entry, path, "aspect",
+                                    f"{w}x{h} is not 16:10 within 1% -- the game would stretch it"))
+            continue
+        if w < 320 or h < 200 or w % 320 or h % 200:
+            findings.append(Finding(-1, entry, path, "size",
+                                    f"{w}x{h} is not an integer multiple of 320x200"))
+    return findings
+
+
+def screen_coverage(override_dir, assets, manifest, *, load_png=load_png_rgb):
+    expected = {s["entry"]: s["sha256"] for s in manifest.get("screens", [])}
+    counts = {"regenerated": 0, "original": 0, "missing": 0, "invalid": 0}
+    for entry, path, resolver in _each_screen(override_dir, assets, load_png):
+        if not path.is_file():
+            counts["missing"] += 1
+            continue
+        asset = resolver.resource_screen(entry)
+        if not asset.is_override:
+            counts["invalid"] += 1
+        elif sha256_rgb(asset.pixels) == expected.get(entry):
+            counts["original"] += 1
+        else:
+            counts["regenerated"] += 1
+    return counts
+
+
+def summarize(findings, cov, screen_cov=None):
     lines = []
     for f in findings:
         if f.kind != "missing":
-            lines.append(f"{f.kind:<7} floor {f.floor:02d} camera {f.camera:03d}  {f.path}: {f.detail}")
+            if f.floor == -1:
+                lines.append(f"{f.kind:<7} screen ress{f.camera:02d}  {f.path}: {f.detail}")
+            else:
+                lines.append(f"{f.kind:<7} floor {f.floor:02d} camera {f.camera:03d}  {f.path}: {f.detail}")
     if cov is None:
         lines.append("coverage: no manifest")
-        return "\n".join(lines)
-    aspect_by_floor = {}
-    for f in findings:
-        if f.kind == "aspect":
-            aspect_by_floor[f.floor] = aspect_by_floor.get(f.floor, 0) + 1
-    total = {k: 0 for k in _ORDER}
-    for number in sorted(cov):
-        row = dict(cov[number], aspect=aspect_by_floor.get(number, 0))
-        for k in _ORDER:
-            total[k] += row[k]
-        lines.append(f"floor {number:02d}: " + " / ".join(f"{k} {row[k]}" for k in _ORDER))
-    lines.append("total: " + " / ".join(f"{k} {total[k]}" for k in _ORDER))
+    else:
+        aspect_by_floor = {}
+        for f in findings:
+            if f.kind == "aspect" and f.floor != -1:
+                aspect_by_floor[f.floor] = aspect_by_floor.get(f.floor, 0) + 1
+        total = {k: 0 for k in _ORDER}
+        for number in sorted(cov):
+            row = dict(cov[number], aspect=aspect_by_floor.get(number, 0))
+            for k in _ORDER:
+                total[k] += row[k]
+            lines.append(f"floor {number:02d}: " + " / ".join(f"{k} {row[k]}" for k in _ORDER))
+        lines.append("total: " + " / ".join(f"{k} {total[k]}" for k in _ORDER))
+    if screen_cov is not None:
+        lines.append("screens: " + " / ".join(f"{k} {screen_cov[k]}" for k in ("regenerated", "original", "missing", "invalid")))
     return "\n".join(lines)

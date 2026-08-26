@@ -593,6 +593,7 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeyp
     exercised for real."""
     import PyAitD.app.shell as main
     from dataclasses import replace as dc_replace
+    from PyAitD.engine.effects import InputMode
     from PyAitD.render.asset_resolver import AssetResolver
     from PyAitD.app.config import default_settings
     from PyAitD.render.render_options import RenderOptions
@@ -611,7 +612,13 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeyp
     settings = dc_replace(default_settings(), render=RenderOptions(override_dir="/custom/dir"))
     session = ModalSession(settings=settings)
     session.pending_hero = 1
-    old_game = SimpleNamespace(_data_dir="ignored", trace=None, profile=AITD1)
+    # skip_intro: this test exercises only the resolver-building line with a
+    # bare SimpleNamespace new_game -- the real intro cutscene's start_game
+    # needs a real Game (actors, world state, ...), which is out of scope here
+    session.skip_intro = True
+    old_game = SimpleNamespace(
+        _data_dir="ignored", trace=None, profile=AITD1, input_mode=InputMode.MOUSE,
+    )
 
     with _pygame_runtime():
         result = main._hero_branch(old_game, SimpleNamespace(), session, InputBuffer())

@@ -31,6 +31,7 @@ GENERATE_ASPECT = "3:2"     # nearest Gemini ratio to 16:10 (3:2 is narrower); e
 PROMPTS_FILE = "prompts.json"
 MAX_CONSECUTIVE_FAILURES = 3   # a dead model/key fails every camera: stop early
 _CAMERA_RE = re.compile(r"floor(\d\d)/camera(\d\d\d)\.png$")
+_SCREEN_RE = re.compile(r"screens/ress(\d\d)\.png$")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -42,9 +43,10 @@ class Camera:
     key: str
 
 
-def discover(in_dir, floors):
+def discover(in_dir, floors, screens=True):
     """Every IN/backgrounds/floorNN/cameraNNN.png, sorted, restricted to
-    `floors` (None = all); guide path only when the file exists."""
+    `floors` (None = all); then every IN/screens/ressNN.png (floor -1,
+    camera = entry) when `screens`. Guide path only when the file exists."""
     in_dir = pathlib.Path(in_dir)
     cams = []
     for path in sorted((in_dir / "backgrounds").glob("floor[0-9][0-9]/camera[0-9][0-9][0-9].png")):
@@ -55,6 +57,12 @@ def discover(in_dir, floors):
         key = f"floor{floor:02d}/camera{cam:03d}"
         guide = in_dir / "guides" / f"{key}.png"
         cams.append(Camera(floor, cam, path, guide if guide.is_file() else None, key))
+    if screens:
+        for path in sorted((in_dir / "screens").glob("ress[0-9][0-9].png")):
+            entry = int(_SCREEN_RE.search(path.as_posix()).group(1))
+            key = f"screens/ress{entry:02d}"
+            guide = in_dir / "guides" / f"{key}.png"
+            cams.append(Camera(-1, entry, path, guide if guide.is_file() else None, key))
     return cams
 
 
@@ -67,23 +75,35 @@ _GUIDE_DESCRIBE = ("The second image is the same frame with an overlay: red outl
 _GUIDE_GENERATE = ("The second image marks the layout: red outlines are foreground objects, blue "
                    "boxes are walls and solid furniture, green polygons are walkable floor; keep "
                    "all of them where they are and do not draw the coloured lines." + _GUIDE_LEGEND_NOTE)
+_SCREEN_DESCRIBE = ("The second image outlines in blue the regions where the game later draws "
+                    "text or portraits; describe the artwork so those regions stay plain and "
+                    "uncluttered." + _GUIDE_LEGEND_NOTE)
+_SCREEN_GENERATE = ("The second image outlines in blue the regions where text and portraits are "
+                    "drawn there by the game: keep those areas plain, without text, and do not "
+                    "draw the blue lines." + _GUIDE_LEGEND_NOTE)
 
 
-def describe_prompt(guide_present):
+def describe_prompt(guide_present, screen=False):
     text = ("Describe this 320x200 pixel-art background from a 1992 adventure game as a "
             "single-paragraph prompt for a photorealistic image generator. Name the room type, "
             "the camera angle and height, every piece of furniture and architecture with its "
             "position in frame, the light sources and their direction, materials and colours, "
             "and the mood. Do not mention pixel art, the game, or resolution. Output only the prompt.")
-    return text + (" " + _GUIDE_DESCRIBE if guide_present else "")
+    if not guide_present:
+        return text
+    return text + " " + (_SCREEN_DESCRIBE if screen else _GUIDE_DESCRIBE)
 
 
-def generation_prompt(description, style, guide_present):
-    text = ("Recreate the first image as a photorealistic photograph of the same scene, keeping "
-            "the exact camera position, framing, perspective and the placement of every wall, "
-            "door, window, stair and piece of furniture. ")
+def generation_prompt(description, style, guide_present, screen=False):
+    if screen:
+        text = ("Recreate the first image as a painted illustration of the same composition, "
+                "keeping the framing and every element's placement. ")
+    else:
+        text = ("Recreate the first image as a photorealistic photograph of the same scene, keeping "
+                "the exact camera position, framing, perspective and the placement of every wall, "
+                "door, window, stair and piece of furniture. ")
     if guide_present:
-        text += _GUIDE_GENERATE + " "
+        text += (_SCREEN_GENERATE if screen else _GUIDE_GENERATE) + " "
     return text + description.strip() + " " + style
 
 
@@ -102,7 +122,7 @@ def save_prompts(path, prompts):
 
 def describe(model, cam):
     """One text-model call via agy CLI: original (+ guide) -> scene prompt."""
-    prompt = describe_prompt(cam.guide is not None)
+    prompt = describe_prompt(cam.guide is not None, screen=cam.floor == -1)
     instructions = f"Look at the image at {cam.source.absolute()}. "
     if cam.guide:
         instructions += f"Also look at the guide image at {cam.guide.absolute()}. "
@@ -175,7 +195,12 @@ def fit_to_target(png_bytes):
 def _copy_manifest(cams, out_dir):
     if not cams:
         return
-    src = cams[0].source.parents[2] / "manifest.json"
+    first = cams[0]
+    # IN/backgrounds/floorNN/cameraNNN.png is two levels under IN; IN/screens/ressNN.png
+    # is only one -- derive the level from the first camera's own kind so this is
+    # correct regardless of whether a background or a screen sorts first.
+    depth = 1 if first.floor == -1 else 2
+    src = first.source.parents[depth] / "manifest.json"
     dst = pathlib.Path(out_dir) / "manifest.json"
     if src.is_file() and not dst.is_file():
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -193,7 +218,7 @@ def regenerate(cams, out_dir, *, text_model, image_model, style, force, dry_run,
     prompts = load_prompts(prompts_path)
     done = failed = streak = 0
     for cam in cams:
-        target = out_dir / "backgrounds" / f"{cam.key}.png"
+        target = out_dir / (f"backgrounds/{cam.key}.png" if cam.floor >= 0 else f"{cam.key}.png")
         if target.is_file() and not force:
             log(f"{cam.key}: exists, skipped")
             continue
@@ -209,7 +234,8 @@ def regenerate(cams, out_dir, *, text_model, image_model, style, force, dry_run,
                 text = describe(text_model, cam)
                 prompts[cam.key] = {"prompt": text, "model": text_model, "sha256": source_sha}
                 save_prompts(prompts_path, prompts)
-            prompt = generation_prompt(prompts[cam.key]["prompt"], style, cam.guide is not None)
+            prompt = generation_prompt(prompts[cam.key]["prompt"], style, cam.guide is not None,
+                                       screen=cam.floor == -1)
             image = generate(text_model, cam, prompt)
             save_png(target, fit_to_target(image))
         except Exception as exc:  # per-camera: SDK error types are not imported here
@@ -238,14 +264,20 @@ def _parse_args(argv):
     p.add_argument("--image-model", default=DEFAULT_IMAGE_MODEL)
     p.add_argument("--force", action="store_true", help="redo existing outputs and cached prompts")
     p.add_argument("--dry-run", action="store_true", help="list what would be processed; no API calls")
+    p.add_argument("--screens", action=argparse.BooleanOptionalAction, default=True,
+                    help="also regenerate the ITD_RESS full-screen resources (default on)")
     return p.parse_args(argv)
 
 
 def main(argv=None):
     args = _parse_args(argv)
-    cams = discover(args.in_dir, set(parse_floors(args.floors)))
+    cams = discover(args.in_dir, set(parse_floors(args.floors)), screens=args.screens)
     if not cams:
-        print(f"no cameras under {args.in_dir}/backgrounds", file=sys.stderr)
+        # discover() looks under both backgrounds/ and (unless --no-screens)
+        # screens/; naming only backgrounds/ here was misleading once a
+        # directory with screens but no cameras became a legitimate input.
+        print(f"nothing to regenerate under {args.in_dir}: no backgrounds/ cameras"
+              + ("" if not args.screens else " and no screens/ plates"), file=sys.stderr)
         return 2
     
     done, failed = regenerate(cams, args.out, text_model=args.text_model,

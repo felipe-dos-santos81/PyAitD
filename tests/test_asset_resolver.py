@@ -134,3 +134,57 @@ def test_load_png_rgb_axis_order_and_dtype(tmp_path):
     assert arr[0, 0].tolist() == [10, 20, 30]
     assert arr[0, width - 1].tolist() == [200, 150, 50]
     assert arr[height - 1, 0].tolist() == [5, 250, 100]
+
+
+from PyAitD.render.asset_resolver import override_screen_path
+
+
+def _assets():
+    original = np.full((200, 320, 3), 9, dtype=np.uint8)
+    return SimpleNamespace(body=lambda n: n, resource_screen=lambda entry: original)
+
+
+def test_screen_path_follows_the_convention(tmp_path):
+    assert override_screen_path(tmp_path, 10) == tmp_path / "screens" / "ress10.png"
+    assert override_screen_path(tmp_path, 6) == tmp_path / "screens" / "ress06.png"
+
+
+def test_resource_screen_without_override_dir_returns_original():
+    asset = AssetResolver(_assets(), None).resource_screen(10)
+    assert isinstance(asset, ImageAsset) and not asset.is_override
+    assert asset.pixels.shape == (200, 320, 3) and asset.pixels[0, 0, 0] == 9
+
+
+def test_resource_screen_absent_override_falls_back_silently(tmp_path, caplog):
+    def fail_if_called(p):
+        raise AssertionError("load_png must not be called when the override file is absent")
+    resolver = AssetResolver(_assets(), tmp_path, load_png=fail_if_called)
+    with caplog.at_level(logging.WARNING, logger="PyAitD.engine.assets"):
+        asset = resolver.resource_screen(10)
+    assert not asset.is_override and not resolver.failures and not caplog.records
+
+
+def test_resource_screen_override_is_used_at_any_size_and_cached(tmp_path):
+    path = override_screen_path(tmp_path, 14)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"png")
+    big = np.zeros((400, 640, 3), dtype=np.uint8)
+    calls = []
+    resolver = AssetResolver(_assets(), tmp_path, load_png=lambda p: calls.append(p) or big)
+    first = resolver.resource_screen(14)
+    second = resolver.resource_screen(14)
+    assert first.is_override and first.pixels is big and second.pixels is big
+    assert len(calls) == 1
+
+
+def test_resource_screen_invalid_override_warns_once_and_falls_back(tmp_path, caplog):
+    path = override_screen_path(tmp_path, 13)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"png")
+    resolver = AssetResolver(_assets(), tmp_path, load_png=lambda p: np.zeros((10, 10), dtype=np.uint8))
+    with caplog.at_level(logging.WARNING, logger="PyAitD.engine.assets"):
+        asset = resolver.resource_screen(13)
+        resolver.resource_screen(13)
+    assert not asset.is_override
+    assert path in resolver.failures
+    assert len(caplog.records) == 1

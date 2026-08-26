@@ -92,3 +92,17 @@ def test_game_over_click_locked_at_either_extreme_corner_rejects_restart(data_di
     session.elapsed_ms = 1999
     assert route_mouse(game, session, corner) is True
     assert game.restart_requested is False
+
+
+def test_game_over_during_a_cutscene_is_cutscene_finished(data_dir, monkeypatch):
+    from PyAitD.engine.effects import CutsceneFinished
+    import PyAitD.engine.playworld as playworld
+
+    game = init_game(data_dir, AITD1)
+    game.allow_system_menu = False      # PlayWorld(allowSystemMenu=0): mainLoop.cpp:185 break, not death
+    floor = Floor(data_dir, game.current_floor)
+    monkeypatch.setattr(playworld, "run_life", lambda current, frame: setattr(current, "flag_game_over", 1) or True)
+    monkeypatch.setattr(playworld, "life_gate", lambda actor: actor.index_in_world >= 0)
+    assert play_tick(game, floor, InputBuffer()) is False
+    assert game.active_modal == CutsceneFinished() and game.mode is GameMode.CUTSCENE_END
+    assert game.flag_game_over == 0

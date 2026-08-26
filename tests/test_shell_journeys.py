@@ -15,7 +15,8 @@ from PyAitD.app.shell import configure_session_input, load_runtime_session
 from PyAitD.app.config import (
     SCHEMA, Control, Settings, default_settings, replace_binding, save_settings,
 )
-from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu
+from PyAitD.app.startup import StartupLayout, StartupRow, credits_page_count
+from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu, ShowTitle
 from PyAitD.engine.game import init_game
 from PyAitD.engine.playworld import play_tick as real_play_tick
 from PyAitD.games.aitd1.profile import AITD1
@@ -51,10 +52,10 @@ def _key(code):
     return pygame.event.Event(pygame.KEYDOWN, key=code, repeat=False)
 
 
-def _run_shell(monkeypatch, game, session, next_events, *, observe_tick=None):
+def _run_shell(monkeypatch, game, session, next_events, *, observe_tick=None, tick_ms=20):
     import PyAitD.app.shell as main
     renderer = _HeadlessRenderer()
-    ticks = itertools.count(0, 20)
+    ticks = itertools.count(0, tick_ms)
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: renderer)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (_FRAME, []))
     monkeypatch.setattr(main.pygame.event, "get", next_events)
@@ -388,6 +389,9 @@ def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
     path = tmp_path / "settings.json"
     path.write_text("{ definitely not json", encoding="utf-8")
     session = load_runtime_session(path)
+    # skip_intro: this journey tests the settings notice and the system
+    # menu after the hero replacement, not the opening cutscene
+    session.skip_intro = True
     assert session.settings_error is not None
     assert str(path) in session.settings_error
 
@@ -627,3 +631,231 @@ def test_mouse_only_remap_journey_binds_through_the_key_picker(data_dir, monkeyp
     assert game.mode is GameMode.PLAY
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["bindings"]["ACTION"] == ["q"]
+
+
+def test_journey_title_menu_select_play_by_mouse(data_dir, monkeypatch, tmp_path):
+    # title -> credits (all 8 pages) -> menu -> New game -> Emily's portrait
+    # -> her story page -> the atomic hero replacement -> PLAY, all through
+    # the real run() event pump and the real shell render dispatch.
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    path = tmp_path / "settings.json"
+    session = load_runtime_session(path)
+    seen = []
+    credits_entry = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    page_count = credits_page_count(game.assets, credits_entry)
+    frames = iter([
+        [_left_click((160, 100))],                                        # title -> credits
+        *([[_left_click((160, 100))]] * page_count),                      # page through credits -> menu
+        [_left_click(StartupLayout.ROWS[StartupRow.NEW_GAME.value].center)],
+        [_left_click(CharacterLayout.PORTRAITS[0].center)],               # Emily portrait -> story
+        [_left_click((160, 100))],                                        # story page -> confirm
+        [], [],                                                           # hero branch + one PLAY frame
+        [_quit()],
+    ])
+
+    def next_events():
+        return next(frames, [_quit()])
+
+    def observe_tick(game_, floor, buf):
+        seen.append(game_.cvars[AITD1.cvar_index("CHOOSE_PERSO")])
+        return real_play_tick(game_, floor, buf)
+
+    _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
+    assert seen and seen[0] == 1                                          # Emily is hero 1
+
+
+def test_journey_title_menu_select_play_by_keyboard(data_dir, monkeypatch, tmp_path):
+    # same title -> credits (all pages) -> menu -> New game path, but by
+    # keyboard: Return (bound to INVENTORY_CONFIRM, translated to ACCEPT by
+    # every non-PLAY modal router) advances the title/credits/menu, Escape
+    # bounces out of the selector back to the menu, Right + Return picks
+    # Carnby and starts.
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    path = tmp_path / "settings.json"
+    session = load_runtime_session(path)
+    seen = []
+    credits_entry = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    page_count = credits_page_count(game.assets, credits_entry)
+    frames = iter([
+        [_key(pygame.K_RETURN)],                                          # title -> credits
+        *([[_key(pygame.K_RETURN)]] * page_count),                        # page through credits -> menu
+        [_key(pygame.K_RETURN)],                                          # New game
+        [_key(pygame.K_ESCAPE)],                                          # back to menu
+        [_key(pygame.K_RETURN)],                                          # New game again
+        [_key(pygame.K_RIGHT)], [_key(pygame.K_RETURN)], [_key(pygame.K_RETURN)],   # Carnby, story, confirm
+        [], [],
+        [_quit()],
+    ])
+
+    def next_events():
+        return next(frames, [_quit()])
+
+    def observe_tick(game_, floor, buf):
+        seen.append(game_.cvars[AITD1.cvar_index("CHOOSE_PERSO")])
+        return real_play_tick(game_, floor, buf)
+
+    _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
+    assert seen and seen[0] == 0                                          # Carnby is hero 0
+
+
+def _confirm_emily_events(game):
+    # title -> credits (all pages, data-dependent count) -> menu -> New game
+    # -> Emily's portrait -> her story page -> confirm. Mirrors the credits
+    # paging the other title-menu-select journeys above do, since the credits
+    # page count is a property of the installed game data, not a fixed "1".
+    credits_entry = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    page_count = credits_page_count(game.assets, credits_entry)
+    return [
+        [_left_click((160, 100))],                                        # title -> credits
+        *([[_left_click((160, 100))]] * page_count),                      # page through credits -> menu
+        [_left_click(StartupLayout.ROWS[StartupRow.NEW_GAME.value].center)],
+        [_left_click(CharacterLayout.PORTRAITS[0].center)],               # Emily portrait -> story
+        [_left_click((160, 100))],                                        # story page -> confirm
+    ]
+
+
+def test_journey_opening_plays_to_the_end_then_the_attic(data_dir, monkeypatch):
+    # title -> credits -> menu -> New game -> Emily, then the real floor-7
+    # opening ticked entirely through the real run() event pump (not
+    # test_intro.py's headless play_tick loop): the letter, the walk through
+    # floors 7 -> 3 -> 2 -> 1, CutsceneFinished, then the attic hand-over
+    # (startGame(0, 0, 1)). Emily's own animation timing reaches
+    # CutsceneFinished at tick 7220 (not the 7293 pinned for Carnby in
+    # tests/test_intro.py -- that spike booted hero=0); this journey asserts
+    # only the floor sequence and the terminal attic, not a tick number.
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    floors = []
+    # 650 padding frames x up to 12-13 ticks/frame (250 ms cap / 20 ms tick)
+    # comfortably clears the ~594 frames empirically needed to reach the
+    # attic (game.timer 7220 at CutsceneFinished for Emily); the run ends via
+    # the trailing _quit() once floors has already reached the attic.
+    frames = iter(_confirm_emily_events(game) + [[]] * 650 + [[_quit()]])
+
+    def next_events():
+        return next(frames, [_quit()])
+
+    def observe_tick(game_, floor, buf):
+        if not floors or floors[-1] != floor.number:
+            floors.append(floor.number)
+        return real_play_tick(game_, floor, buf)
+
+    _run_shell(
+        monkeypatch, game, session, next_events,
+        observe_tick=observe_tick, tick_ms=250,
+    )
+    assert floors[:4] == [7, 3, 2, 1] and floors[-1] == 0
+
+
+def test_journey_a_click_skips_the_opening(data_dir, monkeypatch):
+    # Same boot as above, but a click partway through the opening ends it
+    # early: PlayWorld(allowSystemMenu=0) breaks on any key or click
+    # (mainLoop.cpp:71-89), so the shell hands off to the attic without ever
+    # reaching CutsceneFinished on its own. Proves the skip actually happened
+    # mid-cutscene (floor 7 is reached, then the attic) and that no GameOver
+    # modal was ever involved (Emily's own opening runs to a GameOver-shaped
+    # CutsceneFinished around tick 7220 if never skipped -- see the journey
+    # above -- so skipping this early must never let a real GameOver form).
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    floors = []
+    frames = iter(
+        _confirm_emily_events(game)
+        + [[], [], [_left_click((10, 10))], [], [], [_quit()]]
+    )
+
+    def next_events():
+        return next(frames, [_quit()])
+
+    def observe_tick(game_, floor, buf):
+        floors.append(floor.number)
+        return real_play_tick(game_, floor, buf)
+
+    _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
+    assert 7 in floors and floors[-1] == 0
+    assert game.mode is not GameMode.GAME_OVER
+
+
+def test_journey_dismissing_the_settings_notice_during_the_cutscene_does_not_skip_it(
+    data_dir, monkeypatch,
+):
+    # render_settings_notice paints the Dismiss button unconditionally, mode
+    # independent, and PlayerCapability.DISMISS_SETTINGS_ERROR's contract
+    # claims ALL_MODES -- so a click there during the opening must clear the
+    # notice, not trip the cutscene-skip swallow that also fires on any left
+    # click. Track the live game/session through the hero replacement (like
+    # test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change
+    # above) since _boot_hero constructs a brand new ModalSession for the
+    # cutscene.
+    import PyAitD.app.shell as main
+
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    session.settings_error = "forced test notice"
+
+    live = {"game": game, "session": session}
+    real_init_game = main.init_game
+    real_modal_session = main.ModalSession
+
+    def spy_init_game(data, profile, hero=0):
+        live["game"] = real_init_game(data, profile, hero=hero)
+        return live["game"]
+
+    def spy_modal_session(*args, **kwargs):
+        live["session"] = real_modal_session(*args, **kwargs)
+        return live["session"]
+
+    monkeypatch.setattr(main, "init_game", spy_init_game)
+    monkeypatch.setattr(main, "ModalSession", spy_modal_session)
+
+    floors = []
+    frames = iter(
+        _confirm_emily_events(game)
+        + [[], [], [_left_click(SettingsNoticeLayout.DISMISS.center)], [], [], [_quit()]]
+    )
+
+    def next_events():
+        return next(frames, [_quit()])
+
+    def observe_tick(game_, floor, buf):
+        floors.append(floor.number)
+        return real_play_tick(game_, floor, buf)
+
+    _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
+
+    assert live["session"].settings_error is None    # the Dismiss click landed
+    assert live["session"].cutscene is True           # ...and did NOT skip
+    assert 0 not in floors                            # the attic was never reached
+    assert floors[-1] == 7
+
+
+def test_journey_a_keypress_skips_the_opening(data_dir, monkeypatch):
+    # Same as the click journey above, but with a keypress: PlayWorld
+    # (allowSystemMenu=0) breaks on any key too (mainLoop.cpp:71-89), and
+    # the event pump's cutscene swallow tests KEYDOWN separately from the
+    # click/touch arms -- only this journey would catch a regression that
+    # dropped the KEYDOWN arm and left a keypress doing nothing mid-opening.
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    floors = []
+    frames = iter(
+        _confirm_emily_events(game)
+        + [[], [], [_key(pygame.K_SPACE)], [], [], [_quit()]]
+    )
+
+    def next_events():
+        return next(frames, [_quit()])
+
+    def observe_tick(game_, floor, buf):
+        floors.append(floor.number)
+        return real_play_tick(game_, floor, buf)
+
+    _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
+    assert 7 in floors and floors[-1] == 0
+    assert game.mode is not GameMode.GAME_OVER

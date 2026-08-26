@@ -4,6 +4,7 @@ from functools import lru_cache
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from pathlib import Path
+from weakref import WeakKeyDictionary
 
 import numpy as np
 import pygame
@@ -11,8 +12,12 @@ import pygame
 from PyAitD.app.config import (
     Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
 )
-from PyAitD.engine.effects import ChooseCharacter, FoundResult, OpenSystemMenu
+from PyAitD.engine.effects import ChooseCharacter, FoundResult, OpenStartupMenu, OpenSystemMenu, ShowTitle
+from PyAitD.render.background_export import (
+    PORTRAIT_RECTS, READING_CLOSE_RECT, READING_NEXT_RECT, READING_PREV_RECT,
+)
 from PyAitD.render.render_options import RenderOptions, cycle_filter, cycle_scale, cycle_shading
+from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.text import BookToken
 
 GRAPHICS_ROWS = 3
@@ -501,10 +506,7 @@ class PlayLayout:
 
 
 class CharacterLayout:
-    PORTRAITS = (
-        pygame.Rect(10, 10, 140, 181),
-        pygame.Rect(170, 10, 140, 181),
-    )
+    PORTRAITS = tuple(pygame.Rect(*rect) for rect in PORTRAIT_RECTS)
     PORTRAIT_HIT_ROWS = effective_rects(PORTRAITS)
     STORY = pygame.Rect(0, 0, 320, 200)
 
@@ -542,9 +544,12 @@ class ModalLayout:
     FOUND_LEAVE = pygame.Rect(28, 154, 120, 30)
     FOUND_TAKE = pygame.Rect(172, 154, 120, 30)
     INVENTORY_ROWS = tuple(pygame.Rect(24, 30 + i * 24, 272, 22) for i in range(5))
-    READING_PREV = pygame.Rect(12, 164, 96, 28)
-    READING_CLOSE = pygame.Rect(114, 164, 96, 28)
-    READING_NEXT = pygame.Rect(216, 164, 96, 28)
+    # Pinned to background_export.READING_*_RECT (the same convention
+    # CharacterLayout.PORTRAITS follows for PORTRAIT_RECTS) so the screen
+    # guides for entries 6/7/8 can never drift from where these buttons draw.
+    READING_PREV = pygame.Rect(*READING_PREV_RECT)
+    READING_CLOSE = pygame.Rect(*READING_CLOSE_RECT)
+    READING_NEXT = pygame.Rect(*READING_NEXT_RECT)
     FOUND_HIT_ROWS = effective_rects((FOUND_LEAVE, FOUND_TAKE))
     INVENTORY_HIT_ROWS = effective_rects(INVENTORY_ROWS)
     READING_HIT_ROWS = effective_rects((READING_PREV, READING_CLOSE, READING_NEXT))
@@ -585,6 +590,47 @@ def _to_frame(surface):
         alpha = pygame.surfarray.array_alpha(surface).swapaxes(0, 1)
         return np.ascontiguousarray(np.dstack([rgb, alpha]))
     return np.ascontiguousarray(rgb)
+
+
+# Per-resolver cache of the scaled 320x200 Surface for each ITD_RESS entry,
+# so the character-select/STORY/reading screens (rendered every frame by
+# shell.py's render loop) don't redo _to_surface + smoothscale from scratch
+# at 60 Hz. Keyed weakly on the resolver so the cache dies with it; each
+# entry's cache slot holds the pixels array alongside the surface (a strong
+# reference) and is only reused when that pixels object is still the one
+# AssetResolver.resource_screen returns for the entry -- guaranteed stable
+# across calls for the same entry (test_resource_screen_override_is_used_at_
+# any_size_and_cached), but invalidated by e.g. Assets.clear(). Comparing the
+# held array by identity, rather than caching under some derived key like
+# id(pixels), means a garbage-collected-and-reused id can never produce a
+# false hit.
+_SCREEN_SURFACE_CACHE = WeakKeyDictionary()
+
+
+def screen_surface(resolver, entry):
+    """An ITD_RESS full-screen resource as a 320x200 surface, cached per
+    (resolver, entry). An override of any other size is smooth-scaled
+    down/up here so every rect the callers blit over (portraits, text
+    columns, cadre) stays in 320x200 space.
+    ponytail: compositing at override resolution is the upgrade path.
+
+    The returned Surface is SHARED across calls: callers that draw on it
+    directly (blit, _button, draw_big_cadre...) must `.copy()` it first, or
+    the drawing bleeds into every later call for that entry."""
+    asset = resolver.resource_screen(entry)
+    per_entry = _SCREEN_SURFACE_CACHE.setdefault(resolver, {})
+    cached = per_entry.get(entry)
+    if cached is not None and cached[0] is asset.pixels:
+        return cached[1]
+    surface = _to_surface(np.ascontiguousarray(asset.pixels))
+    if surface.get_size() != (320, 200):
+        surface = pygame.transform.smoothscale(surface, (320, 200))
+    per_entry[entry] = (asset.pixels, surface)
+    return surface
+
+
+def _resolver_or_originals(assets, resolver):
+    return resolver if resolver is not None else AssetResolver(assets, None)
 
 
 def _button(surface, rect, label, selected=False, size=18):
@@ -697,8 +743,9 @@ def render_found(effect, presenter, assets, found_name):
     return _to_frame(surface)
 
 
-def render_picture(effect, assets):
-    return np.ascontiguousarray(assets.resource_screen(effect.resource_index).copy())
+def render_picture(effect, assets, resolver=None):
+    resolver = _resolver_or_originals(assets, resolver)
+    return _to_frame(screen_surface(resolver, effect.resource_index))
 
 
 def overlay_messages(frame, messages, assets):
@@ -766,8 +813,10 @@ def reading_pages(effect, assets):
     return pages
 
 
-def render_reading(effect, presenter, assets):
-    surface = _to_surface(assets.resource_screen({0: 6, 1: 7, 2: 8}[effect.kind]).copy())
+def render_reading(effect, presenter, assets, resolver=None):
+    resolver = _resolver_or_originals(assets, resolver)
+    # screen_surface's Surface is shared/cached: copy before drawing on it.
+    surface = screen_surface(resolver, {0: 6, 1: 7, 2: 8}[effect.kind]).copy()
     pages = reading_pages(effect, assets)
     y = 20
     font = _font(16)
@@ -809,22 +858,23 @@ def render_inventory(presenter, assets, scene_frame, object_names, action_names)
     return _to_frame(surface)
 
 
-def render_character_select(presenter, assets):
+def render_character_select(presenter, assets, resolver=None):
     # FITD character select: resource 10 background, cadre around the hovered
     # portrait (left choice 0 = Emily hero 1, right choice 1 = Carnby hero 0);
     # STORY copies the opposite half of resource 14 plus book text 20/21.
-    base = assets.resource_screen(10)
-    surface = _to_surface(base.copy())
+    resolver = _resolver_or_originals(assets, resolver)
+    # screen_surface's Surface is shared/cached: copy before drawing on it.
+    surface = screen_surface(resolver, 10).copy()
+    base = surface.copy()
     choice = (presenter.hover if presenter.hover is not None
               and presenter.phase is CharacterPhase.PORTRAITS else presenter.choice)
     center = ((80, 100), (240, 100))[choice]
     draw_big_cadre(surface, assets.cadre_bank(), center, (160, 200))
     portrait = CharacterLayout.PORTRAITS[choice]
-    surface.blit(_to_surface(base[portrait.top:portrait.bottom,
-                                  portrait.left:portrait.right]), portrait.topleft)
+    surface.blit(base, portrait.topleft, portrait)
     if presenter.phase is CharacterPhase.PORTRAITS:
         return _to_frame(surface)
-    intro = _to_surface(assets.resource_screen(14))
+    intro = screen_surface(resolver, 14)
     if presenter.choice == 0:
         surface.blit(intro, (160, 0), pygame.Rect(160, 0, 160, 200))
         entry, text_x = 21, 165
@@ -951,6 +1001,9 @@ class ModalSession:
     reading: ReadingPresenter = field(default_factory=ReadingPresenter)
     character: CharacterSelectPresenter = field(default_factory=CharacterSelectPresenter)
     system_menu: SystemMenuPresenter = field(default_factory=SystemMenuPresenter)
+    title: "TitlePresenter" = None
+    startup: "StartupMenuPresenter" = None
+    booted_via_menu: bool = False
     settings: Settings = field(default_factory=default_settings)
     settings_path: Path | None = None
     settings_error: str | None = None
@@ -966,6 +1019,20 @@ class ModalSession:
     pending_hero: int | None = None
     elapsed_ms: int = 0
     last_effect: object = field(default=None, repr=False)
+    # PlayWorld(allowSystemMenu=0): while cutscene is True, input skips the
+    # opening instead of routing to PLAY (mainLoop.cpp:71-89).
+    cutscene: bool = False
+    skip_cutscene: bool = False
+    # --skip-intro: a development convenience (not FITD behaviour) that boots
+    # the attic directly after character select, skipping the floor-7 opening.
+    skip_intro: bool = False
+
+    def __post_init__(self):
+        from PyAitD.app.startup import StartupMenuPresenter, TitlePresenter
+        if self.title is None:
+            self.title = TitlePresenter()
+        if self.startup is None:
+            self.startup = StartupMenuPresenter()
 
     def reset_for(self, effect):
         if effect is self.last_effect:
@@ -983,6 +1050,12 @@ class ModalSession:
             self.character = CharacterSelectPresenter()
         elif isinstance(effect, OpenSystemMenu):
             self.system_menu = SystemMenuPresenter()
+        elif isinstance(effect, ShowTitle):
+            from PyAitD.app.startup import TitlePresenter
+            self.title = TitlePresenter()
+        elif isinstance(effect, OpenStartupMenu):
+            from PyAitD.app.startup import StartupMenuPresenter
+            self.startup = StartupMenuPresenter()
 
 
 def hit_test_reading(pos, page, page_count):

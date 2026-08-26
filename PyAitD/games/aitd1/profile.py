@@ -105,4 +105,6 @@ AITD1 = GameProfile(
         "combat-venue": scenario.enter_combat_venue,
         "mouse-combat-fixture": scenario.enter_mouse_combat_fixture,
     }),
+    intro_start=(7, 1),
+    game_start=(0, 0),
 )

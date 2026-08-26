@@ -26,6 +26,9 @@ class PlayerCapability(Enum):
     MENU_ACTIVATE = auto()
     PICK_REMAP_KEY = auto()
     DISMISS_SETTINGS_ERROR = auto()
+    ADVANCE_TITLE = auto()
+    STARTUP_MENU_ACTIVATE = auto()
+    SKIP_CUTSCENE = auto()
 
 
 @dataclass(frozen=True)
@@ -80,6 +83,20 @@ CAPABILITY_ROUTES = {
     PlayerCapability.DISMISS_SETTINGS_ERROR: MouseRoute(
         "left_click", "settings error Dismiss button", ALL_MODES,
     ),
+    PlayerCapability.ADVANCE_TITLE: MouseRoute(
+        "left_click", "title or credits page", frozenset({GameMode.TITLE}),
+    ),
+    PlayerCapability.STARTUP_MENU_ACTIVATE: MouseRoute(
+        "left_click", "startup menu row", frozenset({GameMode.STARTUP_MENU}),
+    ),
+    # session-conditional: the contract has no representation for session
+    # state, so this route's GameMode.PLAY membership is true only while
+    # session.cutscene (shell.py) -- an ordinary PLAY left click walks or
+    # interacts instead. GameMode.CUTSCENE_END has no such condition: that
+    # mode IS the cutscene's terminal CutsceneFinished modal.
+    PlayerCapability.SKIP_CUTSCENE: MouseRoute(
+        "left_click", "anywhere during the opening cutscene", frozenset({GameMode.PLAY, GameMode.CUTSCENE_END}),
+    ),
 }
 
 
@@ -92,6 +109,7 @@ MODE_MOUSE_CAPABILITIES = {
         PlayerCapability.HOLD_PUSH_OBJECT,
         PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
+        PlayerCapability.SKIP_CUTSCENE,
     }),
     GameMode.FOUND: frozenset({
         PlayerCapability.TAKE_FOUND_OBJECT,
@@ -129,6 +147,21 @@ MODE_MOUSE_CAPABILITIES = {
         PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),
+    GameMode.TITLE: frozenset({
+        PlayerCapability.ADVANCE_TITLE,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
+        PlayerCapability.QUIT,
+    }),
+    GameMode.STARTUP_MENU: frozenset({
+        PlayerCapability.STARTUP_MENU_ACTIVATE,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
+        PlayerCapability.QUIT,
+    }),
+    GameMode.CUTSCENE_END: frozenset({
+        PlayerCapability.SKIP_CUTSCENE,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
+        PlayerCapability.QUIT,
+    }),
 }
 
 
@@ -142,11 +175,15 @@ COMMAND_MOUSE_CAPABILITIES = {
         PlayerCapability.CLOSE_READING,
         PlayerCapability.DISMISS_PICTURE,
         PlayerCapability.RESTART_GAME_OVER,
+        PlayerCapability.ADVANCE_TITLE,
+        PlayerCapability.STARTUP_MENU_ACTIVATE,
+        PlayerCapability.SKIP_CUTSCENE,
     }),
     "CANCEL": frozenset({
         PlayerCapability.LEAVE_FOUND_OBJECT,
         PlayerCapability.CLOSE_READING,
         PlayerCapability.QUIT,
+        PlayerCapability.SKIP_CUTSCENE,
     }),
     "OPEN_INVENTORY": frozenset({PlayerCapability.OPEN_INVENTORY}),
 }

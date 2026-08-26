@@ -11,7 +11,7 @@ import pygame
 
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.app.config import default_settings, load_settings, save_settings, settings_path
-from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode
+from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenStartupMenu, ShowTitle
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import enter_floor_start, init_game
 from PyAitD.engine.life import Trace
@@ -75,6 +75,11 @@ def parse_args(argv):
     p.add_argument(
         "--overrides", type=pathlib.Path, default=None, help="asset override directory",
     )
+    p.add_argument(
+        "--skip-intro", action="store_true",
+        help="development convenience, not FITD behaviour: boot the attic "
+             "directly after character select (skips the floor-7 opening)",
+    )
     return p.parse_args(argv)
 
 
@@ -135,7 +140,26 @@ def replacement_session(session):
         settings_dirty=session.settings_dirty,
         disk_render=session.disk_render,
         render_touched=session.render_touched,
+        booted_via_menu=session.booted_via_menu,
+        skip_intro=session.skip_intro,
     )
+
+
+def continue_available(session):
+    # M4a2 save/load replaces this with a real check of the save slots.
+    return False
+
+
+def open_startup_menu(game, session):
+    game.close_modal()
+    game.open_modal(OpenStartupMenu())
+    session.booted_via_menu = True
+    session.reset_for(game.active_modal)
+
+
+def _credits_entry(game):
+    # AITD1.cpp:159 Lire(CVars[TEXTE_CREDITS] + 1, ...)
+    return game.cvars[game.profile.cvar_index("TEXTE_CREDITS")] + 1
 
 
 def _scene_frame(game, floor, renderer, resolver):
@@ -518,6 +542,20 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
         Command, ReadingResult, reading_pages, reduce_found, reduce_inventory,
         reduce_reading, reduce_system_menu,
     )
+    if session.cutscene:
+        # PlayWorld(allowSystemMenu=0): every command is a skip, never a
+        # route into PLAY's own commands (CANCEL opening the system menu,
+        # OPEN_INVENTORY, TOGGLE_INPUT_MODE) -- mainLoop.cpp:71-89. Checked
+        # first so that claim holds for every command, TOGGLE_INPUT_MODE
+        # included -- defence-in-depth only: shell.run's event-pump swallow
+        # already marks skip_cutscene and `continue`s for every KEYDOWN
+        # while session.cutscene, so no Command -- this one included -- can
+        # actually reach route_command while a cutscene is active; this
+        # branch exists for callers that invoke route_command directly
+        # (tests, and any future caller bypassing the pump).
+        session.skip_cutscene = True
+        return True
+
     if command is Command.TOGGLE_INPUT_MODE:
         from PyAitD.engine.interaction import cancel_nav_intent, sync_player_track_mode
         game.input_mode = (
@@ -557,6 +595,16 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
     # A keyboard command makes the owning keyboard cursor authoritative until
     # a later MOUSEMOTION establishes a new preview.
     route_hover(game, session, None)
+    if isinstance(game.active_modal, ShowTitle):
+        from PyAitD.app.startup import credits_page_count, reduce_title
+        page_count = credits_page_count(game.assets, _credits_entry(game))
+        if reduce_title(session.title, modal_command, page_count=page_count) is not None:
+            open_startup_menu(game, session)
+        return True
+    if isinstance(game.active_modal, OpenStartupMenu):
+        from PyAitD.app.startup import reduce_startup_menu
+        result = reduce_startup_menu(session.startup, modal_command, continue_enabled=continue_available(session))
+        return _apply_startup_result(game, session, input_buffer, result)
     if isinstance(game.active_modal, ChooseCharacter):
         from PyAitD.app.ui import reduce_character_select
         result = reduce_character_select(session.character, modal_command)
@@ -564,6 +612,9 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
             if result.hero is not None:
                 session.pending_hero = result.hero
             if result.quit:
+                if session.booted_via_menu:
+                    open_startup_menu(game, session)
+                    return True
                 return False
         return True
     if isinstance(game.active_modal, ShowFound):
@@ -598,10 +649,27 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
     raise RuntimeError(f"unroutable modal {type(game.active_modal).__name__}")
 
 
+def _apply_startup_result(game, session, input_buffer, result):
+    if result is None:
+        return True
+    if result.new_game:
+        game.close_modal()
+        game.open_modal(ChooseCharacter())
+        session.reset_for(game.active_modal)
+        if input_buffer is not None:
+            reset_input(input_buffer)
+        return True
+    if result.quit:
+        if input_buffer is not None:
+            reset_input(input_buffer)
+        return False
+    return True   # continue_game cannot be produced while continue_available is False
+
+
 def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
     from PyAitD.engine.effects import (
-        ChooseCharacter, GameOver, OpenInventory, OpenSystemMenu, ReadText,
-        ShowFound, ShowPicture,
+        ChooseCharacter, CutsceneFinished, GameOver, OpenInventory, OpenSystemMenu,
+        ReadText, ShowFound, ShowPicture,
     )
     from PyAitD.engine.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
@@ -615,6 +683,15 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
     if logical_pos is None or game.active_modal is None:
         return True
     effect = game.active_modal
+    if isinstance(effect, CutsceneFinished):
+        # defence-in-depth only: whenever active_modal is CutsceneFinished,
+        # session.cutscene is still True (only _cutscene_end_branch clears
+        # it), so shell.run's event-pump swallow already intercepts every
+        # left click before it can reach route_mouse -- this branch exists
+        # for callers that invoke route_mouse directly (tests, and any
+        # future caller bypassing the pump).
+        session.skip_cutscene = True
+        return True
     if isinstance(effect, OpenSystemMenu):
         # same presenter lifetime as route_command: reset at open, never per
         # click, so a staged page/cursor/capture survives mouse routing
@@ -633,6 +710,22 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
             session.system_menu.hover = None
         return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
     session.reset_for(effect)
+    if isinstance(effect, ShowTitle):
+        from PyAitD.app.startup import credits_page_count, hit_test_title, reduce_title
+        if hit_test_title(logical_pos):
+            page_count = credits_page_count(game.assets, _credits_entry(game))
+            if reduce_title(session.title, Command.ACCEPT, page_count=page_count) is not None:
+                open_startup_menu(game, session)
+        return True
+    if isinstance(effect, OpenStartupMenu):
+        from PyAitD.app.startup import hit_test_startup, reduce_startup_menu
+        enabled = continue_available(session)
+        hit = hit_test_startup(logical_pos, continue_enabled=enabled)
+        if hit is None:
+            return True
+        session.startup.cursor = hit
+        result = reduce_startup_menu(session.startup, Command.ACCEPT, continue_enabled=enabled)
+        return _apply_startup_result(game, session, input_buffer, result)
     if isinstance(effect, ChooseCharacter):
         hit = hit_test_character(logical_pos, session.character)
         if hit is None:
@@ -728,6 +821,12 @@ def route_hover(game, session, logical_pos):
             hit_test_system_menu(logical_pos, session.system_menu)
             if logical_pos is not None else None
         )
+    elif isinstance(effect, OpenStartupMenu):
+        from PyAitD.app.startup import hit_test_startup
+        session.startup.hover = (
+            hit_test_startup(logical_pos, continue_enabled=continue_available(session))
+            if logical_pos is not None else None
+        )
 
 
 def _auto_dismiss_picture(game, session):
@@ -744,15 +843,15 @@ def _auto_dismiss_picture(game, session):
     return True
 
 
-def render_active_mode(game, session, renderer):
+def render_active_mode(game, session, renderer, resolver=None):
     """`renderer` is the live Renderer, not a pre-computed thumbnail: only
     the two branches below that actually paint a scene thumbnail behind
     their modal (OpenInventory, GameOver) call `renderer.scene_thumbnail()`,
     so every other mode (most frames: no modal at all) never pays for it --
     see the finding-1 note on `Renderer.compose_scene`."""
     from PyAitD.engine.effects import (
-        ChooseCharacter, GameOver, OpenInventory, OpenSystemMenu, ReadText,
-        ShowFound, ShowPicture,
+        ChooseCharacter, CutsceneFinished, GameOver, OpenInventory, OpenSystemMenu,
+        ReadText, ShowFound, ShowPicture,
     )
     from PyAitD.app.ui import (
         overlay_messages, render_character_select, render_found,
@@ -762,6 +861,10 @@ def render_active_mode(game, session, renderer):
     effect = game.active_modal
     if effect is None:
         return overlay_messages(transparent_canvas(), game.messages, game.assets)
+    if isinstance(effect, CutsceneFinished):
+        # the last PLAY frame stays composed underneath, exactly like
+        # render_game_over before its accessibility wait elapses
+        return transparent_canvas()
     # This is the modal lifecycle boundary.  It resets a replacement exactly
     # once before any presenter can render, including the system menu.
     session.reset_for(effect)
@@ -769,7 +872,14 @@ def render_active_mode(game, session, renderer):
         return render_system_menu(session.system_menu, session.settings, game.assets)
     if isinstance(effect, ChooseCharacter):
         # the selector owns the whole frame; the staged PLAY scene is never shown
-        return render_character_select(session.character, game.assets)
+        return render_character_select(session.character, game.assets, resolver)
+    if isinstance(effect, ShowTitle):
+        from PyAitD.app.startup import render_title
+        return render_title(session.title, game.assets, resolver or AssetResolver(game.assets, None),
+                             session.elapsed_ms, _credits_entry(game))
+    if isinstance(effect, OpenStartupMenu):
+        from PyAitD.app.startup import render_startup_menu
+        return render_startup_menu(session.startup, game.assets, continue_enabled=continue_available(session))
     if isinstance(effect, ShowFound):
         world = game.world_objects[effect.object_idx]
         return render_found(effect, session.found, game.assets, game.assets.system_text(world.found_name))
@@ -781,9 +891,9 @@ def render_active_mode(game, session, renderer):
             tuple(game.assets.system_text(i) for i in action_ids),
         )
     if isinstance(effect, ReadText):
-        return render_reading(effect, session.reading, game.assets)
+        return render_reading(effect, session.reading, game.assets, resolver)
     if isinstance(effect, ShowPicture):
-        return render_picture(effect, game.assets)
+        return render_picture(effect, game.assets, resolver)
     if isinstance(effect, GameOver):
         return render_game_over(
             transparent_canvas(), renderer.scene_thumbnail(), _game_over_ready(session, effect),
@@ -792,10 +902,12 @@ def render_active_mode(game, session, renderer):
 
 
 def restart_session(old_game):
-    # Death restarts the current floor (task-10 brief): menus and a title
-    # screen are M4, and restart is the only option that keeps the game
-    # playable end-to-end. No Floor I/O here -- the caller (run's atomic
-    # restart branch) owns loading the Floor for the reconstructed game.
+    # Death restarts the current floor (task-10 brief): the title screen and
+    # menus now exist (app/startup.py), but a fresh boot through them would
+    # discard the run in progress, so restart stays the in-place path that
+    # keeps the game playable end-to-end. No Floor I/O here -- the caller
+    # (run's atomic restart branch) owns loading the Floor for the
+    # reconstructed game.
     hero = old_game.cvars[old_game.profile.cvar_index("CHOOSE_PERSO")]
     input_mode = old_game.input_mode
     trace = old_game.trace
@@ -811,6 +923,42 @@ def restart_session(old_game):
     return new_game
 
 
+def _boot_hero(game, renderer, session, input_buffer, hero, *, cutscene):
+    """Build the replace tuple run() adopts: a fresh game for `hero`, staged
+    on profile.intro_start (cutscene, allowSystemMenu=0, AITD1.cpp:352-361)
+    or on the attic init_game already stages (profile.game_start). Shared by
+    _hero_branch (character confirmation) and _cutscene_end_branch (the
+    startGame(0, 0, 1) hand-over once the opening ends)."""
+    from PyAitD.engine.game import start_game
+    _take_over_play_input(game, session, input_buffer)
+    try:
+        new_game = init_game(game._data_dir, game.profile, hero=hero)
+        if cutscene:
+            start_game(new_game, *game.profile.intro_start)
+            new_game.allow_system_menu = False
+        new_floor = Floor(new_game._data_dir, new_game.current_floor)
+    except PakError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return (None, None, None, None, 0, [], None, None, None, 2, None)
+    new_game.trace = game.trace
+    new_game.input_mode = game.input_mode
+    new_session = replacement_session(session)
+    new_session.cutscene = cutscene
+    input_buffer = InputBuffer()
+    configure_session_input(new_session, input_buffer)
+    # Staged by start_game: num_camera == -1, new_num_camera == 0. This
+    # stages camera 0 exactly as FITD's InitView does after startGame -- the
+    # same line init_game's own staging (game_start) relies on below.
+    new_game.num_camera = new_game.new_num_camera
+    new_game.flag_init_view = 0
+    new_resolver = _resolver_for(new_game.assets, session.settings.render.override_dir)
+    scene_frame, draw_list = _scene_frame(new_game, new_floor, renderer, new_resolver)
+    return (
+        new_game, new_floor, new_session, input_buffer, 0,
+        draw_list, None, scene_frame, pygame.time.get_ticks(), 0, new_resolver,
+    )
+
+
 def _hero_branch(game, renderer, session, input_buffer=None):
     # Atomic hero replacement: confirming a character rebuilds game, floor,
     # session, and input buffer in one tuple, so run() resumes on the new
@@ -821,25 +969,25 @@ def _hero_branch(game, renderer, session, input_buffer=None):
     # the same new_game.assets.
     if session.pending_hero is None:
         return None
-    _take_over_play_input(game, session, input_buffer)
-    try:
-        new_game = init_game(game._data_dir, game.profile, hero=session.pending_hero)
-        new_floor = Floor(new_game._data_dir, new_game.current_floor)
-    except PakError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return (None, None, None, None, 0, [], None, None, None, 2, None)
-    new_game.trace = game.trace
-    new_session = replacement_session(session)
-    input_buffer = InputBuffer()
-    configure_session_input(new_session, input_buffer)
-    new_game.num_camera = new_game.new_num_camera
-    new_game.flag_init_view = 0
-    new_resolver = _resolver_for(new_game.assets, session.settings.render.override_dir)
-    scene_frame, draw_list = _scene_frame(new_game, new_floor, renderer, new_resolver)
-    return (
-        new_game, new_floor, new_session, input_buffer, 0,
-        draw_list, None, scene_frame, pygame.time.get_ticks(), 0, new_resolver,
-    )
+    # startAITD1: ChoosePerso() then startGame(7, 1, 0), the scripted opening
+    # (AITD1.cpp:356) -- unless the game has none, or --skip-intro asked
+    # to boot the attic directly (development convenience, not FITD).
+    cutscene = game.profile.intro_start is not None and not session.skip_intro
+    return _boot_hero(game, renderer, session, input_buffer, session.pending_hero, cutscene=cutscene)
+
+
+def _cutscene_end_branch(game, renderer, session, input_buffer=None):
+    # PlayWorld(allowSystemMenu=0) returns on FlagGameOver or any key/click
+    # (mainLoop.cpp:71-89, CutsceneFinished / session.skip_cutscene); then
+    # startAITD1 calls startGame(0, 0, 1), the attic (AITD1.cpp:361), with
+    # the same hero that was staged for the opening.
+    from PyAitD.engine.effects import CutsceneFinished
+    if not session.cutscene:
+        return None
+    if not (session.skip_cutscene or isinstance(game.active_modal, CutsceneFinished)):
+        return None
+    hero = game.cvars[game.profile.cvar_index("CHOOSE_PERSO")]
+    return _boot_hero(game, renderer, session, input_buffer, hero, cutscene=False)
 
 
 def _restart_branch(game, renderer, session, input_buffer=None):
@@ -926,6 +1074,34 @@ def run(game, trace_path=None, session=None, resolver=None):
             logical_pos = None
             if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
                 logical_pos = renderer.window_to_logical(event.pos)
+            if (event.type == pygame.MOUSEBUTTONDOWN and event.button == 1
+                    and session.settings_error is not None and logical_pos is not None
+                    and hit_test_settings_notice(logical_pos)):
+                # the notice's Dismiss gets first refusal over every other
+                # route -- including the cutscene skip below -- so a click on
+                # it during the opening clears only the error, never the
+                # mode/effect underneath and never the cutscene itself.
+                session.settings_error = None
+                continue
+            if session.cutscene and (
+                event.type == pygame.KEYDOWN
+                or (event.type == pygame.MOUSEBUTTONDOWN and event.button == 1)
+                or event.type == pygame.FINGERDOWN
+            ):
+                # PlayWorld(allowSystemMenu=0) breaks on 0x1C/0x17 or any
+                # click (mainLoop.cpp:69-92). ponytail: FITD's 0x1B (Escape)
+                # instead calls processSystemMenu() unconditionally first
+                # (mainLoop.cpp:55-61), before any allowSystemMenu test, so
+                # Escape opens the system menu *during* the intro rather than
+                # skipping it; this port deliberately swallows every key,
+                # Escape included, as a skip instead (the spec's chosen
+                # simplification -- no system menu during the opening). A
+                # faithful upgrade would special-case KEYDOWN Escape here to
+                # open OpenSystemMenu instead of setting skip_cutscene.
+                # QUIT and focus events fall through to their normal handling
+                # below; everything else just skips.
+                session.skip_cutscene = True
+                continue
             running = event_to_input(event, input_buffer, logical_pos) and running
             _cancel_pointer_invalidation(game, event)
             if event.type == pygame.MOUSEMOTION:
@@ -938,12 +1114,6 @@ def run(game, trace_path=None, session=None, resolver=None):
                     route_hover(game, session, None)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 logical = input_buffer.pointer_pos
-                if (session.settings_error is not None and logical is not None
-                        and hit_test_settings_notice(logical)):
-                    # the notice's Dismiss gets first refusal: the click clears
-                    # only the error, never the mode or effect underneath
-                    session.settings_error = None
-                    continue
                 if game.active_modal is None and game.mode is GameMode.PLAY:
                     # keyboard mode swallows play clicks; the cursor is hidden
                     # there too, so nothing advertises a click that does nothing
@@ -960,7 +1130,17 @@ def run(game, trace_path=None, session=None, resolver=None):
         was_play = game.mode is GameMode.PLAY
         if input_buffer.commands:
             command = input_buffer.commands.popleft()
-            if (session.settings_error is not None
+            if session.cutscene:
+                # defence-in-depth: unreachable in practice, since the
+                # cutscene swallow above `continue`s on every KEYDOWN while
+                # session.cutscene is True -- event_to_input, the only place
+                # that appends to input_buffer.commands, never runs, so
+                # commands cannot exist here while a cutscene is active. Kept
+                # so this drain still does the right thing if that invariant
+                # is ever weakened (e.g. a caller feeding input_buffer.commands
+                # directly, as some tests do).
+                pass
+            elif (session.settings_error is not None
                     and command in (Command.ACCEPT, Command.OPEN_INVENTORY)):
                 # same first refusal as the Dismiss click: ACCEPT and
                 # OPEN_INVENTORY dismiss the notice instead of reaching the mode
@@ -970,6 +1150,8 @@ def run(game, trace_path=None, session=None, resolver=None):
                     game, session, command, input_buffer, renderer=renderer,
                 ) and running
         replaced = _hero_branch(game, renderer, session, input_buffer)
+        if replaced is None:
+            replaced = _cutscene_end_branch(game, renderer, session, input_buffer)
         if replaced is None:
             replaced = _restart_branch(game, renderer, session, input_buffer)
         if replaced is not None:
@@ -1014,6 +1196,9 @@ def run(game, trace_path=None, session=None, resolver=None):
             accumulator = 0
             session.elapsed_ms += elapsed
             _auto_dismiss_picture(game, session)
+            if isinstance(game.active_modal, ShowTitle):
+                from PyAitD.app.startup import advance_title
+                advance_title(session.title, session.elapsed_ms)
         if was_play and game.mode is not GameMode.PLAY:
             # Simulation-raised effects (found, reading, picture, game over)
             # cross the boundary inside play_tick.  Command/pointer routes use
@@ -1024,12 +1209,12 @@ def run(game, trace_path=None, session=None, resolver=None):
             for actor_idx, deadline in hit_feedback_deadlines.items()
             if deadline > now
         }
-        composed = render_active_mode(game, session, renderer)
+        composed = render_active_mode(game, session, renderer, resolver)
         composed = render_hit_feedback(
             composed,
             _hit_feedback_rects(game, draw_list, hit_feedback_deadlines),
         )
-        available = inventory_hud_available(game)
+        available = inventory_hud_available(game) and not session.cutscene
         composed = render_play_hud(composed, inventory_available=available)
         # the settings notice is mode-independent: after the HUD and before
         # the software cursor, so its Dismiss target is visually topmost
@@ -1039,7 +1224,8 @@ def run(game, trace_path=None, session=None, resolver=None):
         # (modals with buttons, keyboard mode). Toggled per frame.
         software_cursor = (game.mode is GameMode.PLAY
                            and game.active_modal is None
-                           and game.input_mode is InputMode.MOUSE)
+                           and game.input_mode is InputMode.MOUSE
+                           and not session.cutscene)
         pygame.mouse.set_visible(not software_cursor)
         if software_cursor:
             kind = _play_cursor_kind(
@@ -1092,10 +1278,19 @@ def main(argv=None):
         args.floor is not None or args.combat_venue or args.mouse_combat_fixture
     )
     if not debug_start:
-        # Normal boot stages floor zero but opens the character selector
-        # before run(); PLAY never ticks or presents until _hero_branch
+        # Normal boot stages floor zero but opens the title screen before
+        # run(), following the title -> credits -> menu -> selector flow
+        # (startAITD1); PLAY never ticks or presents until _hero_branch
         # replaces the staging game with the confirmed hero's game.
-        game.open_modal(ChooseCharacter())
+        # Invariant: this is the only modal ever opened before a ModalSession
+        # exists (session is constructed below, then handed to run()) -- so
+        # ShowTitle's presenter must be reset-clean by construction, since no
+        # session.reset_for(effect) call has run yet to clean it. A route_*
+        # branch that reads/mutates session.title before reset_for observes
+        # this exact effect identity is exactly the bug fixed in 16be7dd
+        # (route_mouse dispatched before reset_for while route_command reset
+        # first, silently swallowing the title screen's first click).
+        game.open_modal(ShowTitle())
     session = load_runtime_session(settings_path())
     # Session-only: this replaces session.settings in memory, but
     # session.disk_render (captured above, before this call) stays the
@@ -1104,4 +1299,5 @@ def main(argv=None):
     # these CLI values' *un*-overridden originals, not argv. See
     # _save_session_settings / _persisted_render.
     session.settings = apply_render_overrides(session.settings, args)
+    session.skip_intro = args.skip_intro
     return run(game, args.trace, session=session)

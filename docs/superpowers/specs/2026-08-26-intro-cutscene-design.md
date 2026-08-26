@@ -26,8 +26,8 @@ attic directly.
   (7293). That game-over is the cutscene's terminal (`PlayWorld` breaks on
   `FlagGameOver`, `mainLoop.cpp:185`), not a death.
 - One engine divergence blocks it: FITD calls `GenereActiveList` every
-  frame (`mainLoop.cpp:249`; the spawn scan is `main.cpp:3959`). PyAitD gates
-  `_genere_active_list` on `flag_genere_aff_list`, and the reduced-form
+  frame (`mainLoop.cpp:249`; the spawn scan itself is `main.cpp:1990`).
+  PyAitD gates `_genere_active_list` on `flag_genere_aff_list`, and the reduced-form
   `LM_STAGE` (`life_reduced.py:37`, `life.cpp:620`) never raises it. The
   director script (life 547) uses it to drop world object 288 (life 537)
   onto floor 7 at tick 1596; unspawned, the intro stalls there forever.
@@ -66,12 +66,19 @@ attic directly.
   `start_game(game, *profile.intro_start)`, sets `allow_system_menu = False`
   and `session.cutscene = True`. Floor swaps mid-cutscene use the existing
   `floor.number != game.current_floor` reload (`shell.py:1009`).
-- Input during the cutscene: every key or click ends it (FITD). The event
-  pump routes nothing to PLAY while `session.cutscene`; the first KEYDOWN,
+- Input during the cutscene: every key or click ends it. The event pump
+  routes nothing to PLAY while `session.cutscene`; the first KEYDOWN,
   MOUSEBUTTONDOWN or touch sets `session.skip_cutscene`. `ShowPicture` (the
   letter) still auto-dismisses by its own delay; a click on it is a skip
-  too, since FITD's `Click` break precedes the picture handling. The system
-  menu is unavailable (`allowSystemMenu == 0`), so Escape skips as well.
+  too, since FITD's `Click` break precedes the picture handling. This is a
+  deliberate port divergence, not FITD's behaviour: FITD's 0x1B (Escape)
+  calls `processSystemMenu()` unconditionally (`mainLoop.cpp:55-61`),
+  *before* any `allowSystemMenu` test, so Escape opens the system menu
+  during FITD's own intro rather than skipping it (only 0x1C/0x17 and any
+  click break on `allowSystemMenu == 0`, `mainLoop.cpp:69-92`). The port
+  chooses the simpler rule instead -- no system menu during the opening,
+  every key (Escape included) is a skip -- marked `ponytail:` at the event
+  pump with the faithful upgrade path named.
 - Ending: on `CutsceneFinished` or `skip_cutscene`, the shell performs the
   existing atomic replace (`_restart_branch` shape): a fresh
   `init_game(hero)`, `start_game(game, *profile.game_start)` — which is the

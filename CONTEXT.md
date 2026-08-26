@@ -242,6 +242,10 @@ action runner.
   settings-notice first refusal, and the atomic game/floor/session/input
   replacement (`_hero_branch`/`_restart_branch` + one tuple assignment).
 - `Game` owns no settings; settings never enter world state.
+- `app/startup.py` owns the title/credits/menu presenters; `shell.open_startup_menu`
+  is the one entry into the menu; `continue_available` is the M4a2 seam; no
+  idle-timeout demo (FITD `MainMenu` 0x10000-unit timeout) — a later milestone
+  adds it with the intro cutscene.
 - Normal boot stages floor zero but never ticks or presents PLAY before
   character confirmation; explicit `--floor 0`, `--combat-venue`, and
   `--mouse-combat-fixture` bypass the selector.
@@ -270,6 +274,8 @@ action runner.
   (`DIR/backgrounds/floor<NN>/camera<NNN>.png` + `DIR/palette.png`) — change
   both or neither. `manifest.json` merges across `--force` floor subsets and is
   written atomically.
+- `screens/ressNN.png` overrides full-screen resources; `app/ui.screen_surface`
+  scales them to 320x200 at composite time.
 - `tools/regenerate_backgrounds.py` reads an export dir, asks Gemini for a
   description then an image per camera, fits the result to 1280x800, and
   writes `data/aitd1/overrides-ai` plus `prompts.json` (a resumable prompt
@@ -283,6 +289,78 @@ action runner.
   fresh clone.
 - Evidence: `docs/ai-background-regeneration.md`; spec/plan under
   `docs/superpowers/*/2026-08-25-{ai,gemini}-background-regeneration*`.
+
+## Opening cutscene boundary
+
+- `engine.game.start_game(game, stage, room)` is FITD's `startGame`
+  (main.cpp:4134) minus `PlayWorld`: resets camera/world targets, loads
+  `stage`, calls `change_salle(room)`, stages `new_num_camera=0` /
+  `flag_init_view=2`, spawns the stage's actors, and clears `floor_start` —
+  a staged start has no restart point until a script sets one. Only
+  `_boot_hero`'s cutscene branch calls it. The attic hand-over relies on
+  neither `start_game` nor `game_start`'s config alone: `init_game` reads
+  `profile.game_start` for its own floor/room instead of hardcoding 0/0
+  (`engine/game.py`), because running `start_game` on a booted attic leaves
+  `current_camera_target_actor`/`current_world_target` at -1 and
+  `floor_start` at `None` — an uncontrollable hero with no restart point.
+  `tests/test_floor_start.py::test_start_game_on_the_attic_diverges_from_init_game_targeting`
+  pins exactly this divergence.
+- `Game.allow_system_menu` mirrors FITD's `allowSystemMenu` parameter to
+  `PlayWorld`. While it's `False` (set right after `start_game` for the
+  intro), `flag_game_over` going true surfaces as `effects.CutsceneFinished`
+  (`GameMode.CUTSCENE_END`) instead of `GameOver` — the opening cannot be
+  "lost", only finished or skipped.
+- The reduced `LM_STAGE` handler (`games/aitd1/life_reduced.py`) raises
+  `flag_genere_aff_list` when an object is staged onto the *current* floor,
+  so the existing per-tick spawn scan (`playworld._genere_active_list`)
+  picks it up later in that same tick, at the tail of the LIFE loop — not
+  the next one (`tests/test_intro.py` asserts at tick 1596, not 1597, for
+  exactly this reason) — without this the intro's director (life 547 →
+  object 288) never spawns and the cutscene stalls forever at tick 1596.
+  `ponytail:` this raises the existing gated scan; it does **not** make the
+  scan unconditional. FITD's `GenereActiveList` runs every frame regardless
+  (`mainLoop.cpp:249`) — that unconditional scan is the faithful upgrade
+  path, named here so nobody closes it ad hoc: it changes spawn timing
+  everywhere, and every ticks golden in `tests/test_intro.py` (and the
+  cameras `tools/prove_intro.py` visits) is pinned against the gated
+  version.
+- `ModalSession.cutscene` (`app/ui.py`) is the single flag that owns skip
+  during the opening. The one *live* route is the event loop (`shell.run`):
+  its cutscene swallow `continue`s on the first KEYDOWN, left-click
+  `MOUSEBUTTONDOWN`, or `FINGERDOWN` seen while `session.cutscene`, before
+  the event ever reaches command dispatch or mouse routing -- checked after
+  the settings-notice Dismiss first-refusal (below), so a click on the
+  notice during the opening clears the notice instead of skipping.
+  `route_command`'s cutscene branch, `route_mouse`'s `CutsceneFinished`
+  branch, and the command-drain's cutscene `pass` in `run()` are
+  defence-in-depth, not additional live routes: with the pump swallow in
+  place, no `Command` can exist while `session.cutscene` (nothing ever
+  calls `event_to_input` to produce one) and no click can reach
+  `route_mouse` while `CutsceneFinished` is the active modal (`session.
+  cutscene` is still `True` then, so the swallow catches the click first).
+  They exist for callers that invoke `route_command`/`route_mouse` directly
+  -- tests today, any future caller bypassing the pump -- and are commented
+  as such at each site. `PlayerCapability.SKIP_CUTSCENE` documents the
+  live route for `GameMode.PLAY` and `GameMode.CUTSCENE_END` in the mouse
+  contract; its `GameMode.PLAY` entry is the contract's one
+  session-conditional capability (true only while `session.cutscene` --
+  ordinary `PLAY` routes a left click to walk/interact instead), commented
+  as such in `mouse_contract.py`. `--skip-intro` sets `session.skip_intro`,
+  a development-only bypass (not FITD behaviour) that boots straight to the
+  attic instead of staging the cutscene at all.
+- `_boot_hero` (`app/shell.py`) is the one hero-boot path shared by
+  `_hero_branch` (character confirmation → the opening, `cutscene=True`,
+  `start_game(*profile.intro_start)`) and `_cutscene_end_branch`
+  (`CutsceneFinished` or `skip_cutscene` → the attic, `cutscene=False`,
+  no `start_game` call — FITD's own hand-over is `startGame(0, 0, 1)`,
+  `AITD1.cpp:361`, but the port reaches the same floor/room through
+  `init_game`'s `game_start` staging instead, per the note above) — same
+  `init_game` + conditional `start_game` staging, same atomic
+  replacement-tuple contract as the rest of `shell.py`'s hero/restart swaps.
+- Focused proof: `make prove-intro` (headless golden-tick gate +
+  `tools/prove_intro.py`, one GL render per camera the opening visits);
+  tests: `tests/test_intro.py` (golden ticks, both heroes) and the real-loop
+  journeys in `tests/test_shell_journeys.py`; evidence: `docs/intro-proof.md`.
 
 ## Testing conventions
 

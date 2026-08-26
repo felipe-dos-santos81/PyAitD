@@ -13,13 +13,13 @@ from PyAitD.engine.text import BookToken
 from PyAitD.games.aitd1.profile import AITD1
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
-    FoundPresenter, InventoryPresenter, ReadingPresenter, ReadingResult,
+    FoundPresenter, InventoryPresenter, ModalLayout, ReadingPresenter, ReadingResult,
     SystemMenuPage, SystemMenuPresenter,
     draw_big_cadre, layout_book,
     overlay_messages, render_character_select, render_cursor, render_found,
     render_game_over, render_picture, render_play_hud, render_reading,
     render_inventory, render_settings_notice, render_system_menu,
-    transparent_canvas,
+    screen_surface, transparent_canvas,
 )
 
 
@@ -291,3 +291,88 @@ def test_game_over_not_ready_is_identity_on_the_canvas():
     assert render_game_over(canvas, scene, False) is canvas
     ready = render_game_over(canvas, scene, True)
     assert ready.shape == (200, 320, 3)
+
+
+from PyAitD.render.asset_resolver import AssetResolver, override_screen_path
+from PyAitD.render import background_export as be
+
+
+def test_character_layout_portraits_come_from_the_export_guide_rects():
+    assert tuple(tuple(r) for r in CharacterLayout.PORTRAITS) == be.PORTRAIT_RECTS
+
+
+def test_character_select_uses_a_screen_override_outside_the_portraits(data_dir, tmp_path):
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    path = override_screen_path(tmp_path, 10)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"png")
+    plate = np.zeros((400, 640, 3), np.uint8)
+    plate[:, :, 1] = 255                                     # solid green at 2x
+    resolver = AssetResolver(game.assets, tmp_path, load_png=lambda p: plate)
+    frame = render_character_select(CharacterSelectPresenter(), game.assets, resolver)
+    assert frame.shape == (200, 320, 3)
+    assert tuple(frame[196, 318]) == (0, 255, 0)             # outside portraits and cadre: the override
+    x, y, w, h = be.PORTRAIT_RECTS[1]
+    # The unhovered portrait isn't special-cased: it's part of resource 10's
+    # background, so the override covers it too, same as the rest of the screen.
+    assert tuple(frame[y + 5, x + 5]) == (0, 255, 0)
+    original = render_character_select(CharacterSelectPresenter(), game.assets)
+    assert tuple(original[y + 5, x + 5]) != (0, 255, 0)      # sanity: real art there with no override
+
+
+def test_reading_and_picture_accept_a_resolver(data_dir):
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    resolver = AssetResolver(game.assets, None)
+    a = render_reading(ReadText(1, 0), ReadingPresenter(), game.assets, resolver)
+    b = render_picture(ShowPicture(10, 60, 4), game.assets, resolver)
+    assert a.shape == (200, 320, 3) and b.shape == (200, 320, 3)
+
+
+def test_modal_reading_buttons_come_from_the_export_guide_rects():
+    assert tuple(ModalLayout.READING_PREV) == be.READING_PREV_RECT
+    assert tuple(ModalLayout.READING_CLOSE) == be.READING_CLOSE_RECT
+    assert tuple(ModalLayout.READING_NEXT) == be.READING_NEXT_RECT
+
+
+def test_screen_surface_is_memoized_per_resolver_and_entry(data_dir):
+    """shell.py's render loop calls screen_surface every frame for the same
+    resolver/entry (character select at 60 Hz); the scaled Surface must be
+    reused rather than rebuilt from scratch each call."""
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    resolver = AssetResolver(game.assets, None)
+    first = screen_surface(resolver, 10)
+    second = screen_surface(resolver, 10)
+    assert first is second
+    other_entry = screen_surface(resolver, 14)
+    assert other_entry is not first
+    other_resolver = screen_surface(AssetResolver(game.assets, None), 10)
+    assert other_resolver is not first
+
+
+def test_render_reading_does_not_leak_drawing_into_the_cached_screen_surface(data_dir):
+    """screen_surface now returns a shared, cached Surface for repeat calls;
+    render_reading must copy it before drawing text/buttons on it, or a
+    second call for the same resolver would draw over the first call's
+    leftover pixels instead of a clean background."""
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    resolver = AssetResolver(game.assets, None)
+    presenter = ReadingPresenter()
+    first = render_reading(ReadText(1, 0), presenter, game.assets, resolver)
+    second = render_reading(ReadText(1, 0), presenter, game.assets, resolver)
+    assert (first == second).all()
+
+
+def test_render_character_select_story_phase_does_not_leak_across_calls(data_dir):
+    """Same hazard as render_reading, for the STORY overlay: it blits half
+    of resource 14 and book text onto the (now cached) resource-10 surface."""
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    resolver = AssetResolver(game.assets, None)
+    presenter = CharacterSelectPresenter(choice=0, phase=CharacterPhase.STORY)
+    first = render_character_select(presenter, game.assets, resolver)
+    second = render_character_select(presenter, game.assets, resolver)
+    assert (first == second).all()
