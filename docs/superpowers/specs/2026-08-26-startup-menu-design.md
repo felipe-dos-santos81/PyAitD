@@ -16,7 +16,7 @@ FITD flow, and what this milestone keeps:
 | FITD | this milestone |
 |---|---|
 | `make3dTatou()` (3D logo) | skipped (no data on disk for the port; noted seam) |
-| `makeIntroScreens()`: `AITD1_TITRE` (13) fade-in, wait 0x30 chrono units or key/click, then the credits page (`Lire(TEXTE_CREDITS)` over `AITD1_LIVRE`) | title screen kept: 3 s (`0x30` units at 16 ms) or any key/click. Credits page kept as a second static page (text `TEXTE_CREDITS` CVar over screen 7), dismissed the same way. |
+| `makeIntroScreens()`: `AITD1_TITRE` (13) fade-in, wait 0x30 chrono units or key/click, then the credits page (`Lire(TEXTE_CREDITS)` over `AITD1_LIVRE`) | title screen kept: 800 ms (`0x30` units at this port's 60 units/s chrono convention, `startup.TITLE_TIMEOUT_MS`) or any key/click. Credits kept as a paged sequence (text `TEXTE_CREDITS` CVar over screen 7, `startup.credits_page_count` pages, data-dependent — 8 pages in the shipped data), each page dismissed the same way (key/click) and the whole sequence ending the same way once the last page turns. |
 | `MainMenu()`: big cadre (160,100,320,80), rows at y 76/92/108 with texts 11/12/13, up/down wrap, Enter/click selects, 0x10000-unit timeout starts a demo with a random hero | menu kept with the same geometry; **no timeout demo** (documented seam, needs the cutscene + AI demo which are out of scope) |
 | `case 0` new game → `ChoosePerso()` (−1 = Escape back to the menu) | kept: selector Escape returns to the menu |
 | `case 1` continue → `restoreSave(12, 0)` | row drawn disabled, not selectable, until M4a2 save/load exists |

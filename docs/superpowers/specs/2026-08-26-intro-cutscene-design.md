@@ -26,8 +26,8 @@ attic directly.
   (7293). That game-over is the cutscene's terminal (`PlayWorld` breaks on
   `FlagGameOver`, `mainLoop.cpp:185`), not a death.
 - One engine divergence blocks it: FITD calls `GenereActiveList` every
-  frame (`mainLoop.cpp:249`; the spawn scan is `main.cpp:3959`). PyAitD gates
-  `_genere_active_list` on `flag_genere_aff_list`, and the reduced-form
+  frame (`mainLoop.cpp:249`; the spawn scan itself is `main.cpp:1990`).
+  PyAitD gates `_genere_active_list` on `flag_genere_aff_list`, and the reduced-form
   `LM_STAGE` (`life_reduced.py:37`, `life.cpp:620`) never raises it. The
   director script (life 547) uses it to drop world object 288 (life 537)
   onto floor 7 at tick 1596; unspawned, the intro stalls there forever.
