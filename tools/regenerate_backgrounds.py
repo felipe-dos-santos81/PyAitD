@@ -26,7 +26,7 @@ DEFAULT_TEXT_MODEL = "gemini-2.5-flash"
 DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image"
 DEFAULT_STYLE = "Dark 1920s Louisiana mansion, moody film lighting, subtle grain."
 TARGET_SIZE = (1280, 800)   # 4 x 320x200
-GENERATE_ASPECT = "3:2"     # nearest Gemini ratio wider than 16:10; cropped after
+GENERATE_ASPECT = "3:2"     # nearest Gemini ratio to 16:10 (3:2 is narrower); extra height is centre-cropped after
 PROMPTS_FILE = "prompts.json"
 _SDK_MISSING = 'google-genai is not installed: run .venv/bin/pip install -e ".[dev,ai]"'
 _CAMERA_RE = re.compile(r"floor(\d\d)/camera(\d\d\d)\.png$")
@@ -57,13 +57,15 @@ def discover(in_dir, floors):
     return cams
 
 
+_GUIDE_LEGEND_NOTE = (" Ignore the thin strip of colour swatches along the bottom edge of the "
+                      "second image; it is a legend, not part of the scene.")
 _GUIDE_DESCRIBE = ("The second image is the same frame with an overlay: red outlines mark "
                    "foreground objects that must stay in front, blue boxes mark walls and solid "
                    "furniture, green polygons mark walkable floor. Describe the scene so those "
-                   "structures keep their places.")
+                   "structures keep their places." + _GUIDE_LEGEND_NOTE)
 _GUIDE_GENERATE = ("The second image marks the layout: red outlines are foreground objects, blue "
                    "boxes are walls and solid furniture, green polygons are walkable floor; keep "
-                   "all of them where they are and do not draw the coloured lines.")
+                   "all of them where they are and do not draw the coloured lines." + _GUIDE_LEGEND_NOTE)
 
 
 def describe_prompt(guide_present):
@@ -112,14 +114,18 @@ def describe(client, model, cam):
     """One text-model call: original (+ guide) -> scene prompt."""
     contents = _reference_parts(cam) + [describe_prompt(cam.guide is not None)]
     response = client.models.generate_content(model=model, contents=contents)
-    return (response.text or "").strip()
+    text = (response.text or "").strip()
+    if not text:
+        raise RuntimeError("empty description from text model")
+    return text
 
 
 def generate(client, model, cam, prompt):
     """One image-model call: original (+ guide) + prompt -> image bytes.
     `prompt` is the full generation prompt (caller composes it)."""
     contents = _reference_parts(cam) + [prompt]
-    config = {"response_modalities": ["IMAGE"], "image_config": {"aspect_ratio": GENERATE_ASPECT}}
+    config = {"response_modalities": ["TEXT", "IMAGE"],
+              "image_config": {"aspect_ratio": GENERATE_ASPECT}}
     response = client.models.generate_content(model=model, contents=contents, config=config)
     for candidate in response.candidates or ():
         content = getattr(candidate, "content", None)
@@ -127,7 +133,7 @@ def generate(client, model, cam, prompt):
             continue
         for part in getattr(content, "parts", None) or ():
             data = getattr(part, "inline_data", None)
-            if data is not None and (data.mime_type or "").startswith("image/"):
+            if data is not None and data.data and (data.mime_type or "").startswith("image/"):
                 return data.data
     raise RuntimeError("no image in response")
 
@@ -160,7 +166,9 @@ def _copy_manifest(cams, out_dir):
     dst = pathlib.Path(out_dir) / "manifest.json"
     if src.is_file() and not dst.is_file():
         dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src, dst)
+        tmp = dst.with_name(dst.name + ".tmp")
+        shutil.copyfile(src, tmp)
+        os.replace(tmp, dst)
 
 
 def regenerate(cams, out_dir, *, client, text_model, image_model, style, force, dry_run, log=print):
@@ -182,10 +190,11 @@ def regenerate(cams, out_dir, *, client, text_model, image_model, style, force, 
             log(f"{cam.key}: would regenerate (guide {guide}, prompt cached {cached})")
             continue
         try:
-            if cam.key not in prompts or force:
+            source_sha = hashlib.sha256(cam.source.read_bytes()).hexdigest()
+            stale = cam.key in prompts and prompts[cam.key].get("sha256") != source_sha
+            if cam.key not in prompts or force or stale:
                 text = describe(client, text_model, cam)
-                prompts[cam.key] = {"prompt": text, "model": text_model,
-                                    "sha256": hashlib.sha256(cam.source.read_bytes()).hexdigest()}
+                prompts[cam.key] = {"prompt": text, "model": text_model, "sha256": source_sha}
                 save_prompts(prompts_path, prompts)
             prompt = generation_prompt(prompts[cam.key]["prompt"], style, cam.guide is not None)
             image = generate(client, image_model, cam, prompt)

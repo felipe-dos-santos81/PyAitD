@@ -3,13 +3,15 @@ import hashlib
 import io
 import json
 import os
+import types as _t
+import zlib
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 import numpy as np
 import pytest
 
 from PyAitD.asset_resolver import load_png_rgb
-from PyAitD.background_export import export_manifest, sha256_rgb
+from PyAitD.background_export import export_manifest
 from PyAitD import override_check as oc
 from tests.stub_floor import checker_pixels, StubFloor
 from tools import export_backgrounds as xb
@@ -20,7 +22,7 @@ def make_in_dir(root):
     """floor00: camera000 (with guide), camera001 (no guide); floor01: camera000 (with guide)."""
     in_dir = root / "in"
     for key, guide in (("floor00/camera000", True), ("floor00/camera001", False), ("floor01/camera000", True)):
-        xb.save_png(in_dir / "backgrounds" / f"{key}.png", checker_pixels(hash(key) % 100))
+        xb.save_png(in_dir / "backgrounds" / f"{key}.png", checker_pixels(zlib.crc32(key.encode()) % 100))
         if guide:
             xb.save_png(in_dir / "guides" / f"{key}.png", np.zeros((812, 1280, 3), np.uint8))
     return in_dir
@@ -58,9 +60,6 @@ def test_prompt_cache_round_trip_is_atomic(tmp_path):
     assert sorted(p.name for p in tmp_path.iterdir()) == [rb.PROMPTS_FILE]
 
 
-import types as _t
-
-
 def png_bytes(rgb):
     import pygame
     surf = pygame.surfarray.make_surface(np.ascontiguousarray(rgb.swapaxes(0, 1)))
@@ -79,12 +78,15 @@ def _response(text=None, image=None, mime="image/png"):
 
 class FakeClient:
     """Records calls; image models return `image_png`, text models a fixed
-    description. The Nth image call (1-based) in `fail_image_calls` raises."""
+    description (or `describe_text` if given). The Nth image call (1-based)
+    in `fail_image_calls` raises."""
 
-    def __init__(self, image_png=None, fail_image_calls=(), no_image=False):
+    def __init__(self, image_png=None, fail_image_calls=(), no_image=False,
+                 describe_text="  a dusty attic under sloped rafters  "):
         self.image_png = image_png
         self.fail = set(fail_image_calls)
         self.no_image = no_image
+        self.describe_text = describe_text
         self.calls = []
         self.image_calls = 0
         self.models = self
@@ -98,7 +100,7 @@ class FakeClient:
             if self.no_image:
                 return _response(text="sorry")
             return _response(image=self.image_png)
-        return _response(text="  a dusty attic under sloped rafters  ")
+        return _response(text=self.describe_text)
 
 
 def test_describe_sends_source_guide_and_prompt(tmp_path):
@@ -121,13 +123,21 @@ def test_describe_without_guide_sends_two_parts(tmp_path):
     assert len(contents) == 2 and contents[1] == rb.describe_prompt(False)
 
 
+@pytest.mark.parametrize("text", [None, "", "   "])
+def test_describe_raises_on_empty_text(tmp_path, text):
+    cam = rb.discover(make_in_dir(tmp_path), None)[0]
+    client = FakeClient(describe_text=text)
+    with pytest.raises(RuntimeError, match="empty description from text model"):
+        rb.describe(client, "gemini-2.5-flash", cam)
+
+
 def test_generate_requests_image_and_returns_first_image_part(tmp_path):
     cam = rb.discover(make_in_dir(tmp_path), None)[0]
     png = png_bytes(np.zeros((1024, 1536, 3), np.uint8))
     client = FakeClient(png)
     assert rb.generate(client, "gemini-2.5-flash-image", cam, "desc") == png
     model, contents, config = client.calls[0]
-    assert config == {"response_modalities": ["IMAGE"], "image_config": {"aspect_ratio": "3:2"}}
+    assert config == {"response_modalities": ["TEXT", "IMAGE"], "image_config": {"aspect_ratio": "3:2"}}
     assert contents[2] == "desc"
 
 
@@ -135,6 +145,26 @@ def test_generate_without_image_part_raises(tmp_path):
     cam = rb.discover(make_in_dir(tmp_path), None)[0]
     with pytest.raises(RuntimeError, match="no image in response"):
         rb.generate(FakeClient(no_image=True), "gemini-2.5-flash-image", cam, "desc")
+
+
+def test_generate_rejects_part_with_no_data(tmp_path):
+    cam = rb.discover(make_in_dir(tmp_path), None)[0]
+    response = _t.SimpleNamespace(
+        text=None,
+        candidates=[_t.SimpleNamespace(content=_t.SimpleNamespace(
+            parts=[_t.SimpleNamespace(inline_data=_t.SimpleNamespace(data=b"", mime_type="image/png"),
+                                      text=None)]))],
+    )
+
+    class _EmptyDataClient:
+        def __init__(self):
+            self.models = self
+
+        def generate_content(self, *, model, contents, config=None):
+            return response
+
+    with pytest.raises(RuntimeError, match="no image in response"):
+        rb.generate(_EmptyDataClient(), "gemini-2.5-flash-image", cam, "desc")
 
 
 def test_generate_skips_candidates_without_content(tmp_path):
@@ -229,6 +259,51 @@ def test_regenerate_continues_after_a_failed_camera(tmp_path):
     assert any("floor00/camera001: failed: quota" in line for line in logs)
 
 
+def test_regenerate_counts_empty_description_as_failed(tmp_path):
+    logs = []
+    client = FakeClient(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), describe_text=None)
+    assert _run(tmp_path, client, log=logs.append) == (0, 3)
+    out = tmp_path / "out"
+    for key in ("floor00/camera000", "floor00/camera001", "floor01/camera000"):
+        assert not (out / "backgrounds" / f"{key}.png").exists()
+    assert rb.load_prompts(out / rb.PROMPTS_FILE) == {}
+    assert any("empty description from text model" in line for line in logs)
+
+
+def test_regenerate_counts_non_png_image_as_failed(tmp_path):
+    logs = []
+    client = FakeClient(b"not a png")
+    assert _run(tmp_path, client, log=logs.append) == (0, 3)
+    out = tmp_path / "out"
+    for key in ("floor00/camera000", "floor00/camera001", "floor01/camera000"):
+        assert not (out / "backgrounds" / f"{key}.png").exists()
+    assert any("floor00/camera000: failed:" in line for line in logs)
+    # All three cameras are attempted; failures don't stop the loop.
+    assert len(logs) == 3
+
+
+def test_regenerate_redescribes_when_source_hash_changes(tmp_path):
+    in_dir = make_in_dir(tmp_path)
+    out_dir = tmp_path / "out"
+    opts = dict(text_model="gemini-2.5-flash", image_model="gemini-2.5-flash-image",
+                style="s.", force=False, dry_run=False, log=lambda *_: None)
+    client = FakeClient(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
+    rb.regenerate(rb.discover(in_dir, None), out_dir, client=client, **opts)
+    client.calls.clear()
+    # Re-export the source PNG with different bytes, drop the stale output.
+    xb.save_png(in_dir / "backgrounds/floor00/camera001.png",
+               checker_pixels(zlib.crc32(b"floor00/camera001-changed") % 100))
+    (out_dir / "backgrounds/floor00/camera001.png").unlink()
+    path = out_dir / rb.PROMPTS_FILE
+    old_sha = rb.load_prompts(path)["floor00/camera001"]["sha256"]
+    assert rb.regenerate(rb.discover(in_dir, None), out_dir, client=client, **opts) == (1, 0)
+    assert len(client.calls) == 2  # describe + generate, only for the changed camera
+    new_sha = rb.load_prompts(path)["floor00/camera001"]["sha256"]
+    assert new_sha != old_sha
+    new_source_sha = hashlib.sha256((in_dir / "backgrounds/floor00/camera001.png").read_bytes()).hexdigest()
+    assert new_sha == new_source_sha
+
+
 def test_regenerate_dry_run_makes_no_calls_and_no_files(tmp_path):
     logs = []
     client = FakeClient()
@@ -252,6 +327,24 @@ def test_regenerate_round_trips_through_check_overrides(tmp_path):
     findings = oc.check_overrides(out, [floor], manifest)
     assert [f.kind for f in findings] == []
     assert oc.coverage(out, [floor], manifest)[0]["regenerated"] == 1
+
+
+def test_copy_manifest_never_overwrites_existing_out_manifest(tmp_path):
+    in_dir = tmp_path / "in"
+    floor = StubFloor(number=0)
+    recs = xb.export_floor(floor, in_dir, 4)
+    manifest = export_manifest(recs, "stub", 4)
+    xb.save_manifest(in_dir, manifest)
+    out = tmp_path / "out"
+    out.mkdir(parents=True)
+    sentinel = json.dumps({"hand": "edited"})
+    (out / "manifest.json").write_text(sentinel)
+    cams = rb.discover(in_dir, None)
+    client = FakeClient(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)))
+    assert rb.regenerate(cams, out, client=client, text_model="t", image_model="image", style="s",
+                         force=False, dry_run=False, log=lambda *_: None) == (1, 0)
+    assert (out / "manifest.json").read_text() == sentinel
+    assert not (out / "manifest.json.tmp").exists()
 
 
 def test_main_dry_run_needs_no_key_or_sdk(tmp_path, monkeypatch, capsys):
