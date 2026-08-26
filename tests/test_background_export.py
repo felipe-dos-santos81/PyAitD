@@ -2,7 +2,6 @@
 import hashlib
 
 import numpy as np
-import pytest
 
 from PyAitD import background_export as be
 
@@ -191,6 +190,24 @@ def test_guide_overlay_skips_culled_edges():
     floor._cover = {}
     g = be.guide_overlay(floor, 0, 1)
     assert not (g[:200] == be.COLOR_COLLISION).all(axis=2).any()
+
+
+def test_guide_overlay_draws_edge_with_one_far_offscreen_corner():
+    """A box whose left corners project far off-screen left (sx << -9999,
+    but valid depth) must not cull the edge to its on-screen right corner:
+    culling belongs to depth, not to screen-space x (regression for the
+    a[0]/b[0] vs a[2]/b[2] cull-test bug)."""
+    floor = StubFloor()
+    from PyAitD.formats import Zone
+    floor.rooms[0].hard_cols = [
+        Zone(x1=-1_000_000, x2=100, y1=-50, y2=0, z1=0, z2=10, type=0, parameter=0)
+    ]
+    g = be.guide_overlay(floor, 0, 1)
+    # bottom edge (x1,0,0)->(x2,0,0): left corner sx ~= -999840 (depth 1000,
+    # not culled), right corner sx = 260 -> a horizontal line through y=100
+    # that must be drawn on its on-screen portion (x=100 sits well clear of
+    # the default mask/cover polygons on this StubFloor).
+    assert tuple(g[100, 100]) == be.COLOR_COLLISION
 
 
 def test_cover_zones_for_uses_parse_cover_zones_on_real_floors(monkeypatch):

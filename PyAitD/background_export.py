@@ -134,7 +134,7 @@ def _draw_projected(img, view, world_pts, edges, rgb, scale):
     proj = view.project(world_pts)
     for i, j in edges:
         a, b = proj[i], proj[j]
-        if a[0] <= _CULLED or b[0] <= _CULLED:
+        if a[2] <= _CULLED or b[2] <= _CULLED:
             continue
         draw_polyline(img, [(a[0] * scale, a[1] * scale), (b[0] * scale, b[1] * scale)], rgb)
 
