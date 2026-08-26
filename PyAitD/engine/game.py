@@ -157,6 +157,10 @@ class Game:
         self.current_inventory = 0
         self.messages = [None] * 5
         self.status_screen_allowed = 1
+        # startGame's allowSystemMenu (main.cpp:4134): False for the scripted
+        # opening, where FlagGameOver ends the sequence (CutsceneFinished)
+        # instead of killing the player, and any input ends it early.
+        self.allow_system_menu = True
         # mouse navigation state (see docs/superpowers/specs/2026-08-23-...)
         self.input_mode = InputMode.MOUSE
         self.nav_intent = None

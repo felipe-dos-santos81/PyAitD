@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """The floor-7 opening: FITD startGame(7, 1, 0) (AITD1.cpp:356). Real data;
 golden ticks pinned from the 2026-08-26 headless spike."""
+import pytest
+
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game, start_game
 from PyAitD.engine.interaction import apply_reading_result
@@ -48,3 +50,30 @@ def test_director_places_object_288_and_it_spawns(data_dir):
     w = game.world_objects[288]
     assert (w.stage, w.room) == (7, 0)
     assert w.obj_index != -1 and game.actors[w.obj_index].life == 537
+
+
+LETTER_TICK = 1081
+FLOOR_TICKS = ((3217, 3, 1), (4919, 2, 2), (5652, 1, 7))
+END_TICK = 7293
+
+
+def test_intro_runs_to_cutscene_finished_at_the_pinned_ticks(data_dir):
+    from PyAitD.engine.effects import CutsceneFinished
+    game, floor = boot_intro(data_dir)
+    game.allow_system_menu = False
+    last, floor, events = run_intro(
+        data_dir, game, floor, END_TICK + 50,
+        on_modal=lambda g: isinstance(g.active_modal, CutsceneFinished),
+    )
+    assert (LETTER_TICK, "ShowPicture") in events
+    assert [e for e in events if e[1] == "floor"] == [(t, "floor", f, r) for t, f, r in FLOOR_TICKS]
+    assert last == END_TICK and isinstance(game.active_modal, CutsceneFinished)
+    assert not any(e[1] == "GameOver" for e in events)
+
+
+@pytest.mark.parametrize("hero", (0, 1))
+def test_intro_boots_for_both_heroes(data_dir, hero):
+    game, floor = boot_intro(data_dir, hero)
+    game.allow_system_menu = False
+    run_intro(data_dir, game, floor, 200)
+    assert game.current_floor == 7 and game.mode.name == "PLAY"

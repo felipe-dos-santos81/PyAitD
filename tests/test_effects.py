@@ -63,3 +63,8 @@ def test_startup_effects_map_to_their_modes():
     assert MODAL_MODE[ShowTitle] is GameMode.TITLE
     assert MODAL_MODE[OpenStartupMenu] is GameMode.STARTUP_MENU
     assert ShowTitle() == ShowTitle() and OpenStartupMenu() == OpenStartupMenu()
+
+
+def test_cutscene_finished_maps_to_its_mode():
+    from PyAitD.engine.effects import CutsceneFinished, GameMode, MODAL_MODE
+    assert MODAL_MODE[CutsceneFinished] is GameMode.CUTSCENE_END
