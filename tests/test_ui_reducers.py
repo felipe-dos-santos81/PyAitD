@@ -164,6 +164,7 @@ def test_picker_ignores_keyboard_menu_commands_while_capturing():
 
 def test_pickable_keys_round_trip_through_pygame_and_fit_the_frame():
     import pygame
+    from PyAitD.app import ui
     from PyAitD.app.ui import PICKABLE_KEYS, SystemMenuLayout, canonical_key_name
     pygame.init()
     try:
@@ -182,4 +183,7 @@ def test_pickable_keys_round_trip_through_pygame_and_fit_the_frame():
                 not rect.colliderect(other) for other in hit_rows[index + 1:]
             ), "effective picker cells never overlap"
     finally:
+        # pygame.quit() invalidates ui's module-level font cache -- see the
+        # same hazard/fix in tests/test_shell_journeys.py's _pygame_runtime.
         pygame.quit()
+        ui._font.cache_clear()

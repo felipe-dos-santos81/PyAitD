@@ -9,7 +9,9 @@ from enum import Enum, auto
 import numpy as np
 import pygame
 
-from PyAitD.app.ui import Command, _button, _font, _to_frame, draw_big_cadre, effective_rects, layout_book, screen_surface
+from PyAitD.app.ui import (
+    Command, _button, _font, _to_frame, draw_big_cadre, effective_rects, layout_book, screen_surface,
+)
 
 TITLE_TIMEOUT_MS = 3000        # 0x30 chrono units of 1/16 s (AITD1.cpp:143)
 TITLE_FADE_MS = 500            # FadeInPhys(8, 0) (AITD1.cpp:129)
@@ -107,3 +109,52 @@ def hit_test_startup(pos, *, continue_enabled):
 
 def hit_test_title(pos):
     return StartupLayout.FRAME.collidepoint(pos)
+
+
+DISABLED_FILL = (48, 40, 36)
+DISABLED_TEXT = (140, 128, 110)
+
+
+def _disabled_button(surface, rect, label, size=18):
+    pygame.draw.rect(surface, DISABLED_FILL, rect, border_radius=3)
+    pygame.draw.rect(surface, (120, 110, 90), rect, width=2, border_radius=3)
+    glyph = _font(size).render(label, True, DISABLED_TEXT)
+    surface.blit(glyph, glyph.get_rect(center=rect.center))
+
+
+def render_title(presenter, assets, resolver, elapsed_ms, credits_entry):
+    if presenter.phase is TitlePhase.TITLE:
+        # screen_surface's Surface is shared/cached: copy before drawing on it.
+        surface = screen_surface(resolver, 13).copy()                # AITD1_TITRE
+        alpha = min(255, 255 * max(0, elapsed_ms) // TITLE_FADE_MS)
+        if alpha < 255:
+            shade = pygame.Surface((320, 200), flags=pygame.SRCALPHA)
+            shade.fill((0, 0, 0, 255 - alpha))
+            surface.blit(shade, (0, 0))
+        return _to_frame(surface)
+    # screen_surface's Surface is shared/cached: copy before drawing on it.
+    surface = screen_surface(resolver, 7).copy()                     # AITD1_LIVRE
+    font = _font(15)
+    page = layout_book(assets.book_tokens(credits_entry), font, 212, 13)[0]   # Lire(..., 48,2,260,197)
+    y = 2
+    for text, centered in page:
+        glyph = font.render(text, True, (43, 31, 22))
+        x = 48 + (212 - glyph.get_width()) // 2 if centered else 48
+        surface.blit(glyph, (x, y))
+        y += 15
+    return _to_frame(surface)
+
+
+def render_startup_menu(presenter, assets, resolver, *, continue_enabled):
+    surface = pygame.Surface((320, 200))
+    surface.fill((0, 0, 0))
+    center, size = StartupLayout.CADRE
+    draw_big_cadre(surface, assets.cadre_bank(), center, size)
+    selection = presenter.hover if presenter.hover is not None else presenter.cursor
+    for index, (rect, text_id) in enumerate(zip(StartupLayout.ROWS, MENU_TEXT_IDS)):
+        label = assets.system_text(text_id)
+        if index == StartupRow.CONTINUE.value and not continue_enabled:
+            _disabled_button(surface, rect, label, size=14)
+        else:
+            _button(surface, rect, label, selected=index == selection, size=14)
+    return _to_frame(surface)
