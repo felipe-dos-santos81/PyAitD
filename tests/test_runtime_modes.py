@@ -1401,6 +1401,30 @@ def test_title_click_advances_like_a_command(data_dir):
     assert isinstance(game.active_modal, OpenStartupMenu)
 
 
+def test_title_click_survives_the_first_render_active_mode_reset(data_dir):
+    # Regression: route_mouse's ShowTitle branch used to call reduce_title
+    # BEFORE session.reset_for(effect) ran for the first time against this
+    # ShowTitle instance -- unlike route_command, which resets first. Since
+    # render_active_mode also calls session.reset_for(effect) every frame,
+    # and reset_for only resets an effect the first time it observes that
+    # exact identity, the click's TITLE -> CREDITS mutation used to get
+    # silently replaced by a fresh TitlePresenter() the moment
+    # render_active_mode ran afterwards: the player's first click on the
+    # title screen did nothing.
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    renderer = SimpleNamespace(scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8))
+    assert session.title.phase is TitlePhase.TITLE
+    route_mouse(game, session, (5, 5))
+    assert session.title.phase is TitlePhase.CREDITS
+    render_active_mode(game, session, renderer)
+    assert session.title.phase is TitlePhase.CREDITS, (
+        "the click's phase change must survive the first render_active_mode reset"
+    )
+
+
 def test_menu_new_game_opens_the_selector_and_escape_returns(data_dir):
     game = init_game(data_dir, AITD1)
     session = ModalSession()

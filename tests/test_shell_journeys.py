@@ -640,12 +640,6 @@ def test_journey_title_menu_select_play_by_mouse(data_dir, monkeypatch, tmp_path
     session = load_runtime_session(path)
     seen = []
     frames = iter([
-        # a bare frame first: render_active_mode's session.reset_for(effect)
-        # only fires once per effect identity, and route_mouse's ShowTitle
-        # branch (unlike route_command's) never calls reset_for itself; without
-        # this frame the first click's reduce_title mutation would be the
-        # frame that triggers that one-time reset and get wiped by it
-        [],
         [_left_click((160, 100))],                                        # title -> credits
         [_left_click((160, 100))],                                        # credits -> menu
         [_left_click(StartupLayout.ROWS[StartupRow.NEW_GAME.value].center)],

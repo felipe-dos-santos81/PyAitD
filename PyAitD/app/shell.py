@@ -679,6 +679,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
         if session.system_menu.page is not old_page:
             session.system_menu.hover = None
         return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
+    session.reset_for(effect)
     if isinstance(effect, ShowTitle):
         from PyAitD.app.startup import hit_test_title, reduce_title
         if hit_test_title(logical_pos) and reduce_title(session.title, Command.ACCEPT) is not None:
@@ -693,7 +694,6 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
         session.startup.cursor = hit
         result = reduce_startup_menu(session.startup, Command.ACCEPT, continue_enabled=enabled)
         return _apply_startup_result(game, session, input_buffer, result)
-    session.reset_for(effect)
     if isinstance(effect, ChooseCharacter):
         hit = hit_test_character(logical_pos, session.character)
         if hit is None:
