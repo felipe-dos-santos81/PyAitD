@@ -30,6 +30,55 @@ def test_parse_args_skip_intro():
     assert parse_args(["--skip-intro"]).skip_intro is True
 
 
+def test_main_skip_intro_produces_a_session_whose_hero_boot_is_not_a_cutscene(monkeypatch, data_dir):
+    # --skip-intro's only real effect in main() is `session.skip_intro =
+    # args.skip_intro`; _hero_branch reads it to decide `cutscene=False`
+    # (straight to the attic) instead of `cutscene=True` (the floor-7
+    # opening) -- see AITD1.cpp:352-361 / shell._hero_branch. Boot for real
+    # through main() with --skip-intro, capture the session it produces,
+    # then drive the real character-confirmation branch with that exact
+    # session and prove the hero boot it stages is NOT a cutscene. Deleting
+    # `session.skip_intro = args.skip_intro` leaves skip_intro at its False
+    # default and this assertion fails, since AITD1.intro_start is set.
+    import numpy as np
+
+    import PyAitD.app.shell as main
+    from PyAitD.app.config import default_settings
+    from PyAitD.app.ui import ModalSession
+
+    captured = {}
+
+    def fake_run(game, trace, session=None):
+        captured["session"] = session
+        return 0
+
+    monkeypatch.setattr(main, "run", fake_run)
+    monkeypatch.setattr(
+        main, "load_runtime_session", lambda path: ModalSession(settings=default_settings()),
+    )
+    assert main.main(["--data", str(data_dir), "--skip-intro"]) == 0
+
+    session = captured["session"]
+    assert session.skip_intro is True
+
+    from PyAitD.engine.game import init_game
+    from PyAitD.games.aitd1.profile import AITD1
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
+    game = init_game(data_dir, AITD1)
+    assert game.profile.intro_start is not None   # precondition: AITD1 HAS an intro
+    session.pending_hero = 0
+
+    from types import SimpleNamespace
+    from PyAitD.app.ui import InputBuffer
+
+    replaced = main._hero_branch(game, SimpleNamespace(), session, InputBuffer())
+    assert replaced is not None
+    new_session = replaced[2]
+    assert new_session.cutscene is False
+
+
 def test_normal_main_opens_the_title_before_run(monkeypatch, tmp_path):
     import PyAitD.app.shell as main
     game = SimpleNamespace(active_modal=None, open_modal=lambda effect: setattr(game, "active_modal", effect))

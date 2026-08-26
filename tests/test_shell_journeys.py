@@ -778,3 +778,30 @@ def test_journey_a_click_skips_the_opening(data_dir, monkeypatch):
     _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
     assert 7 in floors and floors[-1] == 0
     assert game.mode is not GameMode.GAME_OVER
+
+
+def test_journey_a_keypress_skips_the_opening(data_dir, monkeypatch):
+    # Same as the click journey above, but with a keypress: PlayWorld
+    # (allowSystemMenu=0) breaks on any key too (mainLoop.cpp:71-89), and
+    # the event pump's cutscene swallow tests KEYDOWN separately from the
+    # click/touch arms -- only this journey would catch a regression that
+    # dropped the KEYDOWN arm and left a keypress doing nothing mid-opening.
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    floors = []
+    frames = iter(
+        _confirm_emily_events(game)
+        + [[], [], [_key(pygame.K_SPACE)], [], [], [_quit()]]
+    )
+
+    def next_events():
+        return next(frames, [_quit()])
+
+    def observe_tick(game_, floor, buf):
+        floors.append(floor.number)
+        return real_play_tick(game_, floor, buf)
+
+    _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
+    assert 7 in floors and floors[-1] == 0
+    assert game.mode is not GameMode.GAME_OVER
