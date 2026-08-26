@@ -14,8 +14,8 @@ make prove-mouse-only # one-button contract + real mouse journeys, including hel
 make prove-shell   # M4a1 shell/config/mouse-contract + real-loop journeys
 make prove-mouse-accessibility # focused effective-target/hover/touch/takeover gate
 make prove-graphics # render attic + combat fixtures at every shading mode to docs/graphics-proof/
-make export-backgrounds out=DIR # originals + guides + manifest for external AI regeneration (floors=, scale=, force=1)
-make check-overrides overrides=DIR # validate an override dir as the game loads it; proof=1 renders side-by-sides
+make export-backgrounds # originals + guides + manifest to ./overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1)
+make check-overrides # validate ./overrides (or overrides=DIR) as the game loads it; proof=1 renders side-by-sides
 make run           # play via character select; floor=0 debug bypass, data="..." trace=/tmp/t.log optional
 ```
 

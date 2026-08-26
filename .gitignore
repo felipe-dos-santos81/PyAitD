@@ -11,3 +11,4 @@ dist/
 *.egg-info/
 docs/graphics-proof/*.png
 docs/graphics-proof/overrides/
+overrides/

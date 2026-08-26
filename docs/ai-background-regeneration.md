@@ -9,7 +9,7 @@ AI service; the repo ships no model, no key and no game data.
 
 ## 1. Export
 
-    make export-backgrounds out=~/aitd-overrides            # all floors, guide scale 4
+    make export-backgrounds                                 # all floors, guide scale 4, into ./overrides
     make export-backgrounds out=~/aitd-overrides floors=0 scale=2
 
 Produces:
@@ -52,7 +52,7 @@ elsewhere will look wrong in play even though it loads fine.
 
 ## 3. Check
 
-    make check-overrides overrides=~/aitd-overrides
+    make check-overrides                                    # checks ./overrides
     make check-overrides overrides=~/aitd-overrides proof=1   # also renders original|override to docs/graphics-proof/overrides/
 
 Findings, one line each, then a per-floor coverage summary:
