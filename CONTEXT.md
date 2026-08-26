@@ -313,7 +313,9 @@ action runner.
 - The reduced `LM_STAGE` handler (`games/aitd1/life_reduced.py`) raises
   `flag_genere_aff_list` when an object is staged onto the *current* floor,
   so the existing per-tick spawn scan (`playworld._genere_active_list`)
-  picks it up the next tick — without this the intro's director (life 547 →
+  picks it up later in that same tick, at the tail of the LIFE loop — not
+  the next one (`tests/test_intro.py` asserts at tick 1596, not 1597, for
+  exactly this reason) — without this the intro's director (life 547 →
   object 288) never spawns and the cutscene stalls forever at tick 1596.
   `ponytail:` this raises the existing gated scan; it does **not** make the
   scan unconditional. FITD's `GenereActiveList` runs every frame regardless
