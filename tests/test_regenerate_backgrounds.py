@@ -252,3 +252,52 @@ def test_regenerate_round_trips_through_check_overrides(tmp_path):
     findings = oc.check_overrides(out, [floor], manifest)
     assert [f.kind for f in findings] == []
     assert oc.coverage(out, [floor], manifest)[0]["regenerated"] == 1
+
+
+def test_main_dry_run_needs_no_key_or_sdk(tmp_path, monkeypatch, capsys):
+    in_dir = make_in_dir(tmp_path)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(rb, "make_client", lambda: pytest.fail("client created in dry run"))
+    assert rb.main([str(in_dir), "--out", str(tmp_path / "out"), "--dry-run"]) == 0
+    assert "floor00/camera000" in capsys.readouterr().out
+    assert not (tmp_path / "out").exists()
+
+
+def test_main_exit_codes(tmp_path, monkeypatch, capsys):
+    in_dir = make_in_dir(tmp_path)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    assert rb.main([str(tmp_path / "empty"), "--out", str(tmp_path / "out")]) == 2
+    assert "no cameras" in capsys.readouterr().err
+    assert rb.main([str(in_dir), "--out", str(tmp_path / "out")]) == 2
+    assert "GEMINI_API_KEY is not set" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
+
+
+def test_main_runs_with_injected_client_and_reports_failures(tmp_path, monkeypatch, capsys):
+    in_dir = make_in_dir(tmp_path)
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    client = FakeClient(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={3})
+    monkeypatch.setattr(rb, "make_client", lambda: client)
+    assert rb.main([str(in_dir), "--out", str(tmp_path / "out"), "--floors", "0-7",
+                    "--style", "noir.", "--text-model", "t-model", "--image-model", "image-x"]) == 1
+    out = capsys.readouterr().out
+    assert "floor01/camera000: failed: quota" in out and "done 2, failed 1" in out
+    assert client.calls[0][0] == "t-model" and client.calls[1][0] == "image-x"
+    assert client.calls[1][1][-1].endswith("noir.")
+    client.fail.clear()
+    assert rb.main([str(in_dir), "--out", str(tmp_path / "out")]) == 0
+
+
+def test_make_client_reports_missing_sdk(monkeypatch, capsys):
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name.startswith("google"):
+            raise ImportError(name)
+        return real_import(name, *a, **k)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    with pytest.raises(SystemExit) as e:
+        rb.make_client()
+    assert e.value.code == 2
+    assert 'google-genai is not installed: run .venv/bin/pip install -e ".[dev,ai]"' in capsys.readouterr().err

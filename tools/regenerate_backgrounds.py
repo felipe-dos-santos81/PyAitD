@@ -199,3 +199,49 @@ def regenerate(cams, out_dir, *, client, text_model, image_model, style, force, 
     if not dry_run:
         _copy_manifest(cams, out_dir)
     return done, failed
+
+
+def make_client():
+    """The only place google-genai is imported. Reads GEMINI_API_KEY itself."""
+    try:
+        from google import genai
+    except ImportError:
+        print(_SDK_MISSING, file=sys.stderr)
+        raise SystemExit(2)
+    return genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
+
+def _parse_args(argv):
+    p = argparse.ArgumentParser(description="Regenerate exported backgrounds with Gemini.")
+    p.add_argument("in_dir", help="override dir from `make export-backgrounds` (originals + guides)")
+    p.add_argument("--out", required=True, help="output override dir (same layout)")
+    p.add_argument("--floors", default="0-7")
+    p.add_argument("--style", default=DEFAULT_STYLE)
+    p.add_argument("--text-model", default=DEFAULT_TEXT_MODEL)
+    p.add_argument("--image-model", default=DEFAULT_IMAGE_MODEL)
+    p.add_argument("--force", action="store_true", help="redo existing outputs and cached prompts")
+    p.add_argument("--dry-run", action="store_true", help="list what would be processed; no API calls")
+    return p.parse_args(argv)
+
+
+def main(argv=None):
+    args = _parse_args(argv)
+    cams = discover(args.in_dir, set(parse_floors(args.floors)))
+    if not cams:
+        print(f"no cameras under {args.in_dir}/backgrounds", file=sys.stderr)
+        return 2
+    client = None
+    if not args.dry_run:
+        if not os.environ.get("GEMINI_API_KEY"):
+            print("GEMINI_API_KEY is not set", file=sys.stderr)
+            return 2
+        client = make_client()
+    done, failed = regenerate(cams, args.out, client=client, text_model=args.text_model,
+                              image_model=args.image_model, style=args.style,
+                              force=args.force, dry_run=args.dry_run)
+    print(f"done {done}, failed {failed}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
