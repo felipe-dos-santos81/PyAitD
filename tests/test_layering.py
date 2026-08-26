@@ -24,6 +24,14 @@ PURE_RENDER = ("scene", "geometry", "render_options", "background_export", "over
 NO_MODERNGL = ("render_soft", "asset_resolver")
 
 
+def _package_of(path):
+    """The dotted PyAitD.<...> package that directly contains this module —
+    i.e. its __package__ at runtime, whether the file is a regular module
+    or an __init__.py. Used to resolve relative imports below without
+    actually importing anything."""
+    return ".".join(path.relative_to(ROOT.parent).with_suffix("").parts[:-1])
+
+
 def _imports(path):
     """Every dotted name imported anywhere in the module, deferred imports included."""
     tree = ast.parse(path.read_text())
@@ -31,8 +39,23 @@ def _imports(path):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 yield alias.name
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            base = node.module
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                # A relative import (`from .foo import bar` / `from ..foo
+                # import bar`) carries no dotted absolute name in
+                # node.module -- left alone, "render" (say) matches none of
+                # the PyAitD.-prefixed FORBIDDEN entries and a future
+                # cross-layer `from ..render import scene` inside engine/
+                # would slip past every rule below. Resolve it to its real
+                # absolute name the same way Python resolves it at import
+                # time (package.rsplit(".", level - 1)[0]), so it is
+                # checked exactly like an equivalent absolute import.
+                bits = _package_of(path).rsplit(".", node.level - 1)
+                base = bits[0] + (f".{node.module}" if node.module else "")
+            else:
+                base = node.module
+            if not base:
+                continue
             yield base
             for alias in node.names:
                 yield f"{base}.{alias.name}"
@@ -44,8 +67,10 @@ def _modules(package):
 
 @pytest.mark.parametrize("package", sorted(FORBIDDEN))
 def test_package_imports_only_what_the_layering_allows(package):
+    paths = _modules(package)
+    assert paths, f"no modules found under PyAitD/{package} — did the package move?"
     bad = []
-    for path in _modules(package):
+    for path in paths:
         for name in _imports(path):
             if name.startswith(FORBIDDEN[package]):
                 bad.append(f"{path.relative_to(ROOT)}: {name}")
@@ -82,7 +107,7 @@ def test_asset_resolver_touches_pygame_in_exactly_one_function():
     assert owners == {"load_png_rgb"}, owners
 
 
-def test_only_the_regeneration_tool_imports_google_genai():
+def test_only_the_regeneration_tool_may_import_an_ai_sdk():
     # The AI-service boundary: no module but the regeneration tool may import an AI SDK.
     # It currently reaches Gemini through the `agy` CLI (subprocess), so this set is empty
     # today; the assertion is a subset so it pins the boundary, not the current mechanism.

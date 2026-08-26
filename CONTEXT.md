@@ -49,7 +49,7 @@ make run overrides=DIR       # play with a different override directory (e.g. da
 | Mouse accessibility hardening | Effective targets, optional pure hover, physical/touch parity, target precedence, atomic modal takeover, exhaustive contract gate | done — automated gates green and user-attested windowed standard-mouse/macOS-Accessibility-Keyboard passes for Emily and Carnby (`docs/mouse-accessibility-hardening-proof.md`) |
 | Enhanced graphics scene layer | Higher-resolution actor rendering, per-vertex shading, GPU mask erasure, background upscale filters, asset override directory, GL fallback | automated gates green; windowed attestation pending (`docs/enhanced-graphics-proof.md`) |
 | AI background regeneration | Export originals + structure guides + manifest, validate override dirs as the game loads them, optional Gemini describe+render regeneration | done — `make export-backgrounds` / `check-overrides` / `regenerate-backgrounds`; `docs/ai-background-regeneration.md` |
-| Engine package reorganization | engine / render / games / app split + GameProfile | done — tests/test_layering.py |
+| Engine package reorganization | engine / render / games / app split + GameProfile | done — `tests/test_layering.py` |
 | M4a2 / M4b / M4c | Save/load, audio + sequences, ending/completability | next (plans drafted under `docs/superpowers/plans/2026-08-24-m4*`) |
 
 Design docs live in `docs/superpowers/specs/` and `docs/superpowers/plans/`

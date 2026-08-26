@@ -169,6 +169,7 @@ def test_make_run_uses_shell_by_default_and_floor_zero_only_when_explicit():
     explicit_run = next(line for line in explicit.splitlines() if " -m PyAitD " in line)
     assert "--floor" not in plain_run
     assert '--floor "0"' in explicit_run
+    assert '--overrides "data/aitd1/overrides"' in plain_run
 
 
 def test_unknown_pygame_key_falls_back_to_defaults_with_a_path_named_notice(tmp_path):

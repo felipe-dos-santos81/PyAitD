@@ -44,6 +44,18 @@ def test_aitd1_opcode_table_is_complete_and_immutable():
         AITD1.name = "x"
 
 
+def test_aitd1_opcode_table_pins_handler_identity_per_slot():
+    # Not just completeness -- which handler sits in which slot, per
+    # AITD1LifeMacroTable (AITD1.cpp:30-119). Guards against a refactor
+    # that silently shuffles two handlers between opcode numbers.
+    from PyAitD.games.aitd1 import life_ops as ops
+
+    assert AITD1.opcode_table[41] is ops.op_game_over        # LM_GAME_OVER
+    assert AITD1.opcode_table[86] is ops.op_wait_game_over   # LM_WAIT_GAME_OVER
+    for op in AITD1.dead_opcodes:
+        assert AITD1.opcode_table[op].__name__ == "_op_dead"
+
+
 def test_aitd1_debug_venues_and_reduced_dispatch():
     from PyAitD.games.aitd1 import life_reduced, scenario
     assert AITD1.reduced_dispatch is life_reduced.reduced_dispatch

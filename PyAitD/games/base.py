@@ -2,8 +2,10 @@
 """GameProfile: the per-game constants the engine reads at runtime.
 
 FITD branches on g_gameId in boot (main.cpp), opcode semantics (life.cpp),
-getCVarsIdx, and a few format variants. Everything that is AITD1-specific
-today lives here; nothing else is abstracted."""
+getCVarsIdx, and a few format variants. This holds the per-game constants
+extracted so far; engine/ still encodes AITD1 opcode numbering (life.py's
+NUM_OPCODES and core_table() slots) and record layouts (formats.py), so a
+second game will need further seams."""
 from collections.abc import Mapping
 from dataclasses import dataclass
 

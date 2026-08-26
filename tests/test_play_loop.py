@@ -611,7 +611,7 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeyp
     settings = dc_replace(default_settings(), render=RenderOptions(override_dir="/custom/dir"))
     session = ModalSession(settings=settings)
     session.pending_hero = 1
-    old_game = SimpleNamespace(_data_dir="ignored", trace=None, profile="ignored-profile")
+    old_game = SimpleNamespace(_data_dir="ignored", trace=None, profile=AITD1)
 
     with _pygame_runtime():
         result = main._hero_branch(old_game, SimpleNamespace(), session, InputBuffer())
