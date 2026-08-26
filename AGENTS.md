@@ -16,7 +16,7 @@ make prove-mouse-accessibility # focused effective-target/hover/touch/takeover g
 make prove-graphics # render attic + combat fixtures at every shading mode to docs/graphics-proof/
 make export-backgrounds # originals + guides + manifest to ./overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1)
 make check-overrides # validate ./overrides (or overrides=DIR) as the game loads it; proof=1 renders side-by-sides
-make regenerate-backgrounds # Gemini describe+render ./overrides -> ./overrides-ai (dry=1, floors=, style=, force=1); needs GEMINI_API_KEY + ".[dev,ai]"
+make regenerate-backgrounds # Gemini describe+render ./overrides -> ./overrides-ai (dry=1, floors=, style=, force=1); needs GEMINI_API_KEY + make install-ai
 make run           # play via character select; floor=0 debug bypass, data="..." trace=/tmp/t.log optional
 ```
 

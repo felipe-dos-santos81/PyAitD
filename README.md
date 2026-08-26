@@ -9,6 +9,7 @@ pygame-ce + ModernGL, Apple Silicon, windowed. GPLv2.
 
 ```bash
 make install            # .venv + editable install with dev deps
+make install-ai         # + google-genai, only for make regenerate-backgrounds
 ```
 
 Game data defaults to `Alone in the Dark 1.app/Contents/Resources/game/INDARK`
@@ -59,7 +60,7 @@ To regenerate the backgrounds with an external AI tool, `make
 export-backgrounds` writes the originals plus structure guides and a
 manifest into `./overrides` (git-ignored; `out=DIR` to choose another), and `make check-overrides`
 validates the results the way the game loads them. `make regenerate-backgrounds`
-(optional; needs `pip install -e ".[dev,ai]"` and `GEMINI_API_KEY`) does the
+(optional; needs `make install-ai` and `GEMINI_API_KEY`) does the
 regeneration with Gemini into `./overrides-ai`. See
 [docs/ai-background-regeneration.md](docs/ai-background-regeneration.md).
 

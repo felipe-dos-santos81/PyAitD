@@ -53,7 +53,7 @@ elsewhere will look wrong in play even though it loads fine.
 
 ## 2b. Regenerate with Gemini (optional, in-repo)
 
-    .venv/bin/pip install -e ".[dev,ai]"          # once: google-genai
+    make install-ai                               # once: google-genai
     export GEMINI_API_KEY=...                     # never stored by the tool
     make regenerate-backgrounds dry=1             # list what would run, no calls
     make regenerate-backgrounds                   # ./overrides -> ./overrides-ai
