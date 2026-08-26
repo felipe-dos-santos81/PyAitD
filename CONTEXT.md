@@ -368,3 +368,28 @@ Golden values are pinned from real game data (do not re-derive): 292 world objec
 207 vars, 45 CVars, 563 scripts, 45 tracks, camera/body/anim pins per plan doc.
 Tests skip when game data absent (`data_dir` fixture). New work follows the
 brainstorm → spec → plan → subagent-driven TDD workflow recorded in `docs/superpowers/`.
+
+## Test grouping
+
+`tests/` is partitioned by one module-level subject marker per file — `engine`,
+`render`, `shell`, `tools`, `meta` — with an optional cross-cutting `journey`.
+The Makefile's `test-*` targets are `pytest -m <marker>`; the vocabulary lives
+in `pyproject.toml` and `--strict-markers` rejects anything else.
+
+`tests/test_test_groups.py` owns three properties: the subjects cover every
+test file and never overlap, the vocabulary matches `pyproject.toml`, and
+every legacy `prove-*` alias still exists in the Makefile — and, for the five
+of the nine that gated pytest files before markers replaced their recipe
+(`prove`, `prove-m3b`, `prove-shell`, `prove-mouse-only`,
+`prove-mouse-accessibility`), still selects each file it ran before. That
+last one is why the proof documents can keep citing `make prove-shell` and
+friends without being rewritten; the other four aliases (`prove-mouse`,
+`prove-combat`, `prove-graphics`, `prove-intro`) are straight renames of the
+`proof-*` artifact targets, which need real game data (and GL, for
+graphics/intro) rather than a pinned file list. Its `LEGACY_GATE_FILES` table
+is historical data captured at `4024b10` — fix a marker when it fails, never
+the table.
+
+Markers are parsed with `ast`, never by importing the modules, so the
+enforcement costs one file read per test file and cannot trigger a module-level
+fixture.
