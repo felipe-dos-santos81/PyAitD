@@ -1524,3 +1524,71 @@ def test_render_active_mode_draws_title_and_menu(data_dir):
     assert render_active_mode(game, session, renderer).shape == (200, 320, 3)
     open_startup_menu(game, session)
     assert render_active_mode(game, session, renderer).shape == (200, 320, 3)
+
+
+from PyAitD.app.shell import _boot_hero, _cutscene_end_branch
+from PyAitD.engine.effects import CutsceneFinished
+
+
+class _Renderer:
+    def scene_thumbnail(self):
+        return np.zeros((200, 320, 3), np.uint8)
+
+    def compose_scene(self, frame):
+        # _boot_hero's own _scene_frame call (unmocked here, unlike the
+        # monkeypatched _hero_branch/_restart_branch tests above) needs a
+        # real compose_scene stand-in; the returned frame is not asserted on.
+        return frame
+
+
+def test_boot_hero_cutscene_stages_the_intro(data_dir):
+    game = init_game(data_dir, AITD1)
+    session = ModalSession()
+    replaced = _boot_hero(game, _Renderer(), session, InputBuffer(), 1, cutscene=True)
+    new_game, new_floor, new_session = replaced[0], replaced[1], replaced[2]
+    assert (new_game.current_floor, new_game.current_room) == AITD1.intro_start
+    assert new_floor.number == 7
+    assert new_game.allow_system_menu is False and new_session.cutscene is True
+    assert new_game.cvars[AITD1.cvar_index("CHOOSE_PERSO")] == 1
+
+
+def test_boot_hero_plain_boots_the_attic(data_dir):
+    game = init_game(data_dir, AITD1)
+    replaced = _boot_hero(game, _Renderer(), ModalSession(), InputBuffer(), 0, cutscene=False)
+    new_game, new_session = replaced[0], replaced[2]
+    assert (new_game.current_floor, new_game.current_room) == AITD1.game_start
+    assert new_game.allow_system_menu is True and new_session.cutscene is False
+
+
+def test_cutscene_end_branch_hands_over_to_the_attic_with_the_same_hero(data_dir):
+    game = init_game(data_dir, AITD1, hero=1)
+    session = ModalSession(cutscene=True)
+    assert _cutscene_end_branch(game, _Renderer(), session, InputBuffer()) is None
+    game.open_modal(CutsceneFinished())
+    replaced = _cutscene_end_branch(game, _Renderer(), session, InputBuffer())
+    assert replaced is not None
+    new_game, new_session = replaced[0], replaced[2]
+    assert new_game.cvars[AITD1.cvar_index("CHOOSE_PERSO")] == 1
+    assert (new_game.current_floor, new_game.current_room) == AITD1.game_start
+    assert new_session.cutscene is False and new_game.active_modal is None
+
+
+def test_skip_flag_ends_the_cutscene_from_play(data_dir):
+    game = init_game(data_dir, AITD1)
+    session = ModalSession(cutscene=True, skip_cutscene=True)
+    assert _cutscene_end_branch(game, _Renderer(), session, InputBuffer()) is not None
+
+
+def test_cutscene_swallows_play_commands_and_marks_skip(data_dir):
+    game = init_game(data_dir, AITD1)
+    session = ModalSession(cutscene=True)
+    assert route_command(game, session, Command.CANCEL) is True
+    assert game.active_modal is None and session.skip_cutscene is True   # no system menu opened
+
+
+def test_cutscene_finished_renders_the_frozen_scene(data_dir):
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    game.open_modal(CutsceneFinished())
+    frame = render_active_mode(game, ModalSession(cutscene=True), _Renderer())
+    assert frame.shape == (200, 320, 4) and frame[..., 3].max() == 0      # transparent: scene shows through

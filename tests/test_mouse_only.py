@@ -113,6 +113,12 @@ def test_shell_modes_and_the_settings_notice_fulfill_the_mouse_contract():
     assert CAPABILITY_ROUTES[PlayerCapability.DISMISS_SETTINGS_ERROR].modes == ALL_MODES
     for mode in GameMode:
         assert PlayerCapability.DISMISS_SETTINGS_ERROR in MODE_MOUSE_CAPABILITIES[mode]
+    assert MODE_MOUSE_CAPABILITIES[GameMode.CUTSCENE_END] == frozenset({
+        PlayerCapability.SKIP_CUTSCENE,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
+        PlayerCapability.QUIT,
+    })
+    assert PlayerCapability.SKIP_CUTSCENE in MODE_MOUSE_CAPABILITIES[GameMode.PLAY]
 
 
 def test_no_operation_remains_keyboard_only():

@@ -75,6 +75,11 @@ def parse_args(argv):
     p.add_argument(
         "--overrides", type=pathlib.Path, default=None, help="asset override directory",
     )
+    p.add_argument(
+        "--skip-intro", action="store_true",
+        help="development convenience, not FITD behaviour: boot the attic "
+             "directly after character select (skips the floor-7 opening)",
+    )
     return p.parse_args(argv)
 
 
@@ -136,6 +141,7 @@ def replacement_session(session):
         disk_render=session.disk_render,
         render_touched=session.render_touched,
         booted_via_menu=session.booted_via_menu,
+        skip_intro=session.skip_intro,
     )
 
 
@@ -547,6 +553,13 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
             reset_input(input_buffer)
         return True
 
+    if session.cutscene:
+        # PlayWorld(allowSystemMenu=0): every command is a skip, never a
+        # route into PLAY's own commands (CANCEL opening the system menu,
+        # OPEN_INVENTORY) -- mainLoop.cpp:71-89.
+        session.skip_cutscene = True
+        return True
+
     if game.mode is GameMode.PLAY:
         if command is Command.CANCEL:
             game.open_modal(OpenSystemMenu())
@@ -648,8 +661,8 @@ def _apply_startup_result(game, session, input_buffer, result):
 
 def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
     from PyAitD.engine.effects import (
-        ChooseCharacter, GameOver, OpenInventory, OpenSystemMenu, ReadText,
-        ShowFound, ShowPicture,
+        ChooseCharacter, CutsceneFinished, GameOver, OpenInventory, OpenSystemMenu,
+        ReadText, ShowFound, ShowPicture,
     )
     from PyAitD.engine.interaction import (
         apply_found_result, apply_inventory_result, apply_reading_result,
@@ -663,6 +676,9 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
     if logical_pos is None or game.active_modal is None:
         return True
     effect = game.active_modal
+    if isinstance(effect, CutsceneFinished):
+        session.skip_cutscene = True
+        return True
     if isinstance(effect, OpenSystemMenu):
         # same presenter lifetime as route_command: reset at open, never per
         # click, so a staged page/cursor/capture survives mouse routing
@@ -821,8 +837,8 @@ def render_active_mode(game, session, renderer, resolver=None):
     so every other mode (most frames: no modal at all) never pays for it --
     see the finding-1 note on `Renderer.compose_scene`."""
     from PyAitD.engine.effects import (
-        ChooseCharacter, GameOver, OpenInventory, OpenSystemMenu, ReadText,
-        ShowFound, ShowPicture,
+        ChooseCharacter, CutsceneFinished, GameOver, OpenInventory, OpenSystemMenu,
+        ReadText, ShowFound, ShowPicture,
     )
     from PyAitD.app.ui import (
         overlay_messages, render_character_select, render_found,
@@ -832,6 +848,10 @@ def render_active_mode(game, session, renderer, resolver=None):
     effect = game.active_modal
     if effect is None:
         return overlay_messages(transparent_canvas(), game.messages, game.assets)
+    if isinstance(effect, CutsceneFinished):
+        # the last PLAY frame stays composed underneath, exactly like
+        # render_game_over before its accessibility wait elapses
+        return transparent_canvas()
     # This is the modal lifecycle boundary.  It resets a replacement exactly
     # once before any presenter can render, including the system menu.
     session.reset_for(effect)
@@ -890,6 +910,42 @@ def restart_session(old_game):
     return new_game
 
 
+def _boot_hero(game, renderer, session, input_buffer, hero, *, cutscene):
+    """Build the replace tuple run() adopts: a fresh game for `hero`, staged
+    on profile.intro_start (cutscene, allowSystemMenu=0, AITD1.cpp:352-361)
+    or on the attic init_game already stages (profile.game_start). Shared by
+    _hero_branch (character confirmation) and _cutscene_end_branch (the
+    startGame(0, 0, 1) hand-over once the opening ends)."""
+    from PyAitD.engine.game import start_game
+    _take_over_play_input(game, session, input_buffer)
+    try:
+        new_game = init_game(game._data_dir, game.profile, hero=hero)
+        if cutscene:
+            start_game(new_game, *game.profile.intro_start)
+            new_game.allow_system_menu = False
+        new_floor = Floor(new_game._data_dir, new_game.current_floor)
+    except PakError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return (None, None, None, None, 0, [], None, None, None, 2, None)
+    new_game.trace = game.trace
+    new_game.input_mode = game.input_mode
+    new_session = replacement_session(session)
+    new_session.cutscene = cutscene
+    input_buffer = InputBuffer()
+    configure_session_input(new_session, input_buffer)
+    # Staged by start_game: num_camera == -1, new_num_camera == 0. This
+    # stages camera 0 exactly as FITD's InitView does after startGame -- the
+    # same line init_game's own staging (game_start) relies on below.
+    new_game.num_camera = new_game.new_num_camera
+    new_game.flag_init_view = 0
+    new_resolver = _resolver_for(new_game.assets, session.settings.render.override_dir)
+    scene_frame, draw_list = _scene_frame(new_game, new_floor, renderer, new_resolver)
+    return (
+        new_game, new_floor, new_session, input_buffer, 0,
+        draw_list, None, scene_frame, pygame.time.get_ticks(), 0, new_resolver,
+    )
+
+
 def _hero_branch(game, renderer, session, input_buffer=None):
     # Atomic hero replacement: confirming a character rebuilds game, floor,
     # session, and input buffer in one tuple, so run() resumes on the new
@@ -900,25 +956,25 @@ def _hero_branch(game, renderer, session, input_buffer=None):
     # the same new_game.assets.
     if session.pending_hero is None:
         return None
-    _take_over_play_input(game, session, input_buffer)
-    try:
-        new_game = init_game(game._data_dir, game.profile, hero=session.pending_hero)
-        new_floor = Floor(new_game._data_dir, new_game.current_floor)
-    except PakError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return (None, None, None, None, 0, [], None, None, None, 2, None)
-    new_game.trace = game.trace
-    new_session = replacement_session(session)
-    input_buffer = InputBuffer()
-    configure_session_input(new_session, input_buffer)
-    new_game.num_camera = new_game.new_num_camera
-    new_game.flag_init_view = 0
-    new_resolver = _resolver_for(new_game.assets, session.settings.render.override_dir)
-    scene_frame, draw_list = _scene_frame(new_game, new_floor, renderer, new_resolver)
-    return (
-        new_game, new_floor, new_session, input_buffer, 0,
-        draw_list, None, scene_frame, pygame.time.get_ticks(), 0, new_resolver,
-    )
+    # startAITD1: ChoosePerso() then startGame(7, 1, 0), the scripted opening
+    # (AITD1.cpp:356) -- unless the game has none, or --skip-intro asked
+    # to boot the attic directly (development convenience, not FITD).
+    cutscene = game.profile.intro_start is not None and not session.skip_intro
+    return _boot_hero(game, renderer, session, input_buffer, session.pending_hero, cutscene=cutscene)
+
+
+def _cutscene_end_branch(game, renderer, session, input_buffer=None):
+    # PlayWorld(allowSystemMenu=0) returns on FlagGameOver or any key/click
+    # (mainLoop.cpp:71-89, CutsceneFinished / session.skip_cutscene); then
+    # startAITD1 calls startGame(0, 0, 1), the attic (AITD1.cpp:361), with
+    # the same hero that was staged for the opening.
+    from PyAitD.engine.effects import CutsceneFinished
+    if not session.cutscene:
+        return None
+    if not (session.skip_cutscene or isinstance(game.active_modal, CutsceneFinished)):
+        return None
+    hero = game.cvars[game.profile.cvar_index("CHOOSE_PERSO")]
+    return _boot_hero(game, renderer, session, input_buffer, hero, cutscene=False)
 
 
 def _restart_branch(game, renderer, session, input_buffer=None):
@@ -1002,6 +1058,16 @@ def run(game, trace_path=None, session=None, resolver=None):
             if captured:
                 running = capture_running and running
                 continue
+            if session.cutscene and (
+                event.type == pygame.KEYDOWN
+                or (event.type == pygame.MOUSEBUTTONDOWN and event.button == 1)
+                or event.type == pygame.FINGERDOWN
+            ):
+                # PlayWorld(allowSystemMenu=0) breaks on any key or click
+                # (mainLoop.cpp:71-89): QUIT and focus events fall through to
+                # their normal handling below, everything else just skips.
+                session.skip_cutscene = True
+                continue
             logical_pos = None
             if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
                 logical_pos = renderer.window_to_logical(event.pos)
@@ -1039,7 +1105,11 @@ def run(game, trace_path=None, session=None, resolver=None):
         was_play = game.mode is GameMode.PLAY
         if input_buffer.commands:
             command = input_buffer.commands.popleft()
-            if (session.settings_error is not None
+            if session.cutscene:
+                # dropped: the KEYDOWN handler above already marked the skip
+                # (commands only ever come from keys, never from a click)
+                pass
+            elif (session.settings_error is not None
                     and command in (Command.ACCEPT, Command.OPEN_INVENTORY)):
                 # same first refusal as the Dismiss click: ACCEPT and
                 # OPEN_INVENTORY dismiss the notice instead of reaching the mode
@@ -1049,6 +1119,8 @@ def run(game, trace_path=None, session=None, resolver=None):
                     game, session, command, input_buffer, renderer=renderer,
                 ) and running
         replaced = _hero_branch(game, renderer, session, input_buffer)
+        if replaced is None:
+            replaced = _cutscene_end_branch(game, renderer, session, input_buffer)
         if replaced is None:
             replaced = _restart_branch(game, renderer, session, input_buffer)
         if replaced is not None:
@@ -1111,7 +1183,7 @@ def run(game, trace_path=None, session=None, resolver=None):
             composed,
             _hit_feedback_rects(game, draw_list, hit_feedback_deadlines),
         )
-        available = inventory_hud_available(game)
+        available = inventory_hud_available(game) and not session.cutscene
         composed = render_play_hud(composed, inventory_available=available)
         # the settings notice is mode-independent: after the HUD and before
         # the software cursor, so its Dismiss target is visually topmost
@@ -1121,7 +1193,8 @@ def run(game, trace_path=None, session=None, resolver=None):
         # (modals with buttons, keyboard mode). Toggled per frame.
         software_cursor = (game.mode is GameMode.PLAY
                            and game.active_modal is None
-                           and game.input_mode is InputMode.MOUSE)
+                           and game.input_mode is InputMode.MOUSE
+                           and not session.cutscene)
         pygame.mouse.set_visible(not software_cursor)
         if software_cursor:
             kind = _play_cursor_kind(
@@ -1195,4 +1268,5 @@ def main(argv=None):
     # these CLI values' *un*-overridden originals, not argv. See
     # _save_session_settings / _persisted_render.
     session.settings = apply_render_overrides(session.settings, args)
+    session.skip_intro = args.skip_intro
     return run(game, args.trace, session=session)

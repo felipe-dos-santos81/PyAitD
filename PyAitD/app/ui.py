@@ -1019,6 +1019,13 @@ class ModalSession:
     pending_hero: int | None = None
     elapsed_ms: int = 0
     last_effect: object = field(default=None, repr=False)
+    # PlayWorld(allowSystemMenu=0): while cutscene is True, input skips the
+    # opening instead of routing to PLAY (mainLoop.cpp:71-89).
+    cutscene: bool = False
+    skip_cutscene: bool = False
+    # --skip-intro: a development convenience (not FITD behaviour) that boots
+    # the attic directly after character select, skipping the floor-7 opening.
+    skip_intro: bool = False
 
     def __post_init__(self):
         from PyAitD.app.startup import StartupMenuPresenter, TitlePresenter

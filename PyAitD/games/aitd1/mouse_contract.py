@@ -28,6 +28,7 @@ class PlayerCapability(Enum):
     DISMISS_SETTINGS_ERROR = auto()
     ADVANCE_TITLE = auto()
     STARTUP_MENU_ACTIVATE = auto()
+    SKIP_CUTSCENE = auto()
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,9 @@ CAPABILITY_ROUTES = {
     PlayerCapability.STARTUP_MENU_ACTIVATE: MouseRoute(
         "left_click", "startup menu row", frozenset({GameMode.STARTUP_MENU}),
     ),
+    PlayerCapability.SKIP_CUTSCENE: MouseRoute(
+        "left_click", "anywhere during the opening cutscene", frozenset({GameMode.PLAY, GameMode.CUTSCENE_END}),
+    ),
 }
 
 
@@ -100,6 +104,7 @@ MODE_MOUSE_CAPABILITIES = {
         PlayerCapability.HOLD_PUSH_OBJECT,
         PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
+        PlayerCapability.SKIP_CUTSCENE,
     }),
     GameMode.FOUND: frozenset({
         PlayerCapability.TAKE_FOUND_OBJECT,
@@ -147,6 +152,11 @@ MODE_MOUSE_CAPABILITIES = {
         PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),
+    GameMode.CUTSCENE_END: frozenset({
+        PlayerCapability.SKIP_CUTSCENE,
+        PlayerCapability.DISMISS_SETTINGS_ERROR,
+        PlayerCapability.QUIT,
+    }),
 }
 
 
@@ -162,11 +172,13 @@ COMMAND_MOUSE_CAPABILITIES = {
         PlayerCapability.RESTART_GAME_OVER,
         PlayerCapability.ADVANCE_TITLE,
         PlayerCapability.STARTUP_MENU_ACTIVATE,
+        PlayerCapability.SKIP_CUTSCENE,
     }),
     "CANCEL": frozenset({
         PlayerCapability.LEAVE_FOUND_OBJECT,
         PlayerCapability.CLOSE_READING,
         PlayerCapability.QUIT,
+        PlayerCapability.SKIP_CUTSCENE,
     }),
     "OPEN_INVENTORY": frozenset({PlayerCapability.OPEN_INVENTORY}),
 }

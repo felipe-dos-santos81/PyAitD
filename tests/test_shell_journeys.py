@@ -389,6 +389,9 @@ def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
     path = tmp_path / "settings.json"
     path.write_text("{ definitely not json", encoding="utf-8")
     session = load_runtime_session(path)
+    # skip_intro: this journey tests the settings notice and the system
+    # menu after the hero replacement, not the opening cutscene
+    session.skip_intro = True
     assert session.settings_error is not None
     assert str(path) in session.settings_error
 

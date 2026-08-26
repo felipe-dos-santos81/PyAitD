@@ -25,6 +25,11 @@ def test_parse_args_distinguishes_normal_boot_from_explicit_floor_zero():
     assert parse_args(["--floor", "0"]).floor == 0
 
 
+def test_parse_args_skip_intro():
+    assert parse_args([]).skip_intro is False
+    assert parse_args(["--skip-intro"]).skip_intro is True
+
+
 def test_normal_main_opens_the_title_before_run(monkeypatch, tmp_path):
     import PyAitD.app.shell as main
     game = SimpleNamespace(active_modal=None, open_modal=lambda effect: setattr(game, "active_modal", effect))
@@ -433,7 +438,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(monkey
         main, "load_runtime_session",
         lambda path: SimpleNamespace(
             settings=default_settings(), settings_path=path, settings_error=None,
-            settings_dirty=False, pending_hero=None,
+            settings_dirty=False, pending_hero=None, cutscene=False,
         ),
     )
     monkeypatch.setattr(
