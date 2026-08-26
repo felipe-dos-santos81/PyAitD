@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-"""Visual asset lookup with an optional user override directory.
+"""Visual asset lookup (camera backgrounds, palette, full-screen resources) with an optional user override directory.
 
 Only load_png_rgb touches pygame; everything else is pure so headless tests
 inject a loader."""
@@ -24,6 +24,12 @@ def override_background_path(override_dir, floor_number, cam_idx):
 
 def override_palette_path(override_dir):
     return Path(override_dir) / "palette.png"
+
+
+def override_screen_path(override_dir, entry):
+    # Full-screen ITD_RESS resources (title, character select, story, letter,
+    # book, notebook, dead end). Mirrored by background_export.screen_rel_path.
+    return Path(override_dir) / "screens" / f"ress{entry:02d}.png"
 
 
 def load_png_rgb(path):
@@ -80,6 +86,13 @@ class AssetResolver:
             if pixels is not None:
                 return np.ascontiguousarray(pixels[0, :256, :3]).astype(np.uint8)
         return floor.palette
+
+    def resource_screen(self, entry):
+        if self._override_dir is not None:
+            pixels = self._override(override_screen_path(self._override_dir, entry), _require_rgb)
+            if pixels is not None:
+                return ImageAsset(pixels.astype(np.uint8, copy=False), True)
+        return ImageAsset(self._assets.resource_screen(entry), False)
 
 
 # Below every GL 3.3 core implementation's guaranteed GL_MAX_TEXTURE_SIZE
