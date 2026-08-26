@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+import pathlib
 import re
 import subprocess
 import types as _t
@@ -373,8 +374,27 @@ def test_regenerate_aborts_after_consecutive_failures(tmp_path, monkeypatch):
     logs = []
     fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={1, 2, 3, 4})
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
+
     assert _run(tmp_path, fake, log=logs.append) == (0, 3)
     assert fake.image_calls == 3
     assert logs[-1] == "aborting after 3 consecutive failures"
+
+
+def test_discover_includes_screens_after_cameras(tmp_path):
+    in_dir = make_in_dir(tmp_path)
+    xb.save_png(in_dir / "screens" / "ress10.png", checker_pixels(1))
+    xb.save_png(in_dir / "guides" / "screens" / "ress10.png", np.zeros((412, 640, 3), np.uint8))
+    xb.save_png(in_dir / "screens" / "ress13.png", checker_pixels(2))
+    items = rb.discover(in_dir, None)
+    assert [c.key for c in items][-2:] == ["screens/ress10", "screens/ress13"]
+    assert items[-2].floor == -1 and items[-2].camera == 10
+    assert items[-2].guide == in_dir / "guides" / "screens" / "ress10.png" and items[-1].guide is None
+    assert all(c.floor >= 0 for c in rb.discover(in_dir, None, screens=False))
+
+
+def test_screen_prompts_ask_for_plain_blit_regions():
+    cam = rb.Camera(-1, 10, pathlib.Path("s.png"), pathlib.Path("g.png"), "screens/ress10")
+    text = rb.generation_prompt("a hall", "", True, screen=True)
+    assert "blue" in text and "drawn there by the game" in text
+    assert "walkable" not in text
 

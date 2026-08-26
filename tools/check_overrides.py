@@ -17,8 +17,8 @@ import sys
 import numpy as np
 
 from PyAitD.render.asset_resolver import AssetResolver
-from PyAitD.render.background_export import MANIFEST_SCHEMA
-from PyAitD.render.override_check import check_overrides, coverage, has_errors, summarize
+from PyAitD.render.background_export import SCREEN_ENTRIES, SUPPORTED_SCHEMAS
+from PyAitD.render.override_check import check_overrides, check_screens, coverage, has_errors, screen_coverage, summarize
 from PyAitD.engine.pak import PakError
 from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import RenderOptions
@@ -29,7 +29,7 @@ from PyAitD.engine.world import CameraState
 # package when the root is added explicitly.
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from tools.export_backgrounds import load_floor, parse_floors, save_png  # noqa: E402
+from tools.export_backgrounds import load_assets, load_floor, parse_floors, save_png  # noqa: E402
 
 DEFAULT_PROOF_DIR = pathlib.Path("docs/graphics-proof/overrides")
 
@@ -65,6 +65,26 @@ def render_proof(ctx, floor, cam_idx, override_dir, out_dir, scale=4, save=save_
     return path
 
 
+def render_screen_proof(assets, entry, override_dir, out_dir, save=save_png):
+    """original | override for one screen, both fitted to 320x200 x4 by
+    nearest repeat (no GL needed)."""
+    from PyAitD.render.background_export import nearest_upscale
+    resolver = AssetResolver(assets, override_dir)
+    override = resolver.resource_screen(entry)
+    if not override.is_override:
+        return None
+    left = nearest_upscale(assets.resource_screen(entry), 4)
+    right = override.pixels
+    if right.shape[:2] != left.shape[:2]:
+        import pygame
+        surface = pygame.surfarray.make_surface(np.ascontiguousarray(right.swapaxes(0, 1)))
+        surface = pygame.transform.smoothscale(surface, (left.shape[1], left.shape[0]))
+        right = np.ascontiguousarray(pygame.surfarray.array3d(surface).swapaxes(0, 1))
+    path = pathlib.Path(out_dir) / f"screen-ress{entry:02d}.png"
+    save(path, np.concatenate([left, right], axis=1))
+    return path
+
+
 def _parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("data", type=pathlib.Path)
@@ -96,7 +116,7 @@ def main(argv=None):
         except (OSError, ValueError) as exc:
             print(f"error: unreadable manifest {manifest_path}: {exc}", file=sys.stderr)
             return 2
-        if (not isinstance(manifest, dict) or manifest.get("schema") != MANIFEST_SCHEMA
+        if (not isinstance(manifest, dict) or manifest.get("schema") not in SUPPORTED_SCHEMAS
                 or not isinstance(manifest.get("cameras"), list)):
             print(f"error: unreadable manifest {manifest_path}: unsupported schema/shape", file=sys.stderr)
             return 2
@@ -108,11 +128,27 @@ def main(argv=None):
         except (PakError, FileNotFoundError, OSError, ValueError) as exc:
             print(f"warning: floor {number:02d} skipped: {exc}", file=sys.stderr)
 
+    assets = None
+    try:
+        assets = load_assets(args.data)
+    except (PakError, FileNotFoundError, OSError, ValueError) as exc:
+        print(f"warning: screens skipped: {exc}", file=sys.stderr)
+
     findings = check_overrides(args.overrides, floors, manifest)
     cov = coverage(args.overrides, floors, manifest) if manifest is not None else None
-    print(summarize(findings, cov))
+    screen_cov = None
+    if assets is not None:
+        findings = findings + check_screens(args.overrides, assets)
+        if manifest is not None:
+            screen_cov = screen_coverage(args.overrides, assets, manifest)
+    print(summarize(findings, cov, screen_cov))
 
     if args.proof is not None:
+        if assets is not None:
+            for entry in SCREEN_ENTRIES:
+                path = render_screen_proof(assets, entry, args.overrides, args.proof)
+                if path is not None:
+                    print(path)
         try:
             ctx = create_context()
         except Exception as exc:
