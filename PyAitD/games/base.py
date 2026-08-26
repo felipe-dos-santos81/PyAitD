@@ -22,6 +22,7 @@ class GameProfile:
     defines_big_endian: bool
     opcode_table: tuple      # index == opcode; every slot callable(vm)
     reduced_dispatch: object # callable(vm, opcode, world_idx): not-in-floor ops
+    reduced_allowed: frozenset  # opcodes reduced_dispatch has a case for (life.cpp:522-716)
     debug_venues: Mapping    # CLI venue name -> callable(game)
     # (stage, room) FITD's per-game boot passes to startGame (AITD1.cpp:352-361):
     # the scripted opening with allowSystemMenu=0, or None when the game has

@@ -17,6 +17,10 @@ CVAR_NAMES = (
     "KILLED_SORCERER", "LIGHT_OBJECT", "FOG_FLAG", "DEAD_PERSO",
 )
 
+# life.cpp:522-716: the opcodes FITD's reduced (out-of-floor) switch has a
+# case for. Anything else on a world object whose obj_index is -1 is an error.
+REDUCED_ALLOWED = frozenset({1, 2, 3, 13, 15, 24, 28, 31, 40, 47, 48, 49, 54, 55, 67, 74})
+
 def _opcode_table():
     # opcode numbers per AITD1LifeMacroTable (AITD1.cpp:30-119)
     table = life.core_table()
@@ -101,6 +105,7 @@ AITD1 = GameProfile(
     defines_big_endian=True,
     opcode_table=_opcode_table(),
     reduced_dispatch=reduced_dispatch,
+    reduced_allowed=REDUCED_ALLOWED,
     debug_venues=MappingProxyType({
         "combat-venue": scenario.enter_combat_venue,
         "mouse-combat-fixture": scenario.enter_mouse_combat_fixture,

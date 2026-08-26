@@ -221,7 +221,8 @@ def test_vm_dispatches_through_the_game_profile():
         name="stub", lifes_pak="", tracks_pak="", text_pak="", resource_pak="",
         heroes=(), cvar_names=(), defines_big_endian=True,
         opcode_table=tuple(table),
-        reduced_dispatch=lambda vm, op, w: None, debug_venues={},
+        reduced_dispatch=lambda vm, op, w: None, reduced_allowed=frozenset(),
+        debug_venues={},
     )
     game = SimpleNamespace(profile=profile)
     vm = life.VM(b"", game, 0)

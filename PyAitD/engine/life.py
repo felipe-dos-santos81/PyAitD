@@ -168,10 +168,6 @@ def _op_not_implemented(index):
     return handler
 
 
-# Reduced dispatch (world object not in floor, life.cpp:522-716): allowed set only.
-_REDUCED_ALLOWED = {1, 2, 3, 13, 15, 24, 28, 31, 40, 47, 48, 49, 54, 55, 67, 74}
-
-
 def process_life(game, actor_idx, life_num, *, pc=0, after=AfterLife.NONE,
                  subject_idx=-1, release_actor_idx=-1):
     vm = VM(
@@ -194,7 +190,9 @@ def process_life(game, actor_idx, life_num, *, pc=0, after=AfterLife.NONE,
                 vm.cur_idx = world.obj_index
                 _dispatch(vm, op)
             else:
-                if (op & 0x7FFF) not in _REDUCED_ALLOWED:
+                # the allowed set is the game's (profile.reduced_allowed); the
+                # guard is the engine's -- a second game inherits the raise
+                if (op & 0x7FFF) not in game.profile.reduced_allowed:
                     raise ValueError(
                         f"opcode {op & 0x7FFF} not allowed on out-of-floor object "
                         f"{world_idx} (life of actor {vm.owner_idx}, byte {vm.pc - 4})"

@@ -65,6 +65,18 @@ def test_aitd1_debug_venues_and_reduced_dispatch():
     }
 
 
+def test_aitd1_reduced_allowed_pins_the_out_of_floor_opcode_set():
+    # life.cpp:522-716: the reduced switch has a case for exactly these 16
+    # opcodes; every other opcode on an out-of-floor world object is an error
+    # FITD does not reach. The set is AITD1's, so it lives in the profile
+    # beside reduced_dispatch, not in engine/life.py.
+    assert AITD1.reduced_allowed == frozenset(
+        {1, 2, 3, 13, 15, 24, 28, 31, 40, 47, 48, 49, 54, 55, 67, 74}
+    )
+    assert isinstance(AITD1.reduced_allowed, frozenset)
+    assert not hasattr(life, "_REDUCED_ALLOWED")
+
+
 def test_aitd1_start_floors_follow_startAITD1():
     # AITD1.cpp:352-361: startGame(7, 1, 0) is the intro, startGame(0, 0, 1) the game
     assert AITD1.intro_start == (7, 1)

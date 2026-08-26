@@ -129,8 +129,8 @@ a rule — add the test with the rule.
   `games/base.py`'s docstring.
 - Known seams still hard-coded to AITD1 inside `engine/`, listed so nobody
   closes them ad hoc: `floor.py` resolves `ITD_RESS`/palette entry 3 itself;
-  `life.py` fixes `NUM_OPCODES`, the `core_table()` slot numbers and
-  `_REDUCED_ALLOWED`; `formats.py` record layouts; `interaction.py`'s
+  `life.py` fixes `NUM_OPCODES` and the `core_table()` slot numbers;
+  `formats.py` record layouts; `interaction.py`'s
   `COMBAT_ACTIONS`/`PLAYER_*_ANIM`/`PLAYER_TRACK_MODES` indices. Close one by
   moving it into `GameProfile` with a test, not by adding a second copy.
 
