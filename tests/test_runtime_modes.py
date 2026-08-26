@@ -1383,21 +1383,37 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
 
 
 def test_title_pages_by_command_then_opens_the_menu(data_dir):
+    from PyAitD.app.startup import credits_page_count
+
     game = init_game(data_dir, AITD1)
     game.open_modal(ShowTitle())
     session = ModalSession()
+    page_count = credits_page_count(
+        game.assets, game.cvars[game.profile.cvar_index("TEXTE_CREDITS")] + 1,
+    )
     assert route_command(game, session, Command.ACCEPT) is True
     assert session.title.phase is TitlePhase.CREDITS and isinstance(game.active_modal, ShowTitle)
+    # every page but the last stays on ShowTitle; only the last hands off
+    for page in range(1, page_count):
+        assert route_command(game, session, Command.ACCEPT) is True
+        assert session.title.page == page and isinstance(game.active_modal, ShowTitle)
     assert route_command(game, session, Command.ACCEPT) is True
     assert isinstance(game.active_modal, OpenStartupMenu) and session.booted_via_menu
 
 
 def test_title_click_advances_like_a_command(data_dir):
+    from PyAitD.app.startup import credits_page_count
+
     game = init_game(data_dir, AITD1)
     game.open_modal(ShowTitle())
     session = ModalSession()
-    route_mouse(game, session, (5, 5))
-    route_mouse(game, session, (5, 5))
+    page_count = credits_page_count(
+        game.assets, game.cvars[game.profile.cvar_index("TEXTE_CREDITS")] + 1,
+    )
+    for _ in range(page_count + 1):  # TITLE->CREDITS, then every credits page
+        if isinstance(game.active_modal, OpenStartupMenu):
+            break
+        route_mouse(game, session, (5, 5))
     assert isinstance(game.active_modal, OpenStartupMenu)
 
 
@@ -1423,6 +1439,43 @@ def test_title_click_survives_the_first_render_active_mode_reset(data_dir):
     assert session.title.phase is TitlePhase.CREDITS, (
         "the click's phase change must survive the first render_active_mode reset"
     )
+
+
+def test_run_advances_the_title_past_its_timeout_with_no_input(data_dir, monkeypatch):
+    # Important 3: run()'s non-PLAY branch calls advance_title every frame,
+    # but nothing exercised it through the real event loop -- deleting those
+    # lines left the whole suite green. Pump run() with a monkeypatched
+    # get_ticks the way the journeys do, but past TITLE_TIMEOUT_MS, and with
+    # no input at all: the title must reach CREDITS on the clock alone.
+    import PyAitD.app.shell as main
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    game = init_game(data_dir, AITD1)
+    game.open_modal(ShowTitle())
+    session = ModalSession()
+    idle_frames = TITLE_TIMEOUT_MS // 20 + 5   # comfortably past the timeout
+    event_batches = iter(
+        [[] for _ in range(idle_frames)] + [[pygame.event.Event(pygame.QUIT)]]
+    )
+    ticks = itertools.count(0, 20)
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None,
+        present=lambda image: None,
+        close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(ticks))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
+    )
+    monkeypatch.setattr(main.pygame.display, "set_caption", lambda *args: None)
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda *args: None)
+
+    assert main.run(game, session=session) == 0
+    assert session.title.phase is TitlePhase.CREDITS
+    assert isinstance(game.active_modal, ShowTitle), "the timeout advances the phase, not the modal"
 
 
 def test_menu_new_game_opens_the_selector_and_escape_returns(data_dir):

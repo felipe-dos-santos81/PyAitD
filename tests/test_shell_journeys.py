@@ -15,7 +15,7 @@ from PyAitD.app.shell import configure_session_input, load_runtime_session
 from PyAitD.app.config import (
     SCHEMA, Control, Settings, default_settings, replace_binding, save_settings,
 )
-from PyAitD.app.startup import StartupLayout, StartupRow
+from PyAitD.app.startup import StartupLayout, StartupRow, credits_page_count
 from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu, ShowTitle
 from PyAitD.engine.game import init_game
 from PyAitD.engine.playworld import play_tick as real_play_tick
@@ -631,17 +631,19 @@ def test_mouse_only_remap_journey_binds_through_the_key_picker(data_dir, monkeyp
 
 
 def test_journey_title_menu_select_play_by_mouse(data_dir, monkeypatch, tmp_path):
-    # title -> credits -> menu -> New game -> Emily's portrait -> her story
-    # page -> the atomic hero replacement -> PLAY, all through the real
-    # run() event pump and the real shell render dispatch.
+    # title -> credits (all 8 pages) -> menu -> New game -> Emily's portrait
+    # -> her story page -> the atomic hero replacement -> PLAY, all through
+    # the real run() event pump and the real shell render dispatch.
     game = init_game(data_dir, AITD1)
     game.open_modal(ShowTitle())
     path = tmp_path / "settings.json"
     session = load_runtime_session(path)
     seen = []
+    credits_entry = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    page_count = credits_page_count(game.assets, credits_entry)
     frames = iter([
         [_left_click((160, 100))],                                        # title -> credits
-        [_left_click((160, 100))],                                        # credits -> menu
+        *([[_left_click((160, 100))]] * page_count),                      # page through credits -> menu
         [_left_click(StartupLayout.ROWS[StartupRow.NEW_GAME.value].center)],
         [_left_click(CharacterLayout.PORTRAITS[0].center)],               # Emily portrait -> story
         [_left_click((160, 100))],                                        # story page -> confirm
@@ -661,17 +663,21 @@ def test_journey_title_menu_select_play_by_mouse(data_dir, monkeypatch, tmp_path
 
 
 def test_journey_title_menu_select_play_by_keyboard(data_dir, monkeypatch, tmp_path):
-    # same title -> credits -> menu -> New game path, but by keyboard: Return
-    # (bound to INVENTORY_CONFIRM, translated to ACCEPT by every non-PLAY
-    # modal router) advances the title/credits/menu, Escape bounces out of
-    # the selector back to the menu, Right + Return picks Carnby and starts.
+    # same title -> credits (all pages) -> menu -> New game path, but by
+    # keyboard: Return (bound to INVENTORY_CONFIRM, translated to ACCEPT by
+    # every non-PLAY modal router) advances the title/credits/menu, Escape
+    # bounces out of the selector back to the menu, Right + Return picks
+    # Carnby and starts.
     game = init_game(data_dir, AITD1)
     game.open_modal(ShowTitle())
     path = tmp_path / "settings.json"
     session = load_runtime_session(path)
     seen = []
+    credits_entry = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    page_count = credits_page_count(game.assets, credits_entry)
     frames = iter([
-        [_key(pygame.K_RETURN)], [_key(pygame.K_RETURN)],                 # title, credits
+        [_key(pygame.K_RETURN)],                                          # title -> credits
+        *([[_key(pygame.K_RETURN)]] * page_count),                        # page through credits -> menu
         [_key(pygame.K_RETURN)],                                          # New game
         [_key(pygame.K_ESCAPE)],                                          # back to menu
         [_key(pygame.K_RETURN)],                                          # New game again

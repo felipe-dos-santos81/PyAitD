@@ -576,8 +576,9 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
     # a later MOUSEMOTION establishes a new preview.
     route_hover(game, session, None)
     if isinstance(game.active_modal, ShowTitle):
-        from PyAitD.app.startup import reduce_title
-        if reduce_title(session.title, modal_command) is not None:
+        from PyAitD.app.startup import credits_page_count, reduce_title
+        page_count = credits_page_count(game.assets, _credits_entry(game))
+        if reduce_title(session.title, modal_command, page_count=page_count) is not None:
             open_startup_menu(game, session)
         return True
     if isinstance(game.active_modal, OpenStartupMenu):
@@ -681,9 +682,11 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
         return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
     session.reset_for(effect)
     if isinstance(effect, ShowTitle):
-        from PyAitD.app.startup import hit_test_title, reduce_title
-        if hit_test_title(logical_pos) and reduce_title(session.title, Command.ACCEPT) is not None:
-            open_startup_menu(game, session)
+        from PyAitD.app.startup import credits_page_count, hit_test_title, reduce_title
+        if hit_test_title(logical_pos):
+            page_count = credits_page_count(game.assets, _credits_entry(game))
+            if reduce_title(session.title, Command.ACCEPT, page_count=page_count) is not None:
+                open_startup_menu(game, session)
         return True
     if isinstance(effect, OpenStartupMenu):
         from PyAitD.app.startup import hit_test_startup, reduce_startup_menu
@@ -843,8 +846,7 @@ def render_active_mode(game, session, renderer, resolver=None):
                              session.elapsed_ms, _credits_entry(game))
     if isinstance(effect, OpenStartupMenu):
         from PyAitD.app.startup import render_startup_menu
-        return render_startup_menu(session.startup, game.assets, resolver or AssetResolver(game.assets, None),
-                                    continue_enabled=continue_available(session))
+        return render_startup_menu(session.startup, game.assets, continue_enabled=continue_available(session))
     if isinstance(effect, ShowFound):
         world = game.world_objects[effect.object_idx]
         return render_found(effect, session.found, game.assets, game.assets.system_text(world.found_name))

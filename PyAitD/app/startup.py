@@ -13,7 +13,12 @@ from PyAitD.app.ui import (
     Command, _button, _font, _to_frame, draw_big_cadre, effective_rects, layout_book, screen_surface,
 )
 
-TITLE_TIMEOUT_MS = 3000        # 0x30 chrono units of 1/16 s (AITD1.cpp:143)
+# AITD1.cpp:143 waits for `evalChrono(&chrono) >= 0x30`. This port's own
+# chrono convention is 60 units/second, not FITD's 25fps frame-clock (see
+# eval_var.py:101 and shell._auto_dismiss_picture's `delay_units * 1000 //
+# 60`, the sibling conversion this mirrors) -- so 0x30 units is 800ms here,
+# not the ~1920ms FITD's own frame-clock would give it.
+TITLE_TIMEOUT_MS = 0x30 * 1000 // 60
 TITLE_FADE_MS = 500            # FadeInPhys(8, 0) (AITD1.cpp:129)
 MENU_TEXT_IDS = (11, 12, 13)   # "Begin a new game" / "Resume a saved game" / "Return to DOS"
 
@@ -26,6 +31,7 @@ class TitlePhase(Enum):
 @dataclass
 class TitlePresenter:
     phase: TitlePhase = TitlePhase.TITLE
+    page: int = 0
 
 
 @dataclass(frozen=True)
@@ -34,17 +40,32 @@ class TitleResult:
 
 
 def advance_title(presenter, elapsed_ms):
-    # the title times out; the credits page waits for input like FITD's Lire
+    # the title times out; the credits page never times out -- it waits for
+    # input to turn each page, like FITD's Lire (turnPageFlag, AITD1.cpp:158-159)
     if presenter.phase is TitlePhase.TITLE and elapsed_ms >= TITLE_TIMEOUT_MS:
         presenter.phase = TitlePhase.CREDITS
     return None
 
 
-def reduce_title(presenter, command):
+def _credits_pages(assets, credits_entry):
+    # Lire(CVars[TEXTE_CREDITS] + 1, 48, 2, 260, 197, 1, 26, 0) (AITD1.cpp:159):
+    # shared by reduce_title (page count only) and render_title (page content)
+    # so the two can never disagree about how many pages there are.
+    return layout_book(assets.book_tokens(credits_entry), _font(15), 212, 13)
+
+
+def credits_page_count(assets, credits_entry):
+    return len(_credits_pages(assets, credits_entry))
+
+
+def reduce_title(presenter, command, *, page_count=1):
     if presenter.phase is TitlePhase.TITLE:
         presenter.phase = TitlePhase.CREDITS
         return None
-    return TitleResult(True)
+    if presenter.page + 1 >= page_count:
+        return TitleResult(True)
+    presenter.page += 1
+    return None
 
 
 class StartupRow(Enum):
@@ -135,7 +156,8 @@ def render_title(presenter, assets, resolver, elapsed_ms, credits_entry):
     # screen_surface's Surface is shared/cached: copy before drawing on it.
     surface = screen_surface(resolver, 7).copy()                     # AITD1_LIVRE
     font = _font(15)
-    page = layout_book(assets.book_tokens(credits_entry), font, 212, 13)[0]   # Lire(..., 48,2,260,197)
+    pages = _credits_pages(assets, credits_entry)
+    page = pages[min(presenter.page, len(pages) - 1)]
     y = 2
     for text, centered in page:
         glyph = font.render(text, True, (43, 31, 22))
@@ -145,7 +167,7 @@ def render_title(presenter, assets, resolver, elapsed_ms, credits_entry):
     return _to_frame(surface)
 
 
-def render_startup_menu(presenter, assets, resolver, *, continue_enabled):
+def render_startup_menu(presenter, assets, *, continue_enabled):
     surface = pygame.Surface((320, 200))
     surface.fill((0, 0, 0))
     center, size = StartupLayout.CADRE

@@ -5,9 +5,9 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import pytest
 
 from PyAitD.app.startup import (
-    StartupLayout, StartupMenuPresenter, StartupMenuResult, StartupRow, TITLE_FADE_MS, TITLE_TIMEOUT_MS,
-    TitlePhase, TitlePresenter, TitleResult, advance_title, hit_test_startup, hit_test_title,
-    reduce_startup_menu, reduce_title, render_startup_menu, render_title,
+    MENU_TEXT_IDS, StartupLayout, StartupMenuPresenter, StartupMenuResult, StartupRow, TITLE_FADE_MS,
+    TITLE_TIMEOUT_MS, TitlePhase, TitlePresenter, TitleResult, advance_title, credits_page_count,
+    hit_test_startup, hit_test_title, reduce_startup_menu, reduce_title, render_startup_menu, render_title,
 )
 from PyAitD.app.ui import Command
 from PyAitD.engine.game import init_game
@@ -89,8 +89,7 @@ def test_menu_highlights_only_the_cursor_row(data_dir):
     import pygame
     pygame.font.init()
     game = init_game(data_dir, AITD1)
-    resolver = AssetResolver(game.assets, None)
-    frame = render_startup_menu(StartupMenuPresenter(cursor=2), game.assets, resolver, continue_enabled=False)
+    frame = render_startup_menu(StartupMenuPresenter(cursor=2), game.assets, continue_enabled=False)
     assert frame.shape == (200, 320, 3)
     rows = StartupLayout.ROWS
     # (x+2, y+2) sits on the rounded corner's 2px border stroke (border_radius=3),
@@ -119,3 +118,48 @@ def test_title_and_menu_renders_do_not_bleed_across_calls(data_dir):
     page1 = render_title(TitlePresenter(TitlePhase.CREDITS), game.assets, resolver, 0, credits)
     page2 = render_title(TitlePresenter(TitlePhase.CREDITS), game.assets, resolver, 0, credits)
     assert (page1 == page2).all()
+
+
+def test_credits_reaches_every_page_before_handing_off_to_the_menu(data_dir):
+    # AITD1.cpp:158-159 sets turnPageFlag before Lire, so the player pages
+    # through the whole entry -- not just page 0 (Important 2). On real data
+    # this entry lays out to 8 pages; the handoff must land on the last one.
+    game = init_game(data_dir, AITD1)
+    credits = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    page_count = credits_page_count(game.assets, credits)
+    assert page_count == 8
+
+    presenter = TitlePresenter(TitlePhase.CREDITS)
+    seen_pages = [presenter.page]
+    for _ in range(page_count - 1):
+        result = reduce_title(presenter, Command.ACCEPT, page_count=page_count)
+        assert result is None, "must not hand off before the last page"
+        seen_pages.append(presenter.page)
+    assert seen_pages == list(range(page_count)), "every page must be reachable"
+
+    assert reduce_title(presenter, Command.ACCEPT, page_count=page_count) == TitleResult(True)
+    assert presenter.page == page_count - 1, "the handoff must happen on the last page, not the first"
+
+
+def test_credits_render_shows_each_pages_own_content(data_dir):
+    # Regression for the truncation bug: page 0's only text is the
+    # publisher credit; the director credit only appears on page 1.
+    import pygame
+    pygame.font.init()
+    game = init_game(data_dir, AITD1)
+    resolver = AssetResolver(game.assets, None)
+    credits = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+
+    page0 = render_title(TitlePresenter(TitlePhase.CREDITS, page=0), game.assets, resolver, 0, credits)
+    page1 = render_title(TitlePresenter(TitlePhase.CREDITS, page=1), game.assets, resolver, 0, credits)
+    assert not (page0 == page1).all(), "page 1 must render different content from page 0"
+
+
+def test_menu_text_ids_resolve_to_the_games_own_strings(data_dir):
+    # Important/Minor 6: MENU_TEXT_IDS must point at the game's own ENGLISH.PAK
+    # strings, not paraphrases -- an id slip would still pass the render test
+    # (which only probes fill colours), so pin the actual resolved text.
+    game = init_game(data_dir, AITD1)
+    assert [game.assets.system_text(text_id) for text_id in MENU_TEXT_IDS] == [
+        "Begin a new game", "Resume a saved game", "Return to DOS",
+    ]
