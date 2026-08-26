@@ -580,6 +580,26 @@ def enter_floor_start(game, floor_start):
     game.num_camera = -1
 
 
+def start_game(game, stage, room):
+    # startGame (main.cpp:4134) minus PlayWorld: initVars resets the camera
+    # and world targets (main.cpp:1235-1236), LoadEtage(stage), NumCamera=-1,
+    # ChangeSalle(room), NewNumCamera=0, FlagInitView=2. The hero is NOT
+    # relocated: world data decides which objects live on `stage`. A staged
+    # start has no restart point (floor_start) until a script sets one.
+    game.current_camera_target_actor = -1
+    game.current_world_target = -1
+    game.current_floor = game.new_num_etage = stage
+    game.flag_change_etage = 0
+    change_salle(game, room)
+    game.new_num_salle = room
+    game.new_num_camera = 0
+    game.flag_init_view = 2
+    spawn_stage_actors(game)
+    game.flag_genere_aff_list = 0
+    game.num_camera = -1
+    game.floor_start = None
+
+
 def game_step_tick(game):
     game.timer += 1
 

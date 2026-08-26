@@ -2,7 +2,7 @@
 import struct
 
 from PyAitD.engine.floor import Floor
-from PyAitD.engine.game import FloorStart, enter_floor_start, init_game, relocate_actor
+from PyAitD.engine.game import FloorStart, enter_floor_start, init_game, relocate_actor, start_game
 from PyAitD.engine.life import process_life
 from PyAitD.engine.playworld import play_tick
 from PyAitD.games.aitd1.scenario import enter_combat_venue
@@ -109,3 +109,28 @@ def test_natural_lm_stage_records_a_reenterable_floor_start(data_dir, monkeypatc
     assert game.current_floor == 6 and game.current_room == 6
     assert game.actors[game.current_camera_target_actor] is hero
     assert game.world_objects[40].obj_index != -1  # floor 6's own actors spawned
+
+
+def test_start_game_stages_a_floor_like_fitd_startGame(data_dir):
+    # main.cpp:4134 startGame + initVars (main.cpp:1235-1236): targets reset,
+    # floor and room staged, active list regenerated, hero left where world
+    # data put it (stage 0) -- never relocated onto the staged floor.
+    game = init_game(data_dir, AITD1, hero=0)
+    hero_idx = game.current_camera_target_actor
+    assert game.actors[hero_idx].index_in_world == 1
+    start_game(game, 7, 1)
+    assert (game.current_camera_target_actor, game.current_world_target) == (-1, -1)
+    assert (game.current_floor, game.new_num_etage, game.flag_change_etage) == (7, 7, 0)
+    assert (game.current_room, game.new_num_salle, game.new_num_camera) == (1, 1, 0)
+    assert (game.flag_init_view, game.num_camera, game.flag_genere_aff_list) == (2, -1, 0)
+    assert game.floor_start is None
+    live = {a.index_in_world for a in game.actors if a.index_in_world != -1}
+    assert 1 not in live                       # the hero object stays on stage 0
+    assert 286 in live and game.actors[game.world_objects[286].obj_index].life == 546
+
+
+def test_start_game_on_the_attic_matches_init_game_floor_state(data_dir):
+    game = init_game(data_dir, AITD1, hero=1)
+    start_game(game, 0, 0)
+    assert (game.current_floor, game.current_room) == (0, 0)
+    assert game.world_objects[1].obj_index != -1   # hero live on its own floor
