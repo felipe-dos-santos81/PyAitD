@@ -90,18 +90,26 @@ regeneration with Gemini into `data/aitd1/overrides-ai` (git-ignored, resumable;
 ## Tests
 
 ```bash
-make test               # unit suite (real game data where available)
-make prove              # parse-all + headless real-script boot
-make prove-m3b          # focused interaction proof, headless
-make prove-combat       # combat venue proof (M3c)
-make prove-mouse        # navmesh coverage for every camera-visible room, headless
-make prove-mouse-only   # one-button accessibility contract + journeys (M3e)
-make prove-shell        # shell, configuration, mouse contract, real-loop journeys (M4a1)
-make prove-mouse-accessibility # focused effective-target, hover, touch, and takeover gate
-make prove-graphics     # render attic + combat fixtures at every shading mode to docs/graphics-proof/
-make check-overrides proof=1  # validate data/aitd1/overrides (or overrides=DIR); side-by-sides to docs/graphics-proof/overrides/
+make test                          # whole pytest suite, headless (real game data where available)
+make test-engine                   # simulation, LIFE VM, formats, actors, anim, tracks, collision, navmesh, picking, opcodes
+make test-render                   # scene, geometry, both backends, asset resolution, override export/check
+make test-shell                    # event pump, settings, CLI, UI screens and modals
+make test-tools                    # the standalone scripts under tools/
+make test-meta                     # the repo's own rules (package layering, test grouping)
+make test-journey                  # real run() event pump and long real-data simulations
+make proof-mouse                   # navmesh coverage for every camera-visible room, every floor (needs game data)
+make proof-combat                  # combat venue proof: real enemy damage, player arms, game over (needs game data)
+make proof-graphics                # render attic + combat fixtures at every shading mode to docs/graphics-proof/ (needs GL + game data)
+make proof-intro                   # opening cutscene: headless gate + one GL render per visited camera
+make check-overrides proof=1       # validate data/aitd1/overrides (or overrides=DIR); side-by-sides to docs/graphics-proof/overrides/
 make regenerate-backgrounds dry=1  # list cameras the Gemini regeneration would process; no API calls
 ```
+
+The nine legacy `prove-*` names (`prove`, `prove-m3b`, `prove-shell`,
+`prove-mouse-only`, `prove-mouse`, `prove-mouse-accessibility`,
+`prove-combat`, `prove-graphics`, `prove-intro`) remain as aliases of the
+targets above -- see `AGENTS.md` and `CONTEXT.md`'s `## Test grouping`
+section for exactly what each one aliases.
 
 Mouse accessibility hardening is automated by `make prove-mouse-accessibility`
 and has user-attested windowed standard-mouse and macOS Accessibility Keyboard

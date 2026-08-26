@@ -16,22 +16,31 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 
 ```bash
 make run                     # play (windowed) through character selection; floor=0 for the attic debug bypass, trace=/tmp/t.log writes per-opcode LIFE trace; overrides=DIR defaults to data/aitd1/overrides
-make run-combat              # play the supported floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
-make run-mouse-combat        # deterministic object-38 mouse combat proof start (hero=0 Carnby, hero=1 Emily)
-make test                    # pytest suite — authoritative gate
-make prove                   # M3a proof: parse-all 563 scripts/45 tracks/tables + headless 60-tick play_tick boot
-make prove-combat            # M3c proof: venue, real enemy damage, player arms, game over (pytest gate)
-make prove-mouse-only        # mouse contract + real-data attic/combat/restart/hold-push journeys
-make prove-shell             # M4a1 proof: shell, configuration, mouse contract, real-loop journeys
-make prove-m3b               # M3b focused interaction suite, headless
-make prove-mouse             # M3d navmesh coverage for every camera-visible room
-make prove-mouse-accessibility # effective-target/hover/touch/takeover gate
-make prove-graphics          # attic + combat fixtures at every shading mode -> docs/graphics-proof/
+make run-combat               # play the supported floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
+make run-mouse-combat         # deterministic object-38 mouse combat proof start (hero=0 Carnby, hero=1 Emily)
+make test                     # whole pytest suite, headless — authoritative gate
+make test-engine              # simulation, LIFE VM, formats, actors, anim, tracks, collision, navmesh, picking, opcodes
+make test-render              # scene, geometry, both backends, asset resolution, override export/check
+make test-shell                # event pump, settings, CLI, UI screens and modals
+make test-tools                # the standalone scripts under tools/
+make test-meta                 # the repo's own rules (package layering, test grouping)
+make test-journey              # real run() event pump and long real-data simulations
+make proof-mouse               # navmesh for every camera-visible room, every floor (needs game data)
+make proof-combat              # venue, real enemy damage, player arms, game over (needs game data)
+make proof-graphics            # attic + combat fixtures at every shading mode -> docs/graphics-proof/ (needs GL + game data)
+make proof-intro               # opening cutscene: headless gate + one GL render per visited camera
 make export-backgrounds      # originals + guides + manifest -> data/aitd1/overrides (out=, floors=, scale=, force=1)
 make check-overrides         # validate an override dir as the game loads it (overrides=DIR, proof=1 side-by-sides)
 make regenerate-backgrounds  # Gemini describe+render -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); needs the `agy` CLI on PATH
 make run overrides=DIR       # play with a different override directory (e.g. data/aitd1/overrides-ai); overrides= plays the originals
 ```
+
+The nine legacy `prove-*` names remain as aliases of the targets above --
+`prove` is `test-engine`; `prove-m3b` and `prove-shell` both run `-m "engine
+or shell"`; `prove-mouse-only` and `prove-mouse-accessibility` are
+`test-shell`; `prove-mouse`, `prove-combat`, `prove-graphics` and
+`prove-intro` are the matching `proof-*` target. See `## Test grouping`
+below for what pins each alias to the files it historically ran.
 
 ## Where we are
 
