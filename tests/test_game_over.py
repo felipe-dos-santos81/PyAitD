@@ -12,6 +12,8 @@ from PyAitD.engine.playworld import play_tick
 from PyAitD.app.ui import Command, InputBuffer, ModalSession
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, monkeypatch):
     import PyAitD.engine.playworld as playworld

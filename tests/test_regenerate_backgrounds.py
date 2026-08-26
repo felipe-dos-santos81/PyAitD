@@ -20,6 +20,8 @@ from tests.stub_floor import checker_pixels, StubFloor
 from tools import export_backgrounds as xb
 from tools import regenerate_backgrounds as rb
 
+pytestmark = pytest.mark.tools
+
 
 def make_in_dir(root):
     """floor00: camera000 (with guide), camera001 (no guide); floor01: camera000 (with guide)."""

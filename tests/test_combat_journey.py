@@ -25,6 +25,8 @@ from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.app.ui import InputBuffer, ModalSession, render_game_over, transparent_canvas
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = [pytest.mark.engine, pytest.mark.journey]
+
 
 def _venue(data_dir):
     game = init_game(data_dir, AITD1)

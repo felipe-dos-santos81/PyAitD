@@ -17,6 +17,8 @@ from PyAitD.engine.interaction import (
 from PyAitD.engine.world import room_delta
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def _armed_attack_fixture(game):
     # Floor 0 has a single room; the cross-room branch below targets room 7,

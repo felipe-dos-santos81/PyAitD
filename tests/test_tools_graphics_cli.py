@@ -13,6 +13,8 @@ from tests.stub_floor import StubFloor, checker_pixels
 from tools import check_overrides as co
 from tools import export_backgrounds as xb
 
+pytestmark = pytest.mark.tools
+
 
 def test_parse_floors():
     assert xb.parse_floors("0-7") == [0, 1, 2, 3, 4, 5, 6, 7]

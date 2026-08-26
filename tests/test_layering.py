@@ -14,6 +14,8 @@ import pytest
 
 from tests.purity import PRESENTATION
 
+pytestmark = pytest.mark.meta
+
 ROOT = pathlib.Path(__file__).resolve().parents[1] / "PyAitD"
 
 FORBIDDEN = {

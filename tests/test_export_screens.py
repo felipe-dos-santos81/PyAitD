@@ -8,6 +8,9 @@ import numpy as np
 
 from PyAitD.render import background_export as be
 from tools import export_backgrounds as xb
+import pytest
+
+pytestmark = pytest.mark.tools
 
 
 def _assets():

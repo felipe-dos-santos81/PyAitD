@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from PyAitD.engine.actors import check_hard_col, cube_intersect, gere_collision
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def test_cube_intersect():

@@ -5,6 +5,9 @@ from PyAitD.engine.effects import AddMessage, BeginTake, ReadText, ShowFound, Sh
 from PyAitD.engine.game import init_game
 from PyAitD.engine.life import process_life
 from PyAitD.games.aitd1.profile import AITD1
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 class Scripts:

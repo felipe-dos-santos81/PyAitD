@@ -7,6 +7,9 @@ from PyAitD.app.ui import (
     SystemMenuPresenter, SystemMenuResult, capture_system_key, config_row_count,
     reduce_character_select, reduce_found, reduce_inventory, reduce_system_menu,
 )
+import pytest
+
+pytestmark = pytest.mark.shell
 
 
 def test_forced_found_choice_cannot_select_take():

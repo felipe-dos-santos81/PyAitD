@@ -5,6 +5,9 @@ from PyAitD.games.aitd1.profile import AITD1
 from PyAitD.games.aitd1.scenario import (
     COMBAT_VENUE, enter_combat_venue, enter_mouse_combat_fixture,
 )
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def test_combat_venue_uses_the_supported_floor_start(data_dir):

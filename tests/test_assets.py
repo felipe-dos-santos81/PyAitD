@@ -7,6 +7,8 @@ from PyAitD.engine.assets import Assets
 from PyAitD.engine.floor import load_entry
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def test_loads(data_dir):
     assets = Assets(data_dir, AITD1)

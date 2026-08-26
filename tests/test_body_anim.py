@@ -4,6 +4,8 @@ import pytest
 from PyAitD.engine.formats import parse_anim, parse_body
 from PyAitD.engine.pak import Pak
 
+pytestmark = pytest.mark.engine
+
 
 def _read(pak_name, index, data_dir):
     return Pak(data_dir / pak_name).read(index)

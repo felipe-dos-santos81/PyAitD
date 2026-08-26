@@ -4,6 +4,9 @@ import hashlib
 import numpy as np
 
 from PyAitD.render import background_export as be
+import pytest
+
+pytestmark = pytest.mark.render
 
 
 def _blank(h=20, w=30):

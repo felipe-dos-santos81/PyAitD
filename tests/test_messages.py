@@ -3,6 +3,9 @@ from PyAitD.engine.effects import AddMessage, BeginTake, LifeFrame
 from PyAitD.engine.game import init_game
 from PyAitD.engine.interaction import advance_messages, drain_immediate_effects
 from PyAitD.games.aitd1.profile import AITD1
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def test_messages_refresh_duplicate_fill_five_slots_and_expire(data_dir):

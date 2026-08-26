@@ -6,6 +6,8 @@ from PyAitD.engine import floor as floormod
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.pak import PakError
 
+pytestmark = pytest.mark.engine
+
 
 def test_floor0_loads(data_dir):
     f = Floor(data_dir, 0)

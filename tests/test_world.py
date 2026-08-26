@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from PyAitD.engine.world import CameraState, is_in_poly, rotate_step, transform_point
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def test_identity_camera_no_rotation():

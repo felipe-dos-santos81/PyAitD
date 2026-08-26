@@ -9,6 +9,9 @@ from PyAitD.engine.interaction import (
 )
 from PyAitD.app.ui import InputBuffer, InventoryResult
 from PyAitD.games.aitd1.profile import AITD1
+import pytest
+
+pytestmark = [pytest.mark.engine, pytest.mark.journey]
 
 
 def test_attic_lamp_find_take_use_and_drop_checkpoint(data_dir):

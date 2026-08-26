@@ -10,6 +10,9 @@ from PyAitD.render import override_check as oc
 from PyAitD.render.asset_resolver import AssetResolver, load_png_rgb, override_background_path, override_screen_path
 from PyAitD.render.background_export import SCREEN_ENTRIES, export_manifest, manifest_record, screen_record, sha256_rgb
 from tests.stub_floor import StubFloor, checker_pixels
+import pytest
+
+pytestmark = pytest.mark.render
 
 
 def _write_png(path, rgb):

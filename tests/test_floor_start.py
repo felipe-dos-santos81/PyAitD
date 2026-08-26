@@ -8,6 +8,9 @@ from PyAitD.engine.playworld import play_tick
 from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.app.ui import InputBuffer
 from PyAitD.games.aitd1.profile import AITD1
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def test_relocate_actor_rebases_zv_and_zeroes_steps(data_dir):

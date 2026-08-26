@@ -11,6 +11,8 @@ from PyAitD.render.render_options import RenderOptions
 
 from tests.purity import assert_presentation_free
 
+pytestmark = pytest.mark.shell
+
 
 EXPECTED = {
     "UP": ("up", "w"), "DOWN": ("down", "s"),

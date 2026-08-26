@@ -11,6 +11,8 @@ from PyAitD.engine.tracks import (
 )
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def _actor():
     return Actor(index_in_world=0, room=0, room_x=0, room_y=0, room_z=0, life=0, life_mode=1)

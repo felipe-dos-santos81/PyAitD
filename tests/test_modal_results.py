@@ -4,6 +4,9 @@ from PyAitD.engine.game import init_game
 from PyAitD.engine.interaction import apply_found_result, apply_inventory_result, apply_reading_result
 from PyAitD.app.ui import InventoryResult, ModalSession, ReadingResult
 from PyAitD.games.aitd1.profile import AITD1
+import pytest
+
+pytestmark = pytest.mark.engine
 
 
 def test_leave_debounces_and_resumes_parent(data_dir, monkeypatch):

@@ -12,6 +12,8 @@ from PyAitD.app.ui import InputBuffer
 
 from tests.purity import assert_presentation_free
 
+pytestmark = pytest.mark.engine
+
 
 def test_playworld_does_not_import_the_presentation_layer():
     assert_presentation_free(

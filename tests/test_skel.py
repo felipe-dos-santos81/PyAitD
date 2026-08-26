@@ -7,6 +7,8 @@ from PyAitD.engine.skel import hot_point, pose_vertices, skin
 from PyAitD.engine.world import CameraState
 from PyAitD.games.aitd1.profile import AITD1
 
+pytestmark = pytest.mark.engine
+
 
 def _cube_body():
     return Body(

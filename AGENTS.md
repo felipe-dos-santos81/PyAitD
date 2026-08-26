@@ -7,26 +7,47 @@ update it when a milestone lands.
 ## Commands
 
 ```bash
-make test          # .venv/bin/pytest -q — the gate
-make prove         # parse-all + headless real-script boot (real data)
-make prove-m3b     # focused interaction suite, runs headless itself
-make prove-mouse-only # one-button contract + real mouse journeys, including held pushing
-make prove-shell   # M4a1 shell/config/mouse-contract + real-loop journeys
-make prove-mouse-accessibility # focused effective-target/hover/touch/takeover gate
-make prove-graphics # render attic + combat fixtures at every shading mode to docs/graphics-proof/
-make prove-intro   # opening cutscene proof: headless run to CutsceneFinished + one GL render per visited camera to docs/intro-proof/
+make test          # the whole suite, headless — the gate
+make test-engine   # simulation, LIFE VM, formats, actors, anim, tracks, collision, navmesh, picking, opcodes
+make test-render   # scene, geometry, both backends, asset resolution, override export/check
+make test-shell    # event pump, settings, CLI, UI screens and modals
+make test-tools    # the standalone scripts under tools/
+make test-meta     # the repo's own rules (package layering, test grouping)
+make test-journey  # real run() event pump and long real-data simulations
+make proof-mouse   # navmesh for every camera-visible room, every floor (needs game data)
+make proof-combat  # venue, real enemy damage, player arms, game over (needs game data)
+make proof-graphics # attic + combat fixtures per shading mode (needs GL + game data)
+make proof-intro   # opening cutscene: headless gate + one GL render per visited camera
+make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
 make export-backgrounds # originals + ITD_RESS screens + guides + manifest to data/aitd1/overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1, screens=0 to skip)
 make check-overrides # validate data/aitd1/overrides (or overrides=DIR) as the game loads it; proof=1 renders side-by-sides
 make regenerate-backgrounds # Gemini describe+render data/aitd1/overrides -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); needs the `agy` CLI on PATH
-make prove-combat  # M3c combat venue proof (pytest gate)
-make prove-mouse   # M3d navmesh coverage for every camera-visible room
-make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
 ```
 
-Any test touching rendering/pygame needs `SDL_VIDEODRIVER=dummy`. After
-non-trivial changes run `.venv/bin/pytest -q && make prove`. No lint,
-formatter, or typecheck is configured — LSP/pyright diagnostics are noise,
-the test suite is the only gate. Never mass-reformat.
+Every pytest target runs headless via the Makefile's `HEADLESS` variable, so
+`SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy` is set for `make test` and every
+`test-*` group. Running pytest directly still needs them on the command line.
+
+Every file under `tests/` declares exactly one subject marker as a module-level
+`pytestmark` — `engine`, `render`, `shell`, `tools` or `meta` — plus an optional
+`journey` when it drives the real `run()` loop or a long real-data simulation.
+Mark by the layer whose behaviour the test asserts, not by what it imports: a
+test that drives `run()` and asserts routing is `shell`, one that asserts world
+state is `engine`. `tests/test_test_groups.py` enforces this and fails if a new
+file carries no marker. The nine legacy `prove-*` names are aliases of the new
+targets; five of them (`prove`, `prove-m3b`, `prove-shell`, `prove-mouse-only`,
+`prove-mouse-accessibility`) are pinned by that same test to the exact files
+they historically ran, so the proof documents under `docs/` keep citing
+meaningful gates — the other four (`prove-mouse`, `prove-combat`,
+`prove-graphics`, `prove-intro`) are straight renames of the `proof-*`
+artifact targets, which need real game data (and GL, for graphics/intro) so
+they aren't part of the pytest-file pinning.
+
+After non-trivial changes run `make test`: headless by construction, and a
+superset of `make prove` (now `-m engine`, a strict subset of the full
+suite), so nothing is gained by running both. No lint, formatter, or
+typecheck is configured — LSP/pyright diagnostics are noise, the test suite
+is the only gate. Never mass-reformat.
 
 ## Game data + FITD reference
 

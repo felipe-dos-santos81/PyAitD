@@ -14,6 +14,8 @@ from PyAitD.engine.game import init_game
 from PyAitD.games.aitd1.profile import AITD1
 from PyAitD.render.asset_resolver import AssetResolver
 
+pytestmark = pytest.mark.shell
+
 
 def test_title_advances_by_timeout_then_only_by_input():
     p = TitlePresenter()

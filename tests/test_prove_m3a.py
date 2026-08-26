@@ -9,6 +9,9 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 from PyAitD.engine.assets import Assets
 from PyAitD.engine.formats import parse_defines, parse_objets, parse_priority, parse_vars
 from PyAitD.games.aitd1.profile import AITD1
+import pytest
+
+pytestmark = [pytest.mark.engine, pytest.mark.journey]
 
 
 def test_all_scripts_fetch(data_dir):

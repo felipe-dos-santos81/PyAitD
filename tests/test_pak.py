@@ -6,6 +6,8 @@ import pytest
 
 from PyAitD.engine.pak import Pak, PakError, find_pak
 
+pytestmark = pytest.mark.engine
+
 
 def test_entry_counts(data_dir):
     assert Pak(data_dir / "ETAGE00.PAK").count == 2
