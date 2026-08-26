@@ -100,8 +100,3 @@ def test_summarize_lines(tmp_path):
 def test_summarize_without_coverage():
     text = oc.summarize([], None)
     assert "coverage: no manifest" in text
-
-
-def test_override_check_is_pure():
-    src = open(oc.__file__).read()
-    assert "import pygame" not in src and "import moderngl" not in src

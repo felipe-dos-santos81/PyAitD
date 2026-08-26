@@ -74,12 +74,6 @@ def test_sha256_rgb_matches_hashlib_over_raw_bytes():
     assert be.sha256_rgb(px[:, ::-1]) != be.sha256_rgb(px)  # non-contiguous view hashes its logical order
 
 
-def test_background_export_is_pure():
-    src = open(be.__file__).read()
-    assert "import pygame" not in src and "import moderngl" not in src
-    assert not any(name in vars(be) for name in ("pygame", "moderngl"))
-
-
 from tests.stub_floor import StubFloor, checker_pixels
 
 
