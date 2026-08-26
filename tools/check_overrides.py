@@ -17,6 +17,7 @@ import sys
 import numpy as np
 
 from PyAitD.asset_resolver import AssetResolver
+from PyAitD.background_export import MANIFEST_SCHEMA
 from PyAitD.override_check import check_overrides, coverage, has_errors, summarize
 from PyAitD.pak import PakError
 from PyAitD.render_gl import GLBackend
@@ -89,6 +90,10 @@ def main(argv=None):
             manifest = json.loads(manifest_path.read_text())
         except (OSError, ValueError) as exc:
             print(f"error: unreadable manifest {manifest_path}: {exc}", file=sys.stderr)
+            return 2
+        if (not isinstance(manifest, dict) or manifest.get("schema") != MANIFEST_SCHEMA
+                or not isinstance(manifest.get("cameras"), list)):
+            print(f"error: unreadable manifest {manifest_path}: unsupported schema/shape", file=sys.stderr)
             return 2
 
     floors = []

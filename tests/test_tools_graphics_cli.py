@@ -133,6 +133,15 @@ def test_check_main_without_manifest_still_checks(tmp_path, monkeypatch, capsys)
 def test_check_main_usage_errors(tmp_path):
     assert co.main([str(tmp_path / "nope"), str(tmp_path)]) == 2
     assert co.main([str(tmp_path), str(tmp_path / "nope")]) == 2
+    assert co.main([str(tmp_path), str(tmp_path), "--floors", "x"]) == 2
+
+
+def test_check_main_rejects_manifest_with_bad_schema(tmp_path, capsys):
+    ov = tmp_path / "ov"
+    ov.mkdir()
+    (ov / "manifest.json").write_text("{}")
+    assert co.main([str(tmp_path), str(ov), "--floors", "0"]) == 2
+    assert "unsupported schema/shape" in capsys.readouterr().err
 
 
 def test_render_proof_writes_side_by_side(gl_ctx, tmp_path, monkeypatch):
