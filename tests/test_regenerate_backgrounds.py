@@ -301,3 +301,16 @@ def test_make_client_reports_missing_sdk(monkeypatch, capsys):
         rb.make_client()
     assert e.value.code == 2
     assert 'google-genai is not installed: run .venv/bin/pip install -e ".[dev,ai]"' in capsys.readouterr().err
+
+
+@pytest.mark.skipif(not (os.environ.get("GEMINI_API_KEY") and os.environ.get("PYAITD_LIVE_AI") == "1"),
+                    reason="set GEMINI_API_KEY and PYAITD_LIVE_AI=1 to call Gemini")
+def test_live_gemini_round_trip(tmp_path):
+    in_dir = tmp_path / "in"
+    xb.save_png(in_dir / "backgrounds/floor00/camera000.png", checker_pixels(1))
+    cams = rb.discover(in_dir, None)
+    done, failed = rb.regenerate(cams, tmp_path / "out", client=rb.make_client(),
+                                 text_model=rb.DEFAULT_TEXT_MODEL, image_model=rb.DEFAULT_IMAGE_MODEL,
+                                 style=rb.DEFAULT_STYLE, force=False, dry_run=False)
+    assert (done, failed) == (1, 0)
+    assert load_png_rgb(tmp_path / "out/backgrounds/floor00/camera000.png").shape == (800, 1280, 3)

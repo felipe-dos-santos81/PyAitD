@@ -58,7 +58,9 @@ backend at scale 1 with a settings notice; the game always runs.
 To regenerate the backgrounds with an external AI tool, `make
 export-backgrounds` writes the originals plus structure guides and a
 manifest into `./overrides` (git-ignored; `out=DIR` to choose another), and `make check-overrides`
-validates the results the way the game loads them. See
+validates the results the way the game loads them. `make regenerate-backgrounds`
+(optional; needs `pip install -e ".[dev,ai]"` and `GEMINI_API_KEY`) does the
+regeneration with Gemini into `./overrides-ai`. See
 [docs/ai-background-regeneration.md](docs/ai-background-regeneration.md).
 
 ## Tests
@@ -74,6 +76,7 @@ make prove-shell        # shell, configuration, mouse contract, real-loop journe
 make prove-mouse-accessibility # focused effective-target, hover, touch, and takeover gate
 make prove-graphics     # render attic + combat fixtures at every shading mode to docs/graphics-proof/
 make check-overrides proof=1  # validate ./overrides (or overrides=DIR); side-by-sides to docs/graphics-proof/overrides/
+make regenerate-backgrounds dry=1  # list cameras the Gemini regeneration would process; no API calls
 ```
 
 Mouse accessibility hardening is automated by `make prove-mouse-accessibility`
