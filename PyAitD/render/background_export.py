@@ -204,17 +204,25 @@ def guide_overlay(floor, cam_idx, scale):
 SCREEN_ENTRIES = (6, 7, 8, 10, 12, 13, 14)
 SCREEN_NAMES = {6: "LETTRE", 7: "LIVRE", 8: "CARNET", 10: "PERSO_CHOICE",
                 12: "DEAD_END", 13: "TITRE", 14: "FOND_INTRO"}
-# (x, y, w, h) in 320x200 space: the regions app/ui.py draws over. ui.py's
-# layouts import these so the guide and the UI can never drift apart.
+# (x, y, w, h) in 320x200 space: the regions app/ui.py draws over. Only the
+# rects ui.py actually imports (PORTRAIT_RECTS, the READING_*_RECT trio) are
+# pinned against drift this way; STORY_COLUMNS, CREDITS_BOX and READING_BOX
+# are reference-only numbers ui.py does not consume, hand-copied from
+# AITD1.cpp / ui.render_reading and unchecked against it.
 PORTRAIT_RECTS = ((10, 10, 140, 181), (170, 10, 140, 181))       # ui.CharacterLayout.PORTRAITS
 STORY_COLUMNS = ((5, 5, 150, 189), (165, 5, 150, 189))           # AITD1.cpp Lire(...,5,5,154,194) / (165,5,314,194)
 CREDITS_BOX = (48, 2, 212, 195)                                  # AITD1.cpp:159 Lire(TEXTE_CREDITS, 48,2,260,197)
 READING_BOX = (60, 20, 200, 160)                                 # ui.render_reading text area
+# ui.ModalLayout.READING_PREV/CLOSE/NEXT: the three page buttons render_reading
+# draws on every letter/book/notebook screen (entries 6, 7, 8).
+READING_PREV_RECT = (12, 164, 96, 28)
+READING_CLOSE_RECT = (114, 164, 96, 28)
+READING_NEXT_RECT = (216, 164, 96, 28)
 FULL_FRAME = (0, 0, 320, 200)
 SCREEN_GUIDES = {
-    6: (READING_BOX,),
-    7: (READING_BOX, CREDITS_BOX),
-    8: (READING_BOX,),
+    6: (READING_BOX, READING_PREV_RECT, READING_CLOSE_RECT, READING_NEXT_RECT),
+    7: (READING_BOX, CREDITS_BOX, READING_PREV_RECT, READING_CLOSE_RECT, READING_NEXT_RECT),
+    8: (READING_BOX, READING_PREV_RECT, READING_CLOSE_RECT, READING_NEXT_RECT),
     10: PORTRAIT_RECTS,
     12: (FULL_FRAME,),
     13: (FULL_FRAME,),
