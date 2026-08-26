@@ -869,10 +869,12 @@ def render_active_mode(game, session, renderer, resolver=None):
 
 
 def restart_session(old_game):
-    # Death restarts the current floor (task-10 brief): menus and a title
-    # screen are M4, and restart is the only option that keeps the game
-    # playable end-to-end. No Floor I/O here -- the caller (run's atomic
-    # restart branch) owns loading the Floor for the reconstructed game.
+    # Death restarts the current floor (task-10 brief): the title screen and
+    # menus now exist (app/startup.py), but a fresh boot through them would
+    # discard the run in progress, so restart stays the in-place path that
+    # keeps the game playable end-to-end. No Floor I/O here -- the caller
+    # (run's atomic restart branch) owns loading the Floor for the
+    # reconstructed game.
     hero = old_game.cvars[old_game.profile.cvar_index("CHOOSE_PERSO")]
     input_mode = old_game.input_mode
     trace = old_game.trace
