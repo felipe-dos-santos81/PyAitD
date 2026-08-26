@@ -611,11 +611,17 @@ def game_step_tick(game):
 def init_game(data_dir, profile, hero=0):
     from PyAitD.engine.interaction import sync_player_track_mode  # interaction imports game
     game = Game(data_dir, profile, hero=hero)
+    # profile.game_start (games/base.py): the floor/room the playable start
+    # boots onto directly -- NOT via start_game, which resets camera/world
+    # targets and clears floor_start (see games/base.py's docstring). AITD1's
+    # value is (0, 0), matching the hardcode this replaces; a second game
+    # with a different attic floor would need only its own profile value.
+    game.current_floor, floor_room = profile.game_start
     spawn_stage_actors(game)
     # object data spawns the hero in track mode 1 (tank); the default input mode
     # is the mouse, and mode 1 would eat the follower's mirrored joyd as keyboard
     sync_player_track_mode(game)
-    change_salle(game, 0)
+    change_salle(game, floor_room)
     game.new_num_camera = 0
     game.flag_init_view = 2
     hero = game.actors[game.current_camera_target_actor]

@@ -129,8 +129,23 @@ def test_start_game_stages_a_floor_like_fitd_startGame(data_dir):
     assert 286 in live and game.actors[game.world_objects[286].obj_index].life == 546
 
 
-def test_start_game_on_the_attic_matches_init_game_floor_state(data_dir):
+def test_start_game_on_the_attic_diverges_from_init_game_targeting(data_dir):
+    # start_game(0, 0) reaches the same floor/room init_game's own
+    # game_start staging does, but NOT the same actor targeting: init_game
+    # leaves current_camera_target_actor pointing at the live hero with a
+    # real floor_start restart point, while start_game -- built for a
+    # scripted stage, not a controllable one -- resets both targets to -1
+    # (main.cpp:1235) and clears floor_start. This is exactly why
+    # _boot_hero's attic hand-over (app/shell.py) relies on init_game's own
+    # game_start staging rather than calling start_game directly -- see
+    # games/base.py's GameProfile.game_start docstring.
     game = init_game(data_dir, AITD1, hero=1)
+    assert game.current_camera_target_actor != -1
+    assert game.floor_start is not None
+
     start_game(game, 0, 0)
+
     assert (game.current_floor, game.current_room) == (0, 0)
     assert game.world_objects[1].obj_index != -1   # hero live on its own floor
+    assert (game.current_camera_target_actor, game.current_world_target) == (-1, -1)
+    assert game.floor_start is None

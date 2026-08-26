@@ -296,9 +296,15 @@ action runner.
   (main.cpp:4134) minus `PlayWorld`: resets camera/world targets, loads
   `stage`, calls `change_salle(room)`, stages `new_num_camera=0` /
   `flag_init_view=2`, spawns the stage's actors, and clears `floor_start` —
-  a staged start has no restart point until a script sets one. It's the
-  same staging both `_boot_hero`'s cutscene branch and `game_start`'s attic
-  boot rely on.
+  a staged start has no restart point until a script sets one. Only
+  `_boot_hero`'s cutscene branch calls it. The attic hand-over relies on
+  neither `start_game` nor `game_start`'s config alone: `init_game` reads
+  `profile.game_start` for its own floor/room instead of hardcoding 0/0
+  (`engine/game.py`), because running `start_game` on a booted attic leaves
+  `current_camera_target_actor`/`current_world_target` at -1 and
+  `floor_start` at `None` — an uncontrollable hero with no restart point.
+  `tests/test_floor_start.py::test_start_game_on_the_attic_diverges_from_init_game_targeting`
+  pins exactly this divergence.
 - `Game.allow_system_menu` mirrors FITD's `allowSystemMenu` parameter to
   `PlayWorld`. While it's `False` (set right after `start_game` for the
   intro), `flag_game_over` going true surfaces as `effects.CutsceneFinished`
