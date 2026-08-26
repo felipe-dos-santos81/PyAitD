@@ -59,7 +59,8 @@ def sha256_rgb(pixels):
     return hashlib.sha256(np.ascontiguousarray(pixels, dtype=np.uint8).tobytes()).hexdigest()
 
 
-MANIFEST_SCHEMA = 1
+MANIFEST_SCHEMA = 2
+SUPPORTED_SCHEMAS = (1, 2)   # 1: cameras only; 2: cameras + screens
 LEGEND = {"red": "masks", "blue": "collision", "green": "walkable"}
 
 
@@ -100,13 +101,14 @@ def manifest_record(floor, cam_idx, pixels):
     return rec
 
 
-def export_manifest(records, data_dir, guide_scale):
+def export_manifest(records, data_dir, guide_scale, screens=()):
     return {
         "schema": MANIFEST_SCHEMA,
         "data_dir": str(data_dir),
         "guide_scale": int(guide_scale),
         "legend": dict(LEGEND),
         "cameras": list(records),
+        "screens": list(screens),
     }
 
 
@@ -185,6 +187,68 @@ def guide_overlay(floor, cam_idx, scale):
             edges = [(k, (k + 1) % n) for k in range(n)]
             _draw_projected(img, view, pts, edges, COLOR_WALKABLE, scale)
 
+    for k, color in enumerate((COLOR_MASK, COLOR_COLLISION, COLOR_WALKABLE)):
+        x0 = k * _SWATCH_STRIDE
+        img[h:, x0:x0 + _SWATCH_W] = color
+    return img
+
+
+# ---- full-screen ITD_RESS resources -------------------------------------
+# AITD1.h entry numbers. Entry 11 (GRENOUILLE, copy protection) is never drawn.
+SCREEN_ENTRIES = (6, 7, 8, 10, 12, 13, 14)
+SCREEN_NAMES = {6: "LETTRE", 7: "LIVRE", 8: "CARNET", 10: "PERSO_CHOICE",
+                12: "DEAD_END", 13: "TITRE", 14: "FOND_INTRO"}
+# (x, y, w, h) in 320x200 space: the regions app/ui.py draws over. ui.py's
+# layouts import these so the guide and the UI can never drift apart.
+PORTRAIT_RECTS = ((10, 10, 140, 181), (170, 10, 140, 181))       # ui.CharacterLayout.PORTRAITS
+STORY_COLUMNS = ((5, 5, 150, 189), (165, 5, 150, 189))           # AITD1.cpp Lire(...,5,5,154,194) / (165,5,314,194)
+CREDITS_BOX = (48, 2, 212, 195)                                  # AITD1.cpp:159 Lire(TEXTE_CREDITS, 48,2,260,197)
+READING_BOX = (60, 20, 200, 160)                                 # ui.render_reading text area
+FULL_FRAME = (0, 0, 320, 200)
+SCREEN_GUIDES = {
+    6: (READING_BOX,),
+    7: (READING_BOX, CREDITS_BOX),
+    8: (READING_BOX,),
+    10: PORTRAIT_RECTS,
+    12: (FULL_FRAME,),
+    13: (FULL_FRAME,),
+    14: STORY_COLUMNS,
+}
+COLOR_BLIT = COLOR_COLLISION   # blue: "the engine draws over this"
+
+
+def screen_rel_path(entry):
+    # Must stay identical to asset_resolver.override_screen_path's tail.
+    return f"screens/ress{entry:02d}.png"
+
+
+def screen_guide_rel_path(entry):
+    return f"guides/screens/ress{entry:02d}.png"
+
+
+def screen_record(entry, pixels):
+    return {
+        "entry": int(entry),
+        "name": SCREEN_NAMES[entry],
+        "source": screen_rel_path(entry),
+        "guide": screen_guide_rel_path(entry),
+        "size": [int(pixels.shape[1]), int(pixels.shape[0])],
+        "sha256": sha256_rgb(pixels),
+        "blits": [list(r) for r in SCREEN_GUIDES[entry]],
+    }
+
+
+def screen_guide(pixels, entry, scale):
+    """The screen upscaled x`scale` with every blit rect outlined in blue
+    and the same legend footer as guide_overlay."""
+    base = nearest_upscale(pixels, scale)
+    h, w = base.shape[:2]
+    img = np.zeros((h + GUIDE_FOOTER, w, 3), np.uint8)
+    img[:h] = base
+    for x, y, rw, rh in SCREEN_GUIDES[entry]:
+        pts = [(x * scale, y * scale), ((x + rw - 1) * scale, y * scale),
+               ((x + rw - 1) * scale, (y + rh - 1) * scale), (x * scale, (y + rh - 1) * scale)]
+        draw_polyline(img, pts, COLOR_BLIT, closed=True)
     for k, color in enumerate((COLOR_MASK, COLOR_COLLISION, COLOR_WALKABLE)):
         x0 = k * _SWATCH_STRIDE
         img[h:, x0:x0 + _SWATCH_W] = color

@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from PyAitD.render.asset_resolver import load_png_rgb
+from PyAitD.render import background_export as be
 from tests.stub_floor import StubFloor, checker_pixels
 from tools import check_overrides as co
 from tools import export_backgrounds as xb
@@ -59,7 +60,7 @@ def test_main_exports_requested_floors_and_manifest(tmp_path, monkeypatch, capsy
     rc = xb.main([str(tmp_path), "--out", str(out), "--floors", "0-1", "--guide-scale", "2"])
     assert rc == 0
     m = json.loads((out / "manifest.json").read_text())
-    assert m["schema"] == 1 and m["guide_scale"] == 2 and m["data_dir"] == str(tmp_path.resolve())
+    assert m["schema"] == be.MANIFEST_SCHEMA and m["guide_scale"] == 2 and m["data_dir"] == str(tmp_path.resolve())
     assert [(c["floor"], c["camera"]) for c in m["cameras"]] == [(0, 0), (1, 0)]
     assert load_png_rgb(out / "guides/floor01/camera000.png").shape == (412, 640, 3)
 
