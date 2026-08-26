@@ -49,6 +49,7 @@ make run overrides=DIR       # play with a different override directory (e.g. da
 | Mouse accessibility hardening | Effective targets, optional pure hover, physical/touch parity, target precedence, atomic modal takeover, exhaustive contract gate | done — automated gates green and user-attested windowed standard-mouse/macOS-Accessibility-Keyboard passes for Emily and Carnby (`docs/mouse-accessibility-hardening-proof.md`) |
 | Enhanced graphics scene layer | Higher-resolution actor rendering, per-vertex shading, GPU mask erasure, background upscale filters, asset override directory, GL fallback | automated gates green; windowed attestation pending (`docs/enhanced-graphics-proof.md`) |
 | AI background regeneration | Export originals + structure guides + manifest, validate override dirs as the game loads them, optional Gemini describe+render regeneration | done — `make export-backgrounds` / `check-overrides` / `regenerate-backgrounds`; `docs/ai-background-regeneration.md` |
+| Engine package reorganization | engine / render / games / app split + GameProfile | done — tests/test_layering.py |
 | M4a2 / M4b / M4c | Save/load, audio + sequences, ending/completability | next (plans drafted under `docs/superpowers/plans/2026-08-24-m4*`) |
 
 Design docs live in `docs/superpowers/specs/` and `docs/superpowers/plans/`
@@ -60,39 +61,41 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 
 | Module | Role |
 |---|---|
-| `pak.py`, `floor.py`, `explode.py` | PAK/HQR archives, ETAGE floor data, EXPLODE decompression |
-| `formats.py` | Pure parsers: bodies, anims, cameras, cover zones, WorldObject/VARS/DEFINES/PRIORITY records |
-| `assets.py` | Parse-once registries over the LRU: bodies, anims, LISTLIFE scripts, LISTTRAK tracks |
-| `game.py` | `Game` state: CVars (45, DEFINES big-endian), script vars (207), 292 world objects, 128 actor slots, `init_game`/`spawn_stage_actors` (FITD LoadWorld + GenereActiveList) |
-| `life.py` | VM core: fetch loop, 87-slot `LIFETABLE`, 0x8000 actor-switch, control flow, `Trace` |
-| `life_ops.py`, `life_reduced.py` | Full-dispatch opcode handlers + not-in-floor reduced set |
-| `eval_var.py` | evalVar tagged-s16 argument system (all AITD1 property codes) |
-| `tracks.py` | processTrack: manual (player) / follow / scripted modes, TL_* macros |
-| `realvalue.py` | RealValue interpolation (rotation/speed ramps), chronos, GiveDistance2D |
-| `actors.py` | Actor fields (tObject port), GereAnim movement/collision port, `sort_actor_indices` (FITD sortActorList) |
-| `anim.py` | AnimPlayer: SetAnimObjet/SetInterAnimObjet keyframe interpolation |
-| `world.py`, `cos_table.py` | Fixed-point rotations, camera transform/projection (M2-verified goldens) |
-| `skel.py`, `mask.py` | Skinning/projection (the FITD-faithful integer path, `skin()`), mask bitmap rasterization |
-| `scene.py` | `build_frame(game, floor, resolver) -> (FrameDescription, draw_list)`: per-frame scene description shared by both backends; `CameraView`, a float twin of `skel.skin`'s projection, for the new renderers. `draw_list` stays built from the logical `skin()` bbox — picking, masks and the mouse contract are untouched |
-| `geometry.py` | `pose_geometry(...) -> BodyGeometry`: float posed vertices, per-vertex normals, triangulated/line/point/sphere primitives, shared with `skel.pose_vertices` so pose can never disagree |
-| `mask_geometry.py` | Mask polygons in 320x200 screen space plus their trigger rects, parsed once from the existing mask data |
-| `asset_resolver.py` | `AssetResolver(assets, override_dir=None)`: background/palette lookup, checking an optional override directory first and falling back to the original asset |
-| `render_options.py` | `RenderOptions(scale, shading, background_filter, override_dir)`: validation, clamping, menu-cycle helpers; pygame/GL-free |
-| `render_gl.py` | `GLBackend(ctx, options)`: ModernGL pipeline, per-actor depth, GPU mask-texture erasure, shading modes, background filtering |
-| `render_soft.py` | `SoftwareBackend`: numpy/pygame compositor over the logical projection, used headless and as the GL-failure fallback |
-| `render.py` | `Renderer(options)`: window/context ownership, backend selection and fallback, UI composite, present, `window_to_logical` |
-| `anim_action.py` | GereFrappe action runner: melee (1→10→2), hit-object, firearm volume sweep (4→5), throw setup/launch/flight (6→7→9). Publishes `hit`/`hit_by`/`hit_force` only — never actor `life` |
-| `scenario.py` | `COMBAT_VENUE`/`enter_combat_venue`: the one pinned floor-5 debug venue shared by play, tests and the proof tool |
-| `playworld.py` | PlayWorld tick (mainLoop.cpp:41-281 order): input snapshot → anim/dec pass → LIFE pass → floor/room/camera flags → messages. Free of pygame/GL: `play_tick` runs headless |
-| `navmesh.py` | Walkable grid from cover zones (FITD `is_in_poly` vectorised) + A* |
-| `picking.py` | Screen->world: floor homography fitted from the real projection, actor bbox hit-test |
-| `navigate.py` | Mouse follower: NavIntent -> one tick of steering + mirrored joyd |
-| `mouse_contract.py` | Pygame-free declaration of current player capabilities, per-mode one-button routes, and reviewed legacy command replacements (`KEYBOARD_ONLY_DECISIONS` is empty: remap capture has a clickable key picker) |
-| `text.py` | Pure parsers for system texts and book/letter token streams (readable items) |
-| `background_export.py` | Pure export description: per-camera original background, depth-culled structure guide geometry, manifest records (layout shared with `asset_resolver.override_background_path`) |
-| `override_check.py` | Pure validation of an override directory exactly as `AssetResolver` would load it; structural manifest checks |
-| `config.py` | Pygame-free settings schema (v1), platform settings path, validated load, atomic save |
-| `__main__.py` | Process shell: event pump, fixed-step accumulator, `_scene_frame` view assembly, modal routing, one present per frame |
+| `engine/pak.py`, `engine/floor.py`, `engine/explode.py` | PAK/HQR archives, ETAGE floor data, EXPLODE decompression |
+| `engine/formats.py` | Pure parsers: bodies, anims, cameras, cover zones, WorldObject/VARS/DEFINES/PRIORITY records |
+| `engine/assets.py` | Parse-once registries over the LRU: bodies, anims, LISTLIFE scripts, LISTTRAK tracks |
+| `engine/game.py` | `Game` state: CVars (45, DEFINES big-endian), script vars (207), 292 world objects, 128 actor slots, `init_game`/`spawn_stage_actors` (FITD LoadWorld + GenereActiveList) |
+| `engine/life.py` | VM core: fetch loop, 0x8000 actor-switch, control flow, `Trace`, `core_table()` (the game-neutral opcode slots); dispatch reads the filled table from `vm.game.profile.opcode_table` and the not-in-floor set from `vm.game.profile.reduced_dispatch` |
+| `games/base.py` | `GameProfile`: PAK names, hero archives, CVar names, DEFINES endianness, opcode table, dead opcodes, reduced dispatch, debug venues |
+| `games/aitd1/profile.py` | The AITD1 instance; `games/__init__.load_profile("aitd1")` |
+| `games/aitd1/life_ops.py`, `games/aitd1/life_reduced.py` | Full-dispatch opcode handlers + not-in-floor reduced set |
+| `engine/eval_var.py` | evalVar tagged-s16 argument system (all AITD1 property codes) |
+| `engine/tracks.py` | processTrack: manual (player) / follow / scripted modes, TL_* macros |
+| `engine/realvalue.py` | RealValue interpolation (rotation/speed ramps), chronos, GiveDistance2D |
+| `engine/actors.py` | Actor fields (tObject port), GereAnim movement/collision port, `sort_actor_indices` (FITD sortActorList) |
+| `engine/anim.py` | AnimPlayer: SetAnimObjet/SetInterAnimObjet keyframe interpolation; `init_anim`/`ANIM_ONCE`/`ANIM_REPEAT`/`ANIM_UNINTERRUPTABLE` |
+| `engine/world.py`, `engine/cos_table.py` | Fixed-point rotations, camera transform/projection (M2-verified goldens) |
+| `engine/skel.py`, `engine/mask.py` | Skinning/projection (the FITD-faithful integer path, `skin()`), mask bitmap rasterization |
+| `render/scene.py` | `build_frame(game, floor, resolver) -> (FrameDescription, draw_list)`: per-frame scene description shared by both backends; `CameraView`, a float twin of `skel.skin`'s projection, for the new renderers. `draw_list` stays built from the logical `skin()` bbox — picking, masks and the mouse contract are untouched |
+| `render/geometry.py` | `pose_geometry(...) -> BodyGeometry`: float posed vertices, per-vertex normals, triangulated/line/point/sphere primitives, shared with `skel.pose_vertices` so pose can never disagree |
+| `engine/mask_geometry.py` | Mask polygons in 320x200 screen space plus their trigger rects, parsed once from the existing mask data |
+| `render/asset_resolver.py` | `AssetResolver(assets, override_dir=None)`: background/palette lookup, checking an optional override directory first and falling back to the original asset |
+| `render/render_options.py` | `RenderOptions(scale, shading, background_filter, override_dir)`: validation, clamping, menu-cycle helpers; pygame/GL-free |
+| `render/render_gl.py` | `GLBackend(ctx, options)`: ModernGL pipeline, per-actor depth, GPU mask-texture erasure, shading modes, background filtering |
+| `render/render_soft.py` | `SoftwareBackend`: numpy/pygame compositor over the logical projection, used headless and as the GL-failure fallback |
+| `render/render.py` | `Renderer(options)`: window/context ownership, backend selection and fallback, UI composite, present, `window_to_logical` |
+| `engine/anim_action.py` | GereFrappe action runner: melee (1→10→2), hit-object, firearm volume sweep (4→5), throw setup/launch/flight (6→7→9). Publishes `hit`/`hit_by`/`hit_force` only — never actor `life` |
+| `games/aitd1/scenario.py` | `COMBAT_VENUE`/`enter_combat_venue`: the one pinned floor-5 debug venue shared by play, tests and the proof tool |
+| `engine/playworld.py` | PlayWorld tick (mainLoop.cpp:41-281 order): input snapshot → anim/dec pass → LIFE pass → floor/room/camera flags → messages. Free of pygame/GL: `play_tick` runs headless |
+| `engine/navmesh.py` | Walkable grid from cover zones (FITD `is_in_poly` vectorised) + A* |
+| `engine/picking.py` | Screen->world: floor homography fitted from the real projection, actor bbox hit-test |
+| `engine/navigate.py` | Mouse follower: NavIntent -> one tick of steering + mirrored joyd |
+| `games/aitd1/mouse_contract.py` | Pygame-free declaration of current player capabilities, per-mode one-button routes, and reviewed legacy command replacements (`KEYBOARD_ONLY_DECISIONS` is empty: remap capture has a clickable key picker) |
+| `engine/text.py` | Pure parsers for system texts and book/letter token streams (readable items) |
+| `render/background_export.py` | Pure export description: per-camera original background, depth-culled structure guide geometry, manifest records (layout shared with `asset_resolver.override_background_path`) |
+| `render/override_check.py` | Pure validation of an override directory exactly as `AssetResolver` would load it; structural manifest checks |
+| `app/config.py` | Pygame-free settings schema (v1), platform settings path, validated load, atomic save |
+| `app/shell.py` | The process shell formerly in `__main__.py`; `__main__.py` is now a one-line re-export |
 | `tools/` | CLI proofs and pipelines: `prove_mouse`, `prove_combat`, `prove_graphics`, `export_backgrounds`, `check_overrides`, `regenerate_backgrounds` (the only module that talks to an AI service; PNG encoding lives here, not in `PyAitD/`) |
 
 ## Fidelity notes (hard-won)
@@ -115,6 +118,10 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 - Known simplifications (ponytail comments in code): do_real_zv box zv instead
   of per-vertex bounds, ANIM_RESET skip, CheckObjectCol push/pickup (M3b), fall
   management.
+- `FoundResult` moved from `ui.py` to `engine/effects.py`, and `init_anim`
+  (with `ANIM_ONCE`/`ANIM_REPEAT`/`ANIM_UNINTERRUPTABLE`) moved from
+  `life_ops.py` to `engine/anim.py`, so the engine imports no game or app
+  module.
 
 ## Current rendering QA findings
 
@@ -150,11 +157,11 @@ action runner.
 
 ## M3b interaction boundary
 
-- `effects.py`: typed immediate/modal effects and resumable LIFE frames.
-- `interaction.py`: found-LIFE, inventory/world transitions, contacts, and GereDec.
-- `ui.py`: command buffering, modal reducers, mouse targets, and 320x200 presenters.
-- `playworld.py`: the PLAY-only fixed tick body, free of pygame/rendering.
-- `__main__.py`: one event pump, tick accumulator, mode routing, one present.
+- `engine/effects.py`: typed immediate/modal effects and resumable LIFE frames.
+- `engine/interaction.py`: found-LIFE, inventory/world transitions, contacts, and GereDec.
+- `app/ui.py`: command buffering, modal reducers, mouse targets, and 320x200 presenters.
+- `engine/playworld.py`: the PLAY-only fixed tick body, free of pygame/rendering.
+- `app/shell.py`: one event pump, tick accumulator, mode routing, one present.
 - Focused proof: `make prove-m3b`.
 - Full regression: `.venv/bin/pytest -q && make prove`.
 - Manual evidence: `docs/m3b-interaction-proof.md`.
@@ -164,14 +171,14 @@ action runner.
 
 - `game.FloorStart` is the restart boundary `(stage, room, x, y, z, camera_slot)`;
   `enter_floor_start` is the one "immediately be on a floor" implementation and
-  performs no Floor I/O — `__main__.run` owns loading the Floor, before and after
+  performs no Floor I/O — `app.shell.run` owns loading the Floor, before and after
   a restart.
 - `scenario.COMBAT_VENUE` = `FloorStart(5, 4, -7800, -4010, -1000, 0)`, the only
   supported non-attic debug start (`--combat-venue`; a non-zero `--floor` exits 2).
 - `LM_GAME_OVER` raises `flag_game_over`; `playworld` turns it into a
   `GameOver(120)` modal only after the complete LIFE pass — including a flag the
   real death script raises from a LIFE continuation resumed between ticks, which
-  the next tick consumes before re-running that LIFE. `__main__.restart_session`
+  the next tick consumes before re-running that LIFE. `app.shell.restart_session`
   rebuilds a fresh `Game` at the same `FloorStart`.
 - A cross-floor `LM_STAGE` consumes its room change in the same tick (FITD
   mainLoop.cpp:189-199) and regenerates the active list through the existing
@@ -208,7 +215,7 @@ action runner.
   and throw release so a released projectile exists before later LIFE reads.
 - `scenario.enter_mouse_combat_fixture` owns the deterministic object-38
   automated/manual proof start; the M3c `enter_combat_venue` remains unchanged.
-- `__main__.resolve_play_click` is the one HUD/attack/target/walk/blocked
+- `app.shell.resolve_play_click` is the one HUD/attack/target/walk/blocked
   resolver used by both hover and click routing.
 - `playworld._push_into_target` re-aims an arrived click at a non-foundable
   object that has a `found_life`, so the final step collides with the object
@@ -222,14 +229,14 @@ action runner.
 
 ## M4a1 shell boundary
 
-- `config.py` owns the pygame-free settings schema (v1: bindings for eight
+- `app/config.py` owns the pygame-free settings schema (v1: bindings for eight
   controls, CANCEL fixed to Escape, sticky flag), the platform settings path,
   and the atomic store (temp file + fsync + `os.replace`).
-- `ui.py` owns the compiled pygame bindings, transient input state
+- `app/ui.py` owns the compiled pygame bindings, transient input state
   (held/action/sticky/commands), the modal presenters and reducers, all shell
   drawing, and the hit geometry (`CharacterLayout`/`SystemMenuLayout`/
   `SettingsNoticeLayout`).
-- `__main__.py` owns the application session (`ModalSession` settings fields),
+- `app/shell.py` owns the application session (`ModalSession` settings fields),
   the persistence policy (load once at boot, save at dirty boundaries), raw
   remap capture (consumes the captured KEYDOWN exclusively), the event pump,
   settings-notice first refusal, and the atomic game/floor/session/input

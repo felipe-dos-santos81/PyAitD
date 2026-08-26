@@ -61,22 +61,30 @@ the test suite is the only gate. Never mass-reformat.
 ## Conventions
 
 - `# SPDX-License-Identifier: GPL-2.0-only` first line of every Python file.
-- Layer boundary: `playworld.py`/`life_ops.py`/`interaction.py`/`effects.py`
-  never touch pygame/rendering/events; `config.py` is pygame-free settings
-  schema/persistence; `ui.py` never mutates world/actor/inventory/LIFE state;
-  `__main__.py` owns the single event pump, the settings lifecycle, game/floor
-  replacement, and one present per frame. Settings live on `ModalSession`,
-  never `Game`. `tests/test_playworld.py` enforces the playworld half.
-- Graphics layering: `scene.py`, `geometry.py`, `mask_geometry.py` and
-  `render_options.py` import neither pygame nor moderngl — keep them pure.
-  `asset_resolver.py` touches pygame in exactly one function (`load_png_rgb`);
-  `render_soft.py` uses `pygame.draw` but never moderngl; `render_gl.py` owns
-  all moderngl; `render.py` owns the window and both. `scene.build_frame`
-  returns an immutable `FrameDescription` whose `palette` and
-  `background.pixels` alias shared decode caches — read them, never write.
-- `background_export.py` and `override_check.py` are pure like `scene.py`;
-  PNG encoding lives only in `tools/`. The export directory layout is
-  `asset_resolver.override_background_path`'s — change both or neither.
+- Package layering (`tests/test_layering.py` enforces it): `PyAitD/engine/`
+  imports no pygame, moderngl, `render`, `games`, or `app`; `render/` imports
+  `engine` only; `games/` imports `engine` only; `app/` may import everything.
+  `__main__.py` owns nothing but the re-export of `app.shell.main`.
+- Game-specific constants live in one `GameProfile`
+  (`games/base.py`; `games/aitd1/profile.py` is the only instance): PAK names,
+  hero archives, CVar names, DEFINES endianness, the filled opcode table,
+  dead opcodes, reduced dispatch, debug venues. `Assets`, `Game`, the VM and
+  the shell read them from `game.profile` — never re-add module constants.
+- Inside `render/`: `scene`, `geometry`, `render_options`, `background_export`,
+  `override_check` import neither pygame nor moderngl;
+  `asset_resolver` touches pygame in exactly one function (`load_png_rgb`);
+  `render_soft` uses `pygame.draw` but never moderngl; `render_gl` owns all
+  moderngl; `render` owns the window and both. `scene.build_frame` returns an
+  immutable `FrameDescription` whose `palette` and `background.pixels` alias
+  shared decode caches — read them, never write.
+- `app/ui.py` never mutates world/actor/inventory/LIFE state; `app/config.py`
+  is pygame-free settings schema/persistence; `app/shell.py` owns the single
+  event pump, the settings lifecycle, game/floor replacement, and one present
+  per frame. Settings live on `ModalSession`, never `Game`.
+- `render/background_export.py` and `render/override_check.py` are pure like
+  `render/scene.py`; PNG encoding lives only in `tools/`. The export
+  directory layout is `render/asset_resolver.override_background_path`'s —
+  change both or neither.
 - `tools/regenerate_backgrounds.py` is the only module that may talk to an
   AI service. It shells out to the `agy` CLI (`subprocess.run`) — it imports no
   SDK — and its unit tests monkeypatch `subprocess.run`, so they never touch the
