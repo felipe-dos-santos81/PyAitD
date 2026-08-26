@@ -130,6 +130,14 @@ def cover_zones_for(floor, cam_idx, viewed_idx):
     return parse_cover_zones(floor.camera_raw, floor.camera_data_offsets[cam_idx], viewed_idx)
 
 
+def _draw_legend_footer(img, h):
+    """Draw the legend swatch footer (red/blue/green for masks/collision/walkable)
+    on the bottom of `img` starting at row `h`."""
+    for k, color in enumerate((COLOR_MASK, COLOR_COLLISION, COLOR_WALKABLE)):
+        x0 = k * _SWATCH_STRIDE
+        img[h:, x0:x0 + _SWATCH_W] = color
+
+
 def _draw_projected(img, view, world_pts, edges, rgb, scale):
     """Project `world_pts` and draw each (i, j) edge whose endpoints both
     survived culling, scaled by `scale`."""
@@ -187,9 +195,7 @@ def guide_overlay(floor, cam_idx, scale):
             edges = [(k, (k + 1) % n) for k in range(n)]
             _draw_projected(img, view, pts, edges, COLOR_WALKABLE, scale)
 
-    for k, color in enumerate((COLOR_MASK, COLOR_COLLISION, COLOR_WALKABLE)):
-        x0 = k * _SWATCH_STRIDE
-        img[h:, x0:x0 + _SWATCH_W] = color
+    _draw_legend_footer(img, h)
     return img
 
 
@@ -249,7 +255,5 @@ def screen_guide(pixels, entry, scale):
         pts = [(x * scale, y * scale), ((x + rw - 1) * scale, y * scale),
                ((x + rw - 1) * scale, (y + rh - 1) * scale), (x * scale, (y + rh - 1) * scale)]
         draw_polyline(img, pts, COLOR_BLIT, closed=True)
-    for k, color in enumerate((COLOR_MASK, COLOR_COLLISION, COLOR_WALKABLE)):
-        x0 = k * _SWATCH_STRIDE
-        img[h:, x0:x0 + _SWATCH_W] = color
+    _draw_legend_footer(img, h)
     return img
