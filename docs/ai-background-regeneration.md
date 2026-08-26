@@ -93,13 +93,13 @@ them as `screen ressNN` and reports a `screens:` coverage line; `proof=1`
 writes `screen-ressNN.png` side-by-sides. `make export-backgrounds
 screens=0` / `regenerate-backgrounds screens=0` skip them.
 
-Two of the seven are not yet read at run time: 13 (title) is drawn once the
-startup menu lands, a later milestone on this same branch; 12 (dead end) is
-exported for completeness, but this reimplementation's game-over overlay
-composes a shaded scene thumbnail instead of drawing that plate, since
-`LM_GAME_OVER` freezes the last PLAY frame rather than showing it. An
-override for either loads and passes `check-overrides` cleanly -- it is
-simply not on screen yet.
+One of the seven is not yet read at run time: 12 (dead end) is exported for
+completeness, but this reimplementation's game-over overlay composes a
+shaded scene thumbnail instead of drawing that plate, since `LM_GAME_OVER`
+freezes the last PLAY frame rather than showing it. An override for it
+loads and passes `check-overrides` cleanly -- it is simply not on screen
+yet. (13, title, was in the same boat until the title/menu boot flow
+landed; it is drawn on every boot now, by `app/startup.py`'s `render_title`.)
 
 ## 3. Check
 
