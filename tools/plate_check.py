@@ -236,9 +236,11 @@ def guide_band(rgb):
 
 def gate(candidate, original, layout, scale=1.0):
     """Score `candidate` against `original`; see the module docstring.
-    `scale` multiplies every threshold; 0 passes everything but still
-    reports scores. Failures are worded as corrections for the next
-    attempt."""
+    `scale` relaxes the structure thresholds only (`ncc`, `edge_recall`,
+    `region_recall`); the guide-colour and plainness bounds keep their
+    calibrated values at any non-zero scale. `scale == 0` passes
+    everything but still reports scores. Failures are worded as
+    corrections for the next attempt."""
     candidate = np.asarray(candidate)
     original = np.asarray(original)
     if candidate.shape != (4 * H, 4 * W, 3):
