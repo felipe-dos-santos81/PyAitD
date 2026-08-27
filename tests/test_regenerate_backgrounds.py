@@ -71,6 +71,12 @@ INVENTORY = {"prompt": "a dusty attic under sloped rafters", "camera": "eye leve
                          {"name": "barrels", "kind": "wooden barrels", "count": 3, "bbox": [55, 22, 66, 34]}]}
 
 
+def is_image_call(cmd):
+    """A generate call, told apart from describe/judge by what it asks for --
+    every agy call now enforces a schema."""
+    return "Call the generate_image tool" in cmd[2]
+
+
 def envelope(obj):
     return json.dumps({"status": "SUCCESS", "structured_output": obj})
 
@@ -82,7 +88,7 @@ class FakeSubprocess:
     a generate call copies to the requested path."""
 
     def __init__(self, image_png=None, fail_image_calls=(), no_image=False, describe=INVENTORY,
-                 judge=(), stdout="SUCCESS\n", stderr="", returncode=0, copy_first_attachment=False):
+                 judge=(), stdout="SUCCESS\n", stderr="", returncode=0, copy_first_attachment=False, image_error=""):
         self.image_png = image_png
         self.fail = set(fail_image_calls)
         self.no_image = no_image
@@ -92,6 +98,7 @@ class FakeSubprocess:
         self.image_calls = 0
         self.image_stdout, self.image_stderr, self.returncode = stdout, stderr, returncode
         self.copy_first_attachment = copy_first_attachment
+        self.image_error = image_error
 
     def run(self, cmd, capture_output=True, text=True, check=True):
         assert check is False, "agy calls must read the exit code, not raise on it"
@@ -100,7 +107,7 @@ class FakeSubprocess:
         if self.returncode:
             return _t.SimpleNamespace(stdout=self.image_stdout, stderr=self.image_stderr,
                                       returncode=self.returncode)
-        if "--json-schema" in cmd:
+        if not is_image_call(cmd):
             if "For every inventory object" in prompt:
                 verdict = self.judge.pop(0)
                 return _t.SimpleNamespace(stdout=envelope(verdict), stderr="", returncode=0)
@@ -108,9 +115,10 @@ class FakeSubprocess:
                 return _t.SimpleNamespace(stdout=json.dumps({"status": "SUCCESS"}), stderr="", returncode=0)
             return _t.SimpleNamespace(stdout=envelope(self.describe), stderr="", returncode=0)
         self.image_calls += 1
+        report = {"generated": not (self.no_image or self.copy_first_attachment), "error": self.image_error}
         if self.image_calls in self.fail:
             raise subprocess.CalledProcessError(1, cmd, output="quota")
-        m = re.search(r"this path: (.*?)\. Output ONLY the word SUCCESS", prompt)
+        m = re.search(r"this path: (.*?)\. Then report what the tool did", prompt)
         if self.copy_first_attachment and m:
             first = re.search(r'ImagePaths = \["(.*?)"', prompt).group(1)
             with open(m.group(1), "wb") as f:
@@ -118,7 +126,7 @@ class FakeSubprocess:
         elif not self.no_image and self.image_png and m:
             with open(m.group(1), "wb") as f:
                 f.write(self.image_png)
-        return _t.SimpleNamespace(stdout=self.image_stdout, stderr=self.image_stderr,
+        return _t.SimpleNamespace(stdout=envelope(report), stderr=self.image_stderr,
                                   returncode=self.returncode)
 
 
@@ -213,11 +221,12 @@ def test_generate_dictates_the_tool_call(tmp_path, monkeypatch):
     ref.write_bytes(b"x")
     assert rb.generate("gemini-3.1-pro", cam, "the prompt", [ref, cam.guide], out) == png
     cmd = fake.calls[0]
-    assert cmd[0] == "agy" and "gemini-3.1-pro" in cmd and "--json-schema" not in cmd
+    assert cmd[0] == "agy" and "gemini-3.1-pro" in cmd and "--json-schema" in cmd
     text = cmd[2]
     assert f'ImagePaths = ["{ref.absolute()}", "{cam.guide.absolute()}"]' in text
     assert 'AspectRatio = "3:2"' in text and 'ImageName = "plate_f00_c000"' in text
-    assert f"copy the generated image file to exactly this path: {out}. Output ONLY the word SUCCESS" in text
+    assert f"copy the generated image file to exactly this path: {out}. Then report what the tool did" in text
+    assert "never copy an input image there instead" in text
     assert "---PROMPT---\nthe prompt\n---END---" in text
     assert "Look at the image" not in text
 
@@ -285,7 +294,7 @@ def test_regenerate_attaches_reference_and_guide_and_cleans_up(tmp_path, monkeyp
     _gate_script(monkeypatch, [(True, False, [])] * 3)
     before = set(pathlib.Path(tempfile.gettempdir()).glob("*.png"))
     assert _run(tmp_path, fake) == (3, 0)
-    gen = [c[2] for c in fake.calls if "--json-schema" not in c]
+    gen = [c[2] for c in fake.calls if is_image_call(c)]
     assert gen[0].count(".png") >= 2 and str((tmp_path / "in/guides/floor00/camera000.png").absolute()) in gen[0]
     assert str((tmp_path / "in/guides/floor00/camera000.png").absolute()) not in gen[1]   # camera001 has no guide
     assert set(pathlib.Path(tempfile.gettempdir()).glob("*.png")) == before
@@ -688,7 +697,7 @@ def test_accept_on_second_attempt_writes_png_and_report(tmp_path, monkeypatch):
     assert _regen(_one(tmp_path), out, log=logs.append) == (1, 0)
     assert load_png_rgb(out / "backgrounds/floor00/camera000.png").shape == (800, 1280, 3)
     assert logs[-1] == "floor00/camera000: ok (attempt 2/3, ncc 0.71, recall 0.83)"
-    gen = [c[2] for c in fake.calls if "--json-schema" not in c]
+    gen = [c[2] for c in fake.calls if is_image_call(c)]
     assert len(gen) == 2 and "Attempt 1 was rejected: remove the table; extra object: table." in gen[1]
     assert "Attempt" not in gen[0]
     assert gates[0] == ((800, 1280, 3), (200, 320, 3), False, 1.0)
@@ -709,7 +718,7 @@ def test_gate_failure_skips_the_judge_and_drops_the_guide_after_a_leak(tmp_path,
     assert _regen(_one(tmp_path), out) == (1, 0)
     judge_calls = [c for c in fake.calls if "For every inventory object" in c[2]]
     assert len(judge_calls) == 1
-    gen = [c[2] for c in fake.calls if "--json-schema" not in c]
+    gen = [c[2] for c in fake.calls if is_image_call(c)]
     guide = str((tmp_path / "in/guides/floor00/camera000.png").absolute())
     assert guide in gen[0] and guide not in gen[1]
     assert "Attempt 1 was rejected: guide colour on 40 %" in gen[1]
@@ -856,7 +865,7 @@ def test_screens_go_through_the_loop_with_screen_naming(tmp_path, monkeypatch):
     out = tmp_path / "out"
     assert _regen(cams, out) == (1, 0)
     assert (out / "screens" / "ress10.png").is_file()
-    gen = [c[2] for c in fake.calls if "--json-schema" not in c][0]
+    gen = [c[2] for c in fake.calls if is_image_call(c)][0]
     assert 'ImageName = "screen_ress10"' in gen and "painted illustration" in gen
     assert "Regions that must stay plain: x 3–47 y 5–96." in gen
     assert gates[0][2] is True
@@ -893,17 +902,43 @@ def test_live_one_camera_through_the_loop(tmp_path):
 
 
 
-def test_generate_reports_what_agy_printed_when_no_image_appears(tmp_path, monkeypatch):
-    """agy's own words are the only evidence of why a call produced nothing;
-    swallowing them leaves an undiagnosable report entry."""
+def test_generate_reports_the_tools_own_error_when_no_image_appears(tmp_path, monkeypatch):
+    """The observed failure: an exhausted image quota, reported as the word
+    SUCCESS because that was what the instructions asked for. The agent now
+    reports the tool's outcome instead, so the reason reaches report.json."""
     cam = rb.discover(make_in_dir(tmp_path), None)[0]
-    fake = FakeSubprocess(no_image=True, stdout="thinking...\n",
-                          stderr="generate_image: RESOURCE_EXHAUSTED (image quota)")
+    fake = FakeSubprocess(no_image=True, image_error="generate_image: RESOURCE_EXHAUSTED (image quota)")
     monkeypatch.setattr(subprocess, "run", fake.run)
     out = rb.temp_png()
     try:
         with pytest.raises(RuntimeError, match="RESOURCE_EXHAUSTED"):
             rb.generate("gemini-3.1-pro", cam, "p", [tmp_path / "ref.png"], out)
+    finally:
+        out.unlink(missing_ok=True)
+
+
+def test_generate_says_so_when_the_agent_claims_no_error(tmp_path, monkeypatch):
+    cam = rb.discover(make_in_dir(tmp_path), None)[0]
+    fake = FakeSubprocess(no_image=True)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    out = rb.temp_png()
+    try:
+        with pytest.raises(RuntimeError, match="the agent reported no error"):
+            rb.generate("gemini-3.1-pro", cam, "p", [tmp_path / "ref.png"], out)
+    finally:
+        out.unlink(missing_ok=True)
+
+
+def test_generate_trusts_the_file_over_the_agents_claim(tmp_path, monkeypatch):
+    """A report saying `generated` never makes a plate appear, and one saying
+    it did not never throws away a plate that is really there."""
+    cam = rb.discover(make_in_dir(tmp_path), None)[0]
+    png = png_bytes(np.full((1024, 1536, 3), 7, np.uint8))
+    fake = FakeSubprocess(png, image_error="the tool timed out")   # generated=True, error set
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    out = rb.temp_png()
+    try:
+        assert rb.generate("gemini-3.1-pro", cam, "p", [tmp_path / "ref.png"], out) == png
     finally:
         out.unlink(missing_ok=True)
 
@@ -962,7 +997,7 @@ def test_the_unchanged_correction_reaches_the_next_prompt(tmp_path, monkeypatch)
     monkeypatch.setattr(subprocess, "run", fake.run)
     _gate_script(monkeypatch, [(True, False, [])] * 9)
     _run(tmp_path, fake)
-    gen = [c[2] for c in fake.calls if "--json-schema" not in c]
+    gen = [c[2] for c in fake.calls if is_image_call(c)]
     assert rb.UNCHANGED_CORRECTION not in gen[0] and rb.UNCHANGED_CORRECTION in gen[1]
 
 

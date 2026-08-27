@@ -209,6 +209,15 @@ def _run_agy(cmd):
     return result
 
 
+GENERATE_REPORT_SCHEMA = {
+    "type": "object",
+    "properties": {"generated": {"type": "boolean"},
+                   "error": {"type": "string"}},
+    "required": ["generated", "error"],
+    "additionalProperties": False,
+}
+
+
 def agy_structured(model, instructions, schema):
     """One agy call with an enforced JSON schema; returns structured_output."""
     cmd = ["agy", "-p", instructions, "--dangerously-skip-permissions", "--effort", "low",
@@ -342,18 +351,24 @@ def image_name(cam):
 
 def generate(model, cam, prompt, attached, out_path):
     """One image-model call via agy: dictate the generate_image tool call
-    (references, aspect, name, prompt) and read the copied result."""
+    (references, aspect, name, prompt) and read the copied result. The agent
+    reports the tool's own outcome under a schema rather than a fixed success
+    word -- asking for one word invites a failed call to print it anyway, and
+    that is exactly what an exhausted image quota was observed doing."""
     paths = ", ".join(f'"{pathlib.Path(p).absolute()}"' for p in attached)
     instructions = (
         f"Call the generate_image tool exactly once with these arguments: ImagePaths = [{paths}]; "
         f'AspectRatio = "{GENERATE_ASPECT}"; ImageName = "{image_name(cam)}"; Prompt = the text between '
         f"the markers below. Then copy the generated image file to exactly this path: {out_path}. "
-        f"Output ONLY the word SUCCESS.\n---PROMPT---\n{prompt}\n---END---")
-    cmd = ["agy", "-p", instructions, "--dangerously-skip-permissions", "--effort", "low", "--model", model]
-    result = _run_agy(cmd)
+        f"Then report what the tool did: `generated` is true only if generate_image returned an image "
+        f"and you copied that image to that path; never copy an input image there instead. If anything "
+        f"failed, put the tool's own error text in `error` verbatim.\n---PROMPT---\n{prompt}\n---END---")
+    report = agy_structured(model, instructions, GENERATE_REPORT_SCHEMA)
     out_path = pathlib.Path(out_path)
     if not out_path.is_file() or out_path.stat().st_size == 0:
-        raise RuntimeError(f"no image generated or copied by agent (agy said: {_agy_tail(result)})")
+        # The file is the truth; the report only says why there isn't one.
+        detail = (report.get("error") or "").strip() or "the agent reported no error"
+        raise RuntimeError(f"no image generated or copied by agent: {detail}")
     return out_path.read_bytes()
 
 
