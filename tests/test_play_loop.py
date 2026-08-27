@@ -1876,3 +1876,126 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, profile
     for frame in presented:
         assert not np.array_equal(frame, sentinel), "staged scene leaked to screen"
         assert np.array_equal(frame, expected)
+
+
+def _resolving(monkeypatch, results):
+    """Queue (kind, payload) pairs for shell.resolve_play_click; returns the
+    queue so a test can assert how many resolutions were consumed."""
+    import PyAitD.app.shell as main
+    queue = list(results)
+    monkeypatch.setattr(main, "resolve_play_click", lambda *args: queue.pop(0))
+    return queue
+
+
+def _follow_fixture(data_dir, profile):
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    hero = game.actors[game.current_camera_target_actor]
+    near = (hero.room_x + 1000, hero.room_z, hero.room, -1)
+    far = (hero.room_x + 2000, hero.room_z, hero.room, -1)
+    return game, floor, InputBuffer(pointer_held=True), near, far
+
+
+def test_follow_reissues_only_when_the_resolution_changes(data_dir, profile, monkeypatch):
+    import PyAitD.app.shell as main
+    game, floor, buf, near, far = _follow_fixture(data_dir, profile)
+    _resolving(monkeypatch, [("walk", near), ("walk", near), ("walk", far)])
+
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    first = game.nav_intent
+    assert (first.dest_x, first.dest_z, first.room) == near[:3]
+    assert buf.follow_last == near
+    first.waypoints = ["sentinel"]
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    assert game.nav_intent is first and first.waypoints == ["sentinel"], (
+        "an unchanged resolution is never re-issued: re-pathing every frame "
+        "would reset the follower's stall bookkeeping and its waypoints"
+    )
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    assert game.nav_intent is not first
+    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == far[:2]
+    assert buf.follow_last == far
+
+
+def test_follow_blocked_stops_the_hero_and_clears_the_latch(data_dir, profile, monkeypatch):
+    import PyAitD.app.shell as main
+    game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
+    _resolving(monkeypatch, [("walk", near), ("blocked", None), ("walk", near)])
+
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    assert game.nav_intent is None and buf.follow_last is None
+    assert (game.local_joyd, game.nav_decision) == (0, None)
+    # back over the floor: the same point is issued again, the hold is live
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    assert game.nav_intent is not None and buf.follow_last == near
+
+
+def test_follow_does_not_reissue_an_arrived_or_abandoned_destination(
+        data_dir, profile, monkeypatch):
+    # the engine clears the intent on arrival or give-up; without the latch
+    # the shell would re-issue it every frame -- re-dispatching a used object
+    # and grinding at a dead click
+    import PyAitD.app.shell as main
+    game, floor, buf, _near, _far = _follow_fixture(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    target = (hero.room_x + 1000, hero.room_z, hero.room, 13)
+    _resolving(monkeypatch, [("target", target), ("target", target)])
+
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    assert game.nav_intent.target_object_idx == 13
+    game.nav_intent = None   # what playworld does when the follower arrives
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    assert game.nav_intent is None and buf.follow_last == target
+
+
+@pytest.mark.parametrize("kind", ["inventory", "attack", "push"])
+def test_follow_ignores_press_only_kinds(data_dir, profile, monkeypatch, kind):
+    import PyAitD.app.shell as main
+    game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
+    _resolving(monkeypatch, [(kind, near)])
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    assert game.nav_intent is None and buf.follow_last is None
+
+
+def test_follow_is_skipped_while_a_push_or_attack_latch_lives(data_dir, profile, monkeypatch):
+    import PyAitD.app.shell as main
+    from PyAitD.engine.interaction import apply_click_intent
+    game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
+    queue = _resolving(monkeypatch, [("walk", near)])
+
+    apply_click_intent(game, 10, 20, 0, 4, requires_hold=True)
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    assert game.nav_intent.requires_hold is True and len(queue) == 1
+
+    game.nav_intent = None
+    buf.mouse_attack_target = 3
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    assert game.nav_intent is None and len(queue) == 1
+
+
+@pytest.mark.parametrize(
+    "why", ["released", "unfocused", "modal", "keyboard", "cutscene", "transition"],
+)
+def test_follow_requires_a_held_pointer_in_live_play(data_dir, profile, monkeypatch, why):
+    import PyAitD.app.shell as main
+    from PyAitD.engine.effects import InputMode
+    game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
+    session = ModalSession()
+    queue = _resolving(monkeypatch, [("walk", near)])
+    if why == "released":
+        buf.pointer_held = False
+    elif why == "unfocused":
+        buf.focused = False
+    elif why == "modal":
+        game.active_modal = SimpleNamespace()
+    elif why == "keyboard":
+        game.input_mode = InputMode.KEYBOARD
+    elif why == "cutscene":
+        session.cutscene = True
+    elif why == "transition":
+        game.num_camera = -1
+    main.follow_pointer(game, session, floor, (10, 10), [], buf)
+    assert game.nav_intent is None and buf.follow_last is None
+    assert len(queue) == 1, "nothing was resolved"

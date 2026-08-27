@@ -372,6 +372,44 @@ def route_play_click(
         input_buffer.follow_last = payload if kind != "push" else None
 
 
+def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
+    """Held pointer follow: once per frame, re-aim the hero at whatever the
+    held pointer resolves to (docs/superpowers/specs/2026-08-26-held-pointer-follow-design.md).
+
+    The resolution is compared against input_buffer.follow_last, never the
+    live intent: the engine clears an intent when the follower arrives or
+    gives up, and _push_into_target re-aims a target intent at the object
+    itself, so an unchanged resolution must never be re-issued within one
+    hold. That one rule is both the arrival one-shot latch and the "a dead
+    click is not retried until the pointer moves" rule. A transition frame
+    (num_camera == -1) is skipped rather than resolved: the resolver reports
+    blocked there, which would stop the hero for a tick at every room change.
+    """
+    from PyAitD.engine.interaction import apply_click_intent, cancel_nav_intent
+
+    if (game.active_modal is not None or game.mode is not GameMode.PLAY
+            or game.input_mode is not InputMode.MOUSE or session.cutscene
+            or game.num_camera == -1
+            or not input_buffer.pointer_held or not input_buffer.focused
+            or input_buffer.mouse_attack_target is not None):
+        return
+    intent = game.nav_intent
+    if intent is not None and intent.requires_hold:
+        return  # a latched push ignores pointer motion until release
+    kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
+    if kind in ("walk", "target"):
+        if payload == input_buffer.follow_last:
+            return
+        dest_x, dest_z, room, object_idx = payload
+        apply_click_intent(game, dest_x, dest_z, room, target_object_idx=object_idx)
+        input_buffer.follow_last = payload
+    elif kind == "blocked":
+        if intent is not None:
+            cancel_nav_intent(game)
+        input_buffer.follow_last = None
+    # inventory, attack and push need a fresh press: nothing to follow
+
+
 def _cancel_pointer_invalidation(game, event, input_buffer=None):
     """Button-up and focus loss end the hold, and every intent is hold-bound."""
     invalidated = (
@@ -1206,8 +1244,17 @@ def run(game, trace_path=None, session=None, resolver=None):
                 accumulator -= TICK_MS
                 if floor.number != game.current_floor:
                     floor = game.load_floor(game.current_floor)
+                    # the intent's room indexes the old floor; the next
+                    # frame re-resolves the held pointer against the new one
+                    _cancel_follow(game, input_buffer)
             if game.num_camera != -1:
                 scene_frame, draw_list = _scene_frame(game, floor, renderer, resolver)
+            # after the ticks and the scene refresh, so the held pointer
+            # resolves against the frame it is actually over -- a camera cut
+            # with a still pointer retargets here, without a motion event
+            follow_pointer(
+                game, session, floor, input_buffer.pointer_pos, draw_list, input_buffer,
+            )
         else:
             accumulator = 0
             session.elapsed_ms += elapsed
