@@ -147,6 +147,13 @@ a rule — add the test with the rule.
   `render_gl` owns all moderngl; `render` owns the window and both. `scene.build_frame` returns an
   immutable `FrameDescription` whose `palette` and `background.pixels` alias
   shared decode caches — read them, never write.
+- The UI layer is painted through `app.ui.UIPainter`, which owns a surface at
+  `(320*s, 200*s)` and scales logical coordinates on every call. Presenters
+  author in logical 320x200 and never build their own surface; `s` comes from
+  `Renderer.ui_scale()`, the same expression `window_to_logical` inverts.
+  Pixel art (cadre tiles, sprites, scene thumbnails) goes through
+  `painter.sprite`, which upscales by an integer; text and shapes are drawn
+  at scale. Hit-testing stays logical — never scale a `hit_test_*` input.
 - `app/ui.py` never mutates world/actor/inventory/LIFE state; `app/config.py`
   is pygame-free settings schema/persistence; `app/shell.py` owns the single
   event pump, the settings lifecycle, game/floor replacement, and one present

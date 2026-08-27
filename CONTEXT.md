@@ -272,6 +272,12 @@ action runner.
   (held/action/sticky/commands), the modal presenters and reducers, all shell
   drawing, and the hit geometry (`CharacterLayout`/`SystemMenuLayout`/
   `SettingsNoticeLayout`).
+- `app.ui.UIPainter` is the UI canvas: a surface at `(320*s, 200*s)` plus the
+  scale, and the only object that knows `s`. `shell.render_active_mode`
+  builds one per frame from `Renderer.ui_scale()` and every presenter and
+  overlay paints on it; the loop calls `to_frame()` once, at `present()`.
+  `screen_surface(resolver, entry, size)` fetches ITD_RESS screens at the
+  canvas size, so an override keeps the resolution it came with.
 - `app/shell.py` owns the application session (`ModalSession` settings fields),
   the persistence policy (load once at boot, save at dirty boundaries), raw
   remap capture (consumes the captured KEYDOWN exclusively), the event pump,

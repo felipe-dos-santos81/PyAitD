@@ -10,6 +10,8 @@ from PyAitD.engine.life import life_gate
 from PyAitD.engine.navmesh import agent_extent
 from PyAitD.engine.picking import project_floor_point
 
+from tests.conftest import painter_from_frame
+
 pytestmark = [pytest.mark.shell, pytest.mark.journey]
 
 
@@ -84,7 +86,7 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(profile, monkey
         main, "play_tick", lambda *args: calls.append("tick") or True
     )
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
-    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
     monkeypatch.setattr(
         main.pygame.mouse, "set_visible", lambda value: None
     )
@@ -111,6 +113,18 @@ def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(profile, monkey
     assert calls == ["tick"] * 5 + ["present", "present"]
 
 
+def test_the_loop_paints_one_canvas_at_the_renderer_scale(data_dir, profile, monkeypatch):
+    # Task 9: render_active_mode builds exactly one UIPainter, at the live
+    # Renderer's ui_scale(), and hands it back directly -- no per-branch
+    # painter and no separate bridge painter in run().
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    renderer = SimpleNamespace(ui_scale=lambda: 4.0)
+    painter = main.render_active_mode(game, ModalSession(), renderer)
+    assert painter.scale == 4.0
+    assert painter.to_frame().shape[:2] == (800, 1280)
+
+
 def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
     from PyAitD.engine.game import Game
@@ -133,7 +147,7 @@ def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, profile, mo
         lambda self, number: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
     )
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
-        fallback_notice=None,
+        fallback_notice=None, ui_scale=lambda: 1.0,
         present=lambda image: presented.append(image.copy()), close=lambda: None,
     ))
     monkeypatch.setattr(main, "play_tick", publish_then_clear)
@@ -191,7 +205,7 @@ def test_run_expires_hit_feedback_instead_of_latching_forever(data_dir, profile,
         lambda self, number: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
     )
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
-        fallback_notice=None,
+        fallback_notice=None, ui_scale=lambda: 1.0,
         present=lambda image: presented.append(image.copy()), close=lambda: None,
     ))
     monkeypatch.setattr(main, "play_tick", publish_once)
@@ -256,7 +270,7 @@ def test_escape_opens_the_system_menu_and_pauses_play_ticks(data_dir, profile, m
         main, "play_tick", lambda *args: calls.append("tick") or True
     )
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
-    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
     monkeypatch.setattr(
         main.pygame.mouse, "set_visible", lambda value: None
     )
@@ -306,7 +320,7 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(profile, mon
     )
     monkeypatch.setattr(main, "play_tick", tick)
     monkeypatch.setattr(main, "_scene_frame", scene_frame)
-    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
     monkeypatch.setattr(
         main.pygame.mouse, "set_visible", lambda value: None
     )
@@ -462,7 +476,7 @@ def test_run_constructs_renderer_with_the_session_s_render_options(monkeypatch, 
 
     monkeypatch.setattr(main, "Renderer", spy_renderer)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
-    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda value: None)
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
@@ -491,7 +505,7 @@ def test_run_propagates_renderer_fallback_notice_into_settings_error(monkeypatch
             present=lambda image: None, close=lambda: None,
         ))
         monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
-        monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+        monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
         monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda value: None)
         monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
         monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
@@ -550,7 +564,7 @@ def test_run_builds_one_resolver_and_threads_it_through_scene_frame_calls(monkey
     ))
     monkeypatch.setattr(main, "AssetResolver", SpyAssetResolver)
     monkeypatch.setattr(main, "_scene_frame", spy_scene_frame)
-    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
     monkeypatch.setattr(main, "play_tick", lambda *a: True)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda value: None)
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
@@ -945,7 +959,7 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
             state.held_joyd, state.focused, state.pointer_touch, state.pointer_pos,
         )),
     )
-    monkeypatch.setattr(main, "render_active_mode", lambda *_args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
     monkeypatch.setattr(main, "_play_cursor_kind", lambda *_args: "blocked")
@@ -1013,7 +1027,7 @@ def test_held_push_inventory_modal_takeover_is_clean_before_play_resumes(
     ))
     monkeypatch.setattr(main, "_scene_frame", lambda *_args: (frame, []))
     monkeypatch.setattr(main, "play_tick", assert_modal_tick_is_clean)
-    monkeypatch.setattr(main, "render_active_mode", lambda *_args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
     monkeypatch.setattr(main, "render_cursor", lambda image, *_args: image)
@@ -1074,7 +1088,7 @@ def test_run_routes_physical_and_touch_down_through_the_same_held_push_path(
             state.pointer_touch, state.pointer_pos,
         )),
     )
-    monkeypatch.setattr(main, "render_active_mode", lambda *_args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
     monkeypatch.setattr(main, "render_cursor", lambda image, *_args: image)
@@ -1123,7 +1137,7 @@ def test_run_routes_physical_and_touch_down_to_the_same_inventory_modal(
         close=lambda: None,
     ))
     monkeypatch.setattr(main, "_scene_frame", lambda *_args: (frame, []))
-    monkeypatch.setattr(main, "render_active_mode", lambda *_args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
     monkeypatch.setattr(main, "InputBuffer", lambda: input_buffer)
@@ -1833,7 +1847,7 @@ def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
         present=lambda image: calls.append("present"), close=lambda: calls.append("close"),
     ))
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, draw_list))
-    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
     monkeypatch.setattr(
         main, "render_hit_feedback",
         lambda image, rects: calls.append(("hit", tuple(rects))) or image,
@@ -1887,7 +1901,7 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, profile
         lambda self, number: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
     )
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
-        fallback_notice=None,
+        fallback_notice=None, ui_scale=lambda: 1.0,
         present=presented.append, close=lambda: None,
     ))
     monkeypatch.setattr(
@@ -1911,13 +1925,12 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, profile
     render_character_select(expected_painter, CharacterSelectPresenter(), game.assets)
     expected = expected_painter.to_frame()[:, :, :3]
     for frame in presented:
-        # run() bridges render_active_mode's numpy frame through a UIPainter
-        # before presenting (Task 4), which adds a fully-opaque alpha
-        # channel; the RGB content stays byte-identical.
+        # render_active_mode hands run() a painter (Task 9), and
+        # painter.to_frame() always carries a fully-opaque alpha channel.
         assert frame.shape == (200, 320, 4)
         assert not np.array_equal(frame[:, :, :3], sentinel), "staged scene leaked to screen"
         assert np.array_equal(frame[:, :, :3], expected)
-        assert frame[:, :, 3].min() == 255, "the bridged seed is fully opaque"
+        assert frame[:, :, 3].min() == 255, "the selector's canvas is fully opaque"
 
 
 def _resolving(monkeypatch, results):

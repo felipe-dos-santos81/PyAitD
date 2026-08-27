@@ -38,6 +38,12 @@ class _HeadlessRenderer:
     def window_to_logical(self, pos):
         return pos
 
+    def ui_scale(self):
+        return 1.0
+
+    def scene_thumbnail(self):
+        return _FRAME
+
     def present(self, _frame):
         self.presented += 1
 

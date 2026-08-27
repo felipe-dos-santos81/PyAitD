@@ -27,6 +27,7 @@ from PyAitD.games.aitd1.mouse_contract import (
     PlayerCapability,
 )
 from PyAitD.app.ui import Command
+from tests.conftest import painter_from_frame
 
 pytestmark = [pytest.mark.shell, pytest.mark.journey]
 
@@ -254,7 +255,7 @@ def _run_scripted_mouse(monkeypatch, game, draw_list, next_events):
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: renderer)
     if draw_list is not None:
         monkeypatch.setattr(main, "_scene_frame", lambda *args: (_FRAME, draw_list))
-    monkeypatch.setattr(main, "render_active_mode", lambda *args: _FRAME)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(_FRAME))
     monkeypatch.setattr(main.pygame.event, "get", next_events)
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(ticks))
     monkeypatch.setattr(main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None))

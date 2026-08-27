@@ -9,6 +9,7 @@ import pytest
 from PyAitD.app.shell import parse_args
 from PyAitD.app.config import default_settings
 from PyAitD.engine.effects import ShowTitle
+from tests.conftest import painter_from_frame
 
 pytestmark = pytest.mark.shell
 
@@ -507,7 +508,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(profil
     )
     monkeypatch.setattr(main, "play_tick", lambda *args: True)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
-    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda value: None)
     monkeypatch.setattr(main.pygame.display, "set_caption", lambda *args: None)
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))

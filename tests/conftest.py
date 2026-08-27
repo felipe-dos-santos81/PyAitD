@@ -49,3 +49,16 @@ def held_pointer(pos=None):
     """
     from PyAitD.app.ui import InputBuffer
     return InputBuffer(pointer_held=True, focused=True, pointer_pos=pos)
+
+
+def painter_from_frame(frame):
+    """A scale-1 UIPainter seeded with `frame`, the stand-in for a
+    monkeypatched `render_active_mode` (task 9: it now returns a painter,
+    not a numpy frame). Reproduces exactly what the old run() bridge line
+    did -- `UIPainter().sprite(frame, (0, 0))` -- so a test that fakes
+    render_active_mode's output still hands run() something the rest of
+    the frame (hit feedback, HUD, cursor) can paint on top of."""
+    from PyAitD.app.ui import UIPainter
+    painter = UIPainter()
+    painter.sprite(frame, (0, 0))
+    return painter

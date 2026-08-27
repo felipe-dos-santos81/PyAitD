@@ -26,7 +26,7 @@ from PyAitD.app.ui import (
     Command, DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, UIPainter, configure_input,
     event_to_input,
     hit_test_settings_notice, render_cursor, render_hit_feedback, render_play_hud,
-    render_settings_notice, reset_input, transparent_canvas,
+    render_settings_notice, reset_input,
 )
 
 DEFAULT_DATA = (
@@ -1002,71 +1002,60 @@ def render_active_mode(game, session, renderer, resolver=None):
         ReadText, ShowFound, ShowPicture,
     )
     from PyAitD.app.ui import (
-        UIPainter, overlay_messages, render_character_select, render_found,
+        overlay_messages, render_character_select, render_found,
         render_game_over, render_inventory, render_picture, render_reading,
         render_system_menu,
     )
+    painter = UIPainter(renderer.ui_scale())
     effect = game.active_modal
     if effect is None:
-        # overlay_messages paints on a painter in place; a fresh UIPainter()
-        # is the painter form of transparent_canvas().
-        painter = UIPainter()
         overlay_messages(painter, game.messages, game.assets)
-        return painter.to_frame()
+        return painter
     if isinstance(effect, CutsceneFinished):
         # the last PLAY frame stays composed underneath, exactly like
         # render_game_over before its accessibility wait elapses
-        return transparent_canvas()
+        return painter
     # This is the modal lifecycle boundary.  It resets a replacement exactly
     # once before any presenter can render, including the system menu.
     session.reset_for(effect)
     if isinstance(effect, OpenSystemMenu):
-        painter = UIPainter()          # Task 9 replaces these per-branch
         render_system_menu(painter, session.system_menu, session.settings, game.assets)
-        return painter.to_frame()
+        return painter
     if isinstance(effect, ChooseCharacter):
         # the selector owns the whole frame; the staged PLAY scene is never shown
-        painter = UIPainter()          # Task 9 replaces these per-branch
         render_character_select(painter, session.character, game.assets, resolver)
-        return painter.to_frame()
+        return painter
     if isinstance(effect, ShowTitle):
         from PyAitD.app.startup import render_title
-        painter = UIPainter()          # Task 9 replaces these per-branch
         render_title(painter, session.title, game.assets, resolver or AssetResolver(game.assets, None),
                       session.elapsed_ms, _credits_entry(game))
-        return painter.to_frame()
+        return painter
     if isinstance(effect, OpenStartupMenu):
         from PyAitD.app.startup import render_startup_menu
-        painter = UIPainter()          # Task 9 replaces these per-branch
         render_startup_menu(painter, session.startup, game.assets, continue_enabled=continue_available(session))
-        return painter.to_frame()
+        return painter
     if isinstance(effect, ShowFound):
         world = game.world_objects[effect.object_idx]
-        painter = UIPainter()          # Task 9 replaces these per-branch
         render_found(painter, effect, session.found, game.assets,
                      game.assets.system_text(world.found_name))
-        return painter.to_frame()
+        return painter
     if isinstance(effect, OpenInventory):
         object_ids, action_ids = _inventory_view(game, session)
-        painter = UIPainter()          # Task 9 replaces these per-branch
         render_inventory(
             painter, session.inventory, game.assets, renderer.scene_thumbnail(),
             tuple(game.assets.system_text(game.world_objects[i].found_name) for i in object_ids),
             tuple(game.assets.system_text(i) for i in action_ids),
         )
-        return painter.to_frame()
+        return painter
     if isinstance(effect, ReadText):
-        painter = UIPainter()          # Task 9 replaces these per-branch
         render_reading(painter, effect, session.reading, game.assets, resolver)
-        return painter.to_frame()
+        return painter
     if isinstance(effect, ShowPicture):
-        painter = UIPainter()          # Task 9 replaces these per-branch
-        render_picture(painter, effect, game.assets, resolver)   # painters with one per frame
-        return painter.to_frame()
+        render_picture(painter, effect, game.assets, resolver)
+        return painter
     if isinstance(effect, GameOver):
-        painter = UIPainter()          # Task 9 replaces these per-branch
         render_game_over(painter, renderer.scene_thumbnail(), _game_over_ready(session, effect))
-        return painter.to_frame()
+        return painter
     raise RuntimeError(f"unrenderable modal {type(effect).__name__}")
 
 
@@ -1389,10 +1378,7 @@ def run(game, trace_path=None, session=None, resolver=None):
             for actor_idx, deadline in hit_feedback_deadlines.items()
             if deadline > now
         }
-        composed = render_active_mode(game, session, renderer, resolver)
-        painter = UIPainter()
-        painter.sprite(composed, (0, 0))   # bridge: Task 9 deletes this once
-                                           # render_active_mode returns a painter
+        painter = render_active_mode(game, session, renderer, resolver)
         render_hit_feedback(
             painter,
             _hit_feedback_rects(game, draw_list, hit_feedback_deadlines),

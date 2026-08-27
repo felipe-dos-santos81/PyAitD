@@ -83,6 +83,12 @@ the Configuration screen's Graphics rows persist like every other setting.
 If no GL 3.3 context is available, rendering falls back to the software
 backend at scale 1 with a settings notice; the game always runs.
 
+The UI layer — character selection, the inventory, menus, messages and the
+cursor — is drawn at the window's own resolution rather than at 320x200, so
+its text stays sharp at any window size. It is authored in 320x200
+coordinates regardless, which is what keeps mouse targets and what you see
+in step.
+
 To regenerate the backgrounds with an external AI tool, `make
 export-backgrounds` writes the originals plus structure guides, a layout
 sidecar per camera (the guide's geometry as JSON, used to describe and verify

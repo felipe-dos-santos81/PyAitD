@@ -32,6 +32,8 @@ from PyAitD.app.ui import (
     SystemMenuLayout, SystemMenuPage, SystemMenuPresenter, SystemMenuResult,
 )
 
+from tests.conftest import painter_from_frame
+
 pytestmark = pytest.mark.shell
 
 
@@ -76,7 +78,8 @@ def test_render_active_mode_resets_a_replaced_system_menu_preview(monkeypatch):
     # what's asserted below, not this stub's return value.
     monkeypatch.setattr("PyAitD.app.ui.render_system_menu", lambda *args: None)
 
-    frame = render_active_mode(game, session, np.zeros((200, 320, 3), dtype=np.uint8))
+    renderer = SimpleNamespace(ui_scale=lambda: 1.0)
+    frame = render_active_mode(game, session, renderer).to_frame()
     assert frame.shape == (200, 320, 4)
     assert session.last_effect is replacement
     assert session.system_menu is not old_presenter
@@ -93,9 +96,9 @@ def test_render_active_mode_returns_a_transparent_rgba_canvas_with_no_modal():
     3-channel opaque frame instead -- fails this test."""
     game = SimpleNamespace(active_modal=None, messages=(), assets=object())
     session = ModalSession()
-    scene_frame = np.full((200, 320, 3), 77, dtype=np.uint8)
+    renderer = SimpleNamespace(ui_scale=lambda: 1.0)
 
-    result = render_active_mode(game, session, scene_frame)
+    result = render_active_mode(game, session, renderer).to_frame()
 
     assert result.shape == (200, 320, 4)
     assert result.dtype == np.uint8
@@ -111,7 +114,7 @@ def test_render_active_mode_returns_a_transparent_rgba_canvas_with_no_modal():
         active_modal=None, assets=_FakeAssets(),
         messages=[SimpleNamespace(message_id=0)],
     )
-    with_message = render_active_mode(game_with_message, session, scene_frame)
+    with_message = render_active_mode(game_with_message, session, renderer).to_frame()
     assert with_message.shape == (200, 320, 4)
     assert with_message[:, :, 3].max() > 0  # the message glyph painted real alpha
 
@@ -234,7 +237,7 @@ def test_run_routes_motion_once_and_focus_loss_clears_the_modal_preview(data_dir
         close=lambda: None,
     ))
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
-    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(events))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(ticks))
     monkeypatch.setattr(main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None))
@@ -264,7 +267,7 @@ def _run_notice_script(monkeypatch, game, session, next_events, draw_list=()):
         close=lambda: None,
     ))
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, list(draw_list)))
-    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
     monkeypatch.setattr(main, "play_tick", lambda *args: True)
     monkeypatch.setattr(main.pygame.event, "get", next_events)
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(ticks))
@@ -788,7 +791,7 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, profile, mo
     )
     monkeypatch.setattr(main, "play_tick", lambda *args: True)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
-    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
     monkeypatch.setattr(
         main.pygame.mouse, "set_visible", lambda value: None
     )
@@ -873,7 +876,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
 
     def assert_clean_before_render(_game, _session, _frame, *_args):
         assert_takeover_clean("modal-render")
-        return frame
+        return painter_from_frame(frame)
 
     monkeypatch.setattr(Game, "load_floor", stub_load_floor)
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
@@ -1363,7 +1366,7 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     monkeypatch.setattr(main, "InputBuffer", spy_input_buffer)
     monkeypatch.setattr(main, "_scene_frame", spy_scene_frame)
     monkeypatch.setattr(main, "play_tick", spy_play_tick)
-    monkeypatch.setattr(main, "render_active_mode", lambda *a: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *a: painter_from_frame(frame))
     monkeypatch.setattr(
         main, "Renderer",
         lambda *_a, **_k: SimpleNamespace(
@@ -1442,7 +1445,9 @@ def test_title_click_survives_the_first_render_active_mode_reset(data_dir, profi
     game = init_game(data_dir, profile)
     game.open_modal(ShowTitle())
     session = ModalSession()
-    renderer = SimpleNamespace(scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8))
+    renderer = SimpleNamespace(
+        ui_scale=lambda: 1.0, scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8),
+    )
     assert session.title.phase is TitlePhase.TITLE
     route_mouse(game, session, (5, 5))
     assert session.title.phase is TitlePhase.CREDITS
@@ -1475,7 +1480,7 @@ def test_run_advances_the_title_past_its_timeout_with_no_input(data_dir, profile
         close=lambda: None,
     ))
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
-    monkeypatch.setattr(main, "render_active_mode", lambda *args: frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(ticks))
     monkeypatch.setattr(
@@ -1530,11 +1535,13 @@ def test_render_active_mode_draws_title_and_menu(data_dir, profile):
     pygame.font.init()
     game = init_game(data_dir, profile)
     session = ModalSession()
-    renderer = SimpleNamespace(scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8))
+    renderer = SimpleNamespace(
+        ui_scale=lambda: 1.0, scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8),
+    )
     game.open_modal(ShowTitle())
-    assert render_active_mode(game, session, renderer).shape == (200, 320, 4)
+    assert render_active_mode(game, session, renderer).to_frame().shape == (200, 320, 4)
     open_startup_menu(game, session)
-    assert render_active_mode(game, session, renderer).shape == (200, 320, 4)
+    assert render_active_mode(game, session, renderer).to_frame().shape == (200, 320, 4)
 
 
 from PyAitD.app.shell import _boot_hero, _cutscene_end_branch
@@ -1542,6 +1549,9 @@ from PyAitD.engine.effects import CutsceneFinished
 
 
 class _Renderer:
+    def ui_scale(self):
+        return 1.0
+
     def scene_thumbnail(self):
         return np.zeros((200, 320, 3), np.uint8)
 
@@ -1601,5 +1611,5 @@ def test_cutscene_finished_renders_the_frozen_scene(data_dir, profile):
     pygame.font.init()
     game = init_game(data_dir, profile)
     game.open_modal(CutsceneFinished())
-    frame = render_active_mode(game, ModalSession(cutscene=True), _Renderer())
+    frame = render_active_mode(game, ModalSession(cutscene=True), _Renderer()).to_frame()
     assert frame.shape == (200, 320, 4) and frame[..., 3].max() == 0      # transparent: scene shows through
