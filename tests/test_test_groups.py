@@ -251,14 +251,17 @@ def test_tests_take_the_profile_from_the_fixture():
     # test_game_profile.py is the only exception: its job is pinning AITD1's
     # own identity, which a fixture would make circular. test_life_vm.py
     # builds a *stub* GameProfile, not AITD1, so it takes the fixture like
-    # every other file. test_test_groups.py (this file) is excluded too --
-    # not because it imports AITD1, but because the needle string below is
-    # necessarily spelled out in this very check, so this file always
-    # contains it textually. That self-reference isn't a real offender.
-    allowed = {"test_game_profile.py", "test_test_groups.py"}
+    # every other file.
+    #
+    # The needle is split so this file does not textually contain the very
+    # string it searches for -- otherwise this check would always flag
+    # itself and would have to exempt its own file, blinding the guard to a
+    # genuine future offender here.
+    needle = "from PyAitD.games.aitd1.profile" + " import AITD1"
+    allowed = {"test_game_profile.py"}
     offenders = sorted(
         p.name for p in all_test_files()
         if p.name not in allowed
-        and "from PyAitD.games.aitd1.profile import AITD1" in p.read_text()
+        and needle in p.read_text()
     )
     assert not offenders, offenders
