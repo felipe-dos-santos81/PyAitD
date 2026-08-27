@@ -14,7 +14,7 @@ docs/graphics-proof/overrides/
 docs/intro-proof/*.png
 docs/intro-proof/intro-ticks.txt
 overrides/
-overrides-ai/
+overrides-*/
 .env
 .claude/
 .taskmaster/

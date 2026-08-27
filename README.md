@@ -82,8 +82,9 @@ If no GL 3.3 context is available, rendering falls back to the software
 backend at scale 1 with a settings notice; the game always runs.
 
 To regenerate the backgrounds with an external AI tool, `make
-export-backgrounds` writes the originals plus structure guides and a
-manifest into `data/aitd1/overrides` (git-ignored; `out=DIR` to choose another), and `make check-overrides`
+export-backgrounds` writes the originals plus structure guides, a layout
+sidecar per camera (the guide's geometry as JSON, used to describe and verify
+the scene) and a manifest into `data/aitd1/overrides` (git-ignored; `out=DIR` to choose another), and `make check-overrides`
 validates the results the way the game loads them. `make regenerate-backgrounds`
 (optional; needs the `agy` CLI on `PATH`; per camera it asks for a structured
 inventory, dictates the image call, and verifies every attempt with an offline

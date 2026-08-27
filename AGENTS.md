@@ -19,7 +19,7 @@ make proof-combat  # venue, real enemy damage, player arms, game over (needs gam
 make proof-graphics # attic + combat fixtures per shading mode (needs GL + game data)
 make proof-intro   # opening cutscene: headless gate + one GL render per visited camera
 make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
-make export-backgrounds # originals + ITD_RESS screens + guides + manifest to data/aitd1/overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1, screens=0 to skip)
+make export-backgrounds # originals + ITD_RESS screens + guides + layout sidecars + manifest to data/aitd1/overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1, screens=0 to skip)
 make check-overrides # validate data/aitd1/overrides (or overrides=DIR) as the game loads it; proof=1 renders side-by-sides
 make regenerate-backgrounds # Gemini describe+render+verify data/aitd1/overrides -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1, attempts=3, gate_scale=1.0); rejects drifted plates; needs the `agy` CLI on PATH
 ```
@@ -154,7 +154,11 @@ a rule — add the test with the rule.
 - `render/background_export.py` and `render/override_check.py` are pure like
   `render/scene.py`; PNG encoding lives only in `tools/`. The export
   directory layout is `render/asset_resolver.override_background_path`'s and
-  `override_screen_path`'s — change both or neither.
+  `override_screen_path`'s — change both or neither. `background_export`
+  additionally owns the guide and layout-sidecar paths (`layout_rel_path`,
+  `screen_layout_rel_path`); a sidecar holds the guide's own geometry, so
+  `layout_segments` is the single source both the guide pixels and
+  `tools/plate_check.py`'s leak check draw from — never re-derive either.
 - `tools/regenerate_backgrounds.py` is the only module that may talk to an
   AI service. It shells out to the `agy` CLI (`subprocess.run`) — it imports no
   SDK — and its unit tests monkeypatch `subprocess.run`, so they never touch the

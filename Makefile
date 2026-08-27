@@ -112,7 +112,7 @@ prove-graphics: proof-graphics ## Alias of proof-graphics
 
 prove-intro: proof-intro ## Alias of proof-intro
 
-export-backgrounds: install ## Export every camera background + ITD_RESS screen + guides + manifest for external AI regeneration (out=data/aitd1/overrides, floors=0-7, scale=4, force=1, screens=0 to skip screens)
+export-backgrounds: install ## Export every camera background + ITD_RESS screen + guides + layout sidecars + manifest for external AI regeneration (out=data/aitd1/overrides, floors=0-7, scale=4, force=1, screens=0 to skip screens)
 	$(PYTHON) tools/export_backgrounds.py "$(data)" --out "$(out)" --floors "$(or $(floors),0-7)" --guide-scale "$(or $(scale),4)" $(if $(force),--force) $(if $(filter 0,$(screens)),--no-screens)
 
 check-overrides: install ## Check an override dir the way the game loads it (overrides=data/aitd1/overrides, floors=0-7); proof=1 renders original|override side-by-sides to docs/graphics-proof/overrides/
