@@ -703,6 +703,25 @@ def test_reject_after_all_attempts_writes_nothing(tmp_path, monkeypatch):
     assert report["accepted"] is False and len(report["attempts"]) == 2
 
 
+def test_reject_after_all_attempts_leaves_an_existing_accepted_plate_untouched(tmp_path, monkeypatch):
+    """The feature's whole point: a rejected re-run of a camera that already
+    has an accepted plate on disk must not touch that file -- the game keeps
+    falling back to (in this case) the previously-accepted override."""
+    png = png_bytes(np.zeros((1024, 1536, 3), np.uint8))
+    fake = FakeSubprocess(png, judge=[_verdict(camera_same=False)] * 2)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, []), (True, False, [])])
+    out = tmp_path / "out"
+    target = out / "backgrounds/floor00/camera000.png"
+    target.parent.mkdir(parents=True)
+    original_bytes = b"pre-existing accepted plate -- must survive a rejected rerun"
+    target.write_bytes(original_bytes)
+    assert _regen(_one(tmp_path), out, attempts=2, force=True) == (0, 1)
+    assert target.read_bytes() == original_bytes
+    report = rb.load_json(out / rb.REPORT_FILE)["floor00/camera000"]
+    assert report["accepted"] is False and len(report["attempts"]) == 2
+
+
 def test_error_mid_attempt_ends_the_camera_without_retry(tmp_path, monkeypatch):
     fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={1})
     monkeypatch.setattr(subprocess, "run", fake.run)
