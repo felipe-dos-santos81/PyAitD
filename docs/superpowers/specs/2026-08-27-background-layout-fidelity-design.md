@@ -270,9 +270,10 @@ threshold was exceeded (the attachment rule keys off it). Steps:
 
 1. Box-downsample the candidate 4× (exact) to 320×200; convert both to
    luminance `0.299 R + 0.587 G + 0.114 B` as float32.
-2. Edges: Sobel magnitude on each; each thresholded at 0.25 × its own 95th
-   percentile → binary edge maps. The original's map is dilated by 2 px
-   (max over shifts).
+2. Edges: Sobel magnitude on each; each thresholded at max(40, 0.25 × its own
+   95th percentile) — the floor keeps a flat or gently graded image from
+   turning every pixel into an edge → binary edge maps. The original's map
+   is dilated by 2 px (max over shifts).
 
 | Score | Definition | Default threshold |
 |---|---|---|
