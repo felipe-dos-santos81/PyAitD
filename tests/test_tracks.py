@@ -235,6 +235,19 @@ def test_mouse_mode_walks_toward_the_decision_target():
     assert actor.speed == 4, "an advancing follower walks"
 
 
+def test_mouse_mode_runs_when_the_decision_carries_a_run():
+    # speed 5 is FITD's run, and the hero's own ANIM_MOVE picks the run
+    # animation from it (life_ops.op_anim_move) -- no new animation state.
+    actor = Actor()
+    actor.track_mode = 4
+    actor.room_x = actor.room_z = 0
+    actor.beta = 0
+    game = _NavGame(NavDecision(joyd=1, target_x=0, target_z=9000,
+                                advance=True, arrived=False, run=True))
+    process_track(game, actor)
+    assert actor.speed == 5, "a run decision runs"
+
+
 def test_mouse_mode_decelerates_when_there_is_no_decision():
     actor = Actor()
     actor.track_mode = 4

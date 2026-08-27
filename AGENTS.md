@@ -179,7 +179,10 @@ a rule — add the test with the rule.
   intent only when the resolution differs from `InputBuffer.follow_last`, and
   hold-push keeps its latched target. Only pointer motion retargets: the same
   pixel names a different world point under every camera, so re-resolving a
-  still pointer at a camera cut would steer or stop the hero on its own. Held actions never publish global Action; existing LIFE and
+  still pointer at a camera cut would steer or stop the hero on its own. A
+  press within `DOUBLE_PRESS_TICKS` of the previous one runs (`NavIntent.run`
+  -> `NavDecision.run` -> speed 5), timed on `game.timer` like FITD's own
+  double-tap forward; the engine never learns which device asked. Held actions never publish global Action; existing LIFE and
   collision code alone move pushable scenery. Never lock, grab or warp the OS
   cursor (`tests/test_layering.py` gates it, `meta`-marked so `make test` runs
   it, not `make prove-mouse-only`). Keep the both-protagonist journeys in

@@ -107,7 +107,9 @@ def decide(game, actor, mesh, *, stop_at_destination=True):
         joyd |= 8
     elif modificator < 0:
         joyd |= 4
-    return NavDecision(joyd, target_x, target_z, advance=True, arrived=False)
+    return NavDecision(
+        joyd, target_x, target_z, advance=True, arrived=False, run=intent.run,
+    )
 
 
 def _stalled(intent, target_x, target_z, distance):

@@ -150,6 +150,10 @@ class NavIntent:
     room: int
     target_object_idx: int = -1
     requires_hold: bool = False
+    # Run instead of walk: FITD's speed 5, the same one _process_track_manual
+    # gives a double-tap forward (tracks.py). A property of the click, not of
+    # the device that made it -- no engine module learns a mouse exists.
+    run: bool = False
     engaged: bool = False
     waypoints: list = None
     path_room: int = -1
@@ -178,3 +182,6 @@ class NavDecision:
     # gave up too far from the destination to call it an arrival: the intent is
     # dropped without dispatching, so a wedged hero cannot act through a wall
     abandoned: bool = False
+    # carry the intent's run onto the advancing tick, so the track that steers
+    # the hero reads one object -- the decision -- and never the intent
+    run: bool = False

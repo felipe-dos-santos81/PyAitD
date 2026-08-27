@@ -223,4 +223,13 @@ MOUSE_INTERACTION_DECISIONS = {
         "follows the pointer; motion with the button down is a gesture, not hover, "
         "and only motion retargets -- a camera cut is not something the player did",
     ),
+    "held_double_press_run": MouseInteractionDecision(
+        "speed_not_capability",
+        "a hold whose press followed the previous one within the double-press "
+        "window runs instead of walking, the mouse's reading of FITD's "
+        "double-tap forward. It adds no PlayerCapability and needs no gesture "
+        "route: running is a speed, and every destination stays reachable at a "
+        "walk with one plain hold, so a player who cannot double-press loses "
+        "no operation",
+    ),
 }

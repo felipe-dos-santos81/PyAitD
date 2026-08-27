@@ -23,7 +23,7 @@ from PyAitD.render.render_options import BACKGROUND_FILTERS, SHADING_MODES, vali
 from PyAitD.games import load_profile
 from PyAitD.render.scene import build_frame
 from PyAitD.app.ui import (
-    Command, InputBuffer, ModalSession, configure_input, event_to_input,
+    Command, DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, configure_input, event_to_input,
     hit_test_settings_notice, render_cursor, render_hit_feedback, render_play_hud,
     render_settings_notice, reset_input, transparent_canvas,
 )
@@ -341,6 +341,7 @@ def route_play_click(
     """Route one resolved PLAY click; HUD and world share the resolver."""
     from PyAitD.engine.interaction import apply_click_intent, attack_in_hand
 
+    _stamp_press(game, input_buffer)
     kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
     if kind == "inventory":
         if input_buffer is not None:
@@ -374,6 +375,7 @@ def route_play_click(
     apply_click_intent(
         game, dest_x, dest_z, room, target_object_idx=object_idx,
         requires_hold=(kind == "push"),
+        run=input_buffer is not None and input_buffer.pointer_run,
     )
     if input_buffer is not None:
         # a walk or target press opens a held pointer follow (follow_pointer
@@ -384,6 +386,24 @@ def route_play_click(
         input_buffer.follow_last = payload if kind != "push" else None
         input_buffer.follow_pos = logical_pos if kind != "push" else None
         input_buffer.follow_spent = kind == "push"
+
+
+def _stamp_press(game, input_buffer):
+    """Decide whether this press is the second half of a double press.
+
+    Timed on game.timer, the clock FITD's own double-tap forward uses
+    (tracks._process_track_manual), so the two schemes share one rhythm and
+    both stop counting while a modal has the game paused. Every PLAY press is
+    stamped, not just the walks: two presses are two presses whatever each one
+    turned out to resolve to.
+    """
+    if input_buffer is None:
+        return
+    previous = input_buffer.last_press_tick
+    input_buffer.pointer_run = (
+        previous is not None and game.timer - previous <= DOUBLE_PRESS_TICKS
+    )
+    input_buffer.last_press_tick = game.timer
 
 
 def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
@@ -433,7 +453,12 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
         if payload == input_buffer.follow_last:
             return
         dest_x, dest_z, room, object_idx = payload
-        apply_click_intent(game, dest_x, dest_z, room, target_object_idx=object_idx)
+        # the run belongs to the hold, not to the destination: aiming
+        # somewhere else without releasing keeps the hero running
+        apply_click_intent(
+            game, dest_x, dest_z, room, target_object_idx=object_idx,
+            run=input_buffer.pointer_run,
+        )
         input_buffer.follow_last = payload
     elif kind == "blocked":
         if intent is not None:
@@ -465,6 +490,9 @@ def _cancel_follow(game, input_buffer):
         input_buffer.follow_last = None
         input_buffer.follow_pos = None
         input_buffer.follow_spent = False
+        # the run belongs to the hold; last_press_tick survives, since it is
+        # what the *next* press is measured against
+        input_buffer.pointer_run = False
     if game.nav_intent is None:
         return False
     cancel_nav_intent(game)

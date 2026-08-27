@@ -62,11 +62,25 @@ def test_contract_declares_only_the_reviewed_primary_button_gestures():
 def test_contract_declares_hover_touch_and_held_follow_decisions():
     assert set(MOUSE_INTERACTION_DECISIONS) == {
         "hover_preview", "touch_origin", "held_pointer_follow",
+        "held_double_press_run",
     }
     assert MOUSE_INTERACTION_DECISIONS["hover_preview"].decision == "presenter_only"
     assert MOUSE_INTERACTION_DECISIONS["touch_origin"].decision == "same_primary_button_route"
     assert MOUSE_INTERACTION_DECISIONS["held_pointer_follow"].decision == "retarget_on_pointer_motion"
+    assert MOUSE_INTERACTION_DECISIONS["held_double_press_run"].decision == "speed_not_capability"
     assert all(decision.reason for decision in MOUSE_INTERACTION_DECISIONS.values())
+
+
+def test_running_adds_no_capability_and_so_no_double_press_gesture():
+    # The forbidden-gesture rule (no double_click, drag or chord) exists so no
+    # operation is locked behind a gesture a one-button or Accessibility
+    # Keyboard user cannot make. Run is a speed, not an operation: it earns a
+    # recorded decision rather than a PlayerCapability, and WALK_TO_POINT
+    # keeps its plain left_hold, which still reaches every destination.
+    assert not any(
+        "RUN" in capability.name for capability in PlayerCapability
+    ), "running is a speed, not a capability"
+    assert CAPABILITY_ROUTES[PlayerCapability.WALK_TO_POINT].gesture == "left_hold"
 
 
 def test_walk_and_interact_are_held_pointer_follow_routes():

@@ -45,7 +45,9 @@ asset silently. Point elsewhere with `overrides=DIR`, or pass an empty
 
 Pick Emily or Carnby by mouse or keyboard, then play. Mouse (default): press
 and hold the left button — the hero walks toward the pointer and keeps
-following it while you hold; hold over an object to approach and use it;
+following it while you hold; press twice in quick succession and hold the
+second press to run instead of walk (the mouse's reading of the keyboard's
+double-tap forward); hold over an object to approach and use it;
 release to stop immediately. Pushable scenery shows an amber opposed-arrow
 cursor: press and hold to approach and push (the push target stays latched
 while you hold), release to stop. Armed enemies and the inventory button

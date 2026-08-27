@@ -2244,3 +2244,100 @@ def test_release_still_ends_a_hold_rebased_by_a_floor_change(data_dir, profile,
 
     assert game.nav_intent is None
     assert (buf.follow_last, buf.follow_pos, buf.follow_spent) == (None, None, False)
+
+
+def _press(main, game, floor, buf, near, monkeypatch, tick):
+    """One PLAY press at game.timer == tick, resolving to a walk."""
+    game.timer = tick
+    _resolving(monkeypatch, [("walk", near)])
+    buf.pointer_held = True
+    buf.pointer_pos = (10, 10)
+    route_play_click(game, ModalSession(), floor, (10, 10), [], buf)
+    return game.nav_intent
+
+
+def test_a_second_press_inside_the_double_press_window_runs(
+        data_dir, profile, monkeypatch):
+    # FITD's own run gesture is a double-tap forward within 10 game ticks
+    # (tracks._process_track_manual); the mouse reads a double press the same
+    # way, against the same clock.
+    import PyAitD.app.shell as main
+    game, floor, buf, near, far = _follow_fixture(data_dir, profile)
+    assert _press(main, game, floor, buf, near, monkeypatch, 100).run is False, (
+        "a first press walks: there is nothing to be the second half of"
+    )
+    main._cancel_follow(game, buf)   # the release between the two presses
+
+    intent = _press(main, game, floor, buf, far, monkeypatch, 110)
+
+    assert intent.run is True
+    assert buf.pointer_run is True
+
+
+def test_a_second_press_after_the_window_walks(data_dir, profile, monkeypatch):
+    import PyAitD.app.shell as main
+    game, floor, buf, near, far = _follow_fixture(data_dir, profile)
+    _press(main, game, floor, buf, near, monkeypatch, 100)
+    main._cancel_follow(game, buf)
+
+    intent = _press(main, game, floor, buf, far, monkeypatch, 111)
+
+    assert intent.run is False, "one tick past the window is a plain walk"
+    assert buf.pointer_run is False
+
+
+def test_a_retarget_within_a_running_hold_keeps_running(
+        data_dir, profile, monkeypatch):
+    # The run belongs to the hold, not to the destination: aiming somewhere
+    # else without releasing must not drop the hero back to a walk.
+    import PyAitD.app.shell as main
+    game, floor, buf, near, far = _follow_fixture(data_dir, profile)
+    _press(main, game, floor, buf, near, monkeypatch, 100)
+    main._cancel_follow(game, buf)
+    assert _press(main, game, floor, buf, near, monkeypatch, 105).run is True
+
+    _resolving(monkeypatch, [("walk", far)])
+    buf.pointer_pos = (11, 10)
+    main.follow_pointer(game, ModalSession(), floor, buf.pointer_pos, [], buf)
+
+    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == far[:2]
+    assert game.nav_intent.run is True
+
+
+def test_release_ends_the_run_but_keeps_the_press_clock(
+        data_dir, profile, monkeypatch):
+    # last_press_tick is what the *next* press is measured against, so it has
+    # to outlive the release that ends the run it started.
+    import PyAitD.app.shell as main
+    game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
+    _press(main, game, floor, buf, near, monkeypatch, 100)
+    main._cancel_follow(game, buf)
+    _press(main, game, floor, buf, near, monkeypatch, 105)
+    assert buf.pointer_run is True
+
+    up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
+    main._cancel_pointer_invalidation(game, up, buf)
+
+    assert buf.pointer_run is False, "the run ends with the hold"
+    assert buf.last_press_tick == 105
+
+
+def test_a_held_push_never_runs(data_dir, profile, monkeypatch):
+    # A push is a lean on furniture; FITD's push animation has no run speed,
+    # and apply_click_intent refuses the combination rather than the caller
+    # having to remember it.
+    import PyAitD.app.shell as main
+    from PyAitD.engine.interaction import apply_click_intent
+    game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
+    _press(main, game, floor, buf, near, monkeypatch, 100)
+    main._cancel_follow(game, buf)
+    game.timer = 105
+    _resolving(monkeypatch, [("push", near)])
+    route_play_click(game, ModalSession(), floor, (10, 10), [], buf)
+
+    assert buf.pointer_run is True, "the double press was still a double press"
+    assert game.nav_intent.requires_hold is True
+    assert game.nav_intent.run is False
+
+    apply_click_intent(game, 10, 20, 0, 4, requires_hold=True, run=True)
+    assert game.nav_intent.run is False

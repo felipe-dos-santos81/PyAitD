@@ -378,7 +378,9 @@ def _process_track_mouse(game, actor):
         actor.rotate.num_steps = 0
         return
     _turn_toward(game, actor, decision.target_x, decision.target_z)
-    actor.speed = 4
+    # 5 is FITD's run speed, and the hero's own ANIM_MOVE already answers it
+    # with the run animation (life_ops.op_anim_move); 4 is the walk.
+    actor.speed = 5 if decision.run else 4
 
 
 def process_track(game, actor):

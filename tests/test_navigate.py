@@ -39,6 +39,15 @@ def test_far_from_the_destination_the_follower_advances():
     assert (decision.target_x, decision.target_z) == (5000, 0)
 
 
+def test_an_advancing_decision_carries_the_intents_run():
+    # the track that steers the hero reads the decision and nothing else, so
+    # the run has to travel on it rather than being fetched off the intent
+    walk = NavIntent(dest_x=5000, dest_z=0, room=0, waypoints=[(5000, 0)])
+    assert decide(_Game(walk), _actor(0, 0), None).run is False
+    run = NavIntent(dest_x=5000, dest_z=0, room=0, waypoints=[(5000, 0)], run=True)
+    assert decide(_Game(run), _actor(0, 0), None).run is True
+
+
 def test_reaching_the_final_waypoint_reports_arrival():
     game = _Game(NavIntent(dest_x=10, dest_z=10, room=0, waypoints=[(10, 10)]))
     decision = decide(game, _actor(0, 0), None)

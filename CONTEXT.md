@@ -236,7 +236,16 @@ action runner.
   Button-up, focus loss and modal takeover clear both and end the hold; a
   floor change goes through `_rebase_follow`, which clears both but keeps the
   hold live so the hero walks on off the stairs. Push and attack latches
-  suspend it. No engine module learns about pointer motion.
+  suspend it.
+- `app.shell._stamp_press` marks a PLAY press that landed within
+  `ui.DOUBLE_PRESS_TICKS` of the previous one, and that hold runs instead of
+  walking: `NavIntent.run` -> `navigate.decide` -> `NavDecision.run` ->
+  `tracks._process_track_mouse` speed 5, which the hero's own ANIM_MOVE
+  already answers with the run animation. Timed on `game.timer`, the clock
+  FITD's double-tap forward uses, so both schemes share one rhythm and
+  neither counts while a modal has the game paused. A held push never runs.
+  Run adds no `PlayerCapability`: it is a speed, and every destination stays
+  reachable at a walk (`mouse_contract` decision `held_double_press_run`). No engine module learns about pointer motion.
 - `playworld._push_into_target` re-aims an arrived click at a non-foundable
   object that has a `found_life`, so the final step collides with the object
   and the scripted found fires from the collision (FITD anim.cpp:381: the

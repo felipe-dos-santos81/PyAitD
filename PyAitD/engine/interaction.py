@@ -425,6 +425,7 @@ def point_in_zone(x, y, z, zone):
 
 def apply_click_intent(
         game, dest_x, dest_z, room, target_object_idx=-1, *, requires_hold=False,
+        run=False,
 ):
     """Record where the player clicked. A new click replaces any previous one."""
     from PyAitD.engine.effects import NavIntent
@@ -438,6 +439,9 @@ def apply_click_intent(
     game.nav_intent = NavIntent(
         dest_x, dest_z, room, target_object_idx,
         requires_hold=requires_hold,
+        # a held push is always a walk: leaning on furniture at a run is not
+        # a speed FITD's push animation has
+        run=run and not requires_hold,
         origin_floor=game.current_floor if requires_hold else None,
         origin_room=origin_room,
     )
