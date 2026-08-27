@@ -58,6 +58,12 @@ class InputBuffer:
     # re-issues only when the resolution differs, which is also the one-shot
     # latch after an arrival. Lives here so every reset_input seam clears it.
     follow_last: tuple | None = None
+    # True once this hold's press resolved to anything other than walk/target
+    # (attack, inventory, push): the spec forbids resuming a follow on that
+    # hold even after the underlying latch (mouse_attack_target, a push's
+    # requires_hold intent) dies mid-hold. Cleared alongside follow_last on
+    # release, so a fresh press is what restarts the follow.
+    follow_spent: bool = False
 
 
 _DIRECTION_CONTROL = {
@@ -108,6 +114,7 @@ def reset_input(state):
     state.mouse_attack_target = None
     state.mouse_attack_ticks = 0
     state.follow_last = None
+    state.follow_spent = False
     state.commands.clear()
 
 

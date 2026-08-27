@@ -174,9 +174,10 @@ a rule — add the test with the rule.
   differs from `InputBuffer.follow_last`, and hold-push keeps its latched
   target. Held actions never publish global Action; existing LIFE and
   collision code alone move pushable scenery. Never lock, grab or warp the OS
-  cursor (`tests/test_layering.py` gates it). Keep the both-protagonist
-  journeys in `tests/test_mouse_only.py` and run `make prove-mouse-only` after
-  changing pointer, navigation, animation, modal, or collision behavior.
+  cursor (`tests/test_layering.py` gates it, `meta`-marked so `make test` runs
+  it, not `make prove-mouse-only`). Keep the both-protagonist journeys in
+  `tests/test_mouse_only.py` and run `make prove-mouse-only` after changing
+  pointer, navigation, animation, modal, or collision behavior.
 - Mouse accessibility hardening closed the held-push inventory takeover
   regression and has user-attested Emily/Carnby window passes. The current
   [hardening proof](docs/mouse-accessibility-hardening-proof.md) supersedes the

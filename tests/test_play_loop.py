@@ -873,7 +873,7 @@ def test_pointer_invalidation_routes_mouseup_and_focus_loss(data_dir, profile):
         main.pygame.event.Event(main.pygame.WINDOWFOCUSLOST),
     ):
         apply_click_intent(game, 100, 200, hero.room, 4, requires_hold=True)
-        assert main._cancel_pointer_invalidation(game, event) is True
+        assert main._cancel_pointer_invalidation(game, event, InputBuffer()) is True
         assert game.nav_intent is None
 
 
@@ -1294,7 +1294,9 @@ def test_pointer_invalidation_cancels_a_plain_walk_intent(data_dir, profile):
         assert buf.follow_last is None
     up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
     assert main._cancel_pointer_invalidation(game, up, InputBuffer()) is False
-    assert main._cancel_pointer_invalidation(game, up) is False, "the buffer stays optional"
+    assert main._cancel_pointer_invalidation(game, up, buf) is False, (
+        "a second release on an already-cleared buffer is a no-op"
+    )
 
 
 def test_a_play_click_is_ignored_in_keyboard_mode(data_dir, profile):
@@ -1704,7 +1706,7 @@ def test_releasing_the_button_does_not_cancel_an_accepted_attack(data_dir, profi
     game, _session, state = _click_to_attack(data_dir, profile)
     release = pygame.event.Event(pygame.MOUSEBUTTONUP, button=1, pos=(150, 100))
 
-    assert main._cancel_pointer_invalidation(game, release) is False
+    assert main._cancel_pointer_invalidation(game, release, state) is False
     event_to_input(release, state, (150, 100))
 
     assert state.mouse_attack_target is not None
@@ -1999,3 +2001,85 @@ def test_follow_requires_a_held_pointer_in_live_play(data_dir, profile, monkeypa
     main.follow_pointer(game, session, floor, (10, 10), [], buf)
     assert game.nav_intent is None and buf.follow_last is None
     assert len(queue) == 1, "nothing was resolved"
+
+
+def test_follow_does_not_resume_after_an_attack_latch_clears_within_the_hold(
+        data_dir, profile, monkeypatch):
+    # Spec Non-goal: "resuming a follow after a strike without a fresh
+    # press." mouse_attack_target clears itself inside the engine
+    # (playworld._clear_mouse_attack) as soon as the hero returns to idle,
+    # but the button never came up -- the still-held press must not let a
+    # walk/target resolution start a follow.
+    import PyAitD.app.shell as main
+    game, _session, state = _click_to_attack(data_dir, profile)
+    state.pointer_held = True
+    assert state.follow_spent is True, "an attack press spends the hold"
+    state.mouse_attack_target = None   # what the engine does on idle/timeout
+    state.mouse_attack_ticks = 0
+
+    hero = game.actors[game.current_camera_target_actor]
+    would_walk = (hero.room_x + 1000, hero.room_z, hero.room, -1)
+    queue = _resolving(monkeypatch, [("walk", would_walk)])
+    floor = Floor(data_dir, game.current_floor, profile)
+
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], state)
+
+    assert game.nav_intent is None
+    assert len(queue) == 1, "nothing was resolved"
+
+
+def test_follow_does_not_resume_after_a_push_intent_dies_mid_hold(
+        data_dir, profile, monkeypatch):
+    # Same shape as the attack case: a push's requires_hold intent can die
+    # (arrival, give-up) while the button is still down, and today's
+    # follow_pointer would happily start walking without a fresh press.
+    import PyAitD.app.shell as main
+    from PyAitD.engine.interaction import cancel_nav_intent
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    actor_idx = game.world_objects[4].obj_index
+    buf = InputBuffer(pointer_held=True)
+    route_play_click(
+        game, ModalSession(), floor, (150, 100),
+        [(actor_idx, (100, 60, 200, 160))], buf,
+    )
+    assert game.nav_intent.requires_hold is True
+    assert buf.follow_spent is True, "a push press spends the hold"
+    cancel_nav_intent(game)   # what happens when the pushed intent dies
+    assert game.nav_intent is None
+
+    hero = game.actors[game.current_camera_target_actor]
+    would_walk = (hero.room_x + 1000, hero.room_z, hero.room, -1)
+    queue = _resolving(monkeypatch, [("walk", would_walk)])
+
+    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+
+    assert game.nav_intent is None
+    assert len(queue) == 1, "nothing was resolved"
+
+
+def test_release_and_a_fresh_press_clears_follow_spent(data_dir, profile, monkeypatch):
+    # "released and pressed again" is the only way out of a spent hold:
+    # _cancel_pointer_invalidation runs on MOUSEBUTTONUP and delegates to
+    # _cancel_follow, which must clear follow_spent alongside follow_last.
+    import PyAitD.app.shell as main
+    game, _session, state = _click_to_attack(data_dir, profile)
+    state.pointer_held = True
+    assert state.follow_spent is True
+
+    up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
+    main._cancel_pointer_invalidation(game, up, state)
+    assert state.follow_spent is False, "release clears the spent hold"
+
+    hero = game.actors[game.current_camera_target_actor]
+    dest = (hero.room_x + 1000, hero.room_z, hero.room, -1)
+    state.pointer_held = True
+    queue = _resolving(monkeypatch, [("walk", dest)])
+
+    route_play_click(game, ModalSession(), None, (10, 10), [], state)
+
+    assert state.follow_spent is False
+    assert game.nav_intent is not None
+    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == dest[:2]
+    assert len(queue) == 0

@@ -343,6 +343,12 @@ def route_play_click(
 
     kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
     if kind == "inventory":
+        if input_buffer is not None:
+            # a press resolving to anything but walk/target spends the hold
+            # (spec Non-goals: no resuming a follow after a strike without a
+            # fresh press) -- generalised past attack to cover every
+            # press-only kind, inventory included
+            input_buffer.follow_spent = True
         route_command(
             game, session, Command.OPEN_INVENTORY, input_buffer,
         )
@@ -351,6 +357,10 @@ def route_play_click(
         # attack_in_hand only validates, stops and faces. The strike itself is
         # published by the fixed-tick input snapshot, so the accepted target is
         # latched into the application-owned buffer here and nowhere else.
+        if input_buffer is not None:
+            # spends the hold regardless of whether the target was accepted:
+            # the press still resolved to "attack", not walk/target
+            input_buffer.follow_spent = True
         if attack_in_hand(game, payload) and input_buffer is not None:
             input_buffer.mouse_attack_target = payload
             input_buffer.mouse_attack_ticks = 0
@@ -368,8 +378,11 @@ def route_play_click(
     if input_buffer is not None:
         # a walk or target press opens a held pointer follow (follow_pointer
         # compares later resolutions against this); a push is latched and
-        # never re-resolved, so it leaves no latch behind
+        # never re-resolved, so it leaves no latch behind and spends the
+        # hold -- its requires_hold intent can die mid-hold (arrival,
+        # give-up), and the still-held button must not resume the follow
         input_buffer.follow_last = payload if kind != "push" else None
+        input_buffer.follow_spent = kind == "push"
 
 
 def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
@@ -391,7 +404,12 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
             or game.input_mode is not InputMode.MOUSE or session.cutscene
             or game.num_camera == -1
             or not input_buffer.pointer_held or not input_buffer.focused
-            or input_buffer.mouse_attack_target is not None):
+            or input_buffer.mouse_attack_target is not None
+            # a press that resolved to attack/inventory/push spends the
+            # hold: no follow starts from it even after the underlying latch
+            # (mouse_attack_target, a push's requires_hold intent) dies
+            # mid-hold -- only release-and-a-fresh-press clears this
+            or input_buffer.follow_spent):
         return
     intent = game.nav_intent
     if intent is not None and intent.requires_hold:
@@ -410,7 +428,7 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
     # inventory, attack and push need a fresh press: nothing to follow
 
 
-def _cancel_pointer_invalidation(game, event, input_buffer=None):
+def _cancel_pointer_invalidation(game, event, input_buffer):
     """Button-up and focus loss end the hold, and every intent is hold-bound."""
     invalidated = (
         event.type == pygame.MOUSEBUTTONUP and event.button == 1
@@ -422,10 +440,16 @@ def _cancel_pointer_invalidation(game, event, input_buffer=None):
 
 def _cancel_follow(game, input_buffer):
     """Drop any navigation intent and the follow latch. True when an intent
-    was live. The buffer is optional only for callers that own no buffer."""
+    was live. The buffer is optional only for callers that own no buffer.
+
+    Clearing follow_spent here is what makes "released and pressed again"
+    work: _cancel_pointer_invalidation runs this on MOUSEBUTTONUP and on
+    focus loss, so a spent hold cannot outlive the release that ends it.
+    """
     from PyAitD.engine.interaction import cancel_nav_intent
     if input_buffer is not None:
         input_buffer.follow_last = None
+        input_buffer.follow_spent = False
     if game.nav_intent is None:
         return False
     cancel_nav_intent(game)

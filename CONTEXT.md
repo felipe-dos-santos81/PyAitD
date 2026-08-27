@@ -359,10 +359,10 @@ action runner.
   live route for `GameMode.PLAY` and `GameMode.CUTSCENE_END` in the mouse
   contract; its `GameMode.PLAY` entry is the contract's one
   session-conditional capability (true only while `session.cutscene` --
-  ordinary `PLAY` routes a left click to walk/interact instead), commented
-  as such in `mouse_contract.py`. `--skip-intro` sets `session.skip_intro`,
-  a development-only bypass (not FITD behaviour) that boots straight to the
-  attic instead of staging the cutscene at all.
+  ordinary `PLAY` routes the held button to a walk/interact follow instead),
+  commented as such in `mouse_contract.py`. `--skip-intro` sets
+  `session.skip_intro`, a development-only bypass (not FITD behaviour) that
+  boots straight to the attic instead of staging the cutscene at all.
 - `_boot_hero` (`app/shell.py`) is the one hero-boot path shared by
   `_hero_branch` (character confirmation → the opening, `cutscene=True`,
   `start_game(*profile.intro_start)`) and `_cutscene_end_branch`

@@ -79,7 +79,7 @@ on the kind:
 | `walk` | A* walk to the point (existing follower). On arrival the hero stands; the follow stays live. |
 | `target` | walk to the approach cell; on arrival use the object once — a foundable opens the Take/Leave modal (which ends the hold), a scripted object gets today's Action pulse or push-into-target. Not re-fired until the pointer resolves to something else, or a new press. |
 | `push` | unchanged latched hold-push. Only a press can start it; while it lives, `follow_pointer` does not run. |
-| `attack` | one-shot on the press, exactly as today. The press does not start a follow; `follow_pointer` does not run while `mouse_attack_target` is latched. |
+| `attack` | one-shot on the press, exactly as today. The press does not start a follow; `follow_pointer` does not run while `mouse_attack_target` is latched, and it stays spent for the rest of the hold once the latch clears — a fresh press is required, not just the pointer moving back over walkable floor. |
 | `inventory` | one-shot on the press, opens the inventory (modal takeover). |
 | `blocked`, or the pointer outside the logical frame | the hero stands; the hold stays live and moving back onto floor resumes. |
 

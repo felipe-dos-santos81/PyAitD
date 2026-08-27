@@ -168,9 +168,11 @@ def test_no_module_locks_grabs_or_warps_the_pointer():
     # mode and grab (2026-08-26-held-pointer-follow-design.md, Non-goals);
     # warping the pointer would be the same control by another name.
     forbidden = ("set_relative_mode", "set_grab", "mouse.set_pos")
+    paths = list(ROOT.rglob("*.py"))
+    assert paths, "no modules found under PyAitD — did the package move?"
     hits = sorted(
         (str(path.relative_to(ROOT.parent)), name)
-        for path in ROOT.rglob("*.py")
+        for path in paths
         for name in forbidden
         if name in path.read_text()
     )

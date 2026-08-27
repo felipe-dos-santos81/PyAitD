@@ -476,7 +476,12 @@ def cancel_nav_intent(game):
 
 
 def cancel_held_nav_intent(game):
-    """Cancel a held navigation intent without disturbing ordinary clicks."""
+    """Cancel a held navigation intent without disturbing ordinary clicks.
+
+    No production caller since held pointer follow landed: the release path
+    now runs through PyAitD/app/shell.py::_cancel_follow, which cancels any
+    live intent rather than only held ones. Kept for its own test coverage.
+    """
     intent = game.nav_intent
     if intent is None or not intent.requires_hold:
         return False
