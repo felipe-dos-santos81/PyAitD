@@ -126,6 +126,11 @@ def test_real_combat_bodies_share_the_named_base_vertex(data_dir, profile):
 def test_hot_point_zero_and_bad_group_contracts(data_dir, profile):
     plain = _cube_body()
     assert hot_point(plain, [], (0, 0, 0), 0) == (0, 0, 0)
+    # A group the body does not have reads as no hot point rather than
+    # raising: real AITD1 scripts ask for one (the saber's LIFE 49 arms group
+    # 18 on the hero's 17-group body 12), and getHotPoint indexes the array
+    # unchecked, so the original reads past it and swings on.
     body = init_game(data_dir, profile).assets.body(234)
-    with pytest.raises(ValueError, match=r"body with 24 groups has hot-point group 24"):
-        hot_point(body, [(0, (0, 0, 0))] * len(body.groups), (0, 0, 0), len(body.groups))
+    states = [(0, (0, 0, 0))] * len(body.groups)
+    assert hot_point(body, states, (0, 0, 0), len(body.groups)) == (0, 0, 0)
+    assert hot_point(body, states, (0, 0, 0), -1) == (0, 0, 0)

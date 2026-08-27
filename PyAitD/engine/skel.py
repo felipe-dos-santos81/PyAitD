@@ -70,9 +70,16 @@ def hot_point(body, group_states, actor_angles, hot_point_id):
     if not body.flags & 2:
         return (0, 0, 0)
     if not 0 <= hot_point_id < len(body.groups):
-        raise ValueError(
-            f"body with {len(body.groups)} groups has hot-point group {hot_point_id}"
-        )
+        # Real AITD1 data asks for groups its own bodies do not have: the hero
+        # wears body 12 (17 groups) while its animations address 19 and 20,
+        # and the saber's LIFE 49 arms its hit on group 18. getHotPoint indexes
+        # the group array unchecked, so the original reads past it, gets
+        # whatever follows in memory, and swings on. There is no value to
+        # match -- what it read was garbage -- so fall back to the actor's own
+        # origin, which is the same answer this function already gives a body
+        # that carries no hot point at all. Raising here instead killed the
+        # game on every armed swing.
+        return (0, 0, 0)
     points = pose_vertices(body, group_states, actor_angles)
     return tuple(points[body.groups[hot_point_id].base_vertices])
 

@@ -227,3 +227,45 @@ def test_player_throw_executes_setup_launch_and_flight(data_dir, profile, monkey
     gere_frappe(game, thrown_idx)
     assert game.actors[thrown_idx].hit == victim_idx
     assert game.actors[victim_idx].hit_force == 14
+
+
+def test_armed_melee_survives_a_hot_point_group_the_body_does_not_have(
+        data_dir, profile):
+    """The whole tick, not just the runner: a real swing must not crash.
+
+    The hero's body is 12 (17 groups) in the object data for both heroes,
+    while its own animations address 19 and 20, and the saber's LIFE 49 arms
+    its hit on group 18. getHotPoint (main.cpp:2976) indexes the group array
+    with no bounds check, so the original reads past it and carries on; a port
+    that raises there kills the game on every armed swing. Driven through
+    play_tick, which is the only path that reaches refresh_hot_point.
+    """
+    from PyAitD.engine.effects import InputMode
+    from PyAitD.engine.interaction import _finish_take, sync_player_track_mode
+
+    game, floor, enemy_idx = _venue(data_dir, profile)
+    game.current_floor_data = floor
+    game.input_mode = InputMode.KEYBOARD
+    sync_player_track_mode(game)
+    _finish_take(game, 38)
+    game.in_hand_table[game.current_inventory] = 38
+    hero = game.actors[game.current_camera_target_actor]
+    buf = InputBuffer(action_held=True, held_joyd=1, focused=True)
+
+    landed = False
+    for _ in range(400):
+        # same reason _fight_to_death relocates: the enemy's own circling is
+        # nondeterministic, and this test is about the swing, not the chase
+        relocate_actor(
+            game, enemy_idx, game.current_floor, hero.room,
+            hero.room_x, hero.room_y, hero.room_z + 500,
+        )
+        play_tick(game, floor, buf)      # must not raise
+        if hero.hit == enemy_idx:
+            landed = True
+            break
+
+    assert landed, "the armed swing never reached the enemy"
+    assert hero.hot_point_id >= len(game.assets.body(hero.body_num).groups), (
+        "the out-of-range group this pins is gone; the guard needs a new case"
+    )
