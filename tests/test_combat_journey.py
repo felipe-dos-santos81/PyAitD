@@ -22,7 +22,7 @@ from PyAitD.engine.game import AF_ANIMATED, init_game, relocate_actor
 from PyAitD.engine.life import process_life
 from PyAitD.engine.playworld import TICK_MS, play_tick
 from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
-from PyAitD.app.ui import InputBuffer, ModalSession, render_game_over, transparent_canvas
+from PyAitD.app.ui import InputBuffer, ModalSession, UIPainter, render_game_over, transparent_canvas
 
 pytestmark = [pytest.mark.engine, pytest.mark.journey]
 
@@ -112,8 +112,9 @@ def test_real_enemy_damage_reaches_game_over_and_fresh_restart(data_dir, profile
     session = ModalSession()
     session.reset_for(game.active_modal)
     frozen = np.zeros((200, 320, 3), dtype=np.uint8)
-    canvas = transparent_canvas()
-    assert render_game_over(canvas, frozen, ready=False) is canvas
+    painter = UIPainter()
+    render_game_over(painter, frozen, ready=False)
+    assert np.array_equal(painter.to_frame(), transparent_canvas())
     session.elapsed_ms = 1999
     route_mouse(game, session, (0, 0))
     assert game.restart_requested is False

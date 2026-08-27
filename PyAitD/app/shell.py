@@ -1034,22 +1034,29 @@ def render_active_mode(game, session, renderer, resolver=None):
         return render_startup_menu(session.startup, game.assets, continue_enabled=continue_available(session))
     if isinstance(effect, ShowFound):
         world = game.world_objects[effect.object_idx]
-        return render_found(effect, session.found, game.assets, game.assets.system_text(world.found_name))
+        painter = UIPainter()          # Task 9 replaces these per-branch
+        render_found(painter, effect, session.found, game.assets,
+                     game.assets.system_text(world.found_name))
+        return painter.to_frame()
     if isinstance(effect, OpenInventory):
         object_ids, action_ids = _inventory_view(game, session)
-        return render_inventory(
-            session.inventory, game.assets, renderer.scene_thumbnail(),
+        painter = UIPainter()          # Task 9 replaces these per-branch
+        render_inventory(
+            painter, session.inventory, game.assets, renderer.scene_thumbnail(),
             tuple(game.assets.system_text(game.world_objects[i].found_name) for i in object_ids),
             tuple(game.assets.system_text(i) for i in action_ids),
         )
+        return painter.to_frame()
     if isinstance(effect, ReadText):
         return render_reading(effect, session.reading, game.assets, resolver)
     if isinstance(effect, ShowPicture):
-        return render_picture(effect, game.assets, resolver)
+        painter = UIPainter()          # Task 9 replaces these per-branch
+        render_picture(painter, effect, game.assets, resolver)   # painters with one per frame
+        return painter.to_frame()
     if isinstance(effect, GameOver):
-        return render_game_over(
-            transparent_canvas(), renderer.scene_thumbnail(), _game_over_ready(session, effect),
-        )
+        painter = UIPainter()          # Task 9 replaces these per-branch
+        render_game_over(painter, renderer.scene_thumbnail(), _game_over_ready(session, effect))
+        return painter.to_frame()
     raise RuntimeError(f"unrenderable modal {type(effect).__name__}")
 
 

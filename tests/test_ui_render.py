@@ -27,16 +27,31 @@ pytestmark = pytest.mark.shell
 def test_modal_renderers_return_logical_rgb_frames(data_dir, profile):
     pygame.font.init()
     game = init_game(data_dir, profile)
-    frames = [
-        render_found(
-            ShowFound(13, False), FoundPresenter(), game.assets,
-            game.assets.system_text(game.world_objects[13].found_name),
-        ),
-        render_reading(ReadText(1, 0), ReadingPresenter(), game.assets),
-        render_picture(ShowPicture(10, 60, 4), game.assets),
-    ]
-    assert all(frame.shape == (200, 320, 3) for frame in frames)
+    reading = render_reading(ReadText(1, 0), ReadingPresenter(), game.assets)
+    assert reading.shape == (200, 320, 3)
+    assert reading.dtype == np.uint8
+
+    found_painter = UIPainter()
+    render_found(
+        found_painter, ShowFound(13, False), FoundPresenter(), game.assets,
+        game.assets.system_text(game.world_objects[13].found_name),
+    )
+    picture_painter = UIPainter()
+    render_picture(picture_painter, ShowPicture(10, 60, 4), game.assets)
+    frames = [found_painter.to_frame(), picture_painter.to_frame()]
+    assert all(frame.shape == (200, 320, 4) for frame in frames)
     assert all(frame.dtype == np.uint8 for frame in frames)
+
+
+def test_found_modal_fills_its_own_background_at_any_scale(data_dir, profile):
+    pygame.font.init()
+    assets = Assets(data_dir, profile)
+    for scale in (1, 4):
+        painter = UIPainter(scale)
+        render_found(painter, ShowFound(13, False), FoundPresenter(), assets, "Lamp")
+        frame = painter.to_frame()
+        assert frame[:, :, 3].min() == 255, "the found modal owns the whole frame"
+        assert tuple(frame[2, 2][:3]) == (17, 11, 9), "its fill colour"
 
 
 def test_book_layout_preserves_tab_prefix_and_center_flag():
@@ -189,13 +204,16 @@ def test_cursor_outside_the_surface_is_a_no_op():
 
 def test_game_over_locked_frame_is_identical_and_ready_frame_is_overlayed():
     pygame.font.init()
-    canvas = np.zeros((200, 320, 3), dtype=np.uint8)
     source = np.arange(320 * 200 * 3, dtype=np.uint8).reshape((200, 320, 3))
-    locked = render_game_over(canvas, source, ready=False)
-    ready = render_game_over(canvas, source, ready=True)
-    assert locked is canvas
-    assert np.array_equal(locked, canvas)
-    assert not np.array_equal(ready, source)
+
+    locked_painter = UIPainter()
+    before = locked_painter.to_frame().copy()
+    render_game_over(locked_painter, source, ready=False)
+    assert np.array_equal(locked_painter.to_frame(), before)
+
+    ready_painter = UIPainter()
+    render_game_over(ready_painter, source, ready=True)
+    assert not np.array_equal(ready_painter.to_frame()[:, :, :3], source)
 
 
 def test_big_cadre_pins_fitd_interior_and_ring(data_dir, profile):
@@ -224,17 +242,23 @@ def test_hover_preview_overrides_keyboard_selection_without_changing_it(data_dir
     scene = np.zeros((200, 320, 3), dtype=np.uint8)
 
     found = FoundPresenter(choice=FoundResult.TAKE, hover=FoundResult.LEAVE)
-    assert not np.array_equal(
-        render_found(ShowFound(13, False), found, assets, "Lamp"),
-        render_found(ShowFound(13, False), FoundPresenter(choice=FoundResult.TAKE), assets, "Lamp"),
+    hovered_found = UIPainter()
+    render_found(hovered_found, ShowFound(13, False), found, assets, "Lamp")
+    plain_found = UIPainter()
+    render_found(
+        plain_found, ShowFound(13, False), FoundPresenter(choice=FoundResult.TAKE), assets, "Lamp",
     )
+    assert not np.array_equal(hovered_found.to_frame(), plain_found.to_frame())
     assert found.choice is FoundResult.TAKE
 
     inventory = InventoryPresenter(object_cursor=0, hover=1)
-    assert not np.array_equal(
-        render_inventory(inventory, assets, scene, ("Lamp", "Key"), ("Use",)),
-        render_inventory(InventoryPresenter(object_cursor=0), assets, scene, ("Lamp", "Key"), ("Use",)),
+    hovered_inventory = UIPainter()
+    render_inventory(hovered_inventory, inventory, assets, scene, ("Lamp", "Key"), ("Use",))
+    plain_inventory = UIPainter()
+    render_inventory(
+        plain_inventory, InventoryPresenter(object_cursor=0), assets, scene, ("Lamp", "Key"), ("Use",),
     )
+    assert not np.array_equal(hovered_inventory.to_frame(), plain_inventory.to_frame())
     assert inventory.object_cursor == 0
 
     character = CharacterSelectPresenter(choice=0, hover=1)
@@ -368,11 +392,15 @@ def test_overlays_scale_with_the_painter():
 
 def test_game_over_not_ready_is_identity_on_the_canvas():
     from PyAitD.app.ui import render_game_over, transparent_canvas
-    canvas = transparent_canvas()
     scene = np.zeros((200, 320, 3), np.uint8)
-    assert render_game_over(canvas, scene, False) is canvas
-    ready = render_game_over(canvas, scene, True)
-    assert ready.shape == (200, 320, 3)
+
+    locked_painter = UIPainter()
+    render_game_over(locked_painter, scene, False)
+    assert np.array_equal(locked_painter.to_frame(), transparent_canvas())
+
+    ready_painter = UIPainter()
+    render_game_over(ready_painter, scene, True)
+    assert ready_painter.to_frame().shape == (200, 320, 4)
 
 
 from PyAitD.render.asset_resolver import AssetResolver, override_screen_path
@@ -408,8 +436,10 @@ def test_reading_and_picture_accept_a_resolver(data_dir, profile):
     game = init_game(data_dir, profile)
     resolver = AssetResolver(game.assets, None)
     a = render_reading(ReadText(1, 0), ReadingPresenter(), game.assets, resolver)
-    b = render_picture(ShowPicture(10, 60, 4), game.assets, resolver)
-    assert a.shape == (200, 320, 3) and b.shape == (200, 320, 3)
+    picture_painter = UIPainter()
+    render_picture(picture_painter, ShowPicture(10, 60, 4), game.assets, resolver)
+    b = picture_painter.to_frame()
+    assert a.shape == (200, 320, 3) and b.shape == (200, 320, 4)
 
 
 def test_modal_reading_buttons_come_from_the_export_guide_rects():

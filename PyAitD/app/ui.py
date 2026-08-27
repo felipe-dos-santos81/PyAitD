@@ -898,30 +898,20 @@ def layout_book(tokens, painter, size, width, max_lines):
     return tuple(pages)
 
 
-def render_found(effect, presenter, assets, found_name):
-    surface = pygame.Surface((320, 200))
-    surface.fill((17, 11, 9))
-    title = _font(20).render(assets.system_text(20), True, (240, 220, 175))
-    name = _font(18).render(found_name, True, (255, 255, 255))
-    surface.blit(title, title.get_rect(center=(160, 34)))
-    surface.blit(name, name.get_rect(center=(160, 78)))
+def render_found(painter, effect, presenter, assets, found_name):
+    painter.rect((17, 11, 9), pygame.Rect(0, 0, 320, 200))
+    painter.text(assets.system_text(20), 20, (240, 220, 175), center=(160, 34))
+    painter.text(found_name, 18, (255, 255, 255), center=(160, 78))
     choice = presenter.hover if presenter.hover is not None else presenter.choice
-    # scratch painter: render_found isn't converted until Task 5, but
-    # _button now needs a painter to draw. Borrowing the live surface keeps
-    # the draw calls byte-identical to the direct pygame calls they replace.
-    painter = UIPainter()
-    painter.surface = surface
     _button(painter, ModalLayout.FOUND_LEAVE, assets.system_text(21), choice is FoundResult.LEAVE)
     _button(painter, ModalLayout.FOUND_TAKE, assets.system_text(22), choice is FoundResult.TAKE)
     if effect.forced_refuse:
-        warning = _font(16).render(assets.system_text(10), True, (255, 192, 128))
-        surface.blit(warning, warning.get_rect(center=(160, 126)))
-    return _to_frame(surface)
+        painter.text(assets.system_text(10), 16, (255, 192, 128), center=(160, 126))
 
 
-def render_picture(effect, assets, resolver=None):
+def render_picture(painter, effect, assets, resolver=None):
     resolver = _resolver_or_originals(assets, resolver)
-    return _to_frame(screen_surface(resolver, effect.resource_index))
+    painter.blit(screen_surface(resolver, effect.resource_index, painter.size), (0, 0))
 
 
 def overlay_messages(painter, messages, assets):
@@ -1011,26 +1001,20 @@ def render_reading(effect, presenter, assets, resolver=None):
     return _to_frame(surface)
 
 
-def render_inventory(presenter, assets, scene_frame, object_names, action_names):
-    surface = _to_surface((scene_frame.astype("f4") * 0.45).astype(np.uint8))
+def render_inventory(painter, presenter, assets, scene_frame, object_names, action_names):
+    dimmed = (scene_frame.astype("f4") * 0.45).astype(np.uint8)
+    painter.sprite(dimmed, (0, 0))
     rows = action_names if presenter.choosing_action else object_names
     cursor = presenter.action_cursor if presenter.choosing_action else presenter.object_cursor
     selection = presenter.hover if presenter.hover is not None else cursor
     start = visible_start(cursor, len(rows))
     title_id = 200 if presenter.choosing_action else 20
-    title = _font(20).render(assets.system_text(title_id), True, (255, 238, 198))
-    surface.blit(title, title.get_rect(center=(160, 16)))
-    # scratch painter: render_inventory isn't converted until Task 5, but
-    # _button now needs a painter to draw. Borrowing the live surface keeps
-    # the draw calls byte-identical to the direct pygame calls they replace.
-    painter = UIPainter()
-    painter.surface = surface
+    painter.text(assets.system_text(title_id), 20, (255, 238, 198), center=(160, 16))
     for visible, rect in enumerate(ModalLayout.INVENTORY_ROWS):
         index = start + visible
         if index >= len(rows):
             break
         _button(painter, rect, rows[index], selected=index == selection)
-    return _to_frame(surface)
 
 
 def render_character_select(presenter, assets, resolver=None):
@@ -1114,21 +1098,16 @@ def _render_key_picker(surface, presenter):
     return _to_frame(surface)
 
 
-def render_game_over(canvas, scene_frame, ready):
+def render_game_over(painter, scene_frame, ready):
     # LM_GAME_OVER's wall-clock wait (life.cpp:2438-2450) freezes the last PLAY
-    # frame -- locked, this returns the caller's canvas untouched, byte-identical,
-    # not recomposed, so the modal appears to hold the moment of death still.
+    # frame -- locked, this paints nothing at all, so the caller's canvas
+    # reaches present() untouched and the modal holds the moment of death still.
     if not ready:
-        return canvas
-    surface = _to_surface(scene_frame.copy())
-    shade = pygame.Surface((320, 200), flags=pygame.SRCALPHA)
-    shade.fill((0, 0, 0, 170))
-    surface.blit(shade, (0, 0))
-    title = _font(40).render("Game Over", True, (255, 238, 198))
-    prompt = _font(18).render("Click to restart", True, (255, 255, 255))
-    surface.blit(title, title.get_rect(center=(160, 82)))
-    surface.blit(prompt, prompt.get_rect(center=(160, 126)))
-    return _to_frame(surface)
+        return
+    painter.sprite(scene_frame, (0, 0))
+    painter.shade((0, 0, 0, 170))
+    painter.text("Game Over", 40, (255, 238, 198), center=(160, 82))
+    painter.text("Click to restart", 18, (255, 255, 255), center=(160, 126))
 
 
 def visible_start(cursor, total):
