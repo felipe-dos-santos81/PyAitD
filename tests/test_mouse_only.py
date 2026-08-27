@@ -425,45 +425,93 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, profile, monkeypat
     assert game.action == game.local_click == game.local_joyd == 0
 
 
-def test_mouse_journey_attic_take_hud_inventory_action(data_dir, profile, monkeypatch):
+def test_mouse_journey_attic_take_by_held_pointer_follow(data_dir, profile, monkeypatch):
+    # Press on bare floor, then drag the held pointer onto the lamp: the
+    # per-frame follow must retarget from the floor walk to the lamp's
+    # approach and use it once, with no second press. Modal clicks release
+    # in the same pump so no stray follow starts when PLAY resumes.
+    from PyAitD.app.shell import resolve_play_click
+
+    lamp_idx = 13
+    lamp_box = (100, 60, 200, 160)
+    probe = init_game(data_dir, profile)
+    probe.num_camera = probe.new_num_camera
+    probe_floor = Floor(data_dir, probe.current_floor, profile)
+    actor_idx = probe.world_objects[lamp_idx].obj_index
+    draw_list = [(actor_idx, lamp_box)]
+    # the first screen point, scanning the bottom of the frame upward, that
+    # the real resolver reports as walkable floor with the lamp box in place
+    floor_pos = next(
+        pos
+        for pos in ((x, y) for y in range(199, 100, -10) for x in range(10, 320, 20))
+        if resolve_play_click(probe, probe_floor, pos, draw_list)[0] == "walk"
+    )
+    assert not (lamp_box[0] <= floor_pos[0] < lamp_box[2]
+                and lamp_box[1] <= floor_pos[1] < lamp_box[3])
+
     game = init_game(data_dir, profile)
     game.timer = 300
-    lamp_idx = 13
-    actor_idx = game.world_objects[lamp_idx].obj_index
-    state = {"step": "lamp", "frames": 0}
+    hero = game.actors[game.current_camera_target_actor]
+    state = {
+        "step": "press", "frames": 0, "hero_start": _effective_position(hero),
+        "floor_walk_seen": False, "lamp_intent_seen": False,
+    }
+
+    def click(pos):
+        return [_left_down(pos), _left_up(pos)]
 
     def next_events():
         state["frames"] += 1
-        assert state["frames"] < 2500, "attic mouse journey exceeded its budget"
+        assert state["frames"] < 2500, "held attic journey exceeded its budget"
+        intent = game.nav_intent
+        if state["step"] == "press":
+            state["step"] = "drag"
+            return [_left_down(floor_pos)]
+        if state["step"] == "drag":
+            if intent is not None and intent.target_object_idx == -1:
+                state["floor_walk_seen"] = True
+                state["step"] = "lamp"
+                return [pygame.event.Event(
+                    pygame.MOUSEMOTION, pos=(150, 100),
+                    rel=(150 - floor_pos[0], 100 - floor_pos[1]), buttons=(1, 0, 0),
+                )]
+            return []
         if state["step"] == "lamp":
-            state["step"] = "found"
-            return [_left_click((150, 100))]
+            if intent is not None and intent.target_object_idx == lamp_idx:
+                state["lamp_intent_seen"] = True
+            if game.mode is GameMode.FOUND:
+                state["step"] = "found"
+                return [_left_up((150, 100))]
+            return []
         if state["step"] == "found" and game.mode is GameMode.FOUND:
             state["step"] = "hud"
-            return [_left_click(ModalLayout.FOUND_TAKE.center)]
+            return click(ModalLayout.FOUND_TAKE.center)
         if (state["step"] == "hud" and game.mode is GameMode.PLAY
                 and lamp_idx in inventory_items(game)):
+            assert game.nav_intent is None, "no follow may start from a modal click"
             state["step"] = "object"
-            return [_left_click(PlayLayout.INVENTORY.center)]
+            return click(PlayLayout.INVENTORY.center)
         if state["step"] == "object" and game.mode is GameMode.INVENTORY:
             state["step"] = "action"
             # The lamp is row 1, not row 0: the boot scripts grant object 2
             # first, and FITD take() inserts a second item at index 1
             # (main.cpp:3294-3307).
-            return [_left_click(ModalLayout.INVENTORY_ROWS[1].center)]
+            return click(ModalLayout.INVENTORY_ROWS[1].center)
         if state["step"] == "action" and game.mode is GameMode.INVENTORY:
             state["step"] = "quit"
-            return [_left_click(ModalLayout.INVENTORY_ROWS[0].center)]
+            return click(ModalLayout.INVENTORY_ROWS[0].center)
         if (state["step"] == "quit" and game.mode is GameMode.PLAY
                 and game.in_hand_table[0] == lamp_idx):
             return [pygame.event.Event(pygame.QUIT)]
         return []
 
-    _run_scripted_mouse(
-        monkeypatch, game, [(actor_idx, (100, 60, 200, 160))], next_events,
-    )
+    _run_scripted_mouse(monkeypatch, game, draw_list, next_events)
+    assert state["floor_walk_seen"] is True
+    assert state["lamp_intent_seen"] is True, "the follow never retargeted onto the lamp"
+    assert _effective_position(hero) != state["hero_start"]
     assert lamp_idx in inventory_items(game)
     assert game.in_hand_table[0] == lamp_idx
+    assert game.nav_intent is None
 
 
 def test_mouse_combat_fixture_has_a_real_visible_attack_target_after_equip(data_dir, profile):

@@ -167,10 +167,15 @@ a rule — add the test with the rule.
   deliberately not bit-identical — it diverges by ~9.6px near the camera and
   ~0.13px far away, because the integer path truncates. Never "fix" that
   divergence by projecting `draw_list` through the float path.
-- Held mouse actions latch one world object, never publish global Action, and
-  cancel on mouse-up or focus loss before animation/collision. Existing LIFE
-  and collision code alone move pushable scenery. Keep the both-protagonist
-  journey in `tests/test_mouse_only.py` and run `make prove-mouse-only` after
+- Mouse movement is a held pointer follow: every navigation intent is
+  hold-bound (`playworld._apply_mouse_input` cancels an intent whose buffer is
+  not held and focused), `app.shell.follow_pointer` re-resolves the held
+  pointer once per frame and re-issues an intent only when the resolution
+  differs from `InputBuffer.follow_last`, and hold-push keeps its latched
+  target. Held actions never publish global Action; existing LIFE and
+  collision code alone move pushable scenery. Never lock, grab or warp the OS
+  cursor (`tests/test_layering.py` gates it). Keep the both-protagonist
+  journeys in `tests/test_mouse_only.py` and run `make prove-mouse-only` after
   changing pointer, navigation, animation, modal, or collision behavior.
 - Mouse accessibility hardening closed the held-push inventory takeover
   regression and has user-attested Emily/Carnby window passes. The current

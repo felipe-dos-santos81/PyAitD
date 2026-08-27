@@ -43,12 +43,15 @@ absent, or a camera is missing from it, the game falls back to the original
 asset silently. Point elsewhere with `overrides=DIR`, or pass an empty
 `overrides=` to disable overrides for the run.
 
-Pick Emily or Carnby by mouse or keyboard, then play. Mouse (default):
-left-click the floor to walk there, left-click an object to approach and use
-it. Pushable scenery shows an amber opposed-arrow cursor: press and hold the
-left button to approach and push, then release to stop immediately. Moving the
-pointer while holding does not change the target. Tab switches to the keyboard
-scheme (arrows/WASD walk, Space acts) and back. Menus accept both throughout.
+Pick Emily or Carnby by mouse or keyboard, then play. Mouse (default): press
+and hold the left button — the hero walks toward the pointer and keeps
+following it while you hold; hold over an object to approach and use it;
+release to stop immediately. Pushable scenery shows an amber opposed-arrow
+cursor: press and hold to approach and push (the push target stays latched
+while you hold), release to stop. Armed enemies and the inventory button
+answer a single press. The OS cursor is never locked or grabbed. Tab switches
+to the keyboard scheme (arrows/WASD walk, Space acts) and back. Menus accept
+both throughout.
 
 Keyboard: arrows/WASD walk, Space acts, Enter or I opens inventory,
 Esc cancels — while playing it opens the system menu (Return / Configuration

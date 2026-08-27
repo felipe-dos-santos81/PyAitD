@@ -51,11 +51,11 @@ below for what pins each alias to the files it historically ran.
 | M3a | LIFE script VM core + world: the game boots from its **real scripts** — intro scene, actors spawn, scripts drive everything; script-driven player input | done (merged) |
 | M3b | Interaction: inventory (TAKE/FOUND/IN_HAND), action button, text MESSAGE rendering | done |
 | M3c | Combat: HIT/FIRE/THROW animActions, floor-5 combat venue, multi-floor `FloorStart`, the real death script → GAME_OVER → restart | done (one open ruling: the restart boundary after the death cinematic, `docs/m3c-combat-proof.md`) |
-| M3d | Mouse-only point-and-click input | done |
+| M3d | Mouse-only input: held pointer follow since 2026-08-26 (was point-and-click) | done |
 | M3e | Mouse reachability: HUD inventory, clicked native melee, exhaustive mouse contract | done (the clicked route was corrected from force-2 throw to native melee; `docs/mouse-accessibility-hardening-proof.md`) |
 | M4a1 | Shell: character select, system menu, remappable controls, sticky Action, settings persistence, settings notice overlay | done — automated gates green (`make prove-shell`); the windowed pass is attested by the mouse accessibility hardening proof, which supersedes the pending rows in `docs/m4a1-shell-proof.md` |
 | Mouse hold-to-push | Held approach/engage for scripted movable furniture | done — automated gates green; windowed pass attested via the hardening proof, superseding `docs/mouse-hold-push-proof.md` |
-| Mouse accessibility hardening | Effective targets, optional pure hover, physical/touch parity, target precedence, atomic modal takeover, exhaustive contract gate | done — automated gates green and user-attested windowed standard-mouse/macOS-Accessibility-Keyboard passes for Emily and Carnby (`docs/mouse-accessibility-hardening-proof.md`) |
+| Mouse accessibility hardening | Effective targets, optional pure hover, physical/touch parity, target precedence, atomic modal takeover, exhaustive contract gate | done — automated gates green and user-attested windowed standard-mouse/macOS-Accessibility-Keyboard passes for Emily and Carnby (`docs/mouse-accessibility-hardening-proof.md`) — re-attestation pending: held pointer follow made PLAY movement press-and-hold, so the dwell-click / Accessibility Keyboard attestation no longer covers walking or approaching objects (`docs/superpowers/specs/2026-08-26-held-pointer-follow-design.md`) |
 | Enhanced graphics scene layer | Higher-resolution actor rendering, per-vertex shading, GPU mask erasure, background upscale filters, asset override directory, GL fallback | automated gates green; windowed attestation pending (`docs/enhanced-graphics-proof.md`) |
 | AI background regeneration | Export originals + structure guides + manifest, validate override dirs as the game loads them, optional Gemini describe+render regeneration | done — `make export-backgrounds` / `check-overrides` / `regenerate-backgrounds`; `docs/ai-background-regeneration.md` |
 | Engine package reorganization | engine / render / games / app split + GameProfile | done — `tests/test_layering.py` |
@@ -225,7 +225,13 @@ action runner.
 - `scenario.enter_mouse_combat_fixture` owns the deterministic object-38
   automated/manual proof start; the M3c `enter_combat_venue` remains unchanged.
 - `app.shell.resolve_play_click` is the one HUD/attack/target/walk/blocked
-  resolver used by both hover and click routing.
+  resolver used by hover, the press, and the per-frame held follow.
+- `app.shell.follow_pointer` runs once per frame after the ticks and the
+  scene refresh while the left button is held in PLAY; it re-issues an
+  intent only when the resolution differs from `InputBuffer.follow_last`,
+  which is also the arrival one-shot latch. Button-up, focus loss, modal
+  takeover and a floor change clear both. Push and attack latches suspend
+  it. No engine module learns about pointer motion.
 - `playworld._push_into_target` re-aims an arrived click at a non-foundable
   object that has a `found_life`, so the final step collides with the object
   and the scripted found fires from the collision (FITD anim.cpp:381: the
