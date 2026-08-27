@@ -801,11 +801,11 @@ def _resolver_or_originals(assets, resolver):
     return resolver if resolver is not None else AssetResolver(assets, None)
 
 
-def _button(surface, rect, label, selected=False, size=18):
-    pygame.draw.rect(surface, (214, 190, 142) if selected else (78, 59, 46), rect, border_radius=3)
-    pygame.draw.rect(surface, (245, 226, 178), rect, width=2, border_radius=3)
-    glyph = _font(size).render(label, True, (20, 16, 12) if selected else (250, 242, 216))
-    surface.blit(glyph, glyph.get_rect(center=rect.center))
+def _button(painter, rect, label, selected=False, size=18):
+    painter.rect((214, 190, 142) if selected else (78, 59, 46), rect, border_radius=3)
+    painter.rect((245, 226, 178), rect, width=2, border_radius=3)
+    painter.text(label, size, (20, 16, 12) if selected else (250, 242, 216),
+                 center=pygame.Rect(rect).center)
 
 
 def draw_big_cadre(surface, sprites, center, size):
@@ -906,8 +906,13 @@ def render_found(effect, presenter, assets, found_name):
     surface.blit(title, title.get_rect(center=(160, 34)))
     surface.blit(name, name.get_rect(center=(160, 78)))
     choice = presenter.hover if presenter.hover is not None else presenter.choice
-    _button(surface, ModalLayout.FOUND_LEAVE, assets.system_text(21), choice is FoundResult.LEAVE)
-    _button(surface, ModalLayout.FOUND_TAKE, assets.system_text(22), choice is FoundResult.TAKE)
+    # scratch painter: render_found isn't converted until Task 5, but
+    # _button now needs a painter to draw. Borrowing the live surface keeps
+    # the draw calls byte-identical to the direct pygame calls they replace.
+    painter = UIPainter()
+    painter.surface = surface
+    _button(painter, ModalLayout.FOUND_LEAVE, assets.system_text(21), choice is FoundResult.LEAVE)
+    _button(painter, ModalLayout.FOUND_TAKE, assets.system_text(22), choice is FoundResult.TAKE)
     if effect.forced_refuse:
         warning = _font(16).render(assets.system_text(10), True, (255, 192, 128))
         surface.blit(warning, warning.get_rect(center=(160, 126)))
@@ -919,64 +924,44 @@ def render_picture(effect, assets, resolver=None):
     return _to_frame(screen_surface(resolver, effect.resource_index))
 
 
-def overlay_messages(frame, messages, assets):
+def overlay_messages(painter, messages, assets):
     if all(message is None for message in messages):
-        return frame
-    surface = _to_surface(frame.copy())
+        return
     y = 184
-    font = _font(16)
     for message in messages:
         if message is None:
             continue
-        glyph = font.render(assets.system_text(message.message_id), True, (255, 240, 185))
-        shadow = font.render(assets.system_text(message.message_id), True, (0, 0, 0))
-        rect = glyph.get_rect(center=(160, y))
-        surface.blit(shadow, rect.move(1, 1))
-        surface.blit(glyph, rect)
+        label = assets.system_text(message.message_id)
+        painter.text(label, 16, (0, 0, 0), center=(161, y + 1))
+        painter.text(label, 16, (255, 240, 185), center=(160, y))
         y -= 16
-    return _to_frame(surface)
 
 
-def render_play_hud(frame, *, inventory_available):
+def render_play_hud(painter, *, inventory_available):
     if not inventory_available:
-        return frame
-    surface = _to_surface(frame.copy())
-    _button(surface, PlayLayout.INVENTORY, "INV", selected=True)
-    return _to_frame(surface)
+        return
+    _button(painter, PlayLayout.INVENTORY, "INV", selected=True)
 
 
-def render_hit_feedback(frame, rects):
+def render_hit_feedback(painter, rects):
     """Outline supplied actor rectangles without reading simulation state."""
-    if not rects:
-        return frame
-    surface = _to_surface(frame.copy())
     for rect in rects:
         target = pygame.Rect(rect)
         if target.width <= 0 or target.height <= 0:
             continue
-        pygame.draw.rect(surface, (255, 255, 255), target.inflate(4, 4), width=2)
-        pygame.draw.rect(surface, (255, 32, 32), target, width=2)
-    return _to_frame(surface)
+        painter.rect((255, 255, 255), target.inflate(4, 4), width=2)
+        painter.rect((255, 32, 32), target, width=2)
 
 
-def render_settings_notice(frame, message):
+def render_settings_notice(painter, message):
     if message is None:
-        return frame
-    surface = _to_surface(frame.copy())
-    shade = pygame.Surface((320, 200), flags=pygame.SRCALPHA)
-    shade.fill((0, 0, 0, 190))
-    surface.blit(shade, (0, 0))
-    title = _font(20).render("Settings error", True, (255, 220, 170))
-    surface.blit(title, title.get_rect(center=(160, 38)))
-    # scratch painter: this presenter isn't converted until Task 4, but
-    # layout_book now needs a painter to measure logically.
-    painter = UIPainter()
+        return
+    painter.shade((0, 0, 0, 190))
+    painter.text("Settings error", 20, (255, 220, 170), center=(160, 38))
     lines = layout_book((BookToken("text", message),), painter, 15, 276, 5)[0]
     for index, (text, _centered) in enumerate(lines):
-        glyph = _font(15).render(text, True, (255, 255, 255))
-        surface.blit(glyph, glyph.get_rect(center=(160, 65 + index * 16)))
-    _button(surface, SettingsNoticeLayout.DISMISS, "Dismiss", selected=True)
-    return _to_frame(surface)
+        painter.text(text, 15, (255, 255, 255), center=(160, 65 + index * 16))
+    _button(painter, SettingsNoticeLayout.DISMISS, "Dismiss", selected=True)
 
 
 def reading_pages(effect, assets):
@@ -1006,16 +991,21 @@ def render_reading(effect, presenter, assets, resolver=None):
         surface.blit(glyph, (x, y))
         y += 16
     hover = presenter.hover
+    # scratch painter: render_reading isn't converted until Task 6, but
+    # _button now needs a painter to draw. Borrowing the live surface keeps
+    # the draw calls byte-identical to the direct pygame calls they replace.
+    painter = UIPainter()
+    painter.surface = surface
     _button(
-        surface, ModalLayout.READING_PREV, "Previous",
+        painter, ModalLayout.READING_PREV, "Previous",
         hover == ReadingResult(False, -1) if hover is not None else presenter.page > 0,
     )
     _button(
-        surface, ModalLayout.READING_CLOSE, "Close",
+        painter, ModalLayout.READING_CLOSE, "Close",
         hover == ReadingResult(True) if hover is not None else True,
     )
     _button(
-        surface, ModalLayout.READING_NEXT, "Next",
+        painter, ModalLayout.READING_NEXT, "Next",
         hover == ReadingResult(False, 1) if hover is not None else presenter.page + 1 < len(pages),
     )
     return _to_frame(surface)
@@ -1030,11 +1020,16 @@ def render_inventory(presenter, assets, scene_frame, object_names, action_names)
     title_id = 200 if presenter.choosing_action else 20
     title = _font(20).render(assets.system_text(title_id), True, (255, 238, 198))
     surface.blit(title, title.get_rect(center=(160, 16)))
+    # scratch painter: render_inventory isn't converted until Task 5, but
+    # _button now needs a painter to draw. Borrowing the live surface keeps
+    # the draw calls byte-identical to the direct pygame calls they replace.
+    painter = UIPainter()
+    painter.surface = surface
     for visible, rect in enumerate(ModalLayout.INVENTORY_ROWS):
         index = start + visible
         if index >= len(rows):
             break
-        _button(surface, rect, rows[index], selected=index == selection)
+        _button(painter, rect, rows[index], selected=index == selection)
     return _to_frame(surface)
 
 
@@ -1093,8 +1088,13 @@ def render_system_menu(presenter, settings, assets):
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
     button_size = 13 if presenter.page is SystemMenuPage.CONFIG else 18
     rows = zip(SystemMenuLayout.rows(presenter.page), labels, strict=True)
+    # scratch painter: render_system_menu isn't converted until Task 6, but
+    # _button now needs a painter to draw. Borrowing the live surface keeps
+    # the draw calls byte-identical to the direct pygame calls they replace.
+    painter = UIPainter()
+    painter.surface = surface
     for index, (rect, label) in enumerate(rows):
-        _button(surface, rect, label, selected=index == selection, size=button_size)
+        _button(painter, rect, label, selected=index == selection, size=button_size)
     return _to_frame(surface)
 
 
@@ -1104,8 +1104,13 @@ def _render_key_picker(surface, presenter):
     )
     surface.blit(header, header.get_rect(midtop=(160, 4)))
     labels = [PICKABLE_KEY_LABELS.get(name, name) for name in PICKABLE_KEYS] + ["Cancel"]
+    # scratch painter: _render_key_picker isn't converted until Task 6, but
+    # _button now needs a painter to draw. Borrowing the live surface keeps
+    # the draw calls byte-identical to the direct pygame calls they replace.
+    painter = UIPainter()
+    painter.surface = surface
     for index, (rect, label) in enumerate(zip(SystemMenuLayout.KEY_PICK_ROWS, labels)):
-        _button(surface, rect, label, selected=index == presenter.hover, size=12)
+        _button(painter, rect, label, selected=index == presenter.hover, size=12)
     return _to_frame(surface)
 
 
@@ -1261,31 +1266,29 @@ _CURSOR_COLORS = {
 }
 
 
-def render_cursor(frame, logical_pos, kind):
+def render_cursor(painter, logical_pos, kind):
     """Draw the pick cursor. Pure presentation: never touches world state."""
     if logical_pos is None:
-        return frame
-    surface = _to_surface(frame.copy())
-    color = _CURSOR_COLORS.get(kind, _CURSOR_COLORS["walk"])
+        return
+    colour = _CURSOR_COLORS.get(kind, _CURSOR_COLORS["walk"])
     x, y = int(logical_pos[0]), int(logical_pos[1])
     if kind == "inventory":
-        pygame.draw.rect(surface, color, pygame.Rect(x - 5, y - 4, 11, 9), width=2)
-        pygame.draw.line(surface, color, (x - 2, y - 6), (x + 2, y - 6), width=2)
+        painter.rect(colour, pygame.Rect(x - 5, y - 4, 11, 9), width=2)
+        painter.line(colour, (x - 2, y - 6), (x + 2, y - 6), width=2)
     elif kind == "attack":
-        pygame.draw.circle(surface, color, (x, y), 6, width=1)
-        pygame.draw.line(surface, color, (x - 8, y), (x + 8, y), width=1)
-        pygame.draw.line(surface, color, (x, y - 8), (x, y + 8), width=1)
+        painter.circle(colour, (x, y), 6, width=1)
+        painter.line(colour, (x - 8, y), (x + 8, y), width=1)
+        painter.line(colour, (x, y - 8), (x, y + 8), width=1)
     elif kind == "target":
-        pygame.draw.rect(surface, color, pygame.Rect(x - 5, y - 5, 11, 11), width=1)
+        painter.rect(colour, pygame.Rect(x - 5, y - 5, 11, 11), width=1)
     elif kind == "push":
-        pygame.draw.line(surface, color, (x - 7, y), (x + 7, y), width=2)
-        pygame.draw.line(surface, color, (x - 7, y), (x - 3, y - 3), width=2)
-        pygame.draw.line(surface, color, (x - 7, y), (x - 3, y + 3), width=2)
-        pygame.draw.line(surface, color, (x + 7, y), (x + 3, y - 3), width=2)
-        pygame.draw.line(surface, color, (x + 7, y), (x + 3, y + 3), width=2)
+        painter.line(colour, (x - 7, y), (x + 7, y), width=2)
+        painter.line(colour, (x - 7, y), (x - 3, y - 3), width=2)
+        painter.line(colour, (x - 7, y), (x - 3, y + 3), width=2)
+        painter.line(colour, (x + 7, y), (x + 3, y - 3), width=2)
+        painter.line(colour, (x + 7, y), (x + 3, y + 3), width=2)
     elif kind == "blocked":
-        pygame.draw.line(surface, color, (x - 4, y - 4), (x + 4, y + 4))
-        pygame.draw.line(surface, color, (x - 4, y + 4), (x + 4, y - 4))
+        painter.line(colour, (x - 4, y - 4), (x + 4, y + 4))
+        painter.line(colour, (x - 4, y + 4), (x + 4, y - 4))
     else:
-        pygame.draw.circle(surface, color, (x, y), 4, width=1)
-    return _to_frame(surface)
+        painter.circle(colour, (x, y), 4, width=1)

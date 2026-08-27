@@ -12,11 +12,11 @@ from PyAitD.engine.game import init_game
 from PyAitD.engine.text import BookToken
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
-    FoundPresenter, InventoryPresenter, ModalLayout, ReadingPresenter, ReadingResult,
+    FoundPresenter, InventoryPresenter, ModalLayout, PlayLayout, ReadingPresenter, ReadingResult,
     SystemMenuPage, SystemMenuPresenter, UIPainter,
     draw_big_cadre, layout_book,
     overlay_messages, render_character_select, render_cursor, render_found,
-    render_game_over, render_picture, render_play_hud, render_reading,
+    render_game_over, render_hit_feedback, render_picture, render_play_hud, render_reading,
     render_inventory, render_settings_notice, render_system_menu,
     screen_surface, transparent_canvas,
 )
@@ -51,13 +51,12 @@ def test_book_layout_preserves_tab_prefix_and_center_flag():
     assert pages[0][0] == ("    Entry", True)
 
 
-def test_message_overlay_does_not_mutate_source_frame(data_dir, profile):
+def test_message_overlay_paints_a_present_message_in_place(data_dir, profile):
     pygame.font.init()
     game = init_game(data_dir, profile)
-    source = np.zeros((200, 320, 3), dtype=np.uint8)
-    result = overlay_messages(source, [TimedMessage(100), None, None, None, None], game.assets)
-    assert np.count_nonzero(source) == 0
-    assert np.count_nonzero(result) > 0
+    painter = UIPainter()
+    overlay_messages(painter, [TimedMessage(100), None, None, None, None], game.assets)
+    assert np.count_nonzero(painter.to_frame()) > 0
 
 
 def test_painter_at_scale_one_matches_a_transparent_canvas():
@@ -126,29 +125,24 @@ def test_layout_book_breaks_lines_identically_at_every_scale():
     )
 
 
-def test_cursor_marks_the_frame_without_mutating_the_input():
-    frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    out = render_cursor(frame, (160, 100), "walk")
-    assert out is not frame, "presentation must not mutate the scene frame"
-    assert int(out.sum()) > 0, "the cursor drew nothing"
-    assert int(frame.sum()) == 0
+def test_cursor_marks_the_frame():
+    painter = UIPainter()
+    render_cursor(painter, (160, 100), "walk")
+    assert int(painter.to_frame().sum()) > 0, "the cursor drew nothing"
 
 
-def test_hit_feedback_marks_the_supplied_box_in_high_contrast_without_mutation():
-    from PyAitD.app import ui
-
-    source = np.full((200, 320, 3), 80, dtype=np.uint8)
-    original = source.copy()
+def test_hit_feedback_marks_the_supplied_box_in_high_contrast():
+    painter = UIPainter(fill=(80, 80, 80, 255))
+    original = painter.to_frame().copy()
     target = pygame.Rect(100, 60, 101, 101)
 
-    result = ui.render_hit_feedback(source, (target,))
+    render_hit_feedback(painter, (target,))
+    result = painter.to_frame()
 
-    assert np.array_equal(source, original), "presentation mutated the scene frame"
-    assert result is not source
-    changed = np.any(result != source, axis=2)
+    changed = np.any(result[:, :, :3] != original[:, :, :3], axis=2)
     assert not np.any(changed[:50, :]), "feedback escaped the supplied target"
     pixels = result[changed]
-    assert np.any(np.all(pixels == (255, 255, 255), axis=1)), (
+    assert np.any(np.all(pixels[:, :3] == (255, 255, 255), axis=1)), (
         "hit feedback needs a bright edge against dark scenery"
     )
     assert np.any(
@@ -156,36 +150,41 @@ def test_hit_feedback_marks_the_supplied_box_in_high_contrast_without_mutation()
     ), "hit feedback needs a distinct red edge against bright scenery"
 
 
-def test_play_hud_draws_only_when_available_without_mutating_input():
-    source = np.zeros((200, 320, 3), dtype=np.uint8)
-    unavailable = render_play_hud(source, inventory_available=False)
-    available = render_play_hud(source, inventory_available=True)
-    assert unavailable is source
-    assert np.array_equal(unavailable, source)
-    assert not np.array_equal(available, source)
-    assert int(source.sum()) == 0
+def test_play_hud_draws_only_when_available():
+    unavailable = UIPainter()
+    render_play_hud(unavailable, inventory_available=False)
+    assert int(unavailable.to_frame().sum()) == 0
+
+    available = UIPainter()
+    render_play_hud(available, inventory_available=True)
+    assert not np.array_equal(available.to_frame(), unavailable.to_frame())
 
 
 def test_all_pointer_kinds_have_distinct_pixel_output():
-    frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    rendered = {
-        kind: render_cursor(frame, (160, 100), kind)
-        for kind in ("inventory", "attack", "target", "walk", "blocked")
-    }
+    rendered = {}
+    for kind in ("inventory", "attack", "target", "walk", "blocked"):
+        painter = UIPainter()
+        render_cursor(painter, (160, 100), kind)
+        rendered[kind] = painter.to_frame()
     assert len({image.tobytes() for image in rendered.values()}) == 5
 
 
 def test_push_cursor_is_a_sixth_distinct_pointer():
-    frame = np.zeros((200, 320, 3), dtype=np.uint8)
     kinds = ("inventory", "attack", "target", "push", "walk", "blocked")
-    rendered = {kind: render_cursor(frame, (160, 100), kind) for kind in kinds}
+    rendered = {}
+    for kind in kinds:
+        painter = UIPainter()
+        render_cursor(painter, (160, 100), kind)
+        rendered[kind] = painter.to_frame()
 
     assert len({image.tobytes() for image in rendered.values()}) == len(kinds)
 
 
 def test_cursor_outside_the_surface_is_a_no_op():
-    frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    assert np.array_equal(render_cursor(frame, None, "walk"), frame)
+    painter = UIPainter()
+    before = painter.to_frame().copy()
+    render_cursor(painter, None, "walk")
+    assert np.array_equal(painter.to_frame(), before)
 
 
 def test_game_over_locked_frame_is_identical_and_ready_frame_is_overlayed():
@@ -283,12 +282,11 @@ def test_story_composes_the_opposite_intro_half_and_expected_text(
     assert (1 if choice == 0 else 0) == hero
 
 
-def test_settings_notice_overlays_without_mutating_the_mode_frame():
-    source = np.zeros((200, 320, 3), dtype=np.uint8)
-    result = render_settings_notice(source, "Could not load settings from /x: corrupt")
-    assert np.count_nonzero(source) == 0
-    assert result.shape == source.shape
-    assert not np.array_equal(result, source)
+def test_settings_notice_overlays_the_painter():
+    painter = UIPainter()
+    before = painter.to_frame().copy()
+    render_settings_notice(painter, "Could not load settings from /x: corrupt")
+    assert not np.array_equal(painter.to_frame(), before)
 
 
 @pytest.mark.parametrize("page", tuple(SystemMenuPage))
@@ -344,12 +342,28 @@ def test_transparent_canvas_and_rgba_round_trip():
 
 
 def test_play_hud_and_cursor_keep_the_canvas_transparent_elsewhere():
-    from PyAitD.app.ui import render_cursor, render_play_hud, transparent_canvas
-    out = render_play_hud(transparent_canvas(), inventory_available=True)
-    out = render_cursor(out, (160, 100), "walk")
+    painter = UIPainter()
+    render_play_hud(painter, inventory_available=True)
+    render_cursor(painter, (160, 100), "walk")
+    out = painter.to_frame()
     assert out.shape == (200, 320, 4)
     assert out[0, 0, 3] == 0                      # untouched corner stays clear
     assert out[:, :, 3].max() == 255              # something was drawn
+
+
+def test_overlays_paint_in_place_and_match_the_old_canvas_at_scale_one():
+    painter = UIPainter()
+    render_play_hud(painter, inventory_available=True)
+    render_cursor(painter, (100, 50), "attack")
+    frame = painter.to_frame()
+    assert frame[50, 100, 3] > 0, "the cursor painted at its logical point"
+    assert frame[PlayLayout.INVENTORY.centery, PlayLayout.INVENTORY.centerx, 3] > 0
+
+
+def test_overlays_scale_with_the_painter():
+    painter = UIPainter(4)
+    render_cursor(painter, (100, 50), "attack")
+    assert painter.to_frame()[200, 400, 3] > 0, "the cursor tracks the scaled point"
 
 
 def test_game_over_not_ready_is_identity_on_the_canvas():

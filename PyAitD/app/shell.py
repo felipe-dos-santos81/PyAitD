@@ -23,7 +23,7 @@ from PyAitD.render.render_options import BACKGROUND_FILTERS, SHADING_MODES, vali
 from PyAitD.games import load_profile
 from PyAitD.render.scene import build_frame
 from PyAitD.app.ui import (
-    Command, DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, configure_input,
+    Command, DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, UIPainter, configure_input,
     event_to_input,
     hit_test_settings_notice, render_cursor, render_hit_feedback, render_play_hud,
     render_settings_notice, reset_input, transparent_canvas,
@@ -1002,13 +1002,17 @@ def render_active_mode(game, session, renderer, resolver=None):
         ReadText, ShowFound, ShowPicture,
     )
     from PyAitD.app.ui import (
-        overlay_messages, render_character_select, render_found,
+        UIPainter, overlay_messages, render_character_select, render_found,
         render_game_over, render_inventory, render_picture, render_reading,
         render_system_menu,
     )
     effect = game.active_modal
     if effect is None:
-        return overlay_messages(transparent_canvas(), game.messages, game.assets)
+        # overlay_messages paints on a painter in place; a fresh UIPainter()
+        # is the painter form of transparent_canvas().
+        painter = UIPainter()
+        overlay_messages(painter, game.messages, game.assets)
+        return painter.to_frame()
     if isinstance(effect, CutsceneFinished):
         # the last PLAY frame stays composed underneath, exactly like
         # render_game_over before its accessibility wait elapses
@@ -1369,15 +1373,18 @@ def run(game, trace_path=None, session=None, resolver=None):
             if deadline > now
         }
         composed = render_active_mode(game, session, renderer, resolver)
-        composed = render_hit_feedback(
-            composed,
+        painter = UIPainter()
+        painter.sprite(composed, (0, 0))   # bridge: Task 9 deletes this once
+                                           # render_active_mode returns a painter
+        render_hit_feedback(
+            painter,
             _hit_feedback_rects(game, draw_list, hit_feedback_deadlines),
         )
         available = inventory_hud_available(game) and not session.cutscene
-        composed = render_play_hud(composed, inventory_available=available)
+        render_play_hud(painter, inventory_available=available)
         # the settings notice is mode-independent: after the HUD and before
         # the software cursor, so its Dismiss target is visually topmost
-        composed = render_settings_notice(composed, session.settings_error)
+        render_settings_notice(painter, session.settings_error)
         # Exactly one visible cursor: the software cursor draws only for
         # PLAY + mouse + no modal, so the OS pointer owns every other state
         # (modals with buttons, keyboard mode). Toggled per frame.
@@ -1390,8 +1397,8 @@ def run(game, trace_path=None, session=None, resolver=None):
             kind = _play_cursor_kind(
                 game, floor, hover, draw_list, input_buffer,
             )
-            composed = render_cursor(composed, hover, kind)
-        renderer.present(composed)
+            render_cursor(painter, hover, kind)
+        renderer.present(painter.to_frame())
         if game.num_camera != -1:
             # M3a draw_ready gate: transition frames (change_salle/floor
             # pending, num_camera == -1, current_room stale) reuse the

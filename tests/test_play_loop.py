@@ -1909,8 +1909,13 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, profile
     assert presented, "the selector must present its own frame"
     expected = render_character_select(CharacterSelectPresenter(), game.assets)
     for frame in presented:
-        assert not np.array_equal(frame, sentinel), "staged scene leaked to screen"
-        assert np.array_equal(frame, expected)
+        # run() bridges render_active_mode's numpy frame through a UIPainter
+        # before presenting (Task 4), which adds a fully-opaque alpha
+        # channel; the RGB content stays byte-identical.
+        assert frame.shape == (200, 320, 4)
+        assert not np.array_equal(frame[:, :, :3], sentinel), "staged scene leaked to screen"
+        assert np.array_equal(frame[:, :, :3], expected)
+        assert frame[:, :, 3].min() == 255, "the bridged seed is fully opaque"
 
 
 def _resolving(monkeypatch, results):

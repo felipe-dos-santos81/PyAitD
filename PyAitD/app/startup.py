@@ -141,11 +141,10 @@ DISABLED_FILL = (48, 40, 36)
 DISABLED_TEXT = (140, 128, 110)
 
 
-def _disabled_button(surface, rect, label, size=18):
-    pygame.draw.rect(surface, DISABLED_FILL, rect, border_radius=3)
-    pygame.draw.rect(surface, (120, 110, 90), rect, width=2, border_radius=3)
-    glyph = _font(size).render(label, True, DISABLED_TEXT)
-    surface.blit(glyph, glyph.get_rect(center=rect.center))
+def _disabled_button(painter, rect, label, size=18):
+    painter.rect(DISABLED_FILL, rect, border_radius=3)
+    painter.rect((120, 110, 90), rect, width=2, border_radius=3)
+    painter.text(label, size, DISABLED_TEXT, center=pygame.Rect(rect).center)
 
 
 def render_title(presenter, assets, resolver, elapsed_ms, credits_entry):
@@ -181,10 +180,16 @@ def render_startup_menu(presenter, assets, *, continue_enabled):
     center, size = StartupLayout.CADRE
     draw_big_cadre(surface, assets.cadre_bank(), center, size)
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
+    # scratch painter: render_startup_menu isn't converted until Task 7, but
+    # _button/_disabled_button now need a painter to draw. Borrowing the live
+    # surface keeps the draw calls byte-identical to the direct pygame calls
+    # they replace.
+    painter = UIPainter()
+    painter.surface = surface
     for index, (rect, text_id) in enumerate(zip(StartupLayout.ROWS, MENU_TEXT_IDS)):
         label = assets.system_text(text_id)
         if index == StartupRow.CONTINUE.value and not continue_enabled:
-            _disabled_button(surface, rect, label, size=14)
+            _disabled_button(painter, rect, label, size=14)
         else:
-            _button(surface, rect, label, selected=index == selection, size=14)
+            _button(painter, rect, label, selected=index == selection, size=14)
     return _to_frame(surface)
