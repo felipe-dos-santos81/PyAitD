@@ -238,13 +238,14 @@ action runner.
   hold live so the hero walks on off the stairs. Push and attack latches
   suspend it.
 - `app.shell._stamp_press` marks a PLAY press that landed within
-  `tracks.DOUBLE_TAP_TICKS` of the previous one, and that hold runs instead of
+  `ui.DOUBLE_PRESS_TICKS` of the previous one, and that hold runs instead of
   walking: `NavIntent.run` -> `navigate.decide` -> `NavDecision.run` ->
   `tracks._process_track_mouse` speed 5, which the hero's own ANIM_MOVE
-  already answers with the run animation. Timed on `game.timer` against the
-  constant `_process_track_manual` reads for FITD's own double-tap forward,
-  so both schemes are one rule and neither counts while a modal has the game
-  paused. A held push never runs.
+  already answers with the run animation. Timed on `game.timer`, so the
+  window stops counting while a modal has the game paused. The window is the
+  mouse's own, not the keyboard's `tracks.DOUBLE_TAP_TICKS`: a double click
+  is one motion of one finger that desktops time at around half a second,
+  where a double tap on a held key is a fast repeat. A held push never runs.
   Run adds no `PlayerCapability`: it is a speed, and every destination stays
   reachable at a walk (`mouse_contract` decision `held_double_press_run`). No engine module learns about pointer motion.
 - `playworld._push_into_target` re-aims an arrived click at a non-foundable

@@ -2273,18 +2273,22 @@ def _primed(main, game, floor, buf, near, monkeypatch, tick=100):
 
 def test_a_second_press_inside_the_double_press_window_runs(
         data_dir, profile, monkeypatch):
-    # FITD's own run gesture is a double-tap forward inside DOUBLE_TAP_TICKS
-    # (tracks._process_track_manual); the mouse reads a double press against
-    # the same clock, the same window and the same strict comparison.
+    # The window is the mouse's own: a double click is one motion of one
+    # finger, timed at around half a second by every desktop, not the fast key
+    # repeat that FITD's double-tap forward reads.
     import PyAitD.app.shell as main
-    from PyAitD.engine.tracks import DOUBLE_TAP_TICKS
+    from PyAitD.app.ui import DOUBLE_PRESS_TICKS
+    from PyAitD.engine.playworld import TICK_MS
     game, floor, buf, near, far = _follow_fixture(data_dir, profile)
+    assert DOUBLE_PRESS_TICKS * TICK_MS >= 400, (
+        "a window under 400ms is quicker than most people can click twice"
+    )
     assert _primed(main, game, floor, buf, near, monkeypatch).run is False, (
         "a first press walks: there is nothing to be the second half of"
     )
 
     intent = _press(
-        main, game, floor, buf, far, monkeypatch, 100 + DOUBLE_TAP_TICKS - 1,
+        main, game, floor, buf, far, monkeypatch, 100 + DOUBLE_PRESS_TICKS - 1,
     )
 
     assert intent.run is True
@@ -2293,17 +2297,15 @@ def test_a_second_press_inside_the_double_press_window_runs(
 
 def test_a_second_press_outside_the_window_walks(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
-    from PyAitD.engine.tracks import DOUBLE_TAP_TICKS
+    from PyAitD.app.ui import DOUBLE_PRESS_TICKS
     game, floor, buf, near, far = _follow_fixture(data_dir, profile)
     _primed(main, game, floor, buf, near, monkeypatch)
 
     intent = _press(
-        main, game, floor, buf, far, monkeypatch, 100 + DOUBLE_TAP_TICKS,
+        main, game, floor, buf, far, monkeypatch, 100 + DOUBLE_PRESS_TICKS,
     )
 
-    assert intent.run is False, (
-        "the window is exclusive, the way _process_track_manual reads it"
-    )
+    assert intent.run is False, "the window is exclusive"
     assert buf.pointer_run is False
 
 

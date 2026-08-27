@@ -71,7 +71,7 @@ class InputBuffer:
     # requires_hold intent) dies mid-hold. Cleared alongside follow_last on
     # release, so a fresh press is what restarts the follow.
     follow_spent: bool = False
-    # A press landing within tracks.DOUBLE_TAP_TICKS of the previous one runs
+    # A press landing within DOUBLE_PRESS_TICKS of the previous one runs
     # instead of walks, the mouse's answer to FITD's double-tap forward
     # (tracks._process_track_manual). Cleared by reset_input like every other
     # hold state, so a run never outlives the hold that started it.
@@ -114,6 +114,22 @@ def compile_bindings(settings):
                 raise ValueError(f"unknown pygame key name {name!r}") from exc
             compiled[code] = control
     return compiled
+
+
+# How long after a press a second one still reads as a double press, in game
+# ticks (50Hz, so 25 is half a second). Deliberately NOT the keyboard's
+# tracks.DOUBLE_TAP_TICKS, though the two gestures mean the same thing: a
+# double tap on a held movement key is a fast repeat, while a double click is
+# one motion of one finger that every desktop times at around half a second
+# -- macOS defaults to 500ms. Sharing the keyboard's 10 ticks put the window
+# under 180ms, which is quicker than most people can click twice, so the
+# gesture almost never fired.
+#
+# The unit is still game ticks rather than wall-clock milliseconds, because
+# the tick clock stops while a modal has the game paused: a press before the
+# inventory and one after it are never a double press, however long the
+# player spent in there.
+DOUBLE_PRESS_TICKS = 25
 
 
 def reset_input(state):

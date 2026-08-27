@@ -18,13 +18,13 @@ from PyAitD.engine.pak import PakError
 # imported by name, not module-qualified: run() reads play_tick as a module
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.engine.playworld import TICK_MS, play_tick
-from PyAitD.engine.tracks import DOUBLE_TAP_TICKS
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import BACKGROUND_FILTERS, SHADING_MODES, validate_render_options
 from PyAitD.games import load_profile
 from PyAitD.render.scene import build_frame
 from PyAitD.app.ui import (
-    Command, InputBuffer, ModalSession, configure_input, event_to_input,
+    Command, DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, configure_input,
+    event_to_input,
     hit_test_settings_notice, render_cursor, render_hit_feedback, render_play_hud,
     render_settings_notice, reset_input, transparent_canvas,
 )
@@ -392,18 +392,18 @@ def route_play_click(
 def _stamp_press(game, input_buffer):
     """Decide whether this press is the second half of a double press.
 
-    Timed on game.timer against tracks.DOUBLE_TAP_TICKS -- the same clock and
-    the same window as FITD's own double-tap forward
-    (tracks._process_track_manual), down to the strict comparison, so the two
-    schemes are one rule and both stop counting while a modal has the game
-    paused. Every PLAY press is stamped, not just the walks: two presses are
-    two presses whatever each one turned out to resolve to.
+    Timed on game.timer, so the window stops counting while a modal has the
+    game paused, and against the mouse's own DOUBLE_PRESS_TICKS rather than
+    the keyboard's much shorter double-tap window -- see the constant for why
+    the two gestures do not share a number. Every PLAY press is stamped, not
+    just the walks: two presses are two presses whatever each one turned out
+    to resolve to.
     """
     if input_buffer is None:
         return
     previous = input_buffer.last_press_tick
     input_buffer.pointer_run = (
-        previous is not None and game.timer - previous < DOUBLE_TAP_TICKS
+        previous is not None and game.timer - previous < DOUBLE_PRESS_TICKS
     )
     input_buffer.last_press_tick = game.timer
 
