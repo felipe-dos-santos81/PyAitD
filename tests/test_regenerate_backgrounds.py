@@ -251,8 +251,9 @@ def test_make_reference_cleans_up_its_own_temp_file_on_failure(tmp_path, monkeyp
 
 
 def test_regenerate_attaches_reference_and_guide_and_cleans_up(tmp_path, monkeypatch):
-    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), judge=[GOOD_VERDICT] * 3)
     monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, [])] * 3)
     before = set(pathlib.Path(tempfile.gettempdir()).glob("*.png"))
     assert _run(tmp_path, fake) == (3, 0)
     gen = [c[2] for c in fake.calls if "--json-schema" not in c]
@@ -283,8 +284,9 @@ def _run(tmp_path, fake, **kw):
 
 
 def test_regenerate_writes_fitted_pngs_and_prompt_cache(tmp_path, monkeypatch):
-    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 7, np.uint8)))
+    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 7, np.uint8)), judge=[GOOD_VERDICT] * 3)
     monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, [])] * 3)
 
     assert _run(tmp_path, fake) == (3, 0)
     out = tmp_path / "out"
@@ -295,20 +297,21 @@ def test_regenerate_writes_fitted_pngs_and_prompt_cache(tmp_path, monkeypatch):
     src = (tmp_path / "in/backgrounds/floor00/camera000.png").read_bytes()
     assert prompts["floor00/camera000"] == {
         "inventory": INVENTORY, "model": "gemini-3.1-pro", "sha256": hashlib.sha256(src).hexdigest()}
-    assert len(fake.calls) == 6
+    assert len(fake.calls) == 9
     gen_prompt = fake.calls[1][2]
     assert rb.generation_prompt(INVENTORY, "s.", guide_attached=True) in gen_prompt
 
 
 def test_regenerate_resumes_and_force_redoes(tmp_path, monkeypatch):
-    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), judge=[GOOD_VERDICT] * 7)
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
+    _gate_script(monkeypatch, [(True, False, [])] * 7)
+
     _run(tmp_path, fake)
     fake.calls.clear()
     assert _run(tmp_path, fake) == (0, 0)
     assert fake.calls == []
-    
+
     path = tmp_path / "out" / rb.PROMPTS_FILE
     prompts = rb.load_prompts(path)
     prompts["floor00/camera001"]["inventory"]["prompt"] = "EDITED"
@@ -316,20 +319,22 @@ def test_regenerate_resumes_and_force_redoes(tmp_path, monkeypatch):
     (tmp_path / "out/backgrounds/floor00/camera001.png").unlink()
 
     assert _run(tmp_path, fake) == (1, 0)
-    assert len(fake.calls) == 1 and "EDITED" in fake.calls[0][2]
+    assert len(fake.calls) == 2 and "EDITED" in fake.calls[0][2]
     assert rb.load_prompts(path)["floor00/camera001"]["inventory"]["prompt"] == "EDITED"
 
     fake.calls.clear()
     assert _run(tmp_path, fake, force=True) == (3, 0)
-    assert len(fake.calls) == 6
+    assert len(fake.calls) == 9
     assert rb.load_prompts(path)["floor00/camera001"]["inventory"]["prompt"] != "EDITED"
 
 
 def test_regenerate_continues_after_a_failed_camera(tmp_path, monkeypatch):
     logs = []
-    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={2})
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={2},
+                          judge=[GOOD_VERDICT] * 2)
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
+    _gate_script(monkeypatch, [(True, False, [])] * 2)
+
     assert _run(tmp_path, fake, log=logs.append) == (2, 1)
     assert not (tmp_path / "out/backgrounds/floor00/camera001.png").exists()
     assert any("floor00/camera001: failed:" in line for line in logs)
@@ -359,27 +364,31 @@ def test_regenerate_counts_non_png_image_as_failed(tmp_path, monkeypatch):
     for key in ("floor00/camera000", "floor00/camera001", "floor01/camera000"):
         assert not (out / "backgrounds" / f"{key}.png").exists()
     assert any("floor00/camera000: failed:" in line for line in logs)
-    assert [l.split(":")[0] for l in logs[:3]] == ["floor00/camera000", "floor00/camera001", "floor01/camera000"]
+    # every camera here has no layout sidecar, so each also logs a "no layout"
+    # line before the failure; filter to the per-camera failure lines to check order.
+    failures = [l for l in logs if "failed:" in l]
+    assert [l.split(":")[0] for l in failures] == ["floor00/camera000", "floor00/camera001", "floor01/camera000"]
 
 
 def test_regenerate_redescribes_when_source_hash_changes(tmp_path, monkeypatch):
     in_dir = make_in_dir(tmp_path)
     out_dir = tmp_path / "out"
     opts = dict(text_model="gemini-3.1-pro", style="s.", force=False, dry_run=False, log=lambda *_: None)
-    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), judge=[GOOD_VERDICT] * 4)
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
+    _gate_script(monkeypatch, [(True, False, [])] * 4)
+
     rb.regenerate(rb.discover(in_dir, None), out_dir, **opts)
     fake.calls.clear()
-    
+
     xb.save_png(in_dir / "backgrounds/floor00/camera001.png",
                checker_pixels(zlib.crc32(b"floor00/camera001-changed") % 100))
     (out_dir / "backgrounds/floor00/camera001.png").unlink()
     path = out_dir / rb.PROMPTS_FILE
     old_sha = rb.load_prompts(path)["floor00/camera001"]["sha256"]
-    
+
     assert rb.regenerate(rb.discover(in_dir, None), out_dir, **opts) == (1, 0)
-    assert len(fake.calls) == 2
+    assert len(fake.calls) == 3
     new_sha = rb.load_prompts(path)["floor00/camera001"]["sha256"]
     assert new_sha != old_sha
     new_source_sha = hashlib.sha256((in_dir / "backgrounds/floor00/camera001.png").read_bytes()).hexdigest()
@@ -387,8 +396,9 @@ def test_regenerate_redescribes_when_source_hash_changes(tmp_path, monkeypatch):
 
 
 def test_regenerate_redescribes_a_schema_1_prompt_entry(tmp_path, monkeypatch):
-    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), judge=[GOOD_VERDICT])
     monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, [])])
     out = tmp_path / "out"
     cams = rb.discover(make_in_dir(tmp_path), {1})
     sha = hashlib.sha256(cams[0].source.read_bytes()).hexdigest()
@@ -416,10 +426,11 @@ def test_regenerate_round_trips_through_check_overrides(tmp_path, monkeypatch):
     manifest = export_manifest(recs, "stub", 4)
     xb.save_manifest(in_dir, manifest)
     cams = rb.discover(in_dir, None)
-    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)))
+    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)), judge=[GOOD_VERDICT])
     monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, [])])
     out = tmp_path / "out"
-    
+
     assert rb.regenerate(cams, out, text_model="t", style="s",
                          force=False, dry_run=False, log=lambda *_: None) == (1, 0)
     assert json.loads((out / "manifest.json").read_text()) == manifest
@@ -439,9 +450,10 @@ def test_copy_manifest_never_overwrites_existing_out_manifest(tmp_path, monkeypa
     sentinel = json.dumps({"hand": "edited"})
     (out / "manifest.json").write_text(sentinel)
     cams = rb.discover(in_dir, None)
-    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)))
+    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)), judge=[GOOD_VERDICT])
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
+    _gate_script(monkeypatch, [(True, False, [])])
+
     assert rb.regenerate(cams, out, text_model="t", style="s",
                          force=False, dry_run=False, log=lambda *_: None) == (1, 0)
     assert (out / "manifest.json").read_text() == sentinel
@@ -472,18 +484,20 @@ def test_main_exit_message_omits_screens_when_disabled(tmp_path, capsys):
 
 def test_main_runs_with_injected_subprocess_and_reports_failures(tmp_path, monkeypatch, capsys):
     in_dir = make_in_dir(tmp_path)
-    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={3})
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={3},
+                          judge=[GOOD_VERDICT] * 3)
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
+    _gate_script(monkeypatch, [(True, False, [])] * 3)
+
     assert rb.main([str(in_dir), "--out", str(tmp_path / "out"), "--floors", "0-7",
                     "--style", "noir.", "--text-model", "t-model"]) == 1
     out = capsys.readouterr().out
     assert "floor01/camera000: failed:" in out and "done 2, failed 1" in out
-    
+
     assert "--model" in fake.calls[0] and "t-model" in fake.calls[0]
     assert "--model" in fake.calls[1] and "t-model" in fake.calls[1]
     assert "noir." in fake.calls[1][2]
-    
+
     fake.fail.clear()
     assert rb.main([str(in_dir), "--out", str(tmp_path / "out")]) == 0
 
@@ -524,8 +538,9 @@ def test_regenerate_screens_land_under_screens_and_copy_manifest(tmp_path, monke
     xb.save_manifest(in_dir, manifest)
     cams = rb.discover(in_dir, None)
     assert [c.key for c in cams] == ["screens/ress10"]
-    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)))
+    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)), judge=[GOOD_VERDICT])
     monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, [])])
     out = tmp_path / "out"
 
     assert rb.regenerate(cams, out, text_model="t", style="s",
@@ -606,4 +621,178 @@ def test_judge_tolerates_a_null_objects_or_extra_objects_field():
     null_corrections = _verdict(corrections=None)   # same list(x.get(..., [])) pattern as extra_objects
     assert rb.judge_accepts(null_corrections, INVENTORY) is True
     assert rb.judge_corrections(null_corrections, INVENTORY) == []
+
+
+def _gate_script(monkeypatch, outcomes):
+    """Make rb.gate return scripted results: each entry is (passed, leaked, failures)."""
+    from tools.plate_check import GateResult
+    queue = list(outcomes)
+    calls = []
+
+    def fake_gate(candidate, original, layout, scale=1.0):
+        calls.append((candidate.shape, original.shape, layout is not None, scale))
+        passed, leaked, failures = queue.pop(0)
+        scores = {"ncc": 0.71, "edge_recall": 0.83, "leak": 0.5 if leaked else 0.0, "leak_frame": 0.0, "regions": []}
+        return GateResult(passed, scores, list(failures), leaked)
+
+    monkeypatch.setattr(rb, "gate", fake_gate)
+    return calls
+
+
+def _one(tmp_path, floors={0}):
+    return rb.discover(make_in_dir(tmp_path), floors)[:1]
+
+
+def _regen(cams, out, **kw):
+    opts = dict(text_model="t", style="s.", force=False, dry_run=False, log=lambda *_: None)
+    opts.update(kw)
+    return rb.regenerate(cams, out, **opts)
+
+
+def test_accept_on_second_attempt_writes_png_and_report(tmp_path, monkeypatch):
+    png = png_bytes(np.full((1024, 1536, 3), 7, np.uint8))
+    fake = FakeSubprocess(png, judge=[_verdict(extra_objects=["table"], corrections=["remove the table"]), GOOD_VERDICT])
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    gates = _gate_script(monkeypatch, [(True, False, []), (True, False, [])])
+    logs = []
+    out = tmp_path / "out"
+    assert _regen(_one(tmp_path), out, log=logs.append) == (1, 0)
+    assert load_png_rgb(out / "backgrounds/floor00/camera000.png").shape == (800, 1280, 3)
+    assert logs[-1] == "floor00/camera000: ok (attempt 2/3, ncc 0.71, recall 0.83)"
+    gen = [c[2] for c in fake.calls if "--json-schema" not in c]
+    assert len(gen) == 2 and "Attempt 1 was rejected: remove the table; extra object: table." in gen[1]
+    assert "Attempt" not in gen[0]
+    assert gates[0] == ((800, 1280, 3), (200, 320, 3), False, 1.0)
+    report = rb.load_json(out / rb.REPORT_FILE)["floor00/camera000"]
+    assert report["accepted"] is True and len(report["attempts"]) == 2
+    assert report["attempts"][0]["attached"] == ["ref", "guide"]
+    assert report["attempts"][0]["gate"]["passed"] is True and report["attempts"][0]["judge"]["extra_objects"] == ["table"]
+    assert report["attempts"][1]["judge"] == GOOD_VERDICT
+
+
+def test_gate_failure_skips_the_judge_and_drops_the_guide_after_a_leak(tmp_path, monkeypatch):
+    png = png_bytes(np.zeros((1024, 1536, 3), np.uint8))
+    fake = FakeSubprocess(png, judge=[GOOD_VERDICT])
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(False, True, ["guide colour on 40 % of guide-line pixels: do not draw the red, blue or green lines"]),
+                               (True, False, [])])
+    out = tmp_path / "out"
+    assert _regen(_one(tmp_path), out) == (1, 0)
+    judge_calls = [c for c in fake.calls if "For every inventory object" in c[2]]
+    assert len(judge_calls) == 1
+    gen = [c[2] for c in fake.calls if "--json-schema" not in c]
+    guide = str((tmp_path / "in/guides/floor00/camera000.png").absolute())
+    assert guide in gen[0] and guide not in gen[1]
+    assert "Attempt 1 was rejected: guide colour on 40 %" in gen[1]
+    report = rb.load_json(out / rb.REPORT_FILE)["floor00/camera000"]
+    assert report["attempts"][0]["judge"] is None and report["attempts"][1]["attached"] == ["ref"]
+
+
+def test_reject_after_all_attempts_writes_nothing(tmp_path, monkeypatch):
+    png = png_bytes(np.zeros((1024, 1536, 3), np.uint8))
+    fake = FakeSubprocess(png, judge=[_verdict(camera_same=False)] * 2)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, []), (True, False, [])])
+    logs = []
+    out = tmp_path / "out"
+    assert _regen(_one(tmp_path), out, attempts=2, log=logs.append) == (0, 1)
+    assert not (out / "backgrounds").exists()
+    assert logs[-1] == ("floor00/camera000: failed: layout mismatch after 2 attempts "
+                        "(last: camera position, framing or perspective differs)")
+    report = rb.load_json(out / rb.REPORT_FILE)["floor00/camera000"]
+    assert report["accepted"] is False and len(report["attempts"]) == 2
+
+
+def test_error_mid_attempt_ends_the_camera_without_retry(tmp_path, monkeypatch):
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={1})
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [])
+    logs = []
+    out = tmp_path / "out"
+    assert _regen(_one(tmp_path), out, log=logs.append) == (0, 1)
+    assert fake.image_calls == 1 and logs[-1].startswith("floor00/camera000: failed: ")
+    report = rb.load_json(out / rb.REPORT_FILE)["floor00/camera000"]
+    assert report["accepted"] is False and "error" in report["attempts"][-1]
+
+
+def test_five_consecutive_rejections_abort_with_a_hint(tmp_path, monkeypatch):
+    in_dir = tmp_path / "in"
+    for i in range(6):
+        xb.save_png(in_dir / "backgrounds" / f"floor00/camera{i:03d}.png", checker_pixels(i))
+    cams = rb.discover(in_dir, None)
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), judge=[_verdict(camera_same=False)] * 6)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, [])] * 6)
+    logs = []
+    assert _regen(cams, tmp_path / "out", attempts=1, log=logs.append) == (0, 5)
+    assert logs[-1] == rb.REJECT_ABORT
+    assert fake.image_calls == 5
+
+
+def test_rejections_and_errors_keep_separate_streaks(tmp_path, monkeypatch):
+    in_dir = tmp_path / "in"
+    for i in range(4):
+        xb.save_png(in_dir / "backgrounds" / f"floor00/camera{i:03d}.png", checker_pixels(i))
+    cams = rb.discover(in_dir, None)
+    # cameras 0,1: error; camera 2: rejected (resets the error streak); camera 3: error -> no abort
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), fail_image_calls={1, 2, 4},
+                          judge=[_verdict(camera_same=False)])
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, [])])
+    logs = []
+    assert _regen(cams, tmp_path / "out", attempts=1, log=logs.append) == (0, 4)
+    assert not any(line.startswith("aborting") for line in logs)
+
+
+def test_report_entry_is_replaced_on_rerun_and_dry_run_names_layout(tmp_path, monkeypatch):
+    png = png_bytes(np.zeros((1024, 1536, 3), np.uint8))
+    fake = FakeSubprocess(png, judge=[_verdict(camera_same=False), GOOD_VERDICT])
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, []), (True, False, [])])
+    out = tmp_path / "out"
+    cams = _one(tmp_path)
+    assert _regen(cams, out, attempts=1) == (0, 1)
+    assert _regen(cams, out, attempts=1) == (1, 0)
+    report = rb.load_json(out / rb.REPORT_FILE)["floor00/camera000"]
+    assert report["accepted"] is True and len(report["attempts"]) == 1
+    logs = []
+    assert _regen(cams, out, dry_run=True, force=True, log=logs.append) == (0, 0)
+    assert logs == ["floor00/camera000: would regenerate (guide yes, layout no, prompt cached yes)"]
+
+
+def test_missing_sidecar_logs_framing_gate_only_once(tmp_path, monkeypatch):
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), judge=[GOOD_VERDICT])
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, [])])
+    logs = []
+    assert _regen(_one(tmp_path), tmp_path / "out", log=logs.append) == (1, 0)
+    assert logs.count("floor00/camera000: no layout: framing gate only") == 1
+
+
+def test_screens_go_through_the_loop_with_screen_naming(tmp_path, monkeypatch):
+    in_dir = tmp_path / "in"
+    xb.save_png(in_dir / "screens" / "ress10.png", checker_pixels(1))
+    (in_dir / "guides" / "screens").mkdir(parents=True)
+    (in_dir / "guides" / "screens" / "ress10.json").write_text(json.dumps({"schema": 1, "size": [320, 200], "blit": [[10, 10, 140, 181]]}))
+    cams = rb.discover(in_dir, None)
+    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)), judge=[GOOD_VERDICT])
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    gates = _gate_script(monkeypatch, [(True, False, [])])
+    out = tmp_path / "out"
+    assert _regen(cams, out) == (1, 0)
+    assert (out / "screens" / "ress10.png").is_file()
+    gen = [c[2] for c in fake.calls if "--json-schema" not in c][0]
+    assert 'ImageName = "screen_ress10"' in gen and "painted illustration" in gen
+    assert "Regions that must stay plain: x 3–47 y 5–96." in gen
+    assert gates[0][2] is True
+
+
+def test_cli_knobs(tmp_path, monkeypatch):
+    args = rb._parse_args([str(tmp_path), "--out", str(tmp_path / "o"), "--attempts", "2", "--gate-scale", "0.5"])
+    assert args.attempts == 2 and args.gate_scale == 0.5
+    assert rb._parse_args([str(tmp_path), "--out", "o"]).attempts == 3
+    with pytest.raises(SystemExit):
+        rb._parse_args([str(tmp_path), "--out", "o", "--image-model", "x"])
+    with pytest.raises(SystemExit):
+        rb._parse_args([str(tmp_path), "--out", "o", "--attempts", "0"])
 

@@ -1,9 +1,15 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Regenerate exported backgrounds with Gemini: describe each plate with a
-text model, render the description with an image model using the original
-and its guide as references, fit to 1280x800 and write an override dir.
+text model into a structured inventory, then run generate -> fit -> gate ->
+judge rounds against the original and its layout sidecar, retrying with
+corrections up to `--attempts` times. A candidate is written only once the
+offline numpy gate and the vision judge both accept it; a camera that never
+passes writes nothing, so the game falls back to the original. Every
+camera's outcome (attempts, gate scores, judge verdicts) is recorded in
+report.json.
 
-docs/superpowers/specs/2026-08-25-gemini-background-regeneration-design.md."""
+docs/superpowers/specs/2026-08-25-gemini-background-regeneration-design.md,
+docs/superpowers/specs/2026-08-27-background-layout-fidelity-design.md."""
 import argparse
 import dataclasses
 import hashlib
@@ -22,14 +28,18 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from tools.export_backgrounds import parse_floors, save_png  # noqa: E402
-from tools.plate_check import fmt_bbox, layout_regions  # noqa: E402
+from tools.plate_check import fmt_bbox, gate, layout_regions  # noqa: E402
 
 DEFAULT_TEXT_MODEL = "gemini-3.1-pro"
 DEFAULT_STYLE = "Dark 1920s Louisiana mansion, moody film lighting, subtle grain."
 TARGET_SIZE = (1280, 800)   # 4 x 320x200
 GENERATE_ASPECT = "3:2"     # nearest Gemini ratio to 16:10 (3:2 is narrower); extra height is centre-cropped after
 PROMPTS_FILE = "prompts.json"
+REPORT_FILE = "report.json"
 MAX_CONSECUTIVE_FAILURES = 3   # a dead model/key fails every camera: stop early
+MAX_CONSECUTIVE_REJECTS = 5    # a model that cannot keep the layout: stop burning attempts
+REJECT_ABORT = ("aborting after 5 consecutive layout mismatches: edit the inventory in prompts.json, "
+                "lower --gate-scale, or raise --attempts")
 _CAMERA_RE = re.compile(r"floor(\d\d)/camera(\d\d\d)\.png$")
 _SCREEN_RE = re.compile(r"screens/ress(\d\d)\.png$")
 
@@ -345,6 +355,78 @@ def fit_to_target(png_bytes):
     return np.ascontiguousarray(pygame.surfarray.array3d(scaled).swapaxes(0, 1)).astype(np.uint8)
 
 
+@dataclasses.dataclass
+class CameraOutcome:
+    status: str        # ok | rejected | error
+    attempts: list     # report entries, one per attempt (or {"error": msg})
+    message: str
+
+
+def _process_camera(cam, target, prompts, prompts_path, *, text_model, style, attempts, gate_scale,
+                    force, log):
+    """Describe (cached), then up to `attempts` generate -> gate -> judge
+    rounds; writes `target` on acceptance. Never raises: errors become an
+    "error" outcome with the message."""
+    from PyAitD.render.asset_resolver import load_png_rgb
+    record = []
+    try:
+        source_sha = hashlib.sha256(cam.source.read_bytes()).hexdigest()
+        entry = prompts.get(cam.key)
+        stale = entry is None or "inventory" not in entry or entry.get("sha256") != source_sha
+        if stale or force:
+            inventory = describe(text_model, cam)
+            prompts[cam.key] = {"inventory": inventory, "model": text_model, "sha256": source_sha}
+            save_prompts(prompts_path, prompts)
+        inventory = prompts[cam.key]["inventory"]
+        original = load_png_rgb(cam.source)
+        layout = json.loads(cam.layout.read_text()) if cam.layout else None
+        if layout is None:
+            log(f"{cam.key}: no layout: framing gate only")
+        regions = layout_regions(layout)
+        screen = cam.floor == -1
+        ref = make_reference(cam)
+        try:
+            leaked, corrections = False, []
+            for n in range(1, attempts + 1):
+                attached = attachments(cam, ref, leaked)
+                prompt = generation_prompt(inventory, style, regions, corrections, rejected_attempt=n - 1,
+                                           guide_attached=len(attached) > 1, screen=screen)
+                attempt = {"attached": ["ref"] + (["guide"] if len(attached) > 1 else []),
+                           "gate": None, "judge": None}
+                record.append(attempt)
+                out = temp_png()
+                try:
+                    png = generate(text_model, cam, prompt, attached, out)
+                finally:
+                    out.unlink(missing_ok=True)
+                fitted = fit_to_target(png)
+                result = gate(fitted, original, layout, gate_scale)
+                attempt["gate"] = {"passed": result.passed, "scores": result.scores, "failures": result.failures}
+                if not result.passed:
+                    leaked = leaked or result.leaked
+                    corrections = list(result.failures)
+                    continue
+                cand = temp_png()
+                try:
+                    save_png(cand, fitted)
+                    verdict = judge(text_model, cam, inventory, ref, cand)
+                finally:
+                    cand.unlink(missing_ok=True)
+                attempt["judge"] = verdict
+                if judge_accepts(verdict, inventory):
+                    save_png(target, fitted)
+                    return CameraOutcome("ok", record, f"attempt {n}/{attempts}, ncc {result.scores['ncc']:.2f}, "
+                                                       f"recall {result.scores['edge_recall']:.2f}")
+                corrections = judge_corrections(verdict, inventory)
+            return CameraOutcome("rejected", record,
+                                 f"layout mismatch after {attempts} attempts (last: {'; '.join(corrections)})")
+        finally:
+            ref.unlink(missing_ok=True)
+    except Exception as exc:   # per-camera: agy errors, bad JSON, undecodable image
+        record.append({"error": str(exc)})
+        return CameraOutcome("error", record, str(exc))
+
+
 def _copy_manifest(cams, out_dir):
     if not cams:
         return
@@ -362,61 +444,66 @@ def _copy_manifest(cams, out_dir):
         os.replace(tmp, dst)
 
 
-def regenerate(cams, out_dir, *, text_model, style, force, dry_run, log=print):
-    """Describe + generate every camera into out_dir. Returns (done, failed).
-    Existing outputs are skipped unless force; cached inventories are reused
-    unless force or the source sha changed; prompts.json is saved after every camera."""
+def regenerate(cams, out_dir, *, text_model, style, attempts=3, gate_scale=1.0, force, dry_run, log=print):
+    """Describe + generate + verify every camera into out_dir. Returns
+    (done, failed); failed counts rejected and errored cameras. Existing
+    outputs are skipped unless force; cached inventories are reused unless
+    force or stale; prompts.json and report.json are saved after every
+    camera. Errors abort after MAX_CONSECUTIVE_FAILURES in a row,
+    rejections after MAX_CONSECUTIVE_REJECTS in a row."""
     out_dir = pathlib.Path(out_dir)
-    prompts_path = out_dir / PROMPTS_FILE
-    prompts = load_prompts(prompts_path)
-    done = failed = streak = 0
+    prompts_path, report_path = out_dir / PROMPTS_FILE, out_dir / REPORT_FILE
+    prompts, report = load_prompts(prompts_path), load_json(report_path)
+    done = failed = errors = rejects = 0
     for cam in cams:
         target = out_dir / (f"backgrounds/{cam.key}.png" if cam.floor >= 0 else f"{cam.key}.png")
         if target.is_file() and not force:
             log(f"{cam.key}: exists, skipped")
             continue
         guide = "yes" if cam.guide is not None else "no"
+        layout = "yes" if cam.layout is not None else "no"
         cached = "yes" if cam.key in prompts and "inventory" in prompts[cam.key] else "no"
         if dry_run:
-            log(f"{cam.key}: would regenerate (guide {guide}, prompt cached {cached})")
+            log(f"{cam.key}: would regenerate (guide {guide}, layout {layout}, prompt cached {cached})")
             continue
-        try:
-            source_sha = hashlib.sha256(cam.source.read_bytes()).hexdigest()
-            entry = prompts.get(cam.key)
-            stale = entry is None or "inventory" not in entry or entry.get("sha256") != source_sha
-            if stale or force:
-                inventory = describe(text_model, cam)
-                prompts[cam.key] = {"inventory": inventory, "model": text_model, "sha256": source_sha}
-                save_prompts(prompts_path, prompts)
-            inventory = prompts[cam.key]["inventory"]
-            layout = json.loads(cam.layout.read_text()) if cam.layout else None
-            ref = make_reference(cam)
-            try:
-                attached = attachments(cam, ref, leaked=False)
-                prompt = generation_prompt(inventory, style, layout_regions(layout),
-                                           guide_attached=len(attached) > 1, screen=cam.floor == -1)
-                out = temp_png()
-                try:
-                    image = generate(text_model, cam, prompt, attached, out)
-                finally:
-                    out.unlink(missing_ok=True)
-            finally:
-                ref.unlink(missing_ok=True)
-            save_png(target, fit_to_target(image))
-        except Exception as exc:  # per-camera: SDK error types are not imported here
-            failed += 1
-            streak += 1
-            log(f"{cam.key}: failed: {exc}")
-            if streak >= MAX_CONSECUTIVE_FAILURES:
-                log(f"aborting after {streak} consecutive failures")
+        outcome = _process_camera(cam, target, prompts, prompts_path, text_model=text_model, style=style,
+                                  attempts=attempts, gate_scale=gate_scale, force=force, log=log)
+        report[cam.key] = {"accepted": outcome.status == "ok", "attempts": outcome.attempts}
+        save_json(report_path, report)
+        if outcome.status == "ok":
+            done += 1
+            errors = rejects = 0
+            log(f"{cam.key}: ok ({outcome.message})")
+            continue
+        failed += 1
+        log(f"{cam.key}: failed: {outcome.message}")
+        if outcome.status == "rejected":
+            rejects, errors = rejects + 1, 0
+            if rejects >= MAX_CONSECUTIVE_REJECTS:
+                log(REJECT_ABORT)
                 break
-            continue
-        done += 1
-        streak = 0
-        log(f"{cam.key}: ok (guide {guide}, prompt cached {cached})")
+        else:
+            errors, rejects = errors + 1, 0
+            if errors >= MAX_CONSECUTIVE_FAILURES:
+                log(f"aborting after {errors} consecutive failures")
+                break
     if not dry_run:
         _copy_manifest(cams, out_dir)
     return done, failed
+
+
+def _positive_int(text):
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return value
+
+
+def _non_negative_float(text):
+    value = float(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError("must be >= 0")
+    return value
 
 
 def _parse_args(argv):
@@ -426,6 +513,10 @@ def _parse_args(argv):
     p.add_argument("--floors", default="0-7")
     p.add_argument("--style", default=DEFAULT_STYLE)
     p.add_argument("--text-model", default=DEFAULT_TEXT_MODEL)
+    p.add_argument("--attempts", type=_positive_int, default=3,
+                    help="generate/verify rounds per camera before rejecting it (default 3)")
+    p.add_argument("--gate-scale", type=_non_negative_float, default=1.0,
+                    help="multiply every gate threshold (1.0 default, 0 disables the gate)")
     p.add_argument("--force", action="store_true", help="redo existing outputs and cached prompts")
     p.add_argument("--dry-run", action="store_true", help="list what would be processed; no API calls")
     p.add_argument("--screens", action=argparse.BooleanOptionalAction, default=True,
@@ -443,8 +534,9 @@ def main(argv=None):
         print(f"nothing to regenerate under {args.in_dir}: no backgrounds/ cameras"
               + ("" if not args.screens else " and no screens/ plates"), file=sys.stderr)
         return 2
-    
+
     done, failed = regenerate(cams, args.out, text_model=args.text_model, style=args.style,
+                              attempts=args.attempts, gate_scale=args.gate_scale,
                               force=args.force, dry_run=args.dry_run)
     print(f"done {done}, failed {failed}")
     return 1 if failed else 0
