@@ -7,9 +7,11 @@ Writes, under --out DIR:
     backgrounds/floorNN/cameraNNN.png   320x200 originals -- overwrite these in place
     guides/floorNN/cameraNNN.png        upscaled originals with masks (red),
                                         collision (blue) and walkable (green) drawn on
+    guides/floorNN/cameraNNN.json       the same structures as JSON (320x200 px)
     screens/ressNN.png                  320x200 ITD_RESS full-screen originals
     guides/screens/ressNN.png           upscaled originals with the engine's
                                         blit rects drawn on (blue)
+    guides/screens/ressNN.json          the blit rects as JSON
 
 DIR is directly usable as `--overrides DIR` / `make run overrides=DIR`.
 See docs/ai-background-regeneration.md. This repo never ships game data:
@@ -25,7 +27,8 @@ import numpy as np
 
 from PyAitD.render.background_export import (
     SCREEN_ENTRIES, SCREEN_NAMES, SUPPORTED_SCHEMAS, background_rel_path, export_manifest, guide_overlay,
-    guide_rel_path, manifest_record, screen_guide, screen_guide_rel_path, screen_record, screen_rel_path,
+    guide_rel_path, layout_geometry, layout_rel_path, manifest_record, screen_guide, screen_guide_rel_path,
+    screen_layout, screen_layout_rel_path, screen_record, screen_rel_path,
 )
 from PyAitD.engine.assets import Assets
 from PyAitD.engine.floor import Floor
@@ -74,6 +77,15 @@ def save_png(path, rgb):
     os.replace(tmp, path)
 
 
+def save_layout(path, layout):
+    """Write a layout sidecar via `.tmp` + os.replace, like save_manifest."""
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(layout))
+    os.replace(tmp, path)
+
+
 def _merge_manifest_records(out_dir, new_records, key="cameras"):
     """Merge `new_records` over out_dir/manifest.json's existing `key` list
     (cameras keyed by (floor, camera), screens by entry), new records
@@ -107,7 +119,7 @@ def save_manifest(out_dir, manifest):
     return path
 
 
-def export_floor(floor, out_dir, guide_scale, save=save_png):
+def export_floor(floor, out_dir, guide_scale, save=save_png, save_layout=save_layout):
     out_dir = pathlib.Path(out_dir)
     records = []
     for cam_idx in range(len(floor.cameras)):
@@ -116,13 +128,15 @@ def export_floor(floor, out_dir, guide_scale, save=save_png):
         except KeyError:
             records.append(manifest_record(floor, cam_idx, None))
             continue
+        layout = layout_geometry(floor, cam_idx)
         save(out_dir / background_rel_path(floor.number, cam_idx), pixels)
-        save(out_dir / guide_rel_path(floor.number, cam_idx), guide_overlay(floor, cam_idx, guide_scale))
+        save(out_dir / guide_rel_path(floor.number, cam_idx), guide_overlay(floor, cam_idx, guide_scale, layout=layout))
+        save_layout(out_dir / layout_rel_path(floor.number, cam_idx), layout)
         records.append(manifest_record(floor, cam_idx, pixels))
     return records
 
 
-def export_screens(assets, out_dir, guide_scale, save=save_png):
+def export_screens(assets, out_dir, guide_scale, save=save_png, save_layout=save_layout):
     # Per-entry, like export_floor's per-camera loop: one damaged ITD_RESS
     # entry must not discard the records for entries already written to
     # disk earlier in the loop (a whole-loop try/except did exactly that).
@@ -133,6 +147,7 @@ def export_screens(assets, out_dir, guide_scale, save=save_png):
             pixels = assets.resource_screen(entry)
             save(out_dir / screen_rel_path(entry), pixels)
             save(out_dir / screen_guide_rel_path(entry), screen_guide(pixels, entry, guide_scale))
+            save_layout(out_dir / screen_layout_rel_path(entry), screen_layout(entry))
             records.append(screen_record(entry, pixels))
         except (PakError, FileNotFoundError, OSError, ValueError) as exc:
             print(f"warning: screen {entry} ({SCREEN_NAMES[entry]}) skipped: {exc}", file=sys.stderr)

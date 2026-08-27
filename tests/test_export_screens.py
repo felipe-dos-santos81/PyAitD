@@ -92,3 +92,36 @@ def test_real_screens_export_and_check_round_trip(data_dir, tmp_path):
     assert findings == []            # every exported original loads and is 320x200
     cov = oc.screen_coverage(tmp_path, assets, be.export_manifest([], data_dir, 1, screens=records))
     assert cov == {"regenerated": 0, "original": 7, "missing": 0, "invalid": 0}
+
+
+def test_export_floor_writes_layout_sidecars(tmp_path):
+    from tests.stub_floor import StubFloor
+    saved = {}
+    records = xb.export_floor(StubFloor(), tmp_path, 2, save=lambda p, rgb: saved.__setitem__(p, rgb.shape))
+    path = tmp_path / "guides" / "floor00" / "camera000.json"
+    layout = json.loads(path.read_text())
+    assert layout["schema"] == 1 and len(layout["masks"]) == 1 and len(layout["collision"]) == 1
+    assert records[0]["layout"] == "guides/floor00/camera000.json"
+    assert not path.with_name(path.name + ".tmp").exists()
+    assert saved[tmp_path / "guides" / "floor00" / "camera000.png"] == (400 + be.GUIDE_FOOTER, 640, 3)
+
+
+def test_export_floor_skips_the_sidecar_of_a_missing_image(tmp_path):
+    from tests.stub_floor import StubFloor
+    records = xb.export_floor(StubFloor(images={}), tmp_path, 2, save=lambda p, rgb: None)
+    assert records[0]["layout"] is None
+    assert not (tmp_path / "guides").exists()
+
+
+def test_export_screens_writes_layout_sidecars(tmp_path):
+    records = xb.export_screens(_assets(), tmp_path, 2, save=lambda p, rgb: None)
+    layout = json.loads((tmp_path / "guides" / "screens" / "ress10.json").read_text())
+    assert layout == be.screen_layout(10)
+    assert records[0]["layout"] == "guides/screens/ress06.json"
+
+
+def test_save_layout_is_atomic(tmp_path):
+    path = tmp_path / "a" / "b.json"
+    xb.save_layout(path, {"schema": 1})
+    assert json.loads(path.read_text()) == {"schema": 1}
+    assert sorted(p.name for p in path.parent.iterdir()) == ["b.json"]
