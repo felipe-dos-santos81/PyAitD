@@ -138,3 +138,11 @@ def test_reset_input_clears_native_mouse_combat():
     state = InputBuffer(mouse_attack_target=7, mouse_attack_ticks=12)
     reset_input(state)
     assert (state.mouse_attack_target, state.mouse_attack_ticks) == (None, 0)
+
+
+def test_reset_input_clears_the_follow_latch():
+    # the held pointer follow's latch lives in the buffer so every existing
+    # focus, modal and input-mode reset seam clears it for free
+    state = InputBuffer(follow_last=(1, 2, 0, -1))
+    reset_input(state)
+    assert state.follow_last is None

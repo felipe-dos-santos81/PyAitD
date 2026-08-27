@@ -53,6 +53,11 @@ class InputBuffer:
     # so the simulation never learns that a mouse exists.
     mouse_attack_target: int | None = None
     mouse_attack_ticks: int = 0
+    # Held pointer follow: the last (dest_x, dest_z, room, object_idx) the
+    # shell issued as an intent during this hold. shell.follow_pointer
+    # re-issues only when the resolution differs, which is also the one-shot
+    # latch after an arrival. Lives here so every reset_input seam clears it.
+    follow_last: tuple | None = None
 
 
 _DIRECTION_CONTROL = {
@@ -102,6 +107,7 @@ def reset_input(state):
     state.action_pulse = False
     state.mouse_attack_target = None
     state.mouse_attack_ticks = 0
+    state.follow_last = None
     state.commands.clear()
 
 

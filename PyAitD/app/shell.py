@@ -365,16 +365,33 @@ def route_play_click(
         game, dest_x, dest_z, room, target_object_idx=object_idx,
         requires_hold=(kind == "push"),
     )
+    if input_buffer is not None:
+        # a walk or target press opens a held pointer follow (follow_pointer
+        # compares later resolutions against this); a push is latched and
+        # never re-resolved, so it leaves no latch behind
+        input_buffer.follow_last = payload if kind != "push" else None
 
 
-def _cancel_pointer_invalidation(game, event):
+def _cancel_pointer_invalidation(game, event, input_buffer=None):
+    """Button-up and focus loss end the hold, and every intent is hold-bound."""
     invalidated = (
         event.type == pygame.MOUSEBUTTONUP and event.button == 1
     ) or event.type == pygame.WINDOWFOCUSLOST
     if not invalidated:
         return False
-    from PyAitD.engine.interaction import cancel_held_nav_intent
-    return cancel_held_nav_intent(game)
+    return _cancel_follow(game, input_buffer)
+
+
+def _cancel_follow(game, input_buffer):
+    """Drop any navigation intent and the follow latch. True when an intent
+    was live. The buffer is optional only for callers that own no buffer."""
+    from PyAitD.engine.interaction import cancel_nav_intent
+    if input_buffer is not None:
+        input_buffer.follow_last = None
+    if game.nav_intent is None:
+        return False
+    cancel_nav_intent(game)
+    return True
 
 
 def _play_cursor_kind(game, floor, hover, draw_list, input_buffer):
@@ -1102,7 +1119,7 @@ def run(game, trace_path=None, session=None, resolver=None):
                 session.skip_cutscene = True
                 continue
             running = event_to_input(event, input_buffer, logical_pos) and running
-            _cancel_pointer_invalidation(game, event)
+            _cancel_pointer_invalidation(game, event, input_buffer)
             if event.type == pygame.MOUSEMOTION:
                 hover = input_buffer.pointer_pos
                 if game.active_modal is not None:

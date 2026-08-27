@@ -1245,6 +1245,58 @@ def _floor_screen_point(game, floor, dx, dz):
     )
 
 
+def test_a_walk_press_records_the_follow_latch(data_dir, profile):
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    screen = _floor_screen_point(game, floor, 1500, 0)
+    buf = InputBuffer(pointer_held=True)
+    route_play_click(
+        game, ModalSession(), floor, (int(screen[0]), int(screen[1])), [], buf,
+    )
+    intent = game.nav_intent
+    assert intent is not None and intent.target_object_idx == -1
+    assert buf.follow_last == (intent.dest_x, intent.dest_z, intent.room, -1)
+
+
+def test_a_push_press_leaves_no_follow_latch(data_dir, profile):
+    # a push is latched and never re-resolved, so a stale latch from an
+    # earlier walk must not survive into the hold
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    actor_idx = game.world_objects[4].obj_index
+    buf = InputBuffer(pointer_held=True, follow_last=(1, 2, 0, -1))
+    route_play_click(
+        game, ModalSession(), floor, (150, 100),
+        [(actor_idx, (100, 60, 200, 160))], buf,
+    )
+    assert game.nav_intent.requires_hold is True
+    assert buf.follow_last is None
+
+
+def test_pointer_invalidation_cancels_a_plain_walk_intent(data_dir, profile):
+    # today only a hold-required push is cancelled on release; every intent
+    # is hold-bound now
+    import PyAitD.app.shell as main
+    from PyAitD.engine.interaction import apply_click_intent
+
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    for event in (
+        main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1),
+        main.pygame.event.Event(main.pygame.WINDOWFOCUSLOST),
+    ):
+        buf = InputBuffer(pointer_held=True, follow_last=(100, 200, hero.room, -1))
+        apply_click_intent(game, 100, 200, hero.room)
+        assert main._cancel_pointer_invalidation(game, event, buf) is True
+        assert game.nav_intent is None
+        assert buf.follow_last is None
+    up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
+    assert main._cancel_pointer_invalidation(game, up, InputBuffer()) is False
+    assert main._cancel_pointer_invalidation(game, up) is False, "the buffer stays optional"
+
+
 def test_a_play_click_is_ignored_in_keyboard_mode(data_dir, profile):
     # Tab hands control back to the tank keys; a click that silently does
     # nothing is worse than no click, so the cursor is hidden in that mode too
