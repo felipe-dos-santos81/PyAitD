@@ -323,6 +323,58 @@ def test_present_orientation_matches_source_for_gl_and_cpu_paths(gl_ctx):
         target_tex.release()
 
 
+def test_ui_scale_matches_the_inverse_of_window_to_logical(monkeypatch):
+    renderer = object.__new__(Renderer)
+    renderer.backend = object.__new__(GLBackend)
+    monkeypatch.setattr(pygame.display, "get_window_size", lambda: (1280, 800))
+    assert renderer.ui_scale() == 4.0
+    # the same expression window_to_logical inverts
+    assert renderer.window_to_logical((640, 400)) == (160, 100)
+
+
+def test_the_software_fallback_keeps_the_ui_at_scale_one(monkeypatch):
+    # That path composites the UI against a 320x200 scene thumbnail, so a
+    # larger canvas would have nothing sharper to sit on.
+    renderer = object.__new__(Renderer)
+    renderer.backend = SoftwareBackend()
+    monkeypatch.setattr(pygame.display, "get_window_size", lambda: (1280, 800))
+    assert renderer.ui_scale() == 1.0
+
+
+def test_ui_texture_follows_the_canvas_and_releases_the_old_one(gl_ctx):
+    # present()'s UI texture must track whatever canvas it is handed rather
+    # than staying pinned at 320x200, and the texture it replaces must be
+    # released -- not leaked -- since present() runs every frame.
+    renderer = object.__new__(Renderer)
+    renderer._ctx = gl_ctx
+    renderer._ui_tex = gl_ctx.texture((render.IMG_W, render.IMG_H), 4)
+    renderer._ui_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+    original = renderer._ui_tex
+    released = []
+    original_release = original.release
+    original.release = lambda: (released.append(True), original_release())[0]
+    try:
+        # Existing behaviour is unchanged for the universal 320x200 case:
+        # same size in, same texture object out, no release.
+        same = renderer._ui_texture_for(np.zeros((200, 320, 4), np.uint8))
+        assert same is original
+        assert same.size == (320, 200)
+        assert released == []
+
+        resized = renderer._ui_texture_for(np.zeros((800, 1280, 4), np.uint8))
+        assert released == [True]
+        assert resized is not original
+        assert resized.size == (1280, 800)
+        assert resized.filter == (moderngl.NEAREST, moderngl.NEAREST)
+
+        # And it must not raise when handed a further different size in
+        # succession.
+        again = renderer._ui_texture_for(np.zeros((200, 320, 4), np.uint8))
+        assert again.size == (320, 200)
+    finally:
+        renderer._ui_tex.release()
+
+
 def test_present_gl_path_blends_ui_canvas_alpha_over_the_scene(gl_ctx):
     """Pins the property the deferred windowed smoke run was meant to eyeball
     (task 9 review, finding: "a clear canvas leaves the scene pixel-exact, a

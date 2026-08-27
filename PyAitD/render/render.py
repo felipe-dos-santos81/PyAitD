@@ -175,6 +175,28 @@ class Renderer:
             self._thumbnail_cache = self.backend.thumbnail()
         return self._thumbnail_cache
 
+    def ui_scale(self):
+        """The pixel scale the UI layer should paint at.
+
+        The same expression window_to_logical inverts, so what is drawn and
+        what is picked stay consistent by construction rather than by two
+        constants happening to agree. The software fallback stays at 1: that
+        path composites the UI against a 320x200 scene thumbnail, and a
+        larger canvas would have nothing sharper to sit on.
+        """
+        if not isinstance(self.backend, GLBackend):
+            return 1.0
+        win_w, win_h = pygame.display.get_window_size()
+        return min(win_w / IMG_W, win_h / IMG_H)
+
+    def _ui_texture_for(self, canvas):
+        size = (canvas.shape[1], canvas.shape[0])
+        if self._ui_tex.size != size:
+            self._ui_tex.release()
+            self._ui_tex = self._ctx.texture(size, 4)
+            self._ui_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        return self._ui_tex
+
     def present(self, ui_canvas):
         self._ctx.screen.use()
         self._ctx.viewport = (0, 0, *pygame.display.get_window_size())
@@ -182,7 +204,7 @@ class Renderer:
         if isinstance(self.backend, GLBackend):
             self.backend.texture.use(location=0)
             self._vao_scene.render()  # scene at internal resolution, linear
-            self._ui_tex.write(_rgba(ui_canvas).tobytes())
+            self._ui_texture_for(ui_canvas).write(_rgba(ui_canvas).tobytes())
             self._ctx.enable(moderngl.BLEND)
             self._ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
             self._ui_tex.use(location=0)
