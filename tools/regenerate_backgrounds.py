@@ -216,11 +216,16 @@ def temp_png():
 
 def make_reference(cam):
     """The original upscaled 4x (nearest) as a temp PNG: the first reference
-    image of every generate call, at the guide's scale. Caller unlinks."""
+    image of every generate call, at the guide's scale. Caller unlinks on
+    success; a failure partway through here unlinks its own partial file."""
     from PyAitD.render.asset_resolver import load_png_rgb
     from PyAitD.render.background_export import nearest_upscale
     path = temp_png()
-    save_png(path, nearest_upscale(load_png_rgb(cam.source), 4))
+    try:
+        save_png(path, nearest_upscale(load_png_rgb(cam.source), 4))
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
     return path
 
 

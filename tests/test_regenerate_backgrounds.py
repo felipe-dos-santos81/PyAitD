@@ -237,6 +237,19 @@ def test_reference_and_attachment_rules(tmp_path):
     assert rb.image_name(rb.Camera(-1, 10, cams[0].source, None, "screens/ress10")) == "screen_ress10"
 
 
+def test_make_reference_cleans_up_its_own_temp_file_on_failure(tmp_path, monkeypatch):
+    cam = rb.discover(make_in_dir(tmp_path), None)[0]
+    before = set(pathlib.Path(tempfile.gettempdir()).glob("*.png"))
+
+    def boom(_path):
+        raise ValueError("corrupt source")
+
+    monkeypatch.setattr("PyAitD.render.asset_resolver.load_png_rgb", boom)
+    with pytest.raises(ValueError, match="corrupt source"):
+        rb.make_reference(cam)
+    assert set(pathlib.Path(tempfile.gettempdir()).glob("*.png")) == before
+
+
 def test_regenerate_attaches_reference_and_guide_and_cleans_up(tmp_path, monkeypatch):
     fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
     monkeypatch.setattr(subprocess, "run", fake.run)
