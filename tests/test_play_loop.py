@@ -1899,38 +1899,58 @@ def _follow_fixture(data_dir, profile):
     return game, floor, InputBuffer(pointer_held=True), near, far
 
 
+def _dragged(main, game, floor, buf, frames):
+    """Call follow_pointer once per frame with the pointer on a fresh pixel.
+
+    The follow only resolves a pointer that moved, so a test of what it does
+    with a *resolution* has to supply motion; holding one pixel would test the
+    movement gate instead. The pixels are arbitrary -- every resolver here is
+    monkeypatched -- but they must differ frame to frame, as a moving hand's do.
+    """
+    for frame in range(frames):
+        buf.pointer_pos = (10 + frame, 10)
+        main.follow_pointer(game, ModalSession(), floor, buf.pointer_pos, [], buf)
+        yield frame
+
+
 def test_follow_reissues_only_when_the_resolution_changes(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
     game, floor, buf, near, far = _follow_fixture(data_dir, profile)
     _resolving(monkeypatch, [("walk", near), ("walk", near), ("walk", far)])
+    frames = _dragged(main, game, floor, buf, 3)
 
-    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    next(frames)
     first = game.nav_intent
     assert (first.dest_x, first.dest_z, first.room) == near[:3]
     assert buf.follow_last == near
     first.waypoints = ["sentinel"]
-    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    next(frames)
     assert game.nav_intent is first and first.waypoints == ["sentinel"], (
-        "an unchanged resolution is never re-issued: re-pathing every frame "
-        "would reset the follower's stall bookkeeping and its waypoints"
+        "an unchanged resolution is never re-issued even when the pointer "
+        "moved: re-pathing would reset the follower's stall bookkeeping and "
+        "its waypoints"
     )
-    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    next(frames)
     assert game.nav_intent is not first
     assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == far[:2]
     assert buf.follow_last == far
 
 
 def test_follow_blocked_stops_the_hero_and_clears_the_latch(data_dir, profile, monkeypatch):
+    # Only a pointer the player moved can block: a cut that makes the held
+    # pixel unpickable is never resolved at all
+    # (test_a_camera_cut_that_blocks_the_pixel_does_not_stop_the_hero).
     import PyAitD.app.shell as main
     game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
     _resolving(monkeypatch, [("walk", near), ("blocked", None), ("walk", near)])
+    frames = _dragged(main, game, floor, buf, 3)
 
-    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
-    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    next(frames)
+    next(frames)
     assert game.nav_intent is None and buf.follow_last is None
     assert (game.local_joyd, game.nav_decision) == (0, None)
-    # back over the floor: the same point is issued again, the hold is live
-    main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
+    # dragged back over the floor: the same point is issued again, hold live
+    next(frames)
     assert game.nav_intent is not None and buf.follow_last == near
 
 
@@ -2083,3 +2103,144 @@ def test_release_and_a_fresh_press_clears_follow_spent(data_dir, profile, monkey
     assert game.nav_intent is not None
     assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == dest[:2]
     assert len(queue) == 0
+
+
+def _cut_fixture(data_dir, profile, after_cut):
+    """A held walk plus a camera slot that changes what the pointer means.
+
+    Returns (game, floor, buf, pixel, cut_slot): `pixel` is a real floor pixel
+    the resolver reports as "walk" under the hero's starting camera and as
+    `after_cut` ("walk" to somewhere else, or "blocked") under `cut_slot`.
+    Scanned from real data rather than hard-coded: which pixel qualifies is a
+    property of the attic's five cameras, not of the test.
+    """
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    slots = range(len(floor.rooms[game.actors[
+        game.current_camera_target_actor].room].camera_indices))
+    for y in range(199, 60, -7):
+        for x in range(5, 320, 7):
+            game.num_camera = game.new_num_camera
+            kind, payload = resolve_play_click(game, floor, (x, y), [])
+            if kind != "walk":
+                continue
+            for slot in slots:
+                if slot == game.new_num_camera:
+                    continue
+                game.num_camera = slot
+                cut_kind, cut_payload = resolve_play_click(game, floor, (x, y), [])
+                if cut_kind != after_cut or cut_payload == payload:
+                    continue
+                game.num_camera = game.new_num_camera
+                return game, floor, InputBuffer(
+                    pointer_held=True, pointer_pos=(x, y),
+                ), (x, y), slot
+    raise AssertionError(f"no floor pixel turns {after_cut!r} across a cut")
+
+
+def test_a_camera_cut_with_a_still_pointer_keeps_the_destination(data_dir, profile):
+    # The same pixel projects through the new camera onto a point thousands of
+    # units away, so re-resolving it at a cut sends the hero somewhere the
+    # player never pointed at. A cut is not a gesture: with the hand still, the
+    # destination must not move.
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot = _cut_fixture(data_dir, profile, "walk")
+    route_play_click(game, ModalSession(), floor, pixel, [], buf)
+    intent = game.nav_intent
+    before = (intent.dest_x, intent.dest_z, intent.room)
+
+    game.num_camera = cut_slot   # what _camera_switch + InitView leave behind
+    main.follow_pointer(game, ModalSession(), floor, pixel, [], buf)
+
+    assert game.nav_intent is not None, "the cut stopped the hero"
+    after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
+    assert after == before, "the cut retargeted a still pointer"
+
+
+def test_a_camera_cut_that_blocks_the_pixel_does_not_stop_the_hero(data_dir, profile):
+    # 386 of the attic floor pixels sampled at 7px are walkable under camera 0
+    # and unpickable under another camera. Today that resolves "blocked" and
+    # cancels the intent: the hero stops dead mid-hold and stays stopped until
+    # the pointer physically moves.
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot = _cut_fixture(data_dir, profile, "blocked")
+    route_play_click(game, ModalSession(), floor, pixel, [], buf)
+    intent = game.nav_intent
+    before = (intent.dest_x, intent.dest_z, intent.room)
+
+    game.num_camera = cut_slot
+    main.follow_pointer(game, ModalSession(), floor, pixel, [], buf)
+
+    assert game.nav_intent is not None, "the cut cancelled the walk"
+    after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
+    assert after == before
+    assert buf.follow_last is not None, "the hold is still live"
+
+
+def test_pointer_motion_after_a_cut_still_retargets(data_dir, profile):
+    # The freeze is on the cut, not on the follow: moving the hand after a cut
+    # must still aim the hero, resolved against the camera now on screen.
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot = _cut_fixture(data_dir, profile, "walk")
+    route_play_click(game, ModalSession(), floor, pixel, [], buf)
+    intent = game.nav_intent
+    before = (intent.dest_x, intent.dest_z, intent.room)
+
+    game.num_camera = cut_slot
+    moved = next(
+        (x, y)
+        for y in range(199, 60, -7) for x in range(5, 320, 7)
+        if (x, y) != pixel
+        and resolve_play_click(game, floor, (x, y), [])[0] == "walk"
+        and resolve_play_click(game, floor, (x, y), [])[1][:3] != before
+    )
+    buf.pointer_pos = moved
+    main.follow_pointer(game, ModalSession(), floor, moved, [], buf)
+
+    assert game.nav_intent is not None
+    after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
+    assert after != before, "the follow died at the cut"
+    assert after == resolve_play_click(game, floor, moved, [])[1][:3]
+
+
+def test_a_floor_change_keeps_the_hold_and_re_resolves_a_still_pointer(
+        data_dir, profile, monkeypatch):
+    # Stairs mid-hold: the intent's room indexes the floor just unloaded, so
+    # the destination has to go -- but the button never came up. Ending the
+    # hold here stopped the hero dead on arrival and demanded a fresh press.
+    import PyAitD.app.shell as main
+    game, floor, buf, near, far = _follow_fixture(data_dir, profile)
+    _resolving(monkeypatch, [("walk", near), ("walk", far)])
+    buf.pointer_pos = (10, 10)
+    main.follow_pointer(game, ModalSession(), floor, buf.pointer_pos, [], buf)
+    assert game.nav_intent is not None
+
+    assert main._rebase_follow(game, buf) is True   # what run() does at the swap
+    assert game.nav_intent is None, "the old floor's destination is dropped"
+    assert buf.pointer_held is True and buf.follow_spent is False, (
+        "the hold outlives the floor it started on"
+    )
+
+    main.follow_pointer(game, ModalSession(), floor, buf.pointer_pos, [], buf)
+
+    assert game.nav_intent is not None, "the still pointer was never re-resolved"
+    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == far[:2]
+
+
+def test_release_still_ends_a_hold_rebased_by_a_floor_change(data_dir, profile,
+                                                             monkeypatch):
+    # _rebase_follow is the narrow exception, not a second way to end a hold:
+    # button-up must still spend it, or a hero would walk on after release.
+    import PyAitD.app.shell as main
+    game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
+    _resolving(monkeypatch, [("walk", near)])
+    buf.pointer_pos = (10, 10)
+    main.follow_pointer(game, ModalSession(), floor, buf.pointer_pos, [], buf)
+    main._rebase_follow(game, buf)
+
+    up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
+    main._cancel_pointer_invalidation(game, up, buf)
+
+    assert game.nav_intent is None
+    assert (buf.follow_last, buf.follow_pos, buf.follow_spent) == (None, None, False)

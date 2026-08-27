@@ -226,12 +226,17 @@ action runner.
   automated/manual proof start; the M3c `enter_combat_venue` remains unchanged.
 - `app.shell.resolve_play_click` is the one HUD/attack/target/walk/blocked
   resolver used by hover, the press, and the per-frame held follow.
-- `app.shell.follow_pointer` runs once per frame after the ticks and the
-  scene refresh while the left button is held in PLAY; it re-issues an
-  intent only when the resolution differs from `InputBuffer.follow_last`,
-  which is also the arrival one-shot latch. Button-up, focus loss, modal
-  takeover and a floor change clear both. Push and attack latches suspend
-  it. No engine module learns about pointer motion.
+- `app.shell.follow_pointer` runs after the ticks and the scene refresh
+  while the left button is held in PLAY, and resolves only on the frames the
+  pointer moved off `InputBuffer.follow_pos` -- a camera cut with a still
+  hand therefore changes nothing, where re-resolving would retarget the hero
+  onto the new camera's reading of that pixel or stop it outright. It
+  re-issues an intent only when the resolution differs from
+  `InputBuffer.follow_last`, which is also the arrival one-shot latch.
+  Button-up, focus loss and modal takeover clear both and end the hold; a
+  floor change goes through `_rebase_follow`, which clears both but keeps the
+  hold live so the hero walks on off the stairs. Push and attack latches
+  suspend it. No engine module learns about pointer motion.
 - `playworld._push_into_target` re-aims an arrived click at a non-foundable
   object that has a `found_life`, so the final step collides with the object
   and the scripted found fires from the collision (FITD anim.cpp:381: the

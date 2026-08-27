@@ -175,9 +175,11 @@ a rule — add the test with the rule.
 - Mouse movement is a held pointer follow: every navigation intent is
   hold-bound (`playworld._apply_mouse_input` cancels an intent whose buffer is
   not held and focused), `app.shell.follow_pointer` re-resolves the held
-  pointer once per frame and re-issues an intent only when the resolution
-  differs from `InputBuffer.follow_last`, and hold-push keeps its latched
-  target. Held actions never publish global Action; existing LIFE and
+  pointer on the frames it moved off `InputBuffer.follow_pos` and re-issues an
+  intent only when the resolution differs from `InputBuffer.follow_last`, and
+  hold-push keeps its latched target. Only pointer motion retargets: the same
+  pixel names a different world point under every camera, so re-resolving a
+  still pointer at a camera cut would steer or stop the hero on its own. Held actions never publish global Action; existing LIFE and
   collision code alone move pushable scenery. Never lock, grab or warp the OS
   cursor (`tests/test_layering.py` gates it, `meta`-marked so `make test` runs
   it, not `make prove-mouse-only`). Keep the both-protagonist journeys in

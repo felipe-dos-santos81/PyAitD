@@ -65,7 +65,7 @@ def test_contract_declares_hover_touch_and_held_follow_decisions():
     }
     assert MOUSE_INTERACTION_DECISIONS["hover_preview"].decision == "presenter_only"
     assert MOUSE_INTERACTION_DECISIONS["touch_origin"].decision == "same_primary_button_route"
-    assert MOUSE_INTERACTION_DECISIONS["held_pointer_follow"].decision == "retarget_per_frame"
+    assert MOUSE_INTERACTION_DECISIONS["held_pointer_follow"].decision == "retarget_on_pointer_motion"
     assert all(decision.reason for decision in MOUSE_INTERACTION_DECISIONS.values())
 
 

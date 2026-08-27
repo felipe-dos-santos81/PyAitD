@@ -125,9 +125,18 @@ Runs only when all of these hold:
   `game.input_mode is InputMode.MOUSE`, `not session.cutscene`;
 - `input_buffer.pointer_held and input_buffer.focused`;
 - `input_buffer.mouse_attack_target is None`;
-- `game.nav_intent is None or not game.nav_intent.requires_hold`.
+- `game.nav_intent is None or not game.nav_intent.requires_hold`;
+- `logical_pos != input_buffer.follow_pos` -- the pointer moved since the
+  last resolution. A still pointer means what it meant last frame. This is
+  what makes a camera cut survivable: a pixel names a different world point
+  under every camera (up to 10,000 units apart across the attic's five), so
+  re-resolving a still pointer at a cut would send the hero somewhere nobody
+  pointed at, and where the new camera cannot pick that pixel at all the
+  resolver reports `blocked` and step 3 would stop the hero dead. Neither is
+  a gesture the player made. The gate costs nothing otherwise: with the
+  camera unchanged, a still pointer re-resolves to the same payload anyway.
 
-Body:
+Body (`follow_pos = logical_pos` first, so one resolution per position):
 
 1. `kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)`.
 2. `walk` / `target`: if `payload != input_buffer.follow_last`, call
@@ -147,12 +156,16 @@ an arrived target intent at the object's own point.
 
 `_cancel_pointer_invalidation` cancels *any* intent on `MOUSEBUTTONUP`
 button 1 or `WINDOWFOCUSLOST` (today only a `requires_hold` one). It also
-clears `follow_last`; `reset_input` clears it too, so modal takeover, focus
-loss and the input-mode toggle already reset the latch.
+clears `follow_last` and `follow_pos`; `reset_input` clears them too, so
+modal takeover, focus loss and the input-mode toggle already reset the latch.
 
 Where the tick loop reloads `floor` because `game.current_floor` changed,
-also `cancel_nav_intent(game)` and clear `follow_last`; the next frame
-re-resolves the pointer against the new floor.
+`_rebase_follow` cancels the intent and clears `follow_last`/`follow_pos`
+while leaving `pointer_held`/`follow_spent` alone: the destination indexes a
+floor that no longer exists, but the button never came up, and ending the
+hold there stops the hero dead on the stairs. The cleared `follow_pos` is
+what lets the next frame re-resolve against the new floor without waiting
+for the hand to move.
 
 ### Cursor
 
@@ -166,6 +179,10 @@ resolution; while held it therefore shows what the hero is heading for.
 # issued as an intent during this hold. follow_pointer re-issues only when the
 # resolution differs, which is also the one-shot latch after an arrival.
 follow_last: tuple | None = None
+# The logical pixel follow_last was resolved at; a pointer still on it is not
+# re-resolved, so a camera cut cannot retarget. None means "resolve next frame
+# regardless" -- what a floor change leaves behind.
+follow_pos: tuple[int, int] | None = None
 ```
 
 Cleared by `reset_input`. `event_to_input` is otherwise unchanged
@@ -197,9 +214,10 @@ motion.
 - `CAPABILITY_ROUTES[INTERACT_WITH_OBJECT]` becomes
   `MouseRoute("left_hold", "interactable actor", {PLAY})`.
 - `MOUSE_INTERACTION_DECISIONS["held_pointer_follow"] =
-  MouseInteractionDecision("retarget_per_frame", "while the left button is
-  held in PLAY the walk or approach destination follows the pointer; motion
-  with the button down is a gesture, not hover")`.
+  MouseInteractionDecision("retarget_on_pointer_motion", "while the left
+  button is held in PLAY the walk or approach destination follows the
+  pointer; motion with the button down is a gesture, not hover, and only
+  motion retargets -- a camera cut is not something the player did")`.
 - `hover_preview` keeps `presenter_only`: it now describes the *unheld*
   pointer only.
 - `LEGACY_COMMAND_REPLACEMENTS` for UP/DOWN/LEFT/RIGHT keep
@@ -213,8 +231,8 @@ motion.
 | Case | Behaviour |
 |---|---|
 | Pointer leaves the logical frame while held | resolves `blocked` → hero stands, hold stays live |
-| Camera cut with the pointer still | next frame re-resolves the same pixel against the new camera and retargets |
-| Floor change mid-hold | intent cancelled and `follow_last` cleared at the floor reload; next frame re-resolves on the new floor |
+| Camera cut with the pointer still | nothing resolves; the destination and the hold both survive the cut, and the next pointer motion resolves against the new camera |
+| Floor change mid-hold | `_rebase_follow` at the floor reload cancels the intent (its `room` indexes the unloaded floor) and clears `follow_last`/`follow_pos`, but leaves the hold live; the next frame re-resolves on the new floor even with a still pointer -- the one exception to the movement gate, since there is no destination left to hold on to |
 | Modal takeover (found, reading, picture, game over, inventory, system menu) | `_take_over_play_input` resets the buffer and cancels the intent; the physical button still being down does not resume — a new press is required |
 | Stall give-up or abandoned intent | engine clears the intent; `follow_last` is unchanged so the same point is not retried until the pointer moves |
 | Attack press | one-shot as today; no follow while the attack latch lives |

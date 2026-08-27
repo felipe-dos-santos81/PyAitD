@@ -218,8 +218,9 @@ MOUSE_INTERACTION_DECISIONS = {
         "touch-origin pointer events are provenance and use the same primary-button route",
     ),
     "held_pointer_follow": MouseInteractionDecision(
-        "retarget_per_frame",
+        "retarget_on_pointer_motion",
         "while the left button is held in PLAY the walk or approach destination "
-        "follows the pointer; motion with the button down is a gesture, not hover",
+        "follows the pointer; motion with the button down is a gesture, not hover, "
+        "and only motion retargets -- a camera cut is not something the player did",
     ),
 }

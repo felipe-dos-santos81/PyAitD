@@ -58,6 +58,13 @@ class InputBuffer:
     # re-issues only when the resolution differs, which is also the one-shot
     # latch after an arrival. Lives here so every reset_input seam clears it.
     follow_last: tuple | None = None
+    # The logical pixel follow_last was resolved at. shell.follow_pointer
+    # re-resolves only when the pointer has moved off it, so a camera cut with
+    # a still hand cannot retarget: the same pixel means a different world
+    # point under every camera, and a cut is not a gesture the player made.
+    # None means "resolve on the next frame regardless" -- what a floor change
+    # leaves behind, its old destination being an index into the old floor.
+    follow_pos: tuple[int, int] | None = None
     # True once this hold's press resolved to anything other than walk/target
     # (attack, inventory, push): the spec forbids resuming a follow on that
     # hold even after the underlying latch (mouse_attack_target, a push's

@@ -382,12 +382,23 @@ def route_play_click(
         # hold -- its requires_hold intent can die mid-hold (arrival,
         # give-up), and the still-held button must not resume the follow
         input_buffer.follow_last = payload if kind != "push" else None
+        input_buffer.follow_pos = logical_pos if kind != "push" else None
         input_buffer.follow_spent = kind == "push"
 
 
 def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
-    """Held pointer follow: once per frame, re-aim the hero at whatever the
-    held pointer resolves to (docs/superpowers/specs/2026-08-26-held-pointer-follow-design.md).
+    """Held pointer follow: re-aim the hero at whatever the held pointer
+    resolves to, once per frame in which it moved
+    (docs/superpowers/specs/2026-08-26-held-pointer-follow-design.md).
+
+    The movement gate is what makes a camera cut survivable. A pixel means a
+    different world point under every camera -- in the attic's five, the same
+    pixel is up to 10,000 units apart -- so re-resolving a still pointer at a
+    cut sends the hero somewhere nobody pointed at, and where the new camera
+    cannot pick that pixel at all it resolves `blocked` and stops the hero
+    dead until the hand moves. Neither is a gesture the player made. Gating on
+    input_buffer.follow_pos costs nothing elsewhere: with the camera unchanged
+    a still pointer re-resolves to the same payload anyway.
 
     The resolution is compared against input_buffer.follow_last, never the
     live intent: the engine clears an intent when the follower arrives or
@@ -414,6 +425,9 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
     intent = game.nav_intent
     if intent is not None and intent.requires_hold:
         return  # a latched push ignores pointer motion until release
+    if logical_pos == input_buffer.follow_pos:
+        return  # a still pointer means what it meant last frame
+    input_buffer.follow_pos = logical_pos
     kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
     if kind in ("walk", "target"):
         if payload == input_buffer.follow_last:
@@ -449,7 +463,27 @@ def _cancel_follow(game, input_buffer):
     from PyAitD.engine.interaction import cancel_nav_intent
     if input_buffer is not None:
         input_buffer.follow_last = None
+        input_buffer.follow_pos = None
         input_buffer.follow_spent = False
+    if game.nav_intent is None:
+        return False
+    cancel_nav_intent(game)
+    return True
+
+
+def _rebase_follow(game, input_buffer):
+    """Drop a destination the new floor cannot mean, keeping the hold alive.
+
+    A floor change invalidates the intent -- its `room` indexes the floor that
+    was just unloaded -- but the button never came up, so ending the hold here
+    would stop the hero dead on the stairs and demand a fresh press. Clearing
+    follow_pos instead is the one case where a still pointer is re-resolved:
+    the old destination is gone, so there is nothing left to hold on to.
+    """
+    from PyAitD.engine.interaction import cancel_nav_intent
+    if input_buffer is not None:
+        input_buffer.follow_last = None
+        input_buffer.follow_pos = None
     if game.nav_intent is None:
         return False
     cancel_nav_intent(game)
@@ -1268,14 +1302,16 @@ def run(game, trace_path=None, session=None, resolver=None):
                 accumulator -= TICK_MS
                 if floor.number != game.current_floor:
                     floor = game.load_floor(game.current_floor)
-                    # the intent's room indexes the old floor; the next
-                    # frame re-resolves the held pointer against the new one
-                    _cancel_follow(game, input_buffer)
+                    # the intent's room indexes the old floor; the hold
+                    # survives and the next frame re-resolves the held
+                    # pointer against the new one, still hand or not
+                    _rebase_follow(game, input_buffer)
             if game.num_camera != -1:
                 scene_frame, draw_list = _scene_frame(game, floor, renderer, resolver)
-            # after the ticks and the scene refresh, so the held pointer
-            # resolves against the frame it is actually over -- a camera cut
-            # with a still pointer retargets here, without a motion event
+            # after the ticks and the scene refresh, so a moved pointer
+            # resolves against the frame it is actually over. A camera cut
+            # with a still pointer changes nothing here: follow_pointer's
+            # movement gate leaves the destination alone until the hand moves
             follow_pointer(
                 game, session, floor, input_buffer.pointer_pos, draw_list, input_buffer,
             )
