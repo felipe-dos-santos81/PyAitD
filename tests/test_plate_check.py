@@ -156,3 +156,32 @@ def test_every_original_passes_the_gate_against_itself(data_dir, profile):
             if not r.passed or r.scores["leak_frame"] >= 0.005:
                 failed.append((number, cam_idx, r.failures, r.scores["leak_frame"]))
     assert failed == []
+
+
+def test_layout_regions_drops_frame_wide_regions():
+    """A region covering most of the frame is not a local check -- it restates
+    the global `edge_recall` at the stricter region threshold -- so it is
+    dropped. The bound is on the polygon, not its box: a wall running
+    diagonally across the frame has a huge box but stays a good local check."""
+    wide = {"masks": [[[2, 2], [318, 2], [318, 198], [2, 198]]]}          # 98 % of the frame
+    assert pc.layout_regions(wide) == []
+    just_under = {"masks": [[[0, 0], [320, 0], [320, 118], [0, 118]]]}    # 59 %
+    assert [r.bbox_pct for r in pc.layout_regions(just_under)] == [(0, 0, 100, 59)]
+    diagonal = {"collision": [[[0, 0], [24, 0], [320, 190], [320, 200], None, None, None, None]]}
+    kept = pc.layout_regions(diagonal)                                   # box is 100 %, area ~7 %
+    assert [r.bbox_pct for r in kept] == [(0, 0, 100, 100)]
+
+
+def test_frame_wide_region_no_longer_double_gates_the_global_score():
+    """A plate whose global edge recall sits between the global and region
+    thresholds used to be rejected by a whole-frame mask alone."""
+    layout = {"masks": [[[0, 0], [320, 0], [320, 200], [0, 200]]]}
+    r = pc.gate(nearest_upscale(scene(), 4), scene(), layout)
+    assert r.scores["regions"] == [] and r.passed
+
+
+def test_narrow_regions_are_still_scored():
+    """Door frames and pillars are narrow by nature; the gate must keep
+    watching them."""
+    pillar = {"masks": [[[150, 20], [162, 20], [162, 180], [150, 180]]]}   # 3.75 % wide
+    assert [r.bbox_pct for r in pc.layout_regions(pillar)] == [(47, 10, 51, 90)]

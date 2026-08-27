@@ -40,6 +40,10 @@ W, H = 320, 200
 #     leak; blind to anything added; weak against a faint (40 %-blend)
 #     leak, which the vision judge's `guide_lines_visible` flag exists to
 #     catch instead.
+# (d) MAX_REGION_AREA drops 54 of the 4620 scored regions across those 144
+#     cameras. Erasing each dropped region's contents was re-checked: all 54
+#     are still rejected by `ncc` and the global `edge_recall`, so the bound
+#     removes a redundant check, not coverage.
 THRESHOLDS = {"ncc": 0.50, "edge_recall": 0.60, "region_recall": 0.70,
               "leak": 0.02, "leak_frame": 0.005, "plain": 0.02}
 # Lower-bound thresholds: --gate-scale multiplies these to relax the
@@ -51,6 +55,10 @@ THRESHOLDS = {"ncc": 0.50, "edge_recall": 0.60, "region_recall": 0.70,
 SCALED_THRESHOLDS = ("ncc", "edge_recall", "region_recall")
 MIN_REGION_EDGES = 20        # fewer original edge pixels: the region says nothing
 MIN_REGION_AREA = 0.005      # of the frame; smaller regions are dropped
+MAX_REGION_AREA = 0.60       # ... and so are larger ones, measured on the polygon
+                             # itself rather than its bounding box: a region covering
+                             # most of the frame is not a local check, it restates
+                             # `edge_recall` at the stricter `region_recall` bar
 EDGE_FRACTION = 0.25         # of the 95th-percentile Sobel magnitude ...
 EDGE_MIN = 40.0              # ... with this floor (Sobel of a ~10-level luminance step): a flat or
                              # gently graded image must not turn its every pixel into an "edge"
@@ -101,6 +109,19 @@ def _hull(points):
     return lower[:-1] + upper[:-1]
 
 
+def _area(points):
+    """Shoelace area of a simple polygon. Measured on the polygon, not its
+    bounding box: a wall running diagonally across the frame has a huge box
+    but covers very little of it, and is a perfectly good local check."""
+    n = len(points)
+    total = 0.0
+    for i in range(n):
+        x0, y0 = points[i]
+        x1, y1 = points[(i + 1) % n]
+        total += x0 * y1 - x1 * y0
+    return abs(total) / 2.0
+
+
 def _region(kind, polygon):
     pts = tuple((float(x), float(y)) for x, y in polygon)
     if len(pts) < 3:
@@ -110,6 +131,8 @@ def _region(kind, polygon):
     x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
     if (x1 - x0) * (y1 - y0) < MIN_REGION_AREA * W * H:
         return None
+    if _area(list(zip(xs, ys))) > MAX_REGION_AREA * W * H:
+        return None
     bbox = (int(round(x0 * 100 / W)), int(round(y0 * 100 / H)),
             int(round(x1 * 100 / W)), int(round(y1 * 100 / H)))
     return Region(kind, pts, bbox)
@@ -118,8 +141,9 @@ def _region(kind, polygon):
 def layout_regions(layout):
     """Prompt/gate regions of a layout sidecar: masks and walkable polygons
     as they are (None vertices dropped), each collision box as the convex
-    hull of its live corners, blit rects as rectangles. Regions under
-    MIN_REGION_AREA of the frame are dropped."""
+    hull of its live corners, blit rects as rectangles. A region is dropped
+    unless its bounding box covers at least MIN_REGION_AREA of the frame and
+    the polygon itself covers no more than MAX_REGION_AREA of it."""
     if not layout:
         return []
     out = []
