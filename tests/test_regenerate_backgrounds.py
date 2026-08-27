@@ -250,6 +250,24 @@ def test_make_reference_cleans_up_its_own_temp_file_on_failure(tmp_path, monkeyp
     assert set(pathlib.Path(tempfile.gettempdir()).glob("*.png")) == before
 
 
+def test_make_reference_removes_save_pngs_partial_tmp_on_failure(tmp_path, monkeypatch):
+    """save_png writes its own `<name>.tmp` sibling before the atomic
+    rename; if it dies mid-write, make_reference's cleanup must remove that
+    sibling too, not just the temp PNG path it created itself."""
+    cam = rb.discover(make_in_dir(tmp_path), None)[0]
+    tmp_dir = pathlib.Path(tempfile.gettempdir())
+    before = set(tmp_dir.glob("*"))
+
+    def dying_save_png(path, rgb):
+        pathlib.Path(str(path) + ".tmp").write_bytes(b"partial")
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(rb, "save_png", dying_save_png)
+    with pytest.raises(RuntimeError, match="disk full"):
+        rb.make_reference(cam)
+    assert set(tmp_dir.glob("*")) == before
+
+
 def test_regenerate_attaches_reference_and_guide_and_cleans_up(tmp_path, monkeypatch):
     fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), judge=[GOOD_VERDICT] * 3)
     monkeypatch.setattr(subprocess, "run", fake.run)
@@ -686,6 +704,33 @@ def test_gate_failure_skips_the_judge_and_drops_the_guide_after_a_leak(tmp_path,
     assert "Attempt 1 was rejected: guide colour on 40 %" in gen[1]
     report = rb.load_json(out / rb.REPORT_FILE)["floor00/camera000"]
     assert report["attempts"][0]["judge"] is None and report["attempts"][1]["attached"] == ["ref"]
+
+
+def test_judge_flagged_leak_detaches_guide_from_next_attempt(tmp_path, monkeypatch):
+    """A judge verdict with guide_lines_visible=True must drop the guide
+    from the next attempt's attachments, even though the gate itself never
+    flagged a leak (Finding 1) -- otherwise the same leaking guide keeps
+    being handed to every subsequent attempt."""
+    png = png_bytes(np.zeros((1024, 1536, 3), np.uint8))
+    fake = FakeSubprocess(png, judge=[_verdict(guide_lines_visible=True, camera_same=False,
+                                               corrections=["do not draw the guide lines"]),
+                                      GOOD_VERDICT])
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, []), (True, False, [])])
+    real_generate = rb.generate
+    attached_calls = []
+
+    def spy_generate(model, cam, prompt, attached, out_path):
+        attached_calls.append(list(attached))
+        return real_generate(model, cam, prompt, attached, out_path)
+
+    monkeypatch.setattr(rb, "generate", spy_generate)
+    out = tmp_path / "out"
+    assert _regen(_one(tmp_path), out) == (1, 0)
+    guide = tmp_path / "in/guides/floor00/camera000.png"
+    assert len(attached_calls) == 2
+    assert guide in attached_calls[0]
+    assert guide not in attached_calls[1]
 
 
 def test_reject_after_all_attempts_writes_nothing(tmp_path, monkeypatch):

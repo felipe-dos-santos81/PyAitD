@@ -86,6 +86,40 @@ def test_scale_zero_passes_anything():
     assert r.passed and r.failures == [] and r.scores["edge_recall"] < 0.6
 
 
+def test_gate_scale_relaxes_structure_but_not_leak():
+    """--gate-scale must only relax the lower-bound structure thresholds
+    (ncc, edge_recall, region_recall); the guide-colour leak upper bound
+    must keep its calibrated value at any non-zero scale, not get
+    multiplied down (tightened) along with everything else."""
+    lines_small = pc.dilate(pc.guide_lines(LAYOUT), 1)
+    lines_big = nearest_upscale(lines_small[..., None].astype(np.uint8), 4)[..., 0] > 0
+    yb, xb = np.where(lines_big)
+    # A marginal leak that legitimately passes the calibrated 0.02 leak
+    # threshold at scale=1 (its score sits between the buggy scale=0.5
+    # threshold of 0.01 and the calibrated 0.02).
+    marginal = nearest_upscale(scene(), 4).copy()
+    marginal[yb[:100], xb[:100]] = (255, 0, 0)
+    full = pc.gate(marginal, scene(), LAYOUT, scale=1.0)
+    assert full.passed and not full.leaked and 0.01 < full.scores["leak"] < 0.02
+    half = pc.gate(marginal, scene(), LAYOUT, scale=0.5)
+    assert half.passed and not half.leaked   # must stay legitimate, not get rejected
+
+    # A real saturated leak must still fail at scale=0.5.
+    cand = nearest_upscale(scene(), 4)
+    lines = nearest_upscale(pc.guide_lines(LAYOUT)[..., None].astype(np.uint8), 4)[..., 0] > 0
+    cand[lines] = (255, 0, 0)
+    leak_result = pc.gate(cand, scene(), LAYOUT, scale=0.5)
+    assert not leak_result.passed and leak_result.leaked
+
+
+def test_gate_scale_lets_a_marginal_structure_failure_pass():
+    """A candidate whose recall is below the full threshold but above half
+    of it must pass at scale=0.5."""
+    partial = nearest_upscale(scene(4), 4)
+    assert not pc.gate(partial, scene(), LAYOUT, scale=1.0).passed
+    assert pc.gate(partial, scene(), LAYOUT, scale=0.5).passed
+
+
 def test_layout_regions_bboxes_hull_and_filters():
     regions = pc.layout_regions(LAYOUT)
     assert [(r.kind, r.bbox_pct) for r in regions] == [

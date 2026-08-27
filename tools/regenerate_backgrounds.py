@@ -293,7 +293,8 @@ def temp_png():
 def make_reference(cam):
     """The original upscaled 4x (nearest) as a temp PNG: the first reference
     image of every generate call, at the guide's scale. Caller unlinks on
-    success; a failure partway through here unlinks its own partial file."""
+    success; a failure partway through here unlinks its own partial file,
+    including save_png's sibling `.tmp` file if it died mid-write."""
     from PyAitD.render.asset_resolver import load_png_rgb
     from PyAitD.render.background_export import nearest_upscale
     path = temp_png()
@@ -301,6 +302,7 @@ def make_reference(cam):
         save_png(path, nearest_upscale(load_png_rgb(cam.source), 4))
     except BaseException:
         path.unlink(missing_ok=True)
+        path.with_name(path.name + ".tmp").unlink(missing_ok=True)
         raise
     return path
 
@@ -417,6 +419,7 @@ def _process_camera(cam, target, prompts, prompts_path, *, text_model, style, at
                     save_png(target, fitted)
                     return CameraOutcome("ok", record, f"attempt {n}/{attempts}, ncc {result.scores['ncc']:.2f}, "
                                                        f"recall {result.scores['edge_recall']:.2f}")
+                leaked = leaked or bool(verdict.get("guide_lines_visible"))
                 corrections = judge_corrections(verdict, inventory)
             return CameraOutcome("rejected", record,
                                  f"layout mismatch after {attempts} attempts (last: {'; '.join(corrections)})")
@@ -516,7 +519,9 @@ def _parse_args(argv):
     p.add_argument("--attempts", type=_positive_int, default=3,
                     help="generate/verify rounds per camera before rejecting it (default 3)")
     p.add_argument("--gate-scale", type=_non_negative_float, default=1.0,
-                    help="multiply every gate threshold (1.0 default, 0 disables the gate)")
+                    help="relax the gate's structure thresholds (ncc, edge recall, region recall) by "
+                         "this factor; the guide-colour leak and plainness checks are never relaxed "
+                         "(1.0 default, 0 disables the gate entirely)")
     p.add_argument("--force", action="store_true", help="redo existing outputs and cached prompts")
     p.add_argument("--dry-run", action="store_true", help="list what would be processed; no API calls")
     p.add_argument("--screens", action=argparse.BooleanOptionalAction, default=True,

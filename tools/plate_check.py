@@ -14,8 +14,41 @@ import numpy as np
 from PyAitD.render.background_export import draw_polyline, layout_segments
 
 W, H = 320, 200
+# What this gate actually measures, from running it over all 144 real
+# cameras against six synthetic negatives:
+#
+#   identity (original vs itself)                  144/144 pass (100 %)
+#   an object erased (largest region flat-filled)     0/144 pass (0 %)
+#   guide lines painted at full saturation             0/144 pass (0 %)
+#   guide lines at 80 % blend                          0/144 pass (0 %)
+#   guide lines at 40 % blend                        123/144 pass (85 %)
+#   invented furniture pasted in (70x50 textured block) 112/144 pass (78 %)
+#
+# (a) `edge_recall` and the per-region `recall` are one-directional: they
+#     measure what fraction of the ORIGINAL's edges are found somewhere in
+#     the candidate. There is no precision term, so nothing here penalises
+#     an edge in the candidate that has no counterpart in the original --
+#     this gate does not, and cannot, detect an added object. That is the
+#     judge's job (its `extra_objects` field), not this module's.
+# (b) The `self` row (144/144, identity by construction: `nearest_upscale`
+#     by 4 then a box-downsample by 4 is an exact round trip) is a
+#     correctness check on the pipeline, not evidence of headroom -- a
+#     perfect score against yourself exerts no downward pressure on any of
+#     these numbers and must never be read as margin.
+# (c) In short: near-perfect at catching structure that moved or vanished
+#     inside a layout region, and at catching a saturated guide-colour
+#     leak; blind to anything added; weak against a faint (40 %-blend)
+#     leak, which the vision judge's `guide_lines_visible` flag exists to
+#     catch instead.
 THRESHOLDS = {"ncc": 0.50, "edge_recall": 0.60, "region_recall": 0.70,
               "leak": 0.02, "leak_frame": 0.005, "plain": 0.02}
+# Lower-bound thresholds: --gate-scale multiplies these to relax the
+# structure checks. `leak`, `leak_frame` and `plain` are upper bounds --
+# scaling them by the same factor would move them the wrong way (a scale
+# below 1 would *tighten* an upper bound), so they are exempt and stay at
+# their calibrated values at any non-zero scale; `scale == 0` still
+# disables the gate entirely, exactly as before.
+SCALED_THRESHOLDS = ("ncc", "edge_recall", "region_recall")
 MIN_REGION_EDGES = 20        # fewer original edge pixels: the region says nothing
 MIN_REGION_AREA = 0.005      # of the frame; smaller regions are dropped
 EDGE_FRACTION = 0.25         # of the 95th-percentile Sobel magnitude ...
@@ -212,7 +245,7 @@ def gate(candidate, original, layout, scale=1.0):
         raise ValueError(f"candidate must be {4 * W}x{4 * H} RGB, got {candidate.shape}")
     if original.shape != (H, W, 3):
         raise ValueError(f"original must be {W}x{H} RGB, got {original.shape}")
-    t = {k: v * scale for k, v in THRESHOLDS.items()}
+    t = {k: (v * scale if k in SCALED_THRESHOLDS else v) for k, v in THRESHOLDS.items()}
     small = downsample4(candidate)
     lum_c, lum_o = luminance(small), luminance(original)
     edges_o, edges_c = edge_map(lum_o), edge_map(lum_c)

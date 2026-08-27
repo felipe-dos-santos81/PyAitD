@@ -272,24 +272,29 @@ threshold was exceeded (the attachment rule keys off it). Steps:
    luminance `0.299 R + 0.587 G + 0.114 B` as float32.
 2. Edges: Sobel magnitude on each; each thresholded at max(40, 0.25 × its own
    95th percentile) — the floor keeps a flat or gently graded image from
-   turning every pixel into an edge → binary edge maps. The original's map
+   turning every pixel into an edge → binary edge maps. The candidate's map
    is dilated by 2 px (max over shifts).
 
 | Score | Definition | Default threshold |
 |---|---|---|
 | `ncc` | normalised cross-correlation of the two luminance images after a separable Gaussian blur, σ = 3 px (kernel radius 9) | ≥ 0.50 |
 | `edge_recall` | fraction of the original's edge pixels that lie on a candidate edge dilated by 2 px | ≥ 0.60 |
-| `regions[i].recall` | `edge_recall` restricted to the pixels of each `mask` and `collision` region (even-odd scanline polygon fill); regions with fewer than 20 original edge pixels are skipped and reported with `recall: null` | each ≥ 0.50 |
+| `regions[i].recall` | `edge_recall` restricted to the pixels of each `mask` and `collision` region (even-odd scanline polygon fill); regions with fewer than 20 original edge pixels are skipped and reported with `recall: null` | each ≥ 0.70 |
 | `leak` | the layout's lines (masks, collision edges, walkable edges, blit rects) rasterised 1 px wide at 320×200 with `draw_polyline`, dilated 1 px; fraction of those pixels whose candidate RGB is in a guide band: red `R>180, G<80, B<80`; blue `B>200, 80≤G≤180, R<80`; green `G>150, R<80, B<80` | ≤ 0.02 |
 | `leak_frame` | the same band test over every pixel of the frame | ≤ 0.005 |
 | `plain[i]` (screens) | edge density (candidate edge pixels / rect pixels) inside each blit rect | each ≤ 0.02 |
 
 `walkable` regions are prompt-only (floor texture makes their recall
 noise). Without a layout only `ncc` and `edge_recall` are computed.
-`THRESHOLDS` is a module-level dict; `scale` multiplies every threshold
-(`scale == 0` passes everything and still reports scores). Failures are
-worded as corrections: `"structure missing inside x 45–52 y 12–25 (edge
-recall 0.21)"`, `"framing differs (ncc 0.31)"`, `"guide colour on 9 % of
+`THRESHOLDS` is a module-level dict; `scale` multiplies the three
+lower-bound thresholds (`ncc`, `edge_recall`, `region_recall`) to relax the
+structure checks. `leak`, `leak_frame` and `plain` are upper bounds, so
+scaling them the same way would move them the wrong direction (a scale
+below 1 would tighten, not loosen, an upper bound); they are exempt and
+keep their calibrated values at any non-zero scale. `scale == 0` still
+passes everything and still reports scores. Failures are worded as
+corrections: `"structure missing inside x 45–52 y 12–25 (edge recall
+0.21)"`, `"framing differs (ncc 0.31)"`, `"guide colour on 9 % of
 guide-line pixels: do not draw the red, blue or green lines"`, `"text or
 clutter inside plain region x 3–47 y 5–95"`.
 
@@ -299,6 +304,26 @@ cloths and blue windows), against the 144 `overrides-b` plates (the known
 drifts should mostly fail), and against 8 px-shifted copies of the
 originals (must fail `regions`), and fix the defaults from that table
 before the loop is wired.
+
+### Amended during execution
+
+Three rulings made during implementation are not reflected above:
+
+- The `overrides-b` drifted-plate calibration column named in the plan no
+  longer existed by the time calibration ran, and recreating it would have
+  cost ~144 billed live AI calls it wasn't worth spending. An `other`
+  column replaced it: each of the 144 cameras' originals gated against a
+  *different* camera's original and layout, drawn from the same floor.
+- The `shift8 ≤ 10 %` target was retired: an 8 px circular roll is only
+  2.5 % of the frame's width and 4 % of its height, which already sits
+  inside the spec's own "within about 5 % of the frame" tolerance, so it
+  wasn't a meaningful negative. A `shift24` column (7.5 % of width) took
+  its place.
+- `region_recall` shipped at 0.70, the tuning rule's cap, with `shift24`
+  still passing 29/144 cameras (20.1 %) at that threshold. This was
+  accepted rather than pushed further because the vision judge is the
+  second line of defence, and a false reject here only costs a fallback to
+  the original plate, not a wrong one reaching the game.
 
 ## Attempt loop, report, CLI
 

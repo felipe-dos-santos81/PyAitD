@@ -85,7 +85,10 @@ sidecar when present) the tool:
    the plate (`edge_recall` >= 0.60, and >= 0.70 inside every mask and
    collision region), and guide-colour leaks along the guide's lines
    (<= 2 % of line pixels, <= 0.5 % of the frame). A gate failure skips
-   the judge; a leak drops the guide from the next attempt's references;
+   the judge; a leak drops the guide from the next attempt's references.
+   The offline gate is a gross-error and leak screen: it catches structure
+   that moved or vanished, not structure that was added — the judge is
+   what rejects invented objects;
 4. asks the text model to **judge** the plate against the original and
    the inventory: camera the same, no guide lines, every object present
    with the same kind, count and position, nothing extra;
@@ -109,8 +112,10 @@ verbatim at the end.
   consecutive rejections abort with a hint (`edit the inventory in
   prompts.json, lower --gate-scale, or raise --attempts`). Exit status 1
   means at least one camera failed either way.
-- `gate_scale=` multiplies every gate threshold (`0` disables the gate
-  for experiments); `text_model=` overrides the model for the description
+- `gate_scale=` relaxes the gate's structure thresholds (`ncc`,
+  `edge_recall`, `region_recall`; `0` disables the gate entirely for
+  experiments) — the guide-colour leak and plainness checks are never
+  relaxed by it; `text_model=` overrides the model for the description
   and the judge (the image model is whatever `generate_image` uses; there
   is no choice); `in=` and `out_ai=` the directories.
 - Export directories made before the layout sidecars existed still work:
