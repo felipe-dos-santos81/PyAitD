@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-"""Declared one-button mouse surface for the implemented M3 game modes."""
+"""Declared one-button mouse surface for the implemented game modes: single presses, held pointer follow, and latched hold-push."""
 from dataclasses import dataclass
 from enum import Enum, auto
 
@@ -52,8 +52,8 @@ class MouseInteractionDecision:
 
 ALL_MODES = frozenset(GameMode)
 CAPABILITY_ROUTES = {
-    PlayerCapability.WALK_TO_POINT: MouseRoute("left_click", "walkable floor", frozenset({GameMode.PLAY})),
-    PlayerCapability.INTERACT_WITH_OBJECT: MouseRoute("left_click", "interactable actor", frozenset({GameMode.PLAY})),
+    PlayerCapability.WALK_TO_POINT: MouseRoute("left_hold", "walkable floor", frozenset({GameMode.PLAY})),
+    PlayerCapability.INTERACT_WITH_OBJECT: MouseRoute("left_hold", "interactable actor", frozenset({GameMode.PLAY})),
     PlayerCapability.TAKE_FOUND_OBJECT: MouseRoute("left_click", "Take button", frozenset({GameMode.FOUND})),
     PlayerCapability.LEAVE_FOUND_OBJECT: MouseRoute("left_click", "Leave button", frozenset({GameMode.FOUND})),
     PlayerCapability.OPEN_INVENTORY: MouseRoute("left_click", "inventory HUD", frozenset({GameMode.PLAY})),
@@ -192,7 +192,7 @@ COMMAND_MOUSE_CAPABILITIES = {
 LEGACY_COMMAND_REPLACEMENTS = {
     name: LegacyCommandDecision(
         PlayerCapability.WALK_TO_POINT,
-        "point-and-click walking replaces the legacy tank-direction command",
+        "held pointer follow replaces the legacy tank-direction command",
     )
     for name in ("UP", "DOWN", "LEFT", "RIGHT")
 }
@@ -210,10 +210,16 @@ KEYBOARD_ONLY_DECISIONS = {}
 MOUSE_INTERACTION_DECISIONS = {
     "hover_preview": MouseInteractionDecision(
         "presenter_only",
-        "hover previews the current effective target without activating or mutating game state",
+        "hover previews the current effective target of the unheld pointer "
+        "without activating or mutating game state",
     ),
     "touch_origin": MouseInteractionDecision(
         "same_primary_button_route",
         "touch-origin pointer events are provenance and use the same primary-button route",
+    ),
+    "held_pointer_follow": MouseInteractionDecision(
+        "retarget_per_frame",
+        "while the left button is held in PLAY the walk or approach destination "
+        "follows the pointer; motion with the button down is a gesture, not hover",
     ),
 }

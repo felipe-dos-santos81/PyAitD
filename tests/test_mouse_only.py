@@ -45,7 +45,13 @@ def test_contract_declares_only_the_reviewed_primary_button_gestures():
         for capability, route in CAPABILITY_ROUTES.items()
         if route.gesture == "left_hold"
     }
-    assert hold_capabilities == {PlayerCapability.HOLD_PUSH_OBJECT}
+    # walk and interact became held pointer follow routes
+    # (2026-08-26-held-pointer-follow-design.md); push was already held
+    assert hold_capabilities == {
+        PlayerCapability.WALK_TO_POINT,
+        PlayerCapability.INTERACT_WITH_OBJECT,
+        PlayerCapability.HOLD_PUSH_OBJECT,
+    }
     assert all(
         forbidden not in route.gesture
         for forbidden in ("double_click", "drag", "chord")
@@ -53,11 +59,30 @@ def test_contract_declares_only_the_reviewed_primary_button_gestures():
     )
 
 
-def test_contract_declares_hover_and_touch_provenance_decisions():
-    assert set(MOUSE_INTERACTION_DECISIONS) == {"hover_preview", "touch_origin"}
+def test_contract_declares_hover_touch_and_held_follow_decisions():
+    assert set(MOUSE_INTERACTION_DECISIONS) == {
+        "hover_preview", "touch_origin", "held_pointer_follow",
+    }
     assert MOUSE_INTERACTION_DECISIONS["hover_preview"].decision == "presenter_only"
     assert MOUSE_INTERACTION_DECISIONS["touch_origin"].decision == "same_primary_button_route"
+    assert MOUSE_INTERACTION_DECISIONS["held_pointer_follow"].decision == "retarget_per_frame"
     assert all(decision.reason for decision in MOUSE_INTERACTION_DECISIONS.values())
+
+
+def test_walk_and_interact_are_held_pointer_follow_routes():
+    assert CAPABILITY_ROUTES[PlayerCapability.WALK_TO_POINT] == MouseRoute(
+        "left_hold", "walkable floor", frozenset({GameMode.PLAY}),
+    )
+    assert CAPABILITY_ROUTES[PlayerCapability.INTERACT_WITH_OBJECT] == MouseRoute(
+        "left_hold", "interactable actor", frozenset({GameMode.PLAY}),
+    )
+    # the press-only PLAY routes stay single clicks
+    assert CAPABILITY_ROUTES[PlayerCapability.ATTACK_TARGET].gesture == "left_click"
+    assert CAPABILITY_ROUTES[PlayerCapability.OPEN_INVENTORY].gesture == "left_click"
+    for name in ("UP", "DOWN", "LEFT", "RIGHT"):
+        decision = LEGACY_COMMAND_REPLACEMENTS[name]
+        assert decision.replacement is PlayerCapability.WALK_TO_POINT
+        assert "held pointer follow" in decision.reason
 
 
 def test_hold_push_has_one_declarative_mouse_route():

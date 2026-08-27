@@ -161,3 +161,17 @@ PRESENTATION_FREE = (
 )
 def test_module_imports_stay_presentation_free(modules, forbidden, why):
     assert_presentation_free(*modules.split(","), forbidden=forbidden, why=why)
+
+
+def test_no_module_locks_grabs_or_warps_the_pointer():
+    # Held pointer follow tracks a free OS cursor: the spec forbids relative
+    # mode and grab (2026-08-26-held-pointer-follow-design.md, Non-goals);
+    # warping the pointer would be the same control by another name.
+    forbidden = ("set_relative_mode", "set_grab", "mouse.set_pos")
+    hits = sorted(
+        (str(path.relative_to(ROOT.parent)), name)
+        for path in ROOT.rglob("*.py")
+        for name in forbidden
+        if name in path.read_text()
+    )
+    assert hits == []
