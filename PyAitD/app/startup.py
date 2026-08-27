@@ -10,7 +10,8 @@ import numpy as np
 import pygame
 
 from PyAitD.app.ui import (
-    Command, _button, _font, _to_frame, draw_big_cadre, effective_rects, layout_book, screen_surface,
+    Command, UIPainter, _button, _font, _to_frame, draw_big_cadre, effective_rects, layout_book,
+    screen_surface,
 )
 
 # AITD1.cpp:143 waits for `evalChrono(&chrono) >= 0x30`. This port's own
@@ -47,15 +48,19 @@ def advance_title(presenter, elapsed_ms):
     return None
 
 
-def _credits_pages(assets, credits_entry):
+def _credits_pages(assets, painter, size, credits_entry):
     # Lire(CVars[TEXTE_CREDITS] + 1, 48, 2, 260, 197, 1, 26, 0) (AITD1.cpp:159):
     # shared by reduce_title (page count only) and render_title (page content)
     # so the two can never disagree about how many pages there are.
-    return layout_book(assets.book_tokens(credits_entry), _font(15), 212, 13)
+    return layout_book(assets.book_tokens(credits_entry), painter, size, 212, 13)
 
 
 def credits_page_count(assets, credits_entry):
-    return len(_credits_pages(assets, credits_entry))
+    # scratch painter: credits_page_count has no painter in scope and
+    # text_size measures at scale 1 regardless of which painter is passed,
+    # so the page count this produces does not depend on it.
+    painter = UIPainter()
+    return len(_credits_pages(assets, painter, 15, credits_entry))
 
 
 def reduce_title(presenter, command, *, page_count=1):
@@ -156,7 +161,10 @@ def render_title(presenter, assets, resolver, elapsed_ms, credits_entry):
     # screen_surface's Surface is shared/cached: copy before drawing on it.
     surface = screen_surface(resolver, 7).copy()                     # AITD1_LIVRE
     font = _font(15)
-    pages = _credits_pages(assets, credits_entry)
+    # scratch painter: render_title isn't converted until Task 7, but
+    # _credits_pages now needs a painter to measure logically.
+    painter = UIPainter()
+    pages = _credits_pages(assets, painter, 15, credits_entry)
     page = pages[min(presenter.page, len(pages) - 1)]
     y = 2
     for text, centered in page:

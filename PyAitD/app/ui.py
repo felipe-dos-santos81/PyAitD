@@ -683,6 +683,22 @@ class UIPainter:
         wash.fill(colour)
         self.surface.blit(wash, (0, 0))
 
+    def text(self, label, size, colour, *, center=None, topleft=None, midtop=None):
+        glyph = _font(max(1, round(size * self.scale))).render(label, True, colour)
+        if center is not None:
+            rect = glyph.get_rect(center=self._pt(center))
+        elif midtop is not None:
+            rect = glyph.get_rect(midtop=self._pt(midtop))
+        else:
+            rect = glyph.get_rect(topleft=self._pt(topleft))
+        self.surface.blit(glyph, rect)
+
+    def text_size(self, label, size):
+        """Logical width and height. Measured at scale 1 rather than by
+        dividing a scaled measurement, so line breaking is bit-identical at
+        every scale -- see layout_book."""
+        return _font(size).size(label)
+
     def to_frame(self):
         return _to_frame(self.surface)
 
@@ -793,7 +809,10 @@ def draw_big_cadre(surface, sprites, center, size):
     return interior
 
 
-def layout_book(tokens, font, width, max_lines):
+def layout_book(tokens, painter, size, width, max_lines):
+    # `painter` and a logical font size rather than a Font: the measurement
+    # must stay logical so a window resize cannot re-flow a book and change
+    # how many pages it has.
     pages, lines = [], []
     centered = False
     prefix = ""
@@ -807,7 +826,7 @@ def layout_book(tokens, font, width, max_lines):
         for word in words:
             separator = "" if not current or current.endswith(" ") else " "
             candidate = f"{current}{separator}{word}"
-            if current.strip() and font.size(candidate)[0] > width:
+            if current.strip() and painter.text_size(candidate, size)[0] > width:
                 lines.append((current, centered))
                 current = word
                 if len(lines) == max_lines:
@@ -910,7 +929,10 @@ def render_settings_notice(frame, message):
     surface.blit(shade, (0, 0))
     title = _font(20).render("Settings error", True, (255, 220, 170))
     surface.blit(title, title.get_rect(center=(160, 38)))
-    lines = layout_book((BookToken("text", message),), _font(15), 276, 5)[0]
+    # scratch painter: this presenter isn't converted until Task 4, but
+    # layout_book now needs a painter to measure logically.
+    painter = UIPainter()
+    lines = layout_book((BookToken("text", message),), painter, 15, 276, 5)[0]
     for index, (text, _centered) in enumerate(lines):
         glyph = _font(15).render(text, True, (255, 255, 255))
         surface.blit(glyph, glyph.get_rect(center=(160, 65 + index * 16)))
@@ -921,7 +943,13 @@ def render_settings_notice(frame, message):
 def reading_pages(effect, assets):
     pages = assets.book_pages.get(effect.text_index)
     if pages is None:
-        pages = layout_book(assets.book_tokens(effect.text_index), _font(16), 190, 8)
+        # scratch painter: the reading presenter isn't converted until Task
+        # 6, but layout_book now needs a painter to measure logically.
+        # text_size measures at scale 1 regardless of which painter is
+        # passed, so the page count/wrapping this produces does not depend
+        # on it.
+        painter = UIPainter()
+        pages = layout_book(assets.book_tokens(effect.text_index), painter, 16, 190, 8)
         assets.book_pages[effect.text_index] = pages
     return pages
 
@@ -995,7 +1023,10 @@ def render_character_select(presenter, assets, resolver=None):
         surface.blit(intro, (0, 0), pygame.Rect(0, 0, 160, 200))
         entry, text_x = 20, 5
     font = _font(15)
-    page = layout_book(assets.book_tokens(entry), font, 150, 12)[0]
+    # scratch painter: this presenter isn't converted until Task 7, but
+    # layout_book now needs a painter to measure logically.
+    painter = UIPainter()
+    page = layout_book(assets.book_tokens(entry), painter, 15, 150, 12)[0]
     y = 5
     for text, centered in page:
         glyph = font.render(text, True, (43, 31, 22))

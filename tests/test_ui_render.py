@@ -43,7 +43,8 @@ def test_book_layout_preserves_tab_prefix_and_center_flag():
     pygame.font.init()
     pages = layout_book(
         (BookToken("tab"), BookToken("center"), BookToken("text", "Entry")),
-        pygame.font.Font(None, 16),
+        UIPainter(),
+        16,
         190,
         8,
     )
@@ -80,6 +81,37 @@ def test_painter_hairlines_survive_scaling_down_to_one_pixel():
     painter = UIPainter(1)
     painter.rect((255, 255, 255), pygame.Rect(0, 0, 10, 10), width=1)
     assert painter.to_frame()[0, 0, 3] == 255, "a 1px outline must not vanish"
+
+
+def test_painter_text_scales_size_and_anchor():
+    pygame.font.init()
+    small, large = UIPainter(1), UIPainter(4)
+    small.text("Wg", 16, (255, 255, 255), center=(160, 100))
+    large.text("Wg", 16, (255, 255, 255), center=(160, 100))
+    small_ink = np.argwhere(small.to_frame()[:, :, 3] > 0)
+    large_ink = np.argwhere(large.to_frame()[:, :, 3] > 0)
+    assert len(large_ink) > 4 * len(small_ink), "4x the scale must draw more ink"
+    # both stay centred on the same logical point
+    assert abs(small_ink[:, 1].mean() - 160) < 6
+    assert abs(large_ink[:, 1].mean() / 4 - 160) < 6
+
+
+def test_painter_text_size_is_logical_at_every_scale():
+    pygame.font.init()
+    assert UIPainter(1).text_size("Hello", 16) == UIPainter(3.5).text_size("Hello", 16)
+
+
+def test_layout_book_breaks_lines_identically_at_every_scale():
+    pygame.font.init()
+    tokens = (BookToken("text", "one two three four five six seven eight nine ten"),)
+    pages = [
+        layout_book(tokens, UIPainter(s), 15, 150, 12)
+        for s in (1, 2.5, 4)
+    ]
+    assert pages[0] == pages[1] == pages[2], (
+        "wrapping must stay logical: a book that re-flowed on resize would "
+        "change its page count"
+    )
 
 
 def test_cursor_marks_the_frame_without_mutating_the_input():
