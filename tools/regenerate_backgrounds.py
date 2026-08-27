@@ -37,6 +37,7 @@ GENERATE_ASPECT = "3:2"     # nearest Gemini ratio to 16:10 (3:2 is narrower); e
 PROMPTS_FILE = "prompts.json"
 REPORT_FILE = "report.json"
 MAX_CONSECUTIVE_FAILURES = 3   # a dead model/key fails every camera: stop early
+AGY_OUTPUT_TAIL = 400          # chars of agy's own output kept in an error message
 MAX_CONSECUTIVE_REJECTS = 5    # a model that cannot keep the layout: stop burning attempts
 REJECT_ABORT = ("aborting after 5 consecutive layout mismatches: edit the inventory in prompts.json, "
                 "lower --gate-scale, or raise --attempts")
@@ -188,11 +189,29 @@ load_prompts = load_json
 save_prompts = save_json
 
 
+def _agy_tail(result):
+    """The tail of what agy printed. agy's own words are the only evidence of
+    why a call produced nothing, and a report entry without them cannot be
+    diagnosed. Trimmed so a chatty run does not bloat report.json."""
+    text = ((result.stderr or "") + (result.stdout or "")).strip()
+    return text[-AGY_OUTPUT_TAIL:] if text else "no output"
+
+
+def _run_agy(cmd):
+    """Run an agy call and return it, having raised on a non-zero exit.
+    check=True would raise CalledProcessError, whose message carries the whole
+    argv -- the entire prompt -- and none of agy's stderr."""
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"agy exited {result.returncode}: {_agy_tail(result)}")
+    return result
+
+
 def agy_structured(model, instructions, schema):
     """One agy call with an enforced JSON schema; returns structured_output."""
     cmd = ["agy", "-p", instructions, "--dangerously-skip-permissions", "--effort", "low",
            "--model", model, "--output-format", "json", "--json-schema", json.dumps(schema)]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    result = _run_agy(cmd)
     try:
         payload = json.loads(result.stdout)
     except ValueError:
@@ -329,10 +348,10 @@ def generate(model, cam, prompt, attached, out_path):
         f"the markers below. Then copy the generated image file to exactly this path: {out_path}. "
         f"Output ONLY the word SUCCESS.\n---PROMPT---\n{prompt}\n---END---")
     cmd = ["agy", "-p", instructions, "--dangerously-skip-permissions", "--effort", "low", "--model", model]
-    subprocess.run(cmd, capture_output=True, text=True, check=True)
+    result = _run_agy(cmd)
     out_path = pathlib.Path(out_path)
     if not out_path.is_file() or out_path.stat().st_size == 0:
-        raise RuntimeError("no image generated or copied by agent")
+        raise RuntimeError(f"no image generated or copied by agent (agy said: {_agy_tail(result)})")
     return out_path.read_bytes()
 
 

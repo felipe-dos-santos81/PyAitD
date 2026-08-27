@@ -81,7 +81,8 @@ class FakeSubprocess:
     is a list of verdicts handed out in order (Task 7); `image_png` is what
     a generate call copies to the requested path."""
 
-    def __init__(self, image_png=None, fail_image_calls=(), no_image=False, describe=INVENTORY, judge=()):
+    def __init__(self, image_png=None, fail_image_calls=(), no_image=False, describe=INVENTORY,
+                 judge=(), stdout="SUCCESS\n", stderr="", returncode=0):
         self.image_png = image_png
         self.fail = set(fail_image_calls)
         self.no_image = no_image
@@ -89,17 +90,22 @@ class FakeSubprocess:
         self.judge = list(judge)
         self.calls = []
         self.image_calls = 0
+        self.image_stdout, self.image_stderr, self.returncode = stdout, stderr, returncode
 
     def run(self, cmd, capture_output=True, text=True, check=True):
+        assert check is False, "agy calls must read the exit code, not raise on it"
         self.calls.append(cmd)
         prompt = cmd[2]
+        if self.returncode:
+            return _t.SimpleNamespace(stdout=self.image_stdout, stderr=self.image_stderr,
+                                      returncode=self.returncode)
         if "--json-schema" in cmd:
             if "For every inventory object" in prompt:
                 verdict = self.judge.pop(0)
-                return _t.SimpleNamespace(stdout=envelope(verdict), returncode=0)
+                return _t.SimpleNamespace(stdout=envelope(verdict), stderr="", returncode=0)
             if self.describe is None:
-                return _t.SimpleNamespace(stdout=json.dumps({"status": "SUCCESS"}), returncode=0)
-            return _t.SimpleNamespace(stdout=envelope(self.describe), returncode=0)
+                return _t.SimpleNamespace(stdout=json.dumps({"status": "SUCCESS"}), stderr="", returncode=0)
+            return _t.SimpleNamespace(stdout=envelope(self.describe), stderr="", returncode=0)
         self.image_calls += 1
         if self.image_calls in self.fail:
             raise subprocess.CalledProcessError(1, cmd, output="quota")
@@ -108,7 +114,8 @@ class FakeSubprocess:
             if m:
                 with open(m.group(1), "wb") as f:
                     f.write(self.image_png)
-        return _t.SimpleNamespace(stdout="SUCCESS\n", returncode=0)
+        return _t.SimpleNamespace(stdout=self.image_stdout, stderr=self.image_stderr,
+                                  returncode=self.returncode)
 
 
 def test_discover_finds_layout_sidecars(tmp_path):
@@ -880,3 +887,48 @@ def test_live_one_camera_through_the_loop(tmp_path):
     if done:
         assert load_png_rgb(tmp_path / "out/backgrounds/floor00/camera000.png").shape == (800, 1280, 3)
 
+
+
+def test_generate_reports_what_agy_printed_when_no_image_appears(tmp_path, monkeypatch):
+    """agy's own words are the only evidence of why a call produced nothing;
+    swallowing them leaves an undiagnosable report entry."""
+    cam = rb.discover(make_in_dir(tmp_path), None)[0]
+    fake = FakeSubprocess(no_image=True, stdout="thinking...\n",
+                          stderr="generate_image: RESOURCE_EXHAUSTED (image quota)")
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    out = rb.temp_png()
+    try:
+        with pytest.raises(RuntimeError, match="RESOURCE_EXHAUSTED"):
+            rb.generate("gemini-3.1-pro", cam, "p", [tmp_path / "ref.png"], out)
+    finally:
+        out.unlink(missing_ok=True)
+
+
+def test_generate_reports_a_non_zero_exit_without_echoing_the_prompt(tmp_path, monkeypatch):
+    """CalledProcessError puts the whole argv -- prompt included -- into the
+    message, and every camera's report.json entry with it."""
+    cam = rb.discover(make_in_dir(tmp_path), None)[0]
+    fake = FakeSubprocess(no_image=True, stderr="not authenticated", returncode=2)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    out = rb.temp_png()
+    try:
+        with pytest.raises(RuntimeError) as exc:
+            rb.generate("gemini-3.1-pro", cam, "the secret prompt", [tmp_path / "ref.png"], out)
+    finally:
+        out.unlink(missing_ok=True)
+    assert "exited 2" in str(exc.value) and "not authenticated" in str(exc.value)
+    assert "the secret prompt" not in str(exc.value)
+
+
+def test_agy_structured_reports_a_non_zero_exit(tmp_path, monkeypatch):
+    fake = FakeSubprocess(describe=None, stderr="model not found", returncode=1)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    with pytest.raises(RuntimeError, match="exited 1.*model not found"):
+        rb.agy_structured("gemini-3.1-pro", "hello", rb.INVENTORY_SCHEMA)
+
+
+def test_agy_tail_keeps_the_end_and_says_so_when_there_is_nothing():
+    quiet = _t.SimpleNamespace(stdout="", stderr="  \n")
+    assert rb._agy_tail(quiet) == "no output"
+    long = _t.SimpleNamespace(stdout="x" * 2000, stderr="")
+    assert rb._agy_tail(long) == "x" * rb.AGY_OUTPUT_TAIL
