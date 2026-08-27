@@ -88,6 +88,7 @@ def test_manifest_record_fields():
         "floor": 3, "camera": 0,
         "source": "backgrounds/floor03/camera000.png",
         "guide": "guides/floor03/camera000.png",
+        "layout": "guides/floor03/camera000.png".replace(".png", ".json"),
         "size": [320, 200],
         "viewed_rooms": [0],
         "masks": 1,
@@ -283,3 +284,61 @@ def test_manifest_v2_carries_screens_and_accepts_v1():
     assert m["schema"] == 2 and m["screens"] == [{"entry": 13}]
     assert be.export_manifest([], "/data", 4)["screens"] == []
     assert be.SUPPORTED_SCHEMAS == (1, 2)
+
+
+def test_layout_geometry_lists_masks_collision_and_walkable():
+    layout = be.layout_geometry(StubFloor(), 0)
+    assert layout["schema"] == 1 and layout["size"] == [320, 200]
+    assert layout["masks"] == [[[10.0, 10.0], [50.0, 10.0], [50.0, 40.0]]]
+    assert len(layout["collision"]) == 1 and len(layout["collision"][0]) == 8
+    # _box_corners order: 1 = (x2, y2, z1) = (100, 0, 0) -> (260, 100); 5 = (100, -50, 0) -> (260, 50)
+    assert layout["collision"][0][1] == pytest.approx([260.0, 100.0], abs=0.6)
+    assert layout["collision"][0][5] == pytest.approx([260.0, 50.0], abs=0.6)
+    assert len(layout["walkable"]) == 1 and len(layout["walkable"][0]) == 4
+    # cover (5, 0) -> room (50, 0, 0) -> (210, 100); (-5, 50) -> (126.67, 100)
+    assert layout["walkable"][0][1] == pytest.approx([210.0, 100.0], abs=0.6)
+    assert layout["walkable"][0][3] == pytest.approx([126.67, 100.0], abs=0.6)
+    import json
+    json.dumps(layout)
+
+
+def test_layout_geometry_nulls_culled_vertices():
+    floor = StubFloor()
+    from PyAitD.engine.formats import Zone
+    floor.rooms[0].hard_cols = [Zone(x1=-10, x2=10, y1=-10, y2=0, z1=-5000, z2=-4000, type=0, parameter=0)]
+    floor._cover = {}
+    layout = be.layout_geometry(floor, 0)
+    assert layout["collision"] == [[None] * 8] and layout["walkable"] == []
+
+
+def test_layout_segments_skip_null_endpoints_and_close_polygons():
+    layout = {"masks": [[[0, 0], [10, 0], [10, 10]]],
+              "collision": [[[0, 0], None, [5, 5], [7, 7], None, None, None, None]],
+              "walkable": [[[1, 1], [2, 2], None]],
+              "blit": [[0, 0, 4, 3]]}
+    segs = be.layout_segments(layout)
+    assert ((0, 0), (10, 0)) in segs and ((10, 10), (0, 0)) in segs      # mask: closed
+    assert ((5, 5), (7, 7)) in segs and ((7, 7), (0, 0)) in segs         # box edges (2,3) and (3,0)
+    assert ((1, 1), (2, 2)) in segs                                      # walkable edge (0,1)
+    assert ((0, 0), (3, 0)) in segs and ((0, 2), (0, 0)) in segs         # blit rect, inclusive corners
+    assert len(segs) == 3 + 2 + 1 + 4
+    assert not any(a is None or b is None for a, b in segs)
+
+
+def test_guide_overlay_accepts_a_precomputed_layout():
+    floor = StubFloor()
+    layout = be.layout_geometry(floor, 0)
+    assert (be.guide_overlay(floor, 0, 2, layout=layout) == be.guide_overlay(floor, 0, 2)).all()
+
+
+def test_screen_layout_lists_blit_rects():
+    assert be.screen_layout(10) == {"schema": 1, "size": [320, 200],
+                                    "blit": [list(r) for r in be.SCREEN_GUIDES[10]]}
+
+
+def test_records_carry_layout_paths():
+    assert be.layout_rel_path(3, 0) == "guides/floor03/camera000.json"
+    assert be.screen_layout_rel_path(10) == "guides/screens/ress10.json"
+    assert be.manifest_record(StubFloor(number=3), 0, checker_pixels())["layout"] == "guides/floor03/camera000.json"
+    assert be.manifest_record(StubFloor(), 7, None)["layout"] is None
+    assert be.screen_record(10, np.zeros((200, 320, 3), np.uint8))["layout"] == "guides/screens/ress10.json"

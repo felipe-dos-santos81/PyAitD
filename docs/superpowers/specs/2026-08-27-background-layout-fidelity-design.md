@@ -92,8 +92,8 @@ red pillar outlines and the blue top edge). Causes:
 
 ## Layout sidecar
 
-`layout_geometry(floor, cam_idx)` returns (floats, one decimal, may fall
-outside the frame — consumers clip):
+`layout_geometry(floor, cam_idx)` returns (floats, unrounded so the guide
+stays pixel-identical; may fall outside the frame — consumers clip):
 
 ```json
 {"schema": 1, "size": [320, 200],
@@ -106,7 +106,8 @@ outside the frame — consumers clip):
 - `collision`: one entry per hard-collision box of every viewed room, its 8
   projected corners in `_box_corners` order, `null` where `view.project`
   culled the corner (`z <= _CULLED`).
-- `walkable`: one closed polygon per cover polygon, projected.
+- `walkable`: one closed polygon per cover polygon, projected; `null` for a
+  depth-culled vertex, like collision corners.
 
 `screen_layout(entry)` returns
 `{"schema": 1, "size": [320, 200], "blit": [[x, y, w, h], "..."]}` from
@@ -116,6 +117,9 @@ outside the frame — consumers clip):
 `_BOX_EDGES` over the 8 slots skipping any edge with a `null` end, walkable
 as closed green polylines, all scaled by `scale`; `screen_guide` draws the
 blit rects. Pixels are unchanged; the existing guide tests pin that.
+`layout_segments(layout)` returns every segment a guide draws (masks and
+walkable closed, collision along the box edges, blit rects) and is the
+single source for both the guide drawing and `plate_check.guide_lines`.
 
 `export_floor` / `export_screens` write the sidecars via `.tmp` +
 `os.replace`. `manifest_record` gains
@@ -261,7 +265,8 @@ guide lines are visible: do not draw them"` when flagged.
 `gate(candidate, original, layout, scale=1.0) -> GateResult` with
 `candidate` `(800, 1280, 3)` uint8, `original` `(200, 320, 3)` uint8,
 `layout` the sidecar dict or `None`. `GateResult(passed: bool, scores: dict,
-failures: list[str])`. Steps:
+failures: list[str], leaked: bool)`; `leaked` is True when either leak
+threshold was exceeded (the attachment rule keys off it). Steps:
 
 1. Box-downsample the candidate 4× (exact) to 320×200; convert both to
    luminance `0.299 R + 0.587 G + 0.114 B` as float32.

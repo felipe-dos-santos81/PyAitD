@@ -2,7 +2,9 @@
 """Export the original camera backgrounds for external (AI) regeneration.
 
 Pure numpy: no pygame, no moderngl. PNG encoding lives in
-tools/export_backgrounds.py. See docs/ai-background-regeneration.md.
+tools/export_backgrounds.py. See docs/ai-background-regeneration.md. Guide
+overlay PNGs are drawn from `.json` layout sidecars (layout_geometry /
+screen_layout via layout_segments), which are written alongside them.
 """
 import hashlib
 
@@ -74,6 +76,10 @@ def guide_rel_path(floor_number, cam_idx):
     return f"guides/floor{floor_number:02d}/camera{cam_idx:03d}.png"
 
 
+def layout_rel_path(floor_number, cam_idx):
+    return f"guides/floor{floor_number:02d}/camera{cam_idx:03d}.json"
+
+
 def manifest_record(floor, cam_idx, pixels):
     """One manifest entry. `pixels` is the exported (H, W, 3) array, or None
     when Floor.camera_image raised KeyError (image missing from CAMERAnn.PAK)."""
@@ -82,6 +88,7 @@ def manifest_record(floor, cam_idx, pixels):
         "camera": cam_idx,
         "source": None,
         "guide": None,
+        "layout": None,
         "size": None,
         "viewed_rooms": [],
         "masks": 0,
@@ -96,6 +103,7 @@ def manifest_record(floor, cam_idx, pixels):
     if pixels is not None:
         rec["source"] = background_rel_path(floor.number, cam_idx)
         rec["guide"] = guide_rel_path(floor.number, cam_idx)
+        rec["layout"] = layout_rel_path(floor.number, cam_idx)
         rec["size"] = [int(pixels.shape[1]), int(pixels.shape[0])]
         rec["sha256"] = sha256_rgb(pixels)
     return rec
@@ -138,15 +146,12 @@ def _draw_legend_footer(img, h):
         img[h:, x0:x0 + _SWATCH_W] = color
 
 
-def _draw_projected(img, view, world_pts, edges, rgb, scale):
-    """Project `world_pts` and draw each (i, j) edge whose endpoints both
-    survived culling, scaled by `scale`."""
+def _projected_or_none(view, world_pts):
+    """Project `world_pts`; a depth-culled vertex becomes None, the rest
+    [x, y] floats in 320x200 logical pixels (unrounded, so drawing from the
+    layout is pixel-identical to drawing from the projection)."""
     proj = view.project(world_pts)
-    for i, j in edges:
-        a, b = proj[i], proj[j]
-        if a[2] <= _CULLED or b[2] <= _CULLED:
-            continue
-        draw_polyline(img, [(a[0] * scale, a[1] * scale), (b[0] * scale, b[1] * scale)], rgb)
+    return [None if p[2] <= _CULLED else [float(p[0]), float(p[1])] for p in proj]
 
 
 _BOX_EDGES = (
@@ -163,38 +168,89 @@ def _box_corners(z):
     ]
 
 
-def guide_overlay(floor, cam_idx, scale):
-    """The original background upscaled x`scale` (nearest neighbour) with
-    mask polygons (red), hard-collision boxes (blue) and cover polygons
-    (green) drawn over it, plus a GUIDE_FOOTER-px legend strip.
+LAYOUT_SCHEMA = 1
 
-    Room-space coordinates are passed to CameraView as-is: the room's world
-    offset is already folded into CameraState.from_camera, exactly as actor
-    positions reach CameraView in scene.build_frame."""
-    base = nearest_upscale(floor.camera_image(cam_idx), scale)
-    h, w = base.shape[:2]
-    img = np.zeros((h + GUIDE_FOOTER, w, 3), np.uint8)
-    img[:h] = base
 
+def layout_geometry(floor, cam_idx):
+    """The structures the guide draws, as a JSON-able dict in 320x200 pixel
+    space: mask polygons (closed), each hard-collision box's 8 projected
+    corners in _box_corners order, and the projected cover polygons
+    (closed). A depth-culled vertex is None. Room-space coordinates are
+    passed to CameraView as-is: the room's world offset is already folded
+    into CameraState.from_camera, exactly as in scene.build_frame."""
+    masks = []
     for mask in floor.mask_draws(cam_idx):
         for poly in mask.polygons:
-            pts = [(float(x) * scale, float(y) * scale) for x, y in np.asarray(poly).reshape(-1, 2)]
-            draw_polyline(img, pts, COLOR_MASK, closed=True)
-
+            pts = np.asarray(poly, dtype=float).reshape(-1, 2)
+            masks.append([[float(x), float(y)] for x, y in pts])
+    collision, walkable = [], []
     camera = floor.cameras[cam_idx]
     for viewed_idx, vr in enumerate(camera.viewed_rooms):
         room = floor.rooms[vr.viewed_room_idx]
         view = CameraView(CameraState.from_camera(camera, room.world_x, room.world_y, room.world_z).angles())
         for box in room.hard_cols:
-            _draw_projected(img, view, _box_corners(box), _BOX_EDGES, COLOR_COLLISION, scale)
+            collision.append(_projected_or_none(view, _box_corners(box)))
         for poly in cover_zones_for(floor, cam_idx, viewed_idx):
             pts = [(x * COVER_SCALE, 0, z * COVER_SCALE) for x, z in poly]
-            n = len(pts)
-            if n < 2:
+            if len(pts) < 2:
                 continue
-            edges = [(k, (k + 1) % n) for k in range(n)]
-            _draw_projected(img, view, pts, edges, COLOR_WALKABLE, scale)
+            walkable.append(_projected_or_none(view, pts))
+    return {"schema": LAYOUT_SCHEMA, "size": [W, H],
+            "masks": masks, "collision": collision, "walkable": walkable}
 
+
+def _ring_edges(n):
+    return [(k, (k + 1) % n) for k in range(n)]
+
+
+def _edges_of(pts, edges):
+    out = []
+    for i, j in edges:
+        a, b = pts[i], pts[j]
+        if a is None or b is None:
+            continue
+        out.append(((a[0], a[1]), (b[0], b[1])))
+    return out
+
+
+def layout_segments(layout):
+    """Every segment a guide draws for `layout`, in 320x200 pixel space:
+    masks and walkable polygons closed, collision boxes along _BOX_EDGES,
+    blit rects around their inclusive corners. Edges touching a None
+    vertex are skipped. Shared by guide_overlay/screen_guide (scaled) and
+    tools/plate_check.guide_lines (unscaled)."""
+    segs = []
+    for poly in layout.get("masks", ()):
+        segs.extend(_edges_of(poly, _ring_edges(len(poly))))
+    for corners in layout.get("collision", ()):
+        segs.extend(_edges_of(corners, _BOX_EDGES))
+    for poly in layout.get("walkable", ()):
+        segs.extend(_edges_of(poly, _ring_edges(len(poly))))
+    for x, y, rw, rh in layout.get("blit", ()):
+        rect = [(x, y), (x + rw - 1, y), (x + rw - 1, y + rh - 1), (x, y + rh - 1)]
+        segs.extend(_edges_of(rect, _ring_edges(4)))
+    return segs
+
+
+def _draw_segments(img, segs, rgb, scale):
+    for a, b in segs:
+        draw_polyline(img, [(a[0] * scale, a[1] * scale), (b[0] * scale, b[1] * scale)], rgb)
+
+
+def guide_overlay(floor, cam_idx, scale, layout=None):
+    """The original background upscaled x`scale` (nearest neighbour) with
+    mask polygons (red), hard-collision boxes (blue) and cover polygons
+    (green) drawn over it, plus a GUIDE_FOOTER-px legend strip. `layout`
+    is layout_geometry(floor, cam_idx), computed here when not given."""
+    if layout is None:
+        layout = layout_geometry(floor, cam_idx)
+    base = nearest_upscale(floor.camera_image(cam_idx), scale)
+    h, w = base.shape[:2]
+    img = np.zeros((h + GUIDE_FOOTER, w, 3), np.uint8)
+    img[:h] = base
+    _draw_segments(img, layout_segments({"masks": layout["masks"]}), COLOR_MASK, scale)
+    _draw_segments(img, layout_segments({"collision": layout["collision"]}), COLOR_COLLISION, scale)
+    _draw_segments(img, layout_segments({"walkable": layout["walkable"]}), COLOR_WALKABLE, scale)
     _draw_legend_footer(img, h)
     return img
 
@@ -240,12 +296,22 @@ def screen_guide_rel_path(entry):
     return f"guides/screens/ress{entry:02d}.png"
 
 
+def screen_layout_rel_path(entry):
+    return f"guides/screens/ress{entry:02d}.json"
+
+
+def screen_layout(entry):
+    """The blit rects the engine draws over `entry`, as a JSON-able layout."""
+    return {"schema": LAYOUT_SCHEMA, "size": [W, H], "blit": [list(r) for r in SCREEN_GUIDES[entry]]}
+
+
 def screen_record(entry, pixels):
     return {
         "entry": int(entry),
         "name": SCREEN_NAMES[entry],
         "source": screen_rel_path(entry),
         "guide": screen_guide_rel_path(entry),
+        "layout": screen_layout_rel_path(entry),
         "size": [int(pixels.shape[1]), int(pixels.shape[0])],
         "sha256": sha256_rgb(pixels),
         "blits": [list(r) for r in SCREEN_GUIDES[entry]],
@@ -259,9 +325,6 @@ def screen_guide(pixels, entry, scale):
     h, w = base.shape[:2]
     img = np.zeros((h + GUIDE_FOOTER, w, 3), np.uint8)
     img[:h] = base
-    for x, y, rw, rh in SCREEN_GUIDES[entry]:
-        pts = [(x * scale, y * scale), ((x + rw - 1) * scale, y * scale),
-               ((x + rw - 1) * scale, (y + rh - 1) * scale), (x * scale, (y + rh - 1) * scale)]
-        draw_polyline(img, pts, COLOR_BLIT, closed=True)
+    _draw_segments(img, layout_segments(screen_layout(entry)), COLOR_BLIT, scale)
     _draw_legend_footer(img, h)
     return img
