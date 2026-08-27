@@ -53,6 +53,9 @@ is the only gate. Never mass-reformat.
 
 - Tests use the user's original game data via the `data_dir` fixture and
   skip when absent. `*.app/` is git-ignored: never commit game data.
+- The `GameProfile` comes from the `profile` fixture, never a direct `AITD1`
+  import — pinned by `tests/test_test_groups.py`; `tests/test_game_profile.py`
+  is the sole exception.
 - Behavioral authority is FITD at
   `/Users/felipe.dos.santos/code/theirs/FITD/FitdLib/` (`AITD1.cpp`,
   `life.cpp`, `main.cpp`, `anim.cpp`, `inventory.cpp`, `mainLoop.cpp`).
@@ -128,8 +131,10 @@ a rule — add the test with the rule.
   belongs in a profile field (data or callable), and the seam is documented in
   `games/base.py`'s docstring.
 - Known seams still hard-coded to AITD1 inside `engine/`, listed so nobody
-  closes them ad hoc: `life.py` fixes `NUM_OPCODES` and the `core_table()`
-  slot numbers; `formats.py` record layouts; `interaction.py`'s
+  closes them ad hoc: `floor.py` names the ETAGE/CAMERA archives and calls
+  `create_aitd1_mask`; `assets.py` fixes the cadre-bank entry/sprite count
+  and the 320x200 screen size; `life.py` fixes `NUM_OPCODES` and the
+  `core_table()` slot numbers; `formats.py` record layouts; `interaction.py`'s
   `COMBAT_ACTIONS`/`PLAYER_*_ANIM`/`PLAYER_TRACK_MODES` indices. Close one by
   moving it into `GameProfile` with a test, not by adding a second copy.
 

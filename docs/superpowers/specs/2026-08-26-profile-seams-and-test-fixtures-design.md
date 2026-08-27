@@ -351,7 +351,7 @@ One branch, four commits, the full suite green between each:
 | `PyAitD/engine/floor.py` | constants deleted; `Floor(data_dir, number, profile)` |
 | `PyAitD/engine/assets.py` | `GAME_PALETTE_ENTRY` deleted; reads `profile.palette_entry` |
 | `PyAitD/engine/life.py` | `_REDUCED_ALLOWED` deleted; guard reads `game.profile.reduced_allowed` |
-| `PyAitD/engine/game.py` | `Game.load_floor`; `rooms_of_floor` routes through it |
+| `PyAitD/engine/game.py` | `Game.load_floor`; `rooms_of_floor` deliberately does not route through it, and keeps constructing `Floor` itself |
 | `PyAitD/app/shell.py` | 4 `Floor(...)` sites → `game.load_floor(...)`; `Floor` import dropped |
 | `tools/prove_intro.py`, `tools/prove_graphics.py`, `tools/prove_mouse.py` | use `game.load_floor` |
 | `tools/export_backgrounds.py` | resolves the profile once, passes it to `Floor` |

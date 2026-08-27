@@ -1023,8 +1023,8 @@ git commit -m "test: take the GameProfile from a conftest fixture"
 After Task 5, the branch as a whole must satisfy:
 
 - [ ] `make test` matches the baseline counts plus exactly **6** added tests: 1 in Task 1 (`reduced_allowed` pin), 2 in Task 2 (`palette_entry` pin, `Floor` requires a profile), 2 in Task 3 (`load_floor` behaviour, `rooms_of_floor` isolation), 1 in Task 5 (the fixture guard). Task 4 is net-zero — six single tests become six parametrized cases of one test.
-- [ ] `grep -rn "ITD_RESS" PyAitD/engine` prints nothing.
+- [ ] `grep -rn 'PALETTE_PAK\|PALETTE_ENTRY\|GAME_PALETTE_ENTRY' PyAitD` prints nothing. (`ITD_RESS` itself still appears in `PyAitD/engine` — a provenance comment and diagnostic-string text in `formats.py`/`assets.py`, not a pak-resolution seam.)
 - [ ] `grep -rn "_REDUCED_ALLOWED\|GAME_PALETTE_ENTRY\|PALETTE_PAK" PyAitD` prints nothing.
 - [ ] `grep -rn 'main, "Floor"' tests` prints nothing.
-- [ ] `grep -rn "AITD1" tests | grep -v test_game_profile` prints only the three `AITD1.cpp` comment citations.
+- [ ] `grep -rn "\bAITD1\b" tests | grep -v 'test_game_profile\|conftest'` prints only comments and docstrings (no executable `AITD1` reference).
 - [ ] On a machine with GL and game data: `make proof-mouse && make proof-combat && make proof-graphics && make proof-intro` all exit 0.
