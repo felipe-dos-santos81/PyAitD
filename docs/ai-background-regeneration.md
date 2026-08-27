@@ -18,8 +18,10 @@ Produces:
     ~/aitd-overrides/manifest.json
     ~/aitd-overrides/backgrounds/floorNN/cameraNNN.png   the 320x200 originals
     ~/aitd-overrides/guides/floorNN/cameraNNN.png        originals x4 with structure lines
+    ~/aitd-overrides/guides/floorNN/cameraNNN.json       the same structures as JSON (320x200 px)
     ~/aitd-overrides/screens/ressNN.png                  the seven ITD_RESS full-screen originals
     ~/aitd-overrides/guides/screens/ressNN.png           originals x4 with blit-rect guides
+    ~/aitd-overrides/guides/screens/ressNN.json          the blit rects as JSON
 
 The export refuses to run into a directory that already has `backgrounds/`
 (your regenerated images) unless you pass `force=1`. Pass `screens=0` to
@@ -59,27 +61,65 @@ elsewhere will look wrong in play even though it loads fine.
     command -v agy                                # once: the agy CLI must be on PATH
     make regenerate-backgrounds dry=1             # list what would run, no calls
     make regenerate-backgrounds                   # data/aitd1/overrides -> data/aitd1/overrides-ai
-    make regenerate-backgrounds floors=0 style="Sunlit, warm, clean." force=1
+    make regenerate-backgrounds floors=0 style="Sunlit, warm, clean." force=1 attempts=5
 
-For each `backgrounds/floorNN/cameraNNN.png` (with its guide when present)
-the tool asks `gemini-3.1-pro` (via `agy`) for a scene description, stores it in
-`data/aitd1/overrides-ai/prompts.json`, then asks `gemini-3-pro-image` to render
-that description with the original and guide as references. The result is
-centre-cropped to 16:10 and scaled to 1280x800, so `check-overrides` never
-reports `aspect` or `size` for it. `manifest.json` is copied across so
-coverage counts every output as `regenerated`.
+Every plate must keep the original scene: same camera framing, every
+wall, door, window, stair and piece of furniture at the same place, same
+kind, same count. Materials, lighting and style may change. A plate that
+drifts is not written; the game shows the original for that camera.
 
+For each `backgrounds/floorNN/cameraNNN.png` (with its guide and layout
+sidecar when present) the tool:
+
+1. asks the text model (`gemini-3.1-pro` via `agy`) for an **inventory** —
+   a scene prompt plus every object with kind, count and bounding box in
+   percent of frame — and caches it in `data/aitd1/overrides-ai/prompts.json`;
+2. dictates one `generate_image` call: the original (upscaled 4x) and the
+   guide as reference images, aspect 3:2, and a prompt that opens with the
+   game's atmosphere notes, asks for a re-render of exactly this scene,
+   lists the layout in percent of frame, and repeats the corrections from
+   the previous rejected attempt;
+3. fits the result to 1280x800 and runs the **gate**
+   (`tools/plate_check.py`, offline): blurred-luminance correlation
+   (`ncc` >= 0.50), the share of the original's edges found within 2 px in
+   the plate (`edge_recall` >= 0.60, and >= 0.70 inside every mask and
+   collision region), and guide-colour leaks along the guide's lines
+   (<= 2 % of line pixels, <= 0.5 % of the frame). A gate failure skips
+   the judge; a leak drops the guide from the next attempt's references;
+4. asks the text model to **judge** the plate against the original and
+   the inventory: camera the same, no guide lines, every object present
+   with the same kind, count and position, nothing extra;
+5. retries up to `attempts=` (3) times with the gate's and judge's
+   corrections, then rejects the camera.
+
+Every prompt opens with a fixed game-context block naming Alone in the
+Dark 1 and its gothic horror / Lovecraftian mood; `style=` is appended
+verbatim at the end.
+
+- `report.json` in the output directory records every attempt's gate
+  scores and judge verdict per camera.
 - Cameras that already exist in the output are skipped; rerun after an
-  interruption and it continues. `force=1` redoes them and their prompts.
-- Edit a prompt in `prompts.json`, delete that camera's PNG and rerun to
-  regenerate only it with your wording.
-- A camera that fails (quota, no image returned) is logged and skipped;
-  exit status 1 means at least one failed, rerun to retry.
-- `text_model=` / `image_model=` override the models; `in=` and `out_ai=`
-  the directories.
+  interruption or a rejection and it retries only the missing ones.
+  `force=1` redoes existing plates and their inventories.
+- Edit a camera's `objects` or `prompt` in `prompts.json` (keep the
+  `sha256`), delete its PNG and rerun to steer it with your wording.
+- A camera that fails with an error (quota, no image returned) is logged
+  and skipped; three consecutive errors abort the run. A camera rejected
+  on every attempt is logged as `failed: layout mismatch`; five
+  consecutive rejections abort with a hint (`edit the inventory in
+  prompts.json, lower --gate-scale, or raise --attempts`). Exit status 1
+  means at least one camera failed either way.
+- `gate_scale=` multiplies every gate threshold (`0` disables the gate
+  for experiments); `text_model=` overrides the model for the description
+  and the judge (the image model is whatever `generate_image` uses; there
+  is no choice); `in=` and `out_ai=` the directories.
+- Export directories made before the layout sidecars existed still work:
+  such cameras get the framing scores and the judge only, and the log says
+  `no layout: framing gate only`. Re-export (`make export-backgrounds
+  force=1`) to add the sidecars.
 
-Then `make check-overrides overrides=overrides-ai proof=1` and
-`make run overrides=overrides-ai`.
+Then `make check-overrides overrides=data/aitd1/overrides-ai proof=1` and
+`make run overrides=data/aitd1/overrides-ai`.
 
 ## Screens
 
@@ -90,7 +130,9 @@ draws over (portrait crops, text columns, cadre): keep those areas plain.
 Any size up to 8192x8192 loads; non-320x200 overrides are scaled to
 320x200 when composited, so text stays aligned. `check-overrides` lists
 them as `screen ressNN` and reports a `screens:` coverage line; `proof=1`
-writes `screen-ressNN.png` side-by-sides. `make export-backgrounds
+writes `screen-ressNN.png` side-by-sides. Regenerated screens go through
+the same gate and judge; the gate additionally requires the blit regions
+to stay plain (edge density <= 2 %). `make export-backgrounds
 screens=0` / `regenerate-backgrounds screens=0` skip them.
 
 One of the seven is not yet read at run time: 12 (dead end) is exported for

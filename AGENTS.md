@@ -21,7 +21,7 @@ make proof-intro   # opening cutscene: headless gate + one GL render per visited
 make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
 make export-backgrounds # originals + ITD_RESS screens + guides + manifest to data/aitd1/overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1, screens=0 to skip)
 make check-overrides # validate data/aitd1/overrides (or overrides=DIR) as the game loads it; proof=1 renders side-by-sides
-make regenerate-backgrounds # Gemini describe+render data/aitd1/overrides -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); needs the `agy` CLI on PATH
+make regenerate-backgrounds # Gemini describe+render+verify data/aitd1/overrides -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1, attempts=3, gate_scale=1.0); rejects drifted plates; needs the `agy` CLI on PATH
 ```
 
 Every pytest target runs headless via the Makefile's `HEADLESS` variable, so
@@ -160,7 +160,8 @@ a rule — add the test with the rule.
   SDK — and its unit tests monkeypatch `subprocess.run`, so they never touch the
   network. `tests/test_layering.py` pins that boundary. Credentials belong to
   that CLI, not to this repo (a `.env` is git-ignored); never commit keys or
-  generated `overrides*/` output.
+  generated `overrides*/` output. `tools/plate_check.py` is the offline gate
+  (numpy only, no I/O); it never calls anything.
 - `skel.skin`'s integer projection stays authoritative for picking, masks and
   the mouse contract; `draw_list` entries must stay byte-identical.
   `scene.CameraView` is a parallel float path for rendering only and is

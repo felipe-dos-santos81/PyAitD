@@ -815,3 +815,23 @@ def test_cli_knobs(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         rb._parse_args([str(tmp_path), "--out", "o", "--attempts", "0"])
 
+
+import shutil
+
+
+@pytest.mark.journey
+@pytest.mark.skipif(os.environ.get("PYAITD_LIVE_AI") != "1" or shutil.which("agy") is None,
+                    reason="set PYAITD_LIVE_AI=1 with the agy CLI on PATH to call Gemini")
+def test_live_one_camera_through_the_loop(tmp_path):
+    from tests.stub_floor import StubFloor
+    in_dir = tmp_path / "in"
+    xb.export_floor(StubFloor(), in_dir, 4)
+    cams = rb.discover(in_dir, None)
+    logs = []
+    done, failed = rb.regenerate(cams, tmp_path / "out", text_model=rb.DEFAULT_TEXT_MODEL, style=rb.DEFAULT_STYLE,
+                                 attempts=2, force=False, dry_run=False, log=logs.append)
+    report = rb.load_json(tmp_path / "out" / rb.REPORT_FILE)["floor00/camera000"]
+    assert report["attempts"] and (done, failed) in ((1, 0), (0, 1))
+    if done:
+        assert load_png_rgb(tmp_path / "out/backgrounds/floor00/camera000.png").shape == (800, 1280, 3)
+

@@ -31,7 +31,7 @@ make proof-graphics            # attic + combat fixtures at every shading mode -
 make proof-intro               # opening cutscene: headless gate + one GL render per visited camera
 make export-backgrounds      # originals + guides + manifest -> data/aitd1/overrides (out=, floors=, scale=, force=1)
 make check-overrides         # validate an override dir as the game loads it (overrides=DIR, proof=1 side-by-sides)
-make regenerate-backgrounds  # Gemini describe+render -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1); needs the `agy` CLI on PATH
+make regenerate-backgrounds  # Gemini describe+render+verify data/aitd1/overrides -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1, attempts=3, gate_scale=1.0); rejects drifted plates; needs the `agy` CLI on PATH
 make run overrides=DIR       # play with a different override directory (e.g. data/aitd1/overrides-ai); overrides= plays the originals
 ```
 
@@ -292,11 +292,14 @@ action runner.
 - `screens/ressNN.png` overrides full-screen resources; `app/ui.screen_surface`
   scales them to 320x200 at composite time.
 - `tools/regenerate_backgrounds.py` reads an export dir, asks Gemini for a
-  description then an image per camera, fits the result to 1280x800, and
-  writes `data/aitd1/overrides-ai` plus `prompts.json` (a resumable prompt
-  cache saved after every camera). It reaches Gemini by invoking the `agy` CLI
-  through `subprocess.run` and imports no SDK; the tests monkeypatch
-  `subprocess.run`, and `tests/test_layering.py` pins the boundary.
+  description then an image per camera, fits the result to 1280x800, gates it
+  offline (`tools/plate_check.py`: correlation, per-region edge recall,
+  guide-colour leak), has the text model judge it against the inventory,
+  retries with corrections, rejects drift, and writes `data/aitd1/overrides-ai`
+  plus `prompts.json` (a resumable prompt cache saved after every camera). It
+  reaches Gemini by invoking the `agy` CLI through `subprocess.run` and
+  imports no SDK; the tests monkeypatch `subprocess.run`, and
+  `tests/test_layering.py` pins the boundary.
 - Output dirs `overrides/` and `overrides-ai/` are git-ignored; a missing
   override file — or a missing override directory entirely — falls back
   silently, a corrupt one warns and falls back. `make run` points at
