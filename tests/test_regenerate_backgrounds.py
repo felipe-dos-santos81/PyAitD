@@ -82,7 +82,7 @@ class FakeSubprocess:
     a generate call copies to the requested path."""
 
     def __init__(self, image_png=None, fail_image_calls=(), no_image=False, describe=INVENTORY,
-                 judge=(), stdout="SUCCESS\n", stderr="", returncode=0):
+                 judge=(), stdout="SUCCESS\n", stderr="", returncode=0, copy_first_attachment=False):
         self.image_png = image_png
         self.fail = set(fail_image_calls)
         self.no_image = no_image
@@ -91,6 +91,7 @@ class FakeSubprocess:
         self.calls = []
         self.image_calls = 0
         self.image_stdout, self.image_stderr, self.returncode = stdout, stderr, returncode
+        self.copy_first_attachment = copy_first_attachment
 
     def run(self, cmd, capture_output=True, text=True, check=True):
         assert check is False, "agy calls must read the exit code, not raise on it"
@@ -109,11 +110,14 @@ class FakeSubprocess:
         self.image_calls += 1
         if self.image_calls in self.fail:
             raise subprocess.CalledProcessError(1, cmd, output="quota")
-        if not self.no_image and self.image_png:
-            m = re.search(r"this path: (.*?)\. Output ONLY the word SUCCESS", prompt)
-            if m:
-                with open(m.group(1), "wb") as f:
-                    f.write(self.image_png)
+        m = re.search(r"this path: (.*?)\. Output ONLY the word SUCCESS", prompt)
+        if self.copy_first_attachment and m:
+            first = re.search(r'ImagePaths = \["(.*?)"', prompt).group(1)
+            with open(m.group(1), "wb") as f:
+                f.write(pathlib.Path(first).read_bytes())
+        elif not self.no_image and self.image_png and m:
+            with open(m.group(1), "wb") as f:
+                f.write(self.image_png)
         return _t.SimpleNamespace(stdout=self.image_stdout, stderr=self.image_stderr,
                                   returncode=self.returncode)
 
@@ -932,3 +936,42 @@ def test_agy_tail_keeps_the_end_and_says_so_when_there_is_nothing():
     assert rb._agy_tail(quiet) == "no output"
     long = _t.SimpleNamespace(stdout="x" * 2000, stderr="")
     assert rb._agy_tail(long) == "x" * rb.AGY_OUTPUT_TAIL
+
+
+def test_a_plate_identical_to_the_reference_is_rejected(tmp_path, monkeypatch):
+    """An agent that copies the reference instead of painting scores a perfect
+    1.00 on every structure check by construction -- the gate cannot see it,
+    so the loop must."""
+    fake = FakeSubprocess(copy_first_attachment=True, judge=[GOOD_VERDICT] * 9)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    calls = _gate_script(monkeypatch, [(True, False, [])] * 9)
+
+    assert _run(tmp_path, fake) == (0, 3)
+    assert calls == []                       # never reaches the gate or the judge
+    assert not (tmp_path / "out" / "backgrounds" / "floor00" / "camera000.png").exists()
+
+    report = json.loads((tmp_path / "out" / rb.REPORT_FILE).read_text())
+    entry = report["floor00/camera000"]
+    assert entry["accepted"] is False and len(entry["attempts"]) == 3
+    assert entry["attempts"][0]["gate"]["failures"] == [rb.UNCHANGED_CORRECTION]
+    assert "do not copy" in rb.UNCHANGED_CORRECTION
+
+
+def test_the_unchanged_correction_reaches_the_next_prompt(tmp_path, monkeypatch):
+    fake = FakeSubprocess(copy_first_attachment=True, judge=[GOOD_VERDICT] * 9)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, [])] * 9)
+    _run(tmp_path, fake)
+    gen = [c[2] for c in fake.calls if "--json-schema" not in c]
+    assert rb.UNCHANGED_CORRECTION not in gen[0] and rb.UNCHANGED_CORRECTION in gen[1]
+
+
+def test_is_reference_copy_tolerates_re_encoding_but_not_a_real_repaint(tmp_path):
+    from PyAitD.render.background_export import nearest_upscale
+    original = load_png_rgb(make_in_dir(tmp_path) / "backgrounds/floor00/camera000.png")
+    ref = nearest_upscale(original, 4)
+    assert rb.is_reference_copy(ref, original)
+    nudged = np.clip(ref.astype(np.int16) + 1, 0, 255).astype(np.uint8)
+    assert rb.is_reference_copy(nudged, original)          # a lossless re-encode still counts
+    repaint = np.clip(ref.astype(np.int16) + 40, 0, 255).astype(np.uint8)
+    assert not rb.is_reference_copy(repaint, original)

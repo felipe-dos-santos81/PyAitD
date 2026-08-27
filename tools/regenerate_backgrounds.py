@@ -38,6 +38,8 @@ PROMPTS_FILE = "prompts.json"
 REPORT_FILE = "report.json"
 MAX_CONSECUTIVE_FAILURES = 3   # a dead model/key fails every camera: stop early
 AGY_OUTPUT_TAIL = 400          # chars of agy's own output kept in an error message
+UNCHANGED_TOLERANCE = 2.0      # mean abs channel difference: below it the plate is the reference
+UNCHANGED_CORRECTION = ("the last attempt returned the reference image itself, not a new painting: call generate_image and paint the scene, do not copy an attachment to the output path")
 MAX_CONSECUTIVE_REJECTS = 5    # a model that cannot keep the layout: stop burning attempts
 REJECT_ABORT = ("aborting after 5 consecutive layout mismatches: edit the inventory in prompts.json, "
                 "lower --gate-scale, or raise --attempts")
@@ -355,6 +357,18 @@ def generate(model, cam, prompt, attached, out_path):
     return out_path.read_bytes()
 
 
+def is_reference_copy(fitted, original):
+    """True when the agent handed back the reference instead of a new plate.
+    The gate cannot catch this: the reference is `nearest_upscale(original, 4)`
+    and `fit_to_target` inverts that exactly, so a copy scores a perfect 1.00
+    on ncc and on every recall by construction."""
+    from PyAitD.render.background_export import nearest_upscale
+    ref = nearest_upscale(original, 4)
+    if ref.shape != fitted.shape:
+        return False
+    return float(np.abs(fitted.astype(np.int16) - ref.astype(np.int16)).mean()) <= UNCHANGED_TOLERANCE
+
+
 def fit_to_target(png_bytes):
     """Decode, centre-crop to the largest 16:10 rectangle, smooth-scale to
     TARGET_SIZE. Returns (800, 1280, 3) uint8 so save_png can write it."""
@@ -421,6 +435,10 @@ def _process_camera(cam, target, prompts, prompts_path, *, text_model, style, at
                 finally:
                     out.unlink(missing_ok=True)
                 fitted = fit_to_target(png)
+                if is_reference_copy(fitted, original):
+                    attempt["gate"] = {"passed": False, "scores": {}, "failures": [UNCHANGED_CORRECTION]}
+                    corrections = [UNCHANGED_CORRECTION]
+                    continue
                 result = gate(fitted, original, layout, gate_scale)
                 attempt["gate"] = {"passed": result.passed, "scores": result.scores, "failures": result.failures}
                 if not result.passed:
