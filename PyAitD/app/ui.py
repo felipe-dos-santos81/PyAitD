@@ -619,6 +619,74 @@ def transparent_canvas():
     return np.zeros((200, 320, 4), dtype=np.uint8)
 
 
+class UIPainter:
+    """The canvas presenters paint on, in logical 320x200 coordinates.
+
+    The only object that knows the UI's pixel scale. Presenters keep
+    authoring against the same 320x200 grid the hit tests use -- every
+    PlayLayout/ModalLayout rect is expressed there and is shared with
+    `hit_test_*` -- while the surface underneath is as large as the window.
+    Drawing and picking a widget in two different coordinate systems is the
+    defect this exists to prevent.
+
+    At scale 1 every method must produce exactly what the old
+    surface-per-presenter code produced: the existing render tests assert
+    those pixels and are what makes this conversion safe.
+    """
+
+    def __init__(self, scale=1.0, *, fill=None):
+        self.scale = float(scale)
+        self.surface = pygame.Surface(self.size, flags=pygame.SRCALPHA)
+        if fill is not None:
+            self.surface.fill(fill)
+
+    @property
+    def size(self):
+        return (round(320 * self.scale), round(200 * self.scale))
+
+    def _pt(self, point):
+        return (round(point[0] * self.scale), round(point[1] * self.scale))
+
+    def _rect(self, rect):
+        rect = pygame.Rect(rect)
+        left, top = self._pt(rect.topleft)
+        right, bottom = self._pt(rect.bottomright)
+        return pygame.Rect(left, top, right - left, bottom - top)
+
+    def _width(self, width):
+        # 0 means "filled" to pygame and must stay 0; anything else keeps at
+        # least one pixel, so a hairline never scales away to nothing
+        return 0 if width == 0 else max(1, round(width * self.scale))
+
+    def rect(self, colour, rect, width=0, border_radius=0):
+        pygame.draw.rect(
+            self.surface, colour, self._rect(rect), width=self._width(width),
+            border_radius=round(border_radius * self.scale),
+        )
+
+    def line(self, colour, start, end, width=1):
+        pygame.draw.line(
+            self.surface, colour, self._pt(start), self._pt(end),
+            width=max(1, round(width * self.scale)),
+        )
+
+    def circle(self, colour, centre, radius, width=0):
+        pygame.draw.circle(
+            self.surface, colour, self._pt(centre),
+            max(1, round(radius * self.scale)), width=self._width(width),
+        )
+
+    def shade(self, colour):
+        """A full-canvas wash, the scaled form of blitting a filled SRCALPHA
+        surface over the whole 320x200 frame."""
+        wash = pygame.Surface(self.size, flags=pygame.SRCALPHA)
+        wash.fill(colour)
+        self.surface.blit(wash, (0, 0))
+
+    def to_frame(self):
+        return _to_frame(self.surface)
+
+
 def _to_surface(frame):
     frame = np.ascontiguousarray(frame)
     if frame.shape[2] == 3:

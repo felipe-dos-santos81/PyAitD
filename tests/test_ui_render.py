@@ -13,7 +13,7 @@ from PyAitD.engine.text import BookToken
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
     FoundPresenter, InventoryPresenter, ModalLayout, ReadingPresenter, ReadingResult,
-    SystemMenuPage, SystemMenuPresenter,
+    SystemMenuPage, SystemMenuPresenter, UIPainter,
     draw_big_cadre, layout_book,
     overlay_messages, render_character_select, render_cursor, render_found,
     render_game_over, render_picture, render_play_hud, render_reading,
@@ -57,6 +57,29 @@ def test_message_overlay_does_not_mutate_source_frame(data_dir, profile):
     result = overlay_messages(source, [TimedMessage(100), None, None, None, None], game.assets)
     assert np.count_nonzero(source) == 0
     assert np.count_nonzero(result) > 0
+
+
+def test_painter_at_scale_one_matches_a_transparent_canvas():
+    painter = UIPainter()
+    assert painter.size == (320, 200)
+    assert np.array_equal(painter.to_frame(), transparent_canvas())
+
+
+def test_painter_scales_shapes_by_its_scale():
+    painter = UIPainter(3)
+    assert painter.size == (960, 600)
+    painter.rect((255, 0, 0), pygame.Rect(10, 20, 4, 5))
+    frame = painter.to_frame()
+    # the logical rect (10,20)-(14,25) lands at (30,60)-(42,75)
+    assert tuple(frame[61, 31][:3]) == (255, 0, 0)
+    assert frame[59, 29][3] == 0, "nothing painted above/left of the scaled rect"
+    assert frame[76, 43][3] == 0, "nothing painted below/right of it"
+
+
+def test_painter_hairlines_survive_scaling_down_to_one_pixel():
+    painter = UIPainter(1)
+    painter.rect((255, 255, 255), pygame.Rect(0, 0, 10, 10), width=1)
+    assert painter.to_frame()[0, 0, 3] == 255, "a 1px outline must not vanish"
 
 
 def test_cursor_marks_the_frame_without_mutating_the_input():
