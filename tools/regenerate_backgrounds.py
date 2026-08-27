@@ -207,34 +207,50 @@ def describe(model, cam):
     return inventory
 
 
-def generate(model, cam, prompt):
-    """One image-model call via agy CLI: original (+ guide) + prompt -> image bytes."""
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        tmp_path = tmp.name
-        
-    instructions = f"Look at the image at {cam.source.absolute()}. "
-    if cam.guide:
-        instructions += f"Also look at the guide image at {cam.guide.absolute()}. "
-    instructions += (f"Use the generate_image tool to recreate the first image based on "
-                     f"this prompt: {prompt} "
-                     f"Once you generate the image, copy the resulting image artifact to exactly "
-                     f"this path: {tmp_path}. Then output ONLY 'SUCCESS'.")
-    
-    cmd = [
-        "agy", "-p", instructions,
-        "--dangerously-skip-permissions",
-        "--effort", "low",
-        "--model", model
-    ]
+def temp_png():
+    """An empty temp file with a .png suffix; the caller unlinks it."""
+    fd, path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    return pathlib.Path(path)
+
+
+def make_reference(cam):
+    """The original upscaled 4x (nearest) as a temp PNG: the first reference
+    image of every generate call, at the guide's scale. Caller unlinks."""
+    from PyAitD.render.asset_resolver import load_png_rgb
+    from PyAitD.render.background_export import nearest_upscale
+    path = temp_png()
+    save_png(path, nearest_upscale(load_png_rgb(cam.source), 4))
+    return path
+
+
+def attachments(cam, ref, leaked):
+    """Reference images for a generate call: [ref, guide] until an attempt
+    leaks guide colours into the plate, then [ref] only."""
+    if leaked or cam.guide is None:
+        return [ref]
+    return [ref, cam.guide]
+
+
+def image_name(cam):
+    return f"screen_ress{cam.camera:02d}" if cam.floor == -1 else f"plate_f{cam.floor:02d}_c{cam.camera:03d}"
+
+
+def generate(model, cam, prompt, attached, out_path):
+    """One image-model call via agy: dictate the generate_image tool call
+    (references, aspect, name, prompt) and read the copied result."""
+    paths = ", ".join(f'"{pathlib.Path(p).absolute()}"' for p in attached)
+    instructions = (
+        f"Call the generate_image tool exactly once with these arguments: ImagePaths = [{paths}]; "
+        f'AspectRatio = "{GENERATE_ASPECT}"; ImageName = "{image_name(cam)}"; Prompt = the text between '
+        f"the markers below. Then copy the generated image file to exactly this path: {out_path}. "
+        f"Output ONLY the word SUCCESS.\n---PROMPT---\n{prompt}\n---END---")
+    cmd = ["agy", "-p", instructions, "--dangerously-skip-permissions", "--effort", "low", "--model", model]
     subprocess.run(cmd, capture_output=True, text=True, check=True)
-    
-    with open(tmp_path, "rb") as f:
-        image_bytes = f.read()
-    os.remove(tmp_path)
-    
-    if not image_bytes:
+    out_path = pathlib.Path(out_path)
+    if not out_path.is_file() or out_path.stat().st_size == 0:
         raise RuntimeError("no image generated or copied by agent")
-    return image_bytes
+    return out_path.read_bytes()
 
 
 def fit_to_target(png_bytes):
@@ -303,9 +319,18 @@ def regenerate(cams, out_dir, *, text_model, style, force, dry_run, log=print):
                 save_prompts(prompts_path, prompts)
             inventory = prompts[cam.key]["inventory"]
             layout = json.loads(cam.layout.read_text()) if cam.layout else None
-            prompt = generation_prompt(inventory, style, layout_regions(layout),
-                                       guide_attached=cam.guide is not None, screen=cam.floor == -1)
-            image = generate(text_model, cam, prompt)
+            ref = make_reference(cam)
+            try:
+                attached = attachments(cam, ref, leaked=False)
+                prompt = generation_prompt(inventory, style, layout_regions(layout),
+                                           guide_attached=len(attached) > 1, screen=cam.floor == -1)
+                out = temp_png()
+                try:
+                    image = generate(text_model, cam, prompt, attached, out)
+                finally:
+                    out.unlink(missing_ok=True)
+            finally:
+                ref.unlink(missing_ok=True)
             save_png(target, fit_to_target(image))
         except Exception as exc:  # per-camera: SDK error types are not imported here
             failed += 1

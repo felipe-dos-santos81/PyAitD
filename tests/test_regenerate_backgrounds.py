@@ -3,8 +3,10 @@ import hashlib
 import io
 import json
 import os
+import pathlib
 import re
 import subprocess
+import tempfile
 import types as _t
 import zlib
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -102,7 +104,7 @@ class FakeSubprocess:
         if self.image_calls in self.fail:
             raise subprocess.CalledProcessError(1, cmd, output="quota")
         if not self.no_image and self.image_png:
-            m = re.search(r"this path: (.*?)\. (?:Then output|Output)", prompt)
+            m = re.search(r"this path: (.*?)\. Output ONLY the word SUCCESS", prompt)
             if m:
                 with open(m.group(1), "wb") as f:
                     f.write(self.image_png)
@@ -191,25 +193,59 @@ def test_screen_generation_prompt_uses_illustration_wording():
     assert "drawn there by the game" in text and "walkable" not in text
 
 
-def test_generate_requests_image_and_returns_bytes(tmp_path, monkeypatch):
+def test_generate_dictates_the_tool_call(tmp_path, monkeypatch):
     cam = rb.discover(make_in_dir(tmp_path), None)[0]
     png = png_bytes(np.zeros((1024, 1536, 3), np.uint8))
     fake = FakeSubprocess(png)
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
-    assert rb.generate("gemini-3.1-pro", cam, "desc") == png
+    ref, out = tmp_path / "ref.png", tmp_path / "out.png"
+    ref.write_bytes(b"x")
+    assert rb.generate("gemini-3.1-pro", cam, "the prompt", [ref, cam.guide], out) == png
     cmd = fake.calls[0]
-    assert "--model" in cmd and "gemini-3.1-pro" in cmd
-    assert "desc" in cmd[2]
+    assert cmd[0] == "agy" and "gemini-3.1-pro" in cmd and "--json-schema" not in cmd
+    text = cmd[2]
+    assert f'ImagePaths = ["{ref.absolute()}", "{cam.guide.absolute()}"]' in text
+    assert 'AspectRatio = "3:2"' in text and 'ImageName = "plate_f00_c000"' in text
+    assert f"copy the generated image file to exactly this path: {out}. Output ONLY the word SUCCESS" in text
+    assert "---PROMPT---\nthe prompt\n---END---" in text
+    assert "Look at the image" not in text
 
 
-def test_generate_without_image_part_raises(tmp_path, monkeypatch):
+def test_generate_raises_when_nothing_was_copied(tmp_path, monkeypatch):
     cam = rb.discover(make_in_dir(tmp_path), None)[0]
     fake = FakeSubprocess(no_image=True)
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
-    with pytest.raises(RuntimeError, match="no image generated or copied by agent"):
-        rb.generate("gemini-3.1-pro", cam, "desc")
+    out = rb.temp_png()
+    try:
+        with pytest.raises(RuntimeError, match="no image generated or copied by agent"):
+            rb.generate("gemini-3.1-pro", cam, "p", [tmp_path / "ref.png"], out)
+    finally:
+        out.unlink(missing_ok=True)
+
+
+def test_reference_and_attachment_rules(tmp_path):
+    cams = rb.discover(make_in_dir(tmp_path), None)
+    ref = rb.make_reference(cams[0])
+    try:
+        assert load_png_rgb(ref).shape == (800, 1280, 3)
+        assert rb.attachments(cams[0], ref, leaked=False) == [ref, cams[0].guide]
+        assert rb.attachments(cams[0], ref, leaked=True) == [ref]
+        assert rb.attachments(cams[1], ref, leaked=False) == [ref]         # no guide
+    finally:
+        ref.unlink()
+    assert rb.image_name(cams[0]) == "plate_f00_c000"
+    assert rb.image_name(rb.Camera(-1, 10, cams[0].source, None, "screens/ress10")) == "screen_ress10"
+
+
+def test_regenerate_attaches_reference_and_guide_and_cleans_up(tmp_path, monkeypatch):
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    before = set(pathlib.Path(tempfile.gettempdir()).glob("*.png"))
+    assert _run(tmp_path, fake) == (3, 0)
+    gen = [c[2] for c in fake.calls if "--json-schema" not in c]
+    assert gen[0].count(".png") >= 2 and str((tmp_path / "in/guides/floor00/camera000.png").absolute()) in gen[0]
+    assert str((tmp_path / "in/guides/floor00/camera000.png").absolute()) not in gen[1]   # camera001 has no guide
+    assert set(pathlib.Path(tempfile.gettempdir()).glob("*.png")) == before
 
 
 def test_fit_to_target_crops_to_16_10_then_scales():
