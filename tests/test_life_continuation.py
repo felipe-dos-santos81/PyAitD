@@ -24,7 +24,7 @@ def words(*values):
 
 def test_modal_suspends_after_all_read_operands_and_resumes_once(data_dir, profile):
     game = init_game(data_dir, profile)
-    # LM_READ 35 consumes kind, entry, and the profile extra word; LM_INC 20; LM_END 12.
+    # LM_READ 35 consumes kind, entry, and the AITD1 extra word; LM_INC 20; LM_END 12.
     game.assets = Scripts({7: words(35, 1, 4, 99, 20, 6, 12)})
     game.vars[6] = 0
     assert run_life(game, LifeFrame(0, 7)) is False

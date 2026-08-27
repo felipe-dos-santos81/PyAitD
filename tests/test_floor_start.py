@@ -14,7 +14,7 @@ pytestmark = pytest.mark.engine
 
 def test_floor_requires_a_profile(data_dir):
     # No default: a default palette pak/entry inside engine/ would be the
-    # profile hardcode this seam exists to remove.
+    # AITD1 hardcode this seam exists to remove.
     with pytest.raises(TypeError):
         Floor(data_dir, 0)
 
