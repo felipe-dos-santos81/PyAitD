@@ -590,3 +590,20 @@ def test_judge_corrections_name_every_problem():
     missing = _verdict(objects=GOOD_VERDICT["objects"][:1])
     assert "barrels: not assessed by the judge" in rb.judge_corrections(missing, INVENTORY)
 
+
+def test_judge_tolerates_a_null_objects_or_extra_objects_field():
+    """A verdict field present but explicitly null (not merely missing) must
+    not raise -- it is model misbehaviour to reject and retry, not a crash."""
+    null_objects = _verdict(objects=None)
+    assert rb.judge_accepts(null_objects, INVENTORY) is False
+    assert rb.judge_corrections(null_objects, INVENTORY) == [
+        "window: not assessed by the judge", "barrels: not assessed by the judge"]
+
+    null_extra = _verdict(extra_objects=None)
+    assert rb.judge_accepts(null_extra, INVENTORY) is True
+    assert rb.judge_corrections(null_extra, INVENTORY) == []
+
+    null_corrections = _verdict(corrections=None)   # same list(x.get(..., [])) pattern as extra_objects
+    assert rb.judge_accepts(null_corrections, INVENTORY) is True
+    assert rb.judge_corrections(null_corrections, INVENTORY) == []
+

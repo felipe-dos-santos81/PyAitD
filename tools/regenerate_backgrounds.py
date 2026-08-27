@@ -239,7 +239,7 @@ def judge(model, cam, inventory, ref_path, candidate_path):
 
 
 def _reported(verdict):
-    return {o.get("name"): o for o in verdict.get("objects", [])}
+    return {o.get("name"): o for o in verdict.get("objects") or []}
 
 
 def judge_accepts(verdict, inventory):
@@ -256,7 +256,7 @@ def judge_accepts(verdict, inventory):
 def judge_corrections(verdict, inventory):
     """Corrections for the next attempt: the judge's own sentences, then one
     line per failing or unreported object, extra object and flag."""
-    out = list(verdict.get("corrections", []))
+    out = list(verdict.get("corrections") or [])
     reported = _reported(verdict)
     for obj in inventory["objects"]:
         r = reported.get(obj["name"])
@@ -264,7 +264,7 @@ def judge_corrections(verdict, inventory):
             out.append(f"{obj['name']}: not assessed by the judge")
         elif not all(r.get(flag) for flag in _OBJECT_FLAGS):
             out.append(f"{obj['name']}: {r.get('note') or 'differs from the original'}")
-    for extra in verdict.get("extra_objects", []):
+    for extra in verdict.get("extra_objects") or []:
         out.append(f"extra object: {extra}")
     if verdict.get("guide_lines_visible"):
         out.append("red, blue or green guide lines are visible: do not draw them")
