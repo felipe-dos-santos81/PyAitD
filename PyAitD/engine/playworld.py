@@ -322,7 +322,10 @@ def _apply_mouse_input(game, input_buffer):
         game.local_joyd = 0
         return
     from PyAitD.engine.interaction import cancel_nav_intent
-    if intent.requires_hold and (not input_buffer.focused or not input_buffer.pointer_held):
+    if not input_buffer.focused or not input_buffer.pointer_held:
+        # Held pointer follow: every intent is hold-bound, plain walks
+        # included. Enforced here, at the tick where FITD reads input, so a
+        # release stops the hero on the very next tick, between frames too.
         cancel_nav_intent(game)
         return
     hero = game.actors[hero_idx]

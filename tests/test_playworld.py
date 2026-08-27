@@ -30,6 +30,7 @@ def test_play_tick_advances_the_world_without_a_display(data_dir, profile):
 from PyAitD.engine.effects import GameMode, InputMode, NavIntent
 from PyAitD.engine.navmesh import agent_extent
 from PyAitD.engine.playworld import apply_play_input
+from tests.conftest import held_pointer
 
 
 def test_keyboard_mode_still_reads_the_input_buffer(data_dir, profile):
@@ -63,7 +64,7 @@ def test_mouse_mode_mirrors_the_follower_joystick(data_dir, profile):
         dest_x=hero.room_x, dest_z=hero.room_z + 9000, room=hero.room,
         waypoints=[(hero.room_x, hero.room_z + 9000)],
     )
-    apply_play_input(game, InputBuffer())
+    apply_play_input(game, InputBuffer(pointer_held=True))
     assert game.nav_decision is not None
     assert game.local_joyd & 1, "scripts reading evalVar 0x13 must see movement"
 
@@ -477,7 +478,7 @@ def test_hero_walks_to_a_clicked_destination_and_arrives(data_dir, profile):
     ), "the goal must not be a trigger/transition zone"
     start = (hero.room_x, hero.room_z)
     game.nav_intent = NavIntent(goal[0], goal[1], hero.room)
-    buf = InputBuffer()
+    buf = held_pointer()
     joyd_seen = 0
     for tick in range(600):
         # play_tick returns False whenever a LIFE script suspends mid-tick
@@ -680,7 +681,29 @@ def test_held_push_on_the_rocking_horse_never_wedges_the_hero(data_dir, profile)
     start_x = hero.room_x + hero.step_x
     mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
     dest = nearest_walkable(mesh, start_x - 1500, hero.room_z + hero.step_z)
+    buf.pointer_held = True
     apply_click_intent(game, dest[0], dest[1], hero.room)
     for _ in range(300):
         play_tick(game, floor, buf)
     assert start_x - (hero.room_x + hero.step_x) > 500, "hero cannot walk after the push"
+
+
+@pytest.mark.parametrize(
+    "buf", [InputBuffer(pointer_held=False), InputBuffer(pointer_held=True, focused=False)],
+    ids=["released", "unfocused"],
+)
+def test_an_unheld_or_unfocused_buffer_cancels_a_walk_intent_on_the_next_tick(
+        data_dir, profile, buf):
+    # Held pointer follow: every intent is hold-bound, plain walks included,
+    # and the tick -- where FITD reads input -- enforces it, not only the
+    # frame (spec: Engine section).
+    game = init_game(data_dir, profile, hero=0)
+    game.current_floor_data = Floor(data_dir, game.current_floor, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    game.nav_intent = NavIntent(
+        dest_x=hero.room_x, dest_z=hero.room_z + 9000, room=hero.room,
+        waypoints=[(hero.room_x, hero.room_z + 9000)],
+    )
+    apply_play_input(game, buf)
+    assert game.nav_intent is None
+    assert (game.nav_decision, game.local_joyd) == (None, 0)

@@ -40,3 +40,12 @@ def gl_ctx():
         pytest.skip(f"no standalone GL 3.3 context: {exc}")
     yield ctx
     ctx.release()
+
+
+def held_pointer(pos=None):
+    """An InputBuffer with the left button down. Since held pointer follow
+    every navigation intent is hold-bound: a test that ticks a walk must hold
+    the button, or the next tick cancels the intent (playworld._apply_mouse_input).
+    """
+    from PyAitD.app.ui import InputBuffer
+    return InputBuffer(pointer_held=True, focused=True, pointer_pos=pos)

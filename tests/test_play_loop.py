@@ -767,6 +767,7 @@ from PyAitD.engine.game import AF_ANIMATED, AF_FOUNDABLE
 from PyAitD.engine.interaction import _finish_take, inventory_items
 from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.app.ui import InputBuffer, ModalSession, PlayLayout
+from tests.conftest import held_pointer
 
 
 def _state_for(floor, room_idx, cam_slot):
@@ -1221,7 +1222,7 @@ def test_clicking_floor_zero_s_interactable_walks_there_and_dispatches(data_dir,
         game.current_camera_target_actor]))
     assert mesh.is_walkable(intent.dest_x, intent.dest_z)
 
-    buf = InputBuffer()
+    buf = held_pointer()
     dispatched = False
     for _tick in range(2000):
         play_tick(game, floor, buf)
