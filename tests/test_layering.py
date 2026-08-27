@@ -157,7 +157,7 @@ PRESENTATION_FREE = (
 
 @pytest.mark.parametrize(
     "modules, forbidden, why", PRESENTATION_FREE,
-    ids=[row[0] for row in PRESENTATION_FREE],
+    ids=[row[0].replace(",", " + ") for row in PRESENTATION_FREE],
 )
 def test_module_imports_stay_presentation_free(modules, forbidden, why):
     assert_presentation_free(*modules.split(","), forbidden=forbidden, why=why)
