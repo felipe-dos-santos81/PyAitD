@@ -216,14 +216,13 @@ def test_makefile_mentions_check_and_run_overrides():
     assert "--overrides" in run_target and "$(overrides)" in run_target
 
 
-def test_exported_originals_render_pixel_identical_through_override_path(data_dir, tmp_path):
+def test_exported_originals_render_pixel_identical_through_override_path(data_dir, profile, tmp_path):
     """DIR straight from export, used as --overrides, changes nothing."""
     from PyAitD.engine.floor import Floor
-    from PyAitD.games.aitd1.profile import AITD1
     from PyAitD.render.asset_resolver import AssetResolver
     out = tmp_path / "ov"
     assert xb.main([str(data_dir), "--out", str(out), "--floors", "0"]) == 0
-    floor = Floor(data_dir, 0, AITD1)
+    floor = Floor(data_dir, 0, profile)
     plain = AssetResolver(None, None)
     overridden = AssetResolver(None, out)
     for cam_idx in range(len(floor.cameras)):

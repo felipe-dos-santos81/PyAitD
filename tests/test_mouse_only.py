@@ -27,7 +27,6 @@ from PyAitD.games.aitd1.mouse_contract import (
     PlayerCapability,
 )
 from PyAitD.app.ui import Command
-from PyAitD.games.aitd1.profile import AITD1
 
 pytestmark = [pytest.mark.shell, pytest.mark.journey]
 
@@ -137,9 +136,9 @@ def test_every_command_has_a_mouse_capability_or_reviewed_legacy_decision():
     ].reason
 
 
-def test_real_data_combat_action_set_is_exactly_32(data_dir):
+def test_real_data_combat_action_set_is_exactly_32(data_dir, profile):
     armed = set()
-    baseline = init_game(data_dir, AITD1)
+    baseline = init_game(data_dir, profile)
     offered = [
         (object_idx, action)
         for object_idx, world in enumerate(baseline.world_objects)
@@ -147,9 +146,9 @@ def test_real_data_combat_action_set_is_exactly_32(data_dir):
         for action in inventory_actions(baseline, object_idx)
     ]
     for object_idx, action in offered:
-        game = init_game(data_dir, AITD1)
+        game = init_game(data_dir, profile)
         enter_combat_venue(game)
-        floor = Floor(data_dir, game.current_floor, AITD1)
+        floor = Floor(data_dir, game.current_floor, profile)
         _finish_take(game, object_idx)
         choose_inventory_action(game, object_idx, action)
         hero = game.actors[game.current_camera_target_actor]
@@ -227,11 +226,11 @@ def _run_scripted_mouse(monkeypatch, game, draw_list, next_events):
 
 
 @pytest.mark.parametrize("hero_id", (0, 1))
-def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, monkeypatch, hero_id):
+def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, profile, monkeypatch, hero_id):
     import PyAitD.app.shell as main
 
-    game = init_game(data_dir, AITD1, hero=hero_id)
-    floor = Floor(data_dir, game.current_floor, AITD1)
+    game = init_game(data_dir, profile, hero=hero_id)
+    floor = Floor(data_dir, game.current_floor, profile)
     # Opening LIFE performs an unrelated begin_take(object 2), which publishes
     # Action 0x800 on its first boot tick.  Complete that real bootstrap before
     # measuring the held path; do not hide an Action emitted while held.
@@ -401,8 +400,8 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, monkeypatch, hero_
     assert game.action == game.local_click == game.local_joyd == 0
 
 
-def test_mouse_journey_attic_take_hud_inventory_action(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_mouse_journey_attic_take_hud_inventory_action(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     game.timer = 300
     lamp_idx = 13
     actor_idx = game.world_objects[lamp_idx].obj_index
@@ -442,14 +441,14 @@ def test_mouse_journey_attic_take_hud_inventory_action(data_dir, monkeypatch):
     assert game.in_hand_table[0] == lamp_idx
 
 
-def test_mouse_combat_fixture_has_a_real_visible_attack_target_after_equip(data_dir):
+def test_mouse_combat_fixture_has_a_real_visible_attack_target_after_equip(data_dir, profile):
     import PyAitD.app.shell as main
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     enter_mouse_combat_fixture(game)
     choose_inventory_action(game, 38, 23)
     game.num_camera = game.new_num_camera
-    floor = Floor(data_dir, game.current_floor, AITD1)
+    floor = Floor(data_dir, game.current_floor, profile)
     enemy_idx = game.world_objects[222].obj_index
 
     _frame, draw_list = main._scene_frame(
@@ -466,7 +465,7 @@ def test_mouse_combat_fixture_has_a_real_visible_attack_target_after_equip(data_
     ) == ("attack", enemy_idx)
 
 
-def test_mouse_journey_one_click_attack_swings_the_held_saber(data_dir, monkeypatch):
+def test_mouse_journey_one_click_attack_swings_the_held_saber(data_dir, profile, monkeypatch):
     """One click on a visible enemy performs object 38's own melee strike.
 
     ENGLISH.PAK text 32 is "Throw", so routing the click through the inventory
@@ -478,14 +477,14 @@ def test_mouse_journey_one_click_attack_swings_the_held_saber(data_dir, monkeypa
     import PyAitD.app.shell as main
     import PyAitD.engine.playworld as playworld_module
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     # This call is the documented pre-audit fixture boundary. Every player
     # decision after it enters through the synthetic pygame event stream.
     enter_mouse_combat_fixture(game)
     hero_idx = game.current_camera_target_actor
     enemy_idx = game.world_objects[222].obj_index
     enemy = game.actors[enemy_idx]
-    floor = Floor(data_dir, game.current_floor, AITD1)
+    floor = Floor(data_dir, game.current_floor, profile)
     geometry_renderer = _HeadlessRenderer()
 
     observed = {"states": set(), "hit": None, "target_box": None}
@@ -550,11 +549,11 @@ def test_mouse_journey_one_click_attack_swings_the_held_saber(data_dir, monkeypa
     assert game.world_objects[38].obj_index == -1, "no saber actor may reach the floor"
 
 
-def test_mouse_journey_game_over_restart_uses_a_left_click(data_dir, monkeypatch):
+def test_mouse_journey_game_over_restart_uses_a_left_click(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
     from tests.test_combat_journey import _journey_to_game_over
 
-    game, saw_death_life = _journey_to_game_over(data_dir)
+    game, saw_death_life = _journey_to_game_over(data_dir, profile)
     assert saw_death_life
     assert game.mode is GameMode.GAME_OVER
     hero = game.actors[game.current_camera_target_actor]

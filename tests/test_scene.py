@@ -9,16 +9,15 @@ from PyAitD.engine.mask_geometry import MaskDraw
 from PyAitD.render.scene import CameraView, FrameDescription, build_frame, mask_applies_to_actor
 from PyAitD.engine.skel import skin
 from PyAitD.engine.world import CameraState
-from PyAitD.games.aitd1.profile import AITD1
 import pytest
 
 pytestmark = pytest.mark.render
 
 
-def _boot(data_dir):
-    game = init_game(data_dir, AITD1)
+def _boot(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.num_camera = game.new_num_camera
-    floor = Floor(data_dir, game.current_floor, AITD1)
+    floor = Floor(data_dir, game.current_floor, profile)
     return game, floor
 
 
@@ -59,8 +58,8 @@ def _distance_scaled_bound(depth, focal2, focal3, world_trunc_bound=8.0):
 # actually runs on this machine). ---
 
 
-def test_build_frame_matches_legacy_order_and_draw_list(data_dir):
-    game, floor = _boot(data_dir)
+def test_build_frame_matches_legacy_order_and_draw_list(data_dir, profile):
+    game, floor = _boot(data_dir, profile)
     frame, draw_list = build_frame(game, floor, AssetResolver(game.assets))
     legacy = _legacy_scene(game, floor)
     assert isinstance(frame, FrameDescription)
@@ -70,8 +69,8 @@ def test_build_frame_matches_legacy_order_and_draw_list(data_dir):
         assert actor.logical.points == result.points
 
 
-def test_mask_ids_follow_the_trigger_rule(data_dir):
-    game, floor = _boot(data_dir)
+def test_mask_ids_follow_the_trigger_rule(data_dir, profile):
+    game, floor = _boot(data_dir, profile)
     frame, _ = build_frame(game, floor, AssetResolver(game.assets))
     for actor in frame.actors:
         expected = tuple(m.id for m in frame.masks if mask_applies_to_actor(m, actor.room, actor.zv))
@@ -90,7 +89,7 @@ def _on_screen(points):
     return (points[:, 0] >= 0) & (points[:, 0] <= 320) & (points[:, 1] >= 0) & (points[:, 1] <= 200)
 
 
-def test_float_projection_parity_with_skin(data_dir):
+def test_float_projection_parity_with_skin(data_dir, profile):
     # depth<=50 is a hard cull boundary for skel.skin's integer path; the
     # float path's continuous rotation can nudge a vertex's depth across
     # that boundary either way (measured on real assets: ~20 mismatches out
@@ -102,7 +101,7 @@ def test_float_projection_parity_with_skin(data_dir):
     # That calibration test only ever sampled vertices landing on the
     # 320x200 logical screen under both paths -- see _on_screen -- so this
     # applies the same filter to stay within the calibration's domain.
-    game, floor = _boot(data_dir)
+    game, floor = _boot(data_dir, profile)
     frame, _ = build_frame(game, floor, AssetResolver(game.assets))
     checked_any = False
     for actor in frame.actors:
@@ -123,7 +122,7 @@ def test_float_projection_parity_with_skin(data_dir):
     assert checked_any  # otherwise every actor was fully culled/at the boundary -- not a real check
 
 
-def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir):
+def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir, profile):
     # exhaustive parity: every body at the origin of every camera on floor 0.
     # Despite the name (kept from the brief), the assertion below is the
     # same distance-scaled tolerance as test_float_projection_parity_with_skin
@@ -132,8 +131,8 @@ def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir):
     # domain the bound was calibrated over -- see _on_screen.
     from PyAitD.render.geometry import pose_geometry
     from PyAitD.engine.assets import Assets
-    assets = Assets(data_dir, AITD1)
-    floor = Floor(data_dir, 0, AITD1)
+    assets = Assets(data_dir, profile)
+    floor = Floor(data_dir, 0, profile)
     checked_any = False
     for room in floor.rooms:
         for cam_idx in room.camera_indices:

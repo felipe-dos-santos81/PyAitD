@@ -19,7 +19,6 @@ from PyAitD.app.startup import StartupLayout, StartupRow, credits_page_count
 from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu, ShowTitle
 from PyAitD.engine.game import init_game
 from PyAitD.engine.playworld import play_tick as real_play_tick
-from PyAitD.games.aitd1.profile import AITD1
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, Command, InputBuffer, ModalSession,
     SettingsNoticeLayout, SystemMenuLayout, SystemMenuPage, event_to_input,
@@ -109,11 +108,11 @@ def _pygame_runtime():
     (1, 0, "LISTBODY", "LISTANIM"),  # right portrait: Carnby
 ))
 def test_one_click_hero_journey_through_the_real_loop(
-    data_dir, monkeypatch, portrait, expected_hero, body_archive, anim_archive,
+    data_dir, profile, monkeypatch, portrait, expected_hero, body_archive, anim_archive,
 ):
     import PyAitD.app.shell as main
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ChooseCharacter())
     session = ModalSession()
     replacements = []
@@ -161,12 +160,12 @@ def test_one_click_hero_journey_through_the_real_loop(
     )
 
 
-def test_keyboard_hero_journey_backs_out_and_starts_emily(data_dir, monkeypatch):
+def test_keyboard_hero_journey_backs_out_and_starts_emily(data_dir, profile, monkeypatch):
     # RIGHT, ACCEPT enters Carnby's story; CANCEL returns to the portraits;
     # LEFT, OPEN_INVENTORY enters Emily's story; OPEN_INVENTORY starts her.
     import PyAitD.app.shell as main
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ChooseCharacter())
     session = ModalSession()
     replacements = []
@@ -215,8 +214,8 @@ def test_keyboard_hero_journey_backs_out_and_starts_emily(data_dir, monkeypatch)
     assert replacements[0].assets.body_archive_name == "LISTBOD2"
 
 
-def test_menu_remap_sticky_save_and_reload_journey(data_dir, monkeypatch, tmp_path):
-    game = init_game(data_dir, AITD1)
+def test_menu_remap_sticky_save_and_reload_journey(data_dir, profile, monkeypatch, tmp_path):
+    game = init_game(data_dir, profile)
     path = tmp_path / "settings.json"
     session = load_runtime_session(path)
     assert session.settings_error is None
@@ -283,10 +282,10 @@ def test_menu_remap_sticky_save_and_reload_journey(data_dir, monkeypatch, tmp_pa
         assert buffer.sticky_armed is False
 
 
-def test_capture_consumes_the_captured_key_exclusively(data_dir, monkeypatch):
+def test_capture_consumes_the_captured_key_exclusively(data_dir, profile, monkeypatch):
     # During ACTION capture a Return press becomes the binding; it must not
     # also reach the reducer and activate/toggle a row in the same frame.
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     session = ModalSession()
     state = {"frames": 0}
 
@@ -322,10 +321,10 @@ def test_capture_consumes_the_captured_key_exclusively(data_dir, monkeypatch):
     assert isinstance(game.active_modal, OpenSystemMenu)
 
 
-def test_menu_entry_and_exit_never_replay_held_input(data_dir, monkeypatch):
+def test_menu_entry_and_exit_never_replay_held_input(data_dir, profile, monkeypatch):
     import PyAitD.engine.playworld as playworld
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.input_mode = InputMode.KEYBOARD
     session = ModalSession()
 
@@ -384,7 +383,7 @@ def test_menu_entry_and_exit_never_replay_held_input(data_dir, monkeypatch):
 
 
 def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
-    data_dir, monkeypatch, tmp_path,
+    data_dir, profile, monkeypatch, tmp_path,
 ):
     import PyAitD.app.shell as main
 
@@ -397,7 +396,7 @@ def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
     assert session.settings_error is not None
     assert str(path) in session.settings_error
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ChooseCharacter())
 
     # the hero replacement swaps run()'s game AND session atomically, so the
@@ -477,7 +476,7 @@ def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
 
 
 def test_letterbox_click_does_not_crash_or_dismiss_the_notice(
-    data_dir, monkeypatch, tmp_path,
+    data_dir, profile, monkeypatch, tmp_path,
 ):
     # window_to_logical returns None for clicks outside the 320x200 view
     # (letterbox/pillar bands); the notice pre-check must None-guard like
@@ -487,7 +486,7 @@ def test_letterbox_click_does_not_crash_or_dismiss_the_notice(
     session = load_runtime_session(path)
     assert session.settings_error is not None
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ChooseCharacter())
 
     monkeypatch.setattr(
@@ -513,12 +512,12 @@ def test_letterbox_click_does_not_crash_or_dismiss_the_notice(
 
 
 def test_death_restart_keeps_live_settings_and_drops_input_transients(
-    data_dir, tmp_path, monkeypatch,
+    data_dir, profile, tmp_path, monkeypatch,
 ):
     import PyAitD.app.shell as main
     from PyAitD.engine.game import Game
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.restart_requested = True
     remapped = replace_binding(default_settings(), Control.UP, "q")
     settings = Settings(remapped.bindings, True)
@@ -581,12 +580,12 @@ def test_settings_reload_reads_the_file_fresh(tmp_path):
         assert buffer.sticky_action is True
 
 
-def test_mouse_only_remap_journey_binds_through_the_key_picker(data_dir, monkeypatch, tmp_path):
+def test_mouse_only_remap_journey_binds_through_the_key_picker(data_dir, profile, monkeypatch, tmp_path):
     # A pointer-only user rebinds ACTION without any physical key: the control
     # row opens the picker, hover previews a cell, one click binds it, and the
     # menu returns to Configuration with the same row selected.
     from PyAitD.app.ui import PICKABLE_KEYS
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     path = tmp_path / "settings.json"
     session = load_runtime_session(path)
     state = {"frames": 0}
@@ -636,16 +635,16 @@ def test_mouse_only_remap_journey_binds_through_the_key_picker(data_dir, monkeyp
     assert payload["bindings"]["ACTION"] == ["q"]
 
 
-def test_journey_title_menu_select_play_by_mouse(data_dir, monkeypatch, tmp_path):
+def test_journey_title_menu_select_play_by_mouse(data_dir, profile, monkeypatch, tmp_path):
     # title -> credits (all 8 pages) -> menu -> New game -> Emily's portrait
     # -> her story page -> the atomic hero replacement -> PLAY, all through
     # the real run() event pump and the real shell render dispatch.
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ShowTitle())
     path = tmp_path / "settings.json"
     session = load_runtime_session(path)
     seen = []
-    credits_entry = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    credits_entry = game.cvars[profile.cvar_index("TEXTE_CREDITS")] + 1
     page_count = credits_page_count(game.assets, credits_entry)
     frames = iter([
         [_left_click((160, 100))],                                        # title -> credits
@@ -661,25 +660,25 @@ def test_journey_title_menu_select_play_by_mouse(data_dir, monkeypatch, tmp_path
         return next(frames, [_quit()])
 
     def observe_tick(game_, floor, buf):
-        seen.append(game_.cvars[AITD1.cvar_index("CHOOSE_PERSO")])
+        seen.append(game_.cvars[profile.cvar_index("CHOOSE_PERSO")])
         return real_play_tick(game_, floor, buf)
 
     _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
     assert seen and seen[0] == 1                                          # Emily is hero 1
 
 
-def test_journey_title_menu_select_play_by_keyboard(data_dir, monkeypatch, tmp_path):
+def test_journey_title_menu_select_play_by_keyboard(data_dir, profile, monkeypatch, tmp_path):
     # same title -> credits (all pages) -> menu -> New game path, but by
     # keyboard: Return (bound to INVENTORY_CONFIRM, translated to ACCEPT by
     # every non-PLAY modal router) advances the title/credits/menu, Escape
     # bounces out of the selector back to the menu, Right + Return picks
     # Carnby and starts.
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ShowTitle())
     path = tmp_path / "settings.json"
     session = load_runtime_session(path)
     seen = []
-    credits_entry = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    credits_entry = game.cvars[profile.cvar_index("TEXTE_CREDITS")] + 1
     page_count = credits_page_count(game.assets, credits_entry)
     frames = iter([
         [_key(pygame.K_RETURN)],                                          # title -> credits
@@ -696,7 +695,7 @@ def test_journey_title_menu_select_play_by_keyboard(data_dir, monkeypatch, tmp_p
         return next(frames, [_quit()])
 
     def observe_tick(game_, floor, buf):
-        seen.append(game_.cvars[AITD1.cvar_index("CHOOSE_PERSO")])
+        seen.append(game_.cvars[profile.cvar_index("CHOOSE_PERSO")])
         return real_play_tick(game_, floor, buf)
 
     _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
@@ -708,7 +707,7 @@ def _confirm_emily_events(game):
     # -> Emily's portrait -> her story page -> confirm. Mirrors the credits
     # paging the other title-menu-select journeys above do, since the credits
     # page count is a property of the installed game data, not a fixed "1".
-    credits_entry = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    credits_entry = game.cvars[game.profile.cvar_index("TEXTE_CREDITS")] + 1
     page_count = credits_page_count(game.assets, credits_entry)
     return [
         [_left_click((160, 100))],                                        # title -> credits
@@ -719,7 +718,7 @@ def _confirm_emily_events(game):
     ]
 
 
-def test_journey_opening_plays_to_the_end_then_the_attic(data_dir, monkeypatch):
+def test_journey_opening_plays_to_the_end_then_the_attic(data_dir, profile, monkeypatch):
     # title -> credits -> menu -> New game -> Emily, then the real floor-7
     # opening ticked entirely through the real run() event pump (not
     # test_intro.py's headless play_tick loop): the letter, the walk through
@@ -728,7 +727,7 @@ def test_journey_opening_plays_to_the_end_then_the_attic(data_dir, monkeypatch):
     # CutsceneFinished at tick 7220 (not the 7293 pinned for Carnby in
     # tests/test_intro.py -- that spike booted hero=0); this journey asserts
     # only the floor sequence and the terminal attic, not a tick number.
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ShowTitle())
     session = ModalSession()
     floors = []
@@ -753,7 +752,7 @@ def test_journey_opening_plays_to_the_end_then_the_attic(data_dir, monkeypatch):
     assert floors[:4] == [7, 3, 2, 1] and floors[-1] == 0
 
 
-def test_journey_a_click_skips_the_opening(data_dir, monkeypatch):
+def test_journey_a_click_skips_the_opening(data_dir, profile, monkeypatch):
     # Same boot as above, but a click partway through the opening ends it
     # early: PlayWorld(allowSystemMenu=0) breaks on any key or click
     # (mainLoop.cpp:71-89), so the shell hands off to the attic without ever
@@ -762,7 +761,7 @@ def test_journey_a_click_skips_the_opening(data_dir, monkeypatch):
     # modal was ever involved (Emily's own opening runs to a GameOver-shaped
     # CutsceneFinished around tick 7220 if never skipped -- see the journey
     # above -- so skipping this early must never let a real GameOver form).
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ShowTitle())
     session = ModalSession()
     floors = []
@@ -784,7 +783,7 @@ def test_journey_a_click_skips_the_opening(data_dir, monkeypatch):
 
 
 def test_journey_dismissing_the_settings_notice_during_the_cutscene_does_not_skip_it(
-    data_dir, monkeypatch,
+    data_dir, profile, monkeypatch,
 ):
     # render_settings_notice paints the Dismiss button unconditionally, mode
     # independent, and PlayerCapability.DISMISS_SETTINGS_ERROR's contract
@@ -796,7 +795,7 @@ def test_journey_dismissing_the_settings_notice_during_the_cutscene_does_not_ski
     # cutscene.
     import PyAitD.app.shell as main
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ShowTitle())
     session = ModalSession()
     session.settings_error = "forced test notice"
@@ -837,13 +836,13 @@ def test_journey_dismissing_the_settings_notice_during_the_cutscene_does_not_ski
     assert floors[-1] == 7
 
 
-def test_journey_a_keypress_skips_the_opening(data_dir, monkeypatch):
+def test_journey_a_keypress_skips_the_opening(data_dir, profile, monkeypatch):
     # Same as the click journey above, but with a keypress: PlayWorld
     # (allowSystemMenu=0) breaks on any key too (mainLoop.cpp:71-89), and
     # the event pump's cutscene swallow tests KEYDOWN separately from the
     # click/touch arms -- only this journey would catch a regression that
     # dropped the KEYDOWN arm and left a keypress doing nothing mid-opening.
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ShowTitle())
     session = ModalSession()
     floors = []

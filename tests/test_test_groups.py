@@ -241,3 +241,24 @@ def test_every_legacy_gate_name_still_exists_in_the_makefile():
                  "test-render", "test-tools", "test-meta", "test-journey",
                  "proof-mouse", "proof-combat", "proof-graphics", "proof-intro"):
         assert re.search(rf"^{re.escape(gate)}:", text, re.M), f"missing target {gate}"
+
+
+def test_tests_take_the_profile_from_the_fixture():
+    """AITD1 is constructed in one place -- conftest's profile fixture --
+    except where a test pins AITD1's own identity or builds a stub profile.
+    A new test that imports AITD1 to call init_game should take the fixture
+    instead."""
+    # test_game_profile.py is the only exception: its job is pinning AITD1's
+    # own identity, which a fixture would make circular. test_life_vm.py
+    # builds a *stub* GameProfile, not AITD1, so it takes the fixture like
+    # every other file. test_test_groups.py (this file) is excluded too --
+    # not because it imports AITD1, but because the needle string below is
+    # necessarily spelled out in this very check, so this file always
+    # contains it textually. That self-reference isn't a real offender.
+    allowed = {"test_game_profile.py", "test_test_groups.py"}
+    offenders = sorted(
+        p.name for p in all_test_files()
+        if p.name not in allowed
+        and "from PyAitD.games.aitd1.profile import AITD1" in p.read_text()
+    )
+    assert not offenders, offenders

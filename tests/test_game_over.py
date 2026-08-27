@@ -10,15 +10,14 @@ from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.playworld import play_tick
 from PyAitD.app.ui import Command, InputBuffer, ModalSession
-from PyAitD.games.aitd1.profile import AITD1
 
 pytestmark = pytest.mark.engine
 
 
-def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, monkeypatch):
+def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, profile, monkeypatch):
     import PyAitD.engine.playworld as playworld
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     floor = game.load_floor(game.current_floor)
     live = [i for i, actor in enumerate(game.actors) if actor.index_in_world >= 0]
     assert len(live) > 1, "the test needs more than one live actor to prove the loop finished"
@@ -42,8 +41,8 @@ def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, monkeyp
     assert game.timer == timer
 
 
-def _game_over_session(data_dir):
-    game = init_game(data_dir, AITD1)
+def _game_over_session(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.open_modal(GameOver())
     session = ModalSession()
     session.reset_for(game.active_modal)
@@ -51,25 +50,25 @@ def _game_over_session(data_dir):
 
 
 @pytest.mark.parametrize("command", [Command.ACCEPT, Command.CANCEL, Command.OPEN_INVENTORY])
-def test_game_over_command_locked_at_1999ms_rejects_restart(data_dir, command):
-    game, session = _game_over_session(data_dir)
+def test_game_over_command_locked_at_1999ms_rejects_restart(data_dir, profile, command):
+    game, session = _game_over_session(data_dir, profile)
     session.elapsed_ms = 1999
     assert route_command(game, session, command) is True
     assert game.restart_requested is False
 
 
 @pytest.mark.parametrize("command", [Command.ACCEPT, Command.CANCEL, Command.OPEN_INVENTORY])
-def test_game_over_command_ready_at_2000ms_requests_restart(data_dir, command):
+def test_game_over_command_ready_at_2000ms_requests_restart(data_dir, profile, command):
     # OPEN_INVENTORY is translated to ACCEPT by route_command before dispatch,
     # so this parametrization also covers the OPEN_INVENTORY-as-ACCEPT case.
-    game, session = _game_over_session(data_dir)
+    game, session = _game_over_session(data_dir, profile)
     session.elapsed_ms = 2000
     assert route_command(game, session, command) is True
     assert game.restart_requested is True
 
 
-def test_game_over_accepts_any_left_click_only_after_delay(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_game_over_accepts_any_left_click_only_after_delay(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.open_modal(GameOver())
     session = ModalSession()
     session.reset_for(game.active_modal)
@@ -81,26 +80,26 @@ def test_game_over_accepts_any_left_click_only_after_delay(data_dir):
 
 
 @pytest.mark.parametrize("corner", [(0, 0), (319, 199)])
-def test_game_over_click_accepts_at_either_extreme_corner_once_ready(data_dir, corner):
-    game, session = _game_over_session(data_dir)
+def test_game_over_click_accepts_at_either_extreme_corner_once_ready(data_dir, profile, corner):
+    game, session = _game_over_session(data_dir, profile)
     session.elapsed_ms = 2000
     assert route_mouse(game, session, corner) is True
     assert game.restart_requested is True
 
 
 @pytest.mark.parametrize("corner", [(0, 0), (319, 199)])
-def test_game_over_click_locked_at_either_extreme_corner_rejects_restart(data_dir, corner):
-    game, session = _game_over_session(data_dir)
+def test_game_over_click_locked_at_either_extreme_corner_rejects_restart(data_dir, profile, corner):
+    game, session = _game_over_session(data_dir, profile)
     session.elapsed_ms = 1999
     assert route_mouse(game, session, corner) is True
     assert game.restart_requested is False
 
 
-def test_game_over_during_a_cutscene_is_cutscene_finished(data_dir, monkeypatch):
+def test_game_over_during_a_cutscene_is_cutscene_finished(data_dir, profile, monkeypatch):
     from PyAitD.engine.effects import CutsceneFinished
     import PyAitD.engine.playworld as playworld
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.allow_system_menu = False      # PlayWorld(allowSystemMenu=0): mainLoop.cpp:185 break, not death
     floor = game.load_floor(game.current_floor)
     monkeypatch.setattr(playworld, "run_life", lambda current, frame: setattr(current, "flag_game_over", 1) or True)

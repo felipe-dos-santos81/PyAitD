@@ -20,6 +20,18 @@ def data_dir():
 
 
 @pytest.fixture
+def profile():
+    """The GameProfile under test. AITD1 today; a second game would
+    parametrize here. Tests that assert AITD1's *identity* -- its pak names,
+    opcode table, CVar list, reduced-opcode set -- import AITD1 directly
+    instead (tests/test_game_profile.py). This fixture makes the suite's
+    construction idiom uniform; it does NOT make the tests portable, since
+    they still assert AITD1-specific golden values."""
+    from PyAitD.games.aitd1.profile import AITD1
+    return AITD1
+
+
+@pytest.fixture
 def gl_ctx():
     moderngl = pytest.importorskip("moderngl")
     try:

@@ -19,15 +19,15 @@ def _state(floor, room_idx, cam_idx):
     ).angles()
 
 
-def test_pick_floor_round_trips_projected_points(data_dir):
+def test_pick_floor_round_trips_projected_points(data_dir, profile):
     # For every camera of the opening room, projecting a floor point and
     # picking it back must land within a cell of where it started. The floor
     # is per-camera, not just aggregate: a camera that puts any point on
     # screen must round-trip at least one of them, so a regression narrowed
     # to one camera angle (e.g. a _quad_of corner-selection bug) cannot hide
     # behind other cameras' successes.
-    floor = Floor(data_dir, 0, AITD1)
-    game = init_game(data_dir, AITD1)
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
     floor_y = game.actors[game.current_camera_target_actor].world_y
     checked = 0
     for cam_slot in range(len(floor.rooms[0].camera_indices)):
@@ -61,14 +61,13 @@ def test_pick_floor_round_trips_projected_points(data_dir):
     assert checked > 0, "no floor point round-tripped — the fit never ran"
 
 
-def test_pick_floor_outside_every_cover_polygon_is_none(data_dir):
-    floor = Floor(data_dir, 0, AITD1)
+def test_pick_floor_outside_every_cover_polygon_is_none(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
     # top-left corner of the 320x200 logical surface is ceiling, never floor
     assert pick_floor((2, 2), floor, 0, 0, 0) is None
 
 
 from PyAitD.engine.picking import ACTOR_PICK_PAD, actor_bbox, pick_actor
-from PyAitD.games.aitd1.profile import AITD1
 
 
 class _FakeResult:
@@ -144,11 +143,11 @@ def test_actor_bbox_clamps_rather_than_drops_a_straddling_actor():
     assert actor_bbox(result, pad=0) == (0, 90, 320, 110)
 
 
-def test_pick_floor_in_room_uses_that_room_s_own_origin(data_dir):
+def test_pick_floor_in_room_uses_that_room_s_own_origin(data_dir, profile):
     # room 0 of floor 0 is the only room, so the global-camera form must agree
     # exactly with the slot form it generalises
-    floor = Floor(data_dir, 0, AITD1)
-    game = init_game(data_dir, AITD1)
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
     floor_y = game.actors[game.current_camera_target_actor].world_y
     global_cam = floor.rooms[0].camera_indices[0]
     state = _state(floor, 0, 0)
@@ -161,9 +160,9 @@ def test_pick_floor_in_room_uses_that_room_s_own_origin(data_dir):
         pick_floor(screen, floor, 0, 0, floor_y)
 
 
-def test_pick_floor_any_room_reports_which_room_it_hit(data_dir):
-    floor = Floor(data_dir, 0, AITD1)
-    game = init_game(data_dir, AITD1)
+def test_pick_floor_any_room_reports_which_room_it_hit(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
     floor_y = game.actors[game.current_camera_target_actor].world_y
     state = _state(floor, 0, 0)
     poly = cover_polys(floor, 0)[0]
@@ -174,12 +173,12 @@ def test_pick_floor_any_room_reports_which_room_it_hit(data_dir):
     assert hit is not None and hit[2] == 0
 
 
-def test_pick_floor_any_room_prefers_the_hero_s_own_room(data_dir):
+def test_pick_floor_any_room_prefers_the_hero_s_own_room(data_dir, profile):
     # A real preference: one screen point that resolves to a valid floor point
     # in BOTH rooms camera 0 views, so the hero's room is what breaks the tie
     # rather than the only candidate. Camera 0 lists its viewed rooms as
     # [6, 0], so without the preference room 6 would win in both directions.
-    floor = Floor(data_dir, 1, AITD1)
+    floor = Floor(data_dir, 1, profile)
     screen = (178, 181)
     floor_y = 0
     for room_idx in (0, 6):

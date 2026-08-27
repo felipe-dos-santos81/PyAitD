@@ -3,14 +3,13 @@ from PyAitD.engine.effects import FoundResult, GameMode, LifeFrame, OpenInventor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.interaction import apply_found_result, apply_inventory_result, apply_reading_result
 from PyAitD.app.ui import InventoryResult, ModalSession, ReadingResult
-from PyAitD.games.aitd1.profile import AITD1
 import pytest
 
 pytestmark = pytest.mark.engine
 
 
-def test_leave_debounces_and_resumes_parent(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_leave_debounces_and_resumes_parent(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     game.life_stack.append(LifeFrame(0, 1, pc=6))
     game.open_modal(ShowFound(13, False))
     resumed = []
@@ -21,8 +20,8 @@ def test_leave_debounces_and_resumes_parent(data_dir, monkeypatch):
     assert resumed == [True]
 
 
-def test_take_closes_found_before_nested_found_life(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_take_closes_found_before_nested_found_life(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     game.open_modal(ShowFound(13, False))
     seen = []
     monkeypatch.setattr("PyAitD.engine.interaction.begin_take", lambda g, i: seen.append((i, g.active_modal)) or False)
@@ -30,8 +29,8 @@ def test_take_closes_found_before_nested_found_life(data_dir, monkeypatch):
     assert seen == [(13, None)]
 
 
-def test_inventory_cancel_and_read_dismiss_restore_play(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_inventory_cancel_and_read_dismiss_restore_play(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     monkeypatch.setattr("PyAitD.engine.interaction.resume_life", lambda g: True)
     game.open_modal(OpenInventory())
     assert apply_inventory_result(game, InventoryResult(cancelled=True)) is True

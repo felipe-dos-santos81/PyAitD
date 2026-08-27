@@ -6,7 +6,6 @@ import pytest
 from PyAitD.engine.eval_var import eval_var
 from PyAitD.engine.game import init_game
 from PyAitD.engine.life import VM
-from PyAitD.games.aitd1.profile import AITD1
 
 pytestmark = pytest.mark.engine
 
@@ -17,29 +16,29 @@ def _vm(game, *words):
     return VM(script, game, game.current_camera_target_actor)
 
 
-def test_literal(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_literal(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     vm = _vm(game, -1, 1234)
     assert eval_var(vm) == 1234
 
 
-def test_script_var(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_script_var(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     game.vars[3] = 77
     vm = _vm(game, 0, 3)
     assert eval_var(vm) == 77
 
 
-def test_actor_property(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_actor_property(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     owner = game.current_camera_target_actor
     game.actors[owner].beta = 0x2A0
     vm = _vm(game, 0x17 + 1)  # tag = code+1, beta
     assert eval_var(vm) == 0x2A0
 
 
-def test_other_object_property(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_other_object_property(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     spawned = next(i for i, a in enumerate(game.actors) if a.index_in_world != -1)
     widx = game.actors[spawned].index_in_world
     game.actors[spawned].life = 42
@@ -47,15 +46,15 @@ def test_other_object_property(data_dir):
     assert eval_var(vm) == 42
 
 
-def test_world_idx_out_of_range_raises(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_world_idx_out_of_range_raises(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     vm = _vm(game, 0x8000 | (0x1F + 1), 9999)
     with pytest.raises(ValueError):
         eval_var(vm)
 
 
-def test_other_object_not_in_floor_supports_only_fitd_raw_tags(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_other_object_not_in_floor_supports_only_fitd_raw_tags(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     widx = next(i for i, w in enumerate(game.world_objects) if w.obj_index == -1)
     world = game.world_objects[widx]
     world.room = 3
@@ -68,41 +67,41 @@ def test_other_object_not_in_floor_supports_only_fitd_raw_tags(data_dir):
         eval_var(_vm(game, 0x8020, widx))
 
 
-def test_nested_eval_var_found_flag(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_nested_eval_var_found_flag(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     widx = next(i for i, w in enumerate(game.world_objects) if w.found_flag & 0x8000 == 0)
     game.world_objects[widx].found_flag |= 0x8000
     vm = _vm(game, 0x10 + 1, -1, widx)  # found test: +1 nested evalVar (literal widx)
     assert eval_var(vm) == 1
 
 
-def test_cvar_index(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_cvar_index(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     vm = _vm(game, 0x24 + 1, 2)  # CVars[2] = MAX_WEIGHT_LOADABLE = 700
     assert eval_var(vm) == 700
 
 
-def test_rand_range(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_rand_range(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     vm = _vm(game, 0x1C + 1, 5)
     assert 0 <= eval_var(vm) < 5
 
 
-def test_unknown_code_raises(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_unknown_code_raises(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     vm = _vm(game, 0x27 + 1)
     with pytest.raises(ValueError):
         eval_var(vm)
 
 
-def _spawned(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def _spawned(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     spawned = next(i for i, a in enumerate(game.actors) if a.index_in_world != -1)
     return game, spawned
 
 
-def test_col_world_idx(data_dir):
-    game, spawned = _spawned(data_dir)
+def test_col_world_idx(data_dir, profile):
+    game, spawned = _spawned(data_dir, profile)
     owner = game.current_camera_target_actor
     game.actors[owner].col[0] = spawned
     vm = _vm(game, 0x00 + 1)
@@ -112,8 +111,8 @@ def test_col_world_idx(data_dir):
     assert eval_var(vm) == -1
 
 
-def test_hit_world_idx(data_dir):
-    game, spawned = _spawned(data_dir)
+def test_hit_world_idx(data_dir, profile):
+    game, spawned = _spawned(data_dir, profile)
     owner = game.current_camera_target_actor
     game.actors[owner].hit = spawned
     vm = _vm(game, 0x03 + 1)
@@ -123,9 +122,9 @@ def test_hit_world_idx(data_dir):
     assert eval_var(vm) == -1
 
 
-def test_hit_by_world_idx(data_dir):
+def test_hit_by_world_idx(data_dir, profile):
     # FITD evalVar.cpp case 0x4: HIT_BY -1 → -1, else ListObjets[HIT_BY].indexInWorld
-    game, spawned = _spawned(data_dir)
+    game, spawned = _spawned(data_dir, profile)
     owner = game.current_camera_target_actor
     game.actors[owner].hit_by = spawned
     vm = _vm(game, 0x04 + 1)
@@ -135,8 +134,8 @@ def test_hit_by_world_idx(data_dir):
     assert eval_var(vm) == -1
 
 
-def test_col_by_world_idx(data_dir):
-    game, spawned = _spawned(data_dir)
+def test_col_by_world_idx(data_dir, profile):
+    game, spawned = _spawned(data_dir, profile)
     owner = game.current_camera_target_actor
     game.actors[owner].col_by = spawned
     vm = _vm(game, 0x0F + 1)
@@ -146,8 +145,8 @@ def test_col_by_world_idx(data_dir):
     assert eval_var(vm) == -1
 
 
-def test_col_or_col_by_world_idx(data_dir):
-    game, spawned = _spawned(data_dir)
+def test_col_or_col_by_world_idx(data_dir, profile):
+    game, spawned = _spawned(data_dir, profile)
     owner = game.current_camera_target_actor
     game.actors[owner].col[0] = spawned
     vm = _vm(game, 0x15 + 1)
@@ -161,8 +160,8 @@ def test_col_or_col_by_world_idx(data_dir):
     assert eval_var(vm) == -1
 
 
-def test_dist_3d_manhattan(data_dir):
-    game, spawned = _spawned(data_dir)
+def test_dist_3d_manhattan(data_dir, profile):
+    game, spawned = _spawned(data_dir, profile)
     widx = game.actors[spawned].index_in_world
     a = game.actors[game.current_camera_target_actor]
     b = game.actors[spawned]
@@ -175,15 +174,15 @@ def test_dist_3d_manhattan(data_dir):
     assert eval_var(vm) == expected
 
 
-def test_dist_not_in_floor(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_dist_not_in_floor(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     widx = next(i for i, w in enumerate(game.world_objects) if w.obj_index == -1)
     vm = _vm(game, 0x0E + 1, widx)
     assert eval_var(vm) == 32000
 
 
-def _posrel_game(data_dir):
-    game, spawned = _spawned(data_dir)
+def _posrel_game(data_dir, profile):
+    game, spawned = _spawned(data_dir, profile)
     owner = game.current_camera_target_actor
     a, b = game.actors[owner], game.actors[spawned]
     a.room = b.room  # same room: no AdjustZV
@@ -203,8 +202,8 @@ def _posrel_game(data_dir):
         ([0, 20, -100, 100, 6, 20], 2),   # Z below: falls through → table[counter]
     ],
 )
-def test_posrel_directions(data_dir, zv, expected):
-    game, a, b = _posrel_game(data_dir)
+def test_posrel_directions(data_dir, profile, zv, expected):
+    game, a, b = _posrel_game(data_dir, profile)
     a.zv = list(zv)
     widx = b.index_in_world
     vm = _vm(game, 0x12 + 1, widx)
@@ -219,8 +218,8 @@ def test_posrel_directions(data_dir, zv, expected):
         (0x300, [0, 20, -100, 100, 0, 4], 8),   # counter 0 + 2
     ],
 )
-def test_posrel_beta_quadrants(data_dir, beta, zv, expected):
-    game, a, b = _posrel_game(data_dir)
+def test_posrel_beta_quadrants(data_dir, profile, beta, zv, expected):
+    game, a, b = _posrel_game(data_dir, profile)
     a.beta = beta
     a.zv = list(zv)
     widx = b.index_in_world
@@ -228,17 +227,17 @@ def test_posrel_beta_quadrants(data_dir, beta, zv, expected):
     assert eval_var(vm) == expected
 
 
-def test_posrel_not_in_floor(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_posrel_not_in_floor(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     widx = next(i for i, w in enumerate(game.world_objects) if w.obj_index == -1)
     vm = _vm(game, 0x12 + 1, widx)
     assert eval_var(vm) == 0
 
 
-def test_adjust_zv_room_shift(data_dir):
+def test_adjust_zv_room_shift(data_dir, profile):
     from PyAitD.engine.eval_var import _adjust_zv
 
-    game = init_game(data_dir, AITD1, hero=0)
+    game = init_game(data_dir, profile, hero=0)
     rooms = game.rooms_of_floor(game.current_floor)
     if len(rooms) < 2:
         pytest.skip("floor has a single room")

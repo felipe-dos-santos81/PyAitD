@@ -25,7 +25,6 @@ from PyAitD.engine.effects import (
 )
 from PyAitD.engine.game import init_game
 from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
-from PyAitD.games.aitd1.profile import AITD1
 from PyAitD.app.startup import StartupLayout, StartupRow, TitlePhase, TITLE_TIMEOUT_MS
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter, Command,
@@ -114,11 +113,11 @@ def test_render_active_mode_returns_a_transparent_rgba_canvas_with_no_modal():
 
 
 def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_mutation(
-    data_dir, monkeypatch,
+    data_dir, profile, monkeypatch,
 ):
     from PyAitD.engine.effects import OpenInventory, OpenSystemMenu, ReadText, ShowFound
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     session = ModalSession()
 
     game.open_modal(ShowFound(13, False))
@@ -210,11 +209,11 @@ def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_
     assert session.system_menu.hover is None
 
 
-def test_run_routes_motion_once_and_focus_loss_clears_the_modal_preview(data_dir, monkeypatch):
+def test_run_routes_motion_once_and_focus_loss_clears_the_modal_preview(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
     from PyAitD.engine.effects import ShowFound
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ShowFound(13, False))
     session = ModalSession()
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -273,8 +272,8 @@ def _run_notice_script(monkeypatch, game, session, next_events, draw_list=()):
     assert main.run(game, session=session) == 0
 
 
-def test_settings_notice_dismiss_click_has_first_refusal_in_play(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_settings_notice_dismiss_click_has_first_refusal_in_play(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     session = ModalSession(settings_error="Could not load settings from /x: corrupt")
     lamp_idx = 13
     actor_idx = game.world_objects[lamp_idx].obj_index
@@ -310,8 +309,8 @@ def test_settings_notice_dismiss_click_has_first_refusal_in_play(data_dir, monke
     assert observed["dismissed"] == (None, GameMode.PLAY, None, intent)
 
 
-def test_settings_notice_first_refusal_in_character_select(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_settings_notice_first_refusal_in_character_select(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     game.open_modal(ChooseCharacter())
     effect = game.active_modal
     session = ModalSession(settings_error="Could not load settings from /x: corrupt")
@@ -365,8 +364,8 @@ def test_settings_notice_first_refusal_in_character_select(data_dir, monkeypatch
     assert game.mode is GameMode.CHARACTER_SELECT
 
 
-def test_character_routes_reach_story_back_and_pending_hero(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_character_routes_reach_story_back_and_pending_hero(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.open_modal(ChooseCharacter())
     session = ModalSession()
     assert route_command(game, session, Command.ACCEPT)
@@ -379,10 +378,10 @@ def test_character_routes_reach_story_back_and_pending_hero(data_dir):
     assert session.pending_hero == 0
 
 
-def test_character_quit_at_portraits_returns_false(data_dir):
+def test_character_quit_at_portraits_returns_false(data_dir, profile):
     # CANCEL at the portrait phase is the selector's quit result -- run() must
     # see False and stop; CANCEL at the story phase only steps back.
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ChooseCharacter())
     session = ModalSession()
     assert route_command(game, session, Command.CANCEL) is False
@@ -394,12 +393,12 @@ def test_character_quit_at_portraits_returns_false(data_dir):
     (1, (20, 100), 0),   # right portrait (Carnby, choice 1) -> hero 0
 ))
 def test_story_click_confirms_the_selected_portrait_not_the_click_side(
-    data_dir, portrait, opposite_half, hero,
+    data_dir, profile, portrait, opposite_half, hero,
 ):
     # hit_test_character treats the story page as a whole-frame confirm, so
     # the click's x position carries no left/right meaning; the hero must come
     # from the selected portrait, agreeing with the keyboard path.
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ChooseCharacter())
     session = ModalSession()
     assert route_mouse(game, session, CharacterLayout.PORTRAITS[portrait].center)
@@ -424,11 +423,11 @@ def test_replacement_session_carries_only_application_settings(tmp_path):
     assert new.system_menu == SystemMenuPresenter()
 
 
-def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, monkeypatch):
+def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
     from PyAitD.engine.game import Game
 
-    staging = init_game(data_dir, AITD1)
+    staging = init_game(data_dir, profile)
     staging.open_modal(ChooseCharacter())
     staging.trace = object()
     staging.nav_intent = NavIntent(dest_x=100, dest_z=200, room=0)
@@ -486,17 +485,17 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
     )
 
 
-def test_hero_branch_is_inert_without_a_pending_hero(data_dir):
+def test_hero_branch_is_inert_without_a_pending_hero(data_dir, profile):
     import PyAitD.app.shell as main
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     assert main._hero_branch(game, SimpleNamespace(), ModalSession()) is None
 
 
-def test_restart_branch_carries_application_settings(data_dir, monkeypatch):
+def test_restart_branch_carries_application_settings(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
     from PyAitD.engine.game import Game
 
-    game = init_game(data_dir, AITD1, hero=1)
+    game = init_game(data_dir, profile, hero=1)
     game.restart_requested = True
     game.nav_intent = NavIntent(dest_x=100, dest_z=200, room=0)
     game.local_joyd, game.local_click, game.action = (8, 1, 0x2000)
@@ -528,10 +527,10 @@ def test_restart_branch_carries_application_settings(data_dir, monkeypatch):
     )
 
 
-def test_inventory_hud_availability_is_the_complete_shared_policy(data_dir):
+def test_inventory_hud_availability_is_the_complete_shared_policy(data_dir, profile):
     from PyAitD.app.shell import inventory_hud_available
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.num_camera = game.new_num_camera
     game.inventory_table[0][0] = 38
     game.inventory_count[0] = 1
@@ -556,8 +555,8 @@ def test_inventory_hud_availability_is_the_complete_shared_policy(data_dir):
     assert not inventory_hud_available(game)
 
 
-def test_play_input_reads_held_state_without_consuming_edges(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_play_input_reads_held_state_without_consuming_edges(data_dir, profile):
+    game = init_game(data_dir, profile)
     # this asserts the keyboard mapping specifically; mouse is the default
     # input_mode (task 9: playworld — wire the follower into the input
     # snapshot), so it must be selected explicitly to exercise this path.
@@ -568,8 +567,8 @@ def test_play_input_reads_held_state_without_consuming_edges(data_dir):
     assert list(state.commands) == [Command.OPEN_INVENTORY]
 
 
-def test_inventory_edge_opens_once_and_play_ticks_pause(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_inventory_edge_opens_once_and_play_ticks_pause(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.inventory_count[0] = 1
     game.inventory_table[0][0] = 13
     session = ModalSession()
@@ -581,13 +580,13 @@ def test_inventory_edge_opens_once_and_play_ticks_pause(data_dir):
     assert isinstance(game.active_modal, OpenInventory)
 
 
-def test_toggle_input_mode_flips_track_mode_and_cancels_intent(data_dir):
+def test_toggle_input_mode_flips_track_mode_and_cancels_intent(data_dir, profile):
     # Command.TOGGLE_INPUT_MODE's mutation (input_mode, hero track_mode,
     # nav_intent cancellation) is route_command's job, not ui.py's — this
     # exercises route_command directly, the same way
     # test_inventory_edge_opens_once_and_play_ticks_pause does for
     # OPEN_INVENTORY, rather than only proving Tab enqueues a Command.
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     session = ModalSession()
     hero = game.actors[game.current_camera_target_actor]
 
@@ -606,8 +605,8 @@ def test_toggle_input_mode_flips_track_mode_and_cancels_intent(data_dir):
     assert game.nav_intent is None
 
 
-def test_picture_dismiss_does_not_leave_stale_movement_or_replay_command(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_picture_dismiss_does_not_leave_stale_movement_or_replay_command(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.open_modal(ShowPicture(10, 0, -1))
     session = ModalSession()
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -615,8 +614,8 @@ def test_picture_dismiss_does_not_leave_stale_movement_or_replay_command(data_di
     assert game.mode is GameMode.PLAY
 
 
-def test_mouse_reading_next_changes_page_without_resuming_life(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_mouse_reading_next_changes_page_without_resuming_life(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     game.open_modal(ReadText(1, 0))
     session = ModalSession()
     monkeypatch.setattr(
@@ -664,9 +663,9 @@ def test_apply_system_result_tolerates_a_missing_renderer():
     assert session.settings.render == RenderOptions(scale=8)
 
 
-def test_system_menu_subview_transitions_clear_keyboard_and_mouse_hover(data_dir):
+def test_system_menu_subview_transitions_clear_keyboard_and_mouse_hover(data_dir, profile):
     effect = OpenSystemMenu()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(effect)
     session = ModalSession()
     session.reset_for(effect)
@@ -691,10 +690,10 @@ def test_system_menu_subview_transitions_clear_keyboard_and_mouse_hover(data_dir
 
 
 def test_inventory_subview_transitions_clear_keyboard_and_mouse_hover(
-    data_dir, monkeypatch,
+    data_dir, profile, monkeypatch,
 ):
     effect = OpenInventory()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(effect)
     session = ModalSession()
     session.reset_for(effect)
@@ -719,10 +718,10 @@ def test_inventory_subview_transitions_clear_keyboard_and_mouse_hover(
 
 
 def test_reading_page_transitions_clear_hover_and_disable_the_new_page_target(
-    data_dir, monkeypatch,
+    data_dir, profile, monkeypatch,
 ):
     effect = ReadText(1, 0)
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(effect)
     session = ModalSession()
     session.reset_for(effect)
@@ -747,7 +746,7 @@ def test_reading_page_transitions_clear_hover_and_disable_the_new_page_target(
     assert session.reading.hover is None
 
 
-def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch, tmp_path):
+def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, profile, monkeypatch, tmp_path):
     # FITD flushes input on modal entry: one pump can queue two edges, but the
     # loop routes one per frame; the leftover must not be routed next frame
     # into the new modal, where OPEN_INVENTORY maps to ACCEPT (would flip the
@@ -795,7 +794,7 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
         main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
     )
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.inventory_count[0] = 1
     game.inventory_table[0][0] = 13
     game.num_camera = -1
@@ -813,13 +812,13 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, monkeypatch
     ids=("found-contact", "game-over"),
 )
 def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
-        data_dir, monkeypatch, effect,
+        data_dir, profile, monkeypatch, effect,
 ):
     import PyAitD.app.shell as main
     from PyAitD.engine.game import Game
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.num_camera = game.new_num_camera
     hero = game.actors[game.current_camera_target_actor]
     game.nav_intent = NavIntent(dest_x=100, dest_z=200, room=hero.room)
@@ -898,8 +897,8 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
     ]
 
 
-def test_escape_in_play_opens_system_menu_instead_of_quitting(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_escape_in_play_opens_system_menu_instead_of_quitting(data_dir, profile):
+    game = init_game(data_dir, profile)
     session = ModalSession()
     state = InputBuffer(held_joyd=9, action_held=True, sticky_armed=True,
                         action_pulse=True, commands=deque([Command.UP]))
@@ -908,8 +907,8 @@ def test_escape_in_play_opens_system_menu_instead_of_quitting(data_dir):
     assert game.mode is GameMode.SYSTEM_MENU
 
 
-def test_keyboard_system_menu_modal_takeover_cleans_play_input(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_keyboard_system_menu_modal_takeover_cleans_play_input(data_dir, profile):
+    game = init_game(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]
     game.nav_intent = NavIntent(dest_x=100, dest_z=200, room=hero.room)
     game.nav_decision = NavDecision(
@@ -936,10 +935,10 @@ def test_keyboard_system_menu_modal_takeover_cleans_play_input(data_dir):
     assert session.system_menu.hover is None
 
 
-def test_repeated_modal_takeover_is_idempotent_without_presenter_reset(data_dir):
+def test_repeated_modal_takeover_is_idempotent_without_presenter_reset(data_dir, profile):
     import PyAitD.app.shell as main
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]
     effect = OpenInventory()
     game.open_modal(effect)
@@ -973,8 +972,8 @@ def test_repeated_modal_takeover_is_idempotent_without_presenter_reset(data_dir)
     )
 
 
-def test_system_menu_mouse_activates_configuration_and_return(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_system_menu_mouse_activates_configuration_and_return(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession()
     state = InputBuffer()
@@ -993,8 +992,8 @@ def test_system_menu_mouse_activates_configuration_and_return(data_dir):
     assert game.mode is GameMode.PLAY
 
 
-def test_configuration_saves_once_when_leaving_and_applies_immediately(data_dir, tmp_path):
-    game = init_game(data_dir, AITD1)
+def test_configuration_saves_once_when_leaving_and_applies_immediately(data_dir, profile, tmp_path):
+    game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json")
     state = InputBuffer()
@@ -1011,8 +1010,8 @@ def test_configuration_saves_once_when_leaving_and_applies_immediately(data_dir,
     assert error is None and loaded.sticky_action is True
 
 
-def test_failed_quit_save_stays_in_menu_with_live_settings(data_dir, tmp_path, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_failed_quit_save_stays_in_menu_with_live_settings(data_dir, profile, tmp_path, monkeypatch):
+    game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
     session.settings = Settings(dict(session.settings.bindings), True)
@@ -1025,8 +1024,8 @@ def test_failed_quit_save_stays_in_menu_with_live_settings(data_dir, tmp_path, m
     assert "read only" in session.settings_error
 
 
-def test_clean_quit_saves_nothing_and_returns_false(data_dir, tmp_path):
-    game = init_game(data_dir, AITD1)
+def test_clean_quit_saves_nothing_and_returns_false(data_dir, profile, tmp_path):
+    game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json")
     session.system_menu.cursor = 2
@@ -1034,8 +1033,8 @@ def test_clean_quit_saves_nothing_and_returns_false(data_dir, tmp_path):
     assert not session.settings_path.exists()
 
 
-def test_dirty_quit_saves_once_then_returns_false(data_dir, tmp_path):
-    game = init_game(data_dir, AITD1)
+def test_dirty_quit_saves_once_then_returns_false(data_dir, profile, tmp_path):
+    game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
     session.system_menu.cursor = 2
@@ -1044,8 +1043,8 @@ def test_dirty_quit_saves_once_then_returns_false(data_dir, tmp_path):
     assert error is None
 
 
-def test_failed_return_closes_to_play_and_keeps_the_named_error(data_dir, tmp_path, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_failed_return_closes_to_play_and_keeps_the_named_error(data_dir, profile, tmp_path, monkeypatch):
+    game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
     session.system_menu.cursor = 0
@@ -1056,8 +1055,8 @@ def test_failed_return_closes_to_play_and_keeps_the_named_error(data_dir, tmp_pa
     assert "read only" in session.settings_error
 
 
-def test_successful_save_does_not_clear_an_existing_notice(data_dir, tmp_path):
-    game = init_game(data_dir, AITD1)
+def test_successful_save_does_not_clear_an_existing_notice(data_dir, profile, tmp_path):
+    game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession(
         settings_path=tmp_path / "settings.json",
@@ -1070,8 +1069,8 @@ def test_successful_save_does_not_clear_an_existing_notice(data_dir, tmp_path):
     assert error is None
 
 
-def test_raw_capture_replaces_binding_without_activating_the_same_row(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_raw_capture_replaces_binding_without_activating_the_same_row(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession()
     session.system_menu.page = SystemMenuPage.CONFIG
@@ -1088,8 +1087,8 @@ def test_raw_capture_replaces_binding_without_activating_the_same_row(data_dir):
     assert list(state.commands) == []
 
 
-def test_capture_escape_cancels_and_repeat_is_swallowed(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_capture_escape_cancels_and_repeat_is_swallowed(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession()
     session.system_menu.capture = "ACTION"
@@ -1103,8 +1102,8 @@ def test_capture_escape_cancels_and_repeat_is_swallowed(data_dir):
     assert session.settings == default_settings()
 
 
-def test_opening_the_system_menu_drains_held_and_queued_input(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_opening_the_system_menu_drains_held_and_queued_input(data_dir, profile):
+    game = init_game(data_dir, profile)
     session = ModalSession()
     state = InputBuffer(held_joyd=9, action_held=True, sticky_armed=True,
                         action_pulse=True, commands=deque([Command.UP]))
@@ -1114,8 +1113,8 @@ def test_opening_the_system_menu_drains_held_and_queued_input(data_dir):
             state.action_pulse, list(state.commands)) == (0, False, False, False, [])
 
 
-def test_leaving_the_system_menu_cannot_replay_input_into_the_first_play_tick(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_leaving_the_system_menu_cannot_replay_input_into_the_first_play_tick(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.input_mode = InputMode.KEYBOARD
     game.open_modal(OpenSystemMenu())
     session = ModalSession()
@@ -1129,8 +1128,8 @@ def test_leaving_the_system_menu_cannot_replay_input_into_the_first_play_tick(da
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
 
 
-def test_quitting_from_the_system_menu_drains_the_input_buffer(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_quitting_from_the_system_menu_drains_the_input_buffer(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession()
     session.system_menu.cursor = 2
@@ -1141,8 +1140,8 @@ def test_quitting_from_the_system_menu_drains_the_input_buffer(data_dir):
             state.action_pulse, list(state.commands)) == (0, False, False, False, [])
 
 
-def test_toggle_input_mode_drains_held_and_queued_input(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_toggle_input_mode_drains_held_and_queued_input(data_dir, profile):
+    game = init_game(data_dir, profile)
     session = ModalSession()
     state = InputBuffer(held_joyd=9, action_held=True, sticky_armed=True,
                         action_pulse=True, commands=deque([Command.UP]))
@@ -1151,38 +1150,38 @@ def test_toggle_input_mode_drains_held_and_queued_input(data_dir):
             state.action_pulse, list(state.commands)) == (0, False, False, False, [])
 
 
-def test_game_starts_in_mouse_mode_with_no_intent(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_game_starts_in_mouse_mode_with_no_intent(data_dir, profile):
+    game = init_game(data_dir, profile)
     assert game.input_mode is InputMode.MOUSE
     assert game.nav_intent is None
     assert game.nav_decision is None
     assert game.nav_arrived_target == -1
 
 
-def test_a_fresh_game_puts_the_hero_in_the_mode_its_input_mode_needs(data_dir):
+def test_a_fresh_game_puts_the_hero_in_the_mode_its_input_mode_needs(data_dir, profile):
     # Object data spawns the hero in track mode 1 (tank) via init_deplacement,
     # and nothing in the hero's LIFE script changes that. With mouse as the
     # default input mode, a hero left in mode 1 makes process_track hand the
     # follower's mirrored joyd to the *keyboard* path — the "autopilot driving
     # a tank" the spec rejected — so init_game must translate it.
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     assert game.actors[game.current_camera_target_actor].track_mode == 4
 
 
-def test_the_input_snapshot_re_asserts_the_follower_mode(data_dir):
+def test_the_input_snapshot_re_asserts_the_follower_mode(data_dir, profile):
     # a script can call LM_INIT_DEPLACEMENT and hand the hero back to mode 1 at
     # any time; the next input snapshot must take it back for the mouse
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]
     hero.track_mode = 1
     apply_play_input(game, InputBuffer())
     assert hero.track_mode == 4
 
 
-def test_a_scripted_track_survives_the_input_snapshot(data_dir):
+def test_a_scripted_track_survives_the_input_snapshot(data_dir, profile):
     # the translation is 1 <-> 4 only: a cutscene that parks the hero on a
     # scripted track (mode 3) or freezes it (mode 0) keeps what it asked for
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]
     for mode in (0, 2, 3):
         hero.track_mode = mode
@@ -1190,8 +1189,8 @@ def test_a_scripted_track_survives_the_input_snapshot(data_dir):
         assert hero.track_mode == mode
 
 
-def test_keyboard_mode_hands_the_hero_back_to_tank_controls(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_keyboard_mode_hands_the_hero_back_to_tank_controls(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.input_mode = InputMode.KEYBOARD
     hero = game.actors[game.current_camera_target_actor]
     assert hero.track_mode == 4, "fixture: init_game starts in mouse mode"
@@ -1210,8 +1209,8 @@ def test_nav_decision_carries_the_mirrored_joystick_bits():
     assert decision.joyd == 5 and decision.advance is True
 
 
-def test_restart_session_rebuilds_state_and_preserves_session_choices(data_dir):
-    old = init_game(data_dir, AITD1, hero=1)
+def test_restart_session_rebuilds_state_and_preserves_session_choices(data_dir, profile):
+    old = init_game(data_dir, profile, hero=1)
     enter_combat_venue(old)
     old.input_mode = InputMode.KEYBOARD
     old.trace = object()
@@ -1233,10 +1232,10 @@ def test_restart_session_rebuilds_state_and_preserves_session_choices(data_dir):
     assert (new.current_floor, new.current_room, new.num_camera) == (5, 4, -1)
 
 
-def test_restart_session_rebuilds_state_from_the_initial_floor(data_dir):
+def test_restart_session_rebuilds_state_from_the_initial_floor(data_dir, profile):
     # the combat venue is one supported restart boundary; floor 0 (a fresh
     # game's own floor_start) is the other, and must not be special-cased.
-    old = init_game(data_dir, AITD1, hero=1)
+    old = init_game(data_dir, profile, hero=1)
     floor_start = old.floor_start
     old.input_mode = InputMode.KEYBOARD
     old.trace = object()
@@ -1259,12 +1258,12 @@ def test_restart_session_rebuilds_state_from_the_initial_floor(data_dir):
 
 
 def test_restart_session_calls_init_game_and_enter_floor_start_once_and_builds_no_floor(
-    data_dir, monkeypatch,
+    data_dir, profile, monkeypatch,
 ):
     import PyAitD.app.shell as main
     from PyAitD.engine.game import Game
 
-    old = init_game(data_dir, AITD1, hero=0)
+    old = init_game(data_dir, profile, hero=0)
     enter_combat_venue(old)
     old.restart_requested = True
 
@@ -1295,7 +1294,7 @@ def test_restart_session_calls_init_game_and_enter_floor_start_once_and_builds_n
     assert new is not old
 
 
-def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypatch, data_dir, tmp_path):
+def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypatch, data_dir, profile, tmp_path):
     # Step 7: run() owns the atomic restart -- restart_session and Floor must
     # run, then the per-frame state (session/input buffer) must be reset, then
     # the scene must be recomposed, all before the loop is allowed to tick the
@@ -1305,7 +1304,7 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     calls = []
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
 
-    old_game = init_game(data_dir, AITD1)
+    old_game = init_game(data_dir, profile)
     old_game.restart_requested = True
 
     def spy_floor(number):
@@ -1321,7 +1320,7 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
         inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
         current_inventory=0, status_screen_allowed=1, assets=object(),
         load_floor=spy_floor,
-        profile=AITD1,
+        profile=profile,
     )
 
     def spy_restart_session(game):
@@ -1390,10 +1389,10 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     assert "present" not in window
 
 
-def test_title_pages_by_command_then_opens_the_menu(data_dir):
+def test_title_pages_by_command_then_opens_the_menu(data_dir, profile):
     from PyAitD.app.startup import credits_page_count
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ShowTitle())
     session = ModalSession()
     page_count = credits_page_count(
@@ -1409,10 +1408,10 @@ def test_title_pages_by_command_then_opens_the_menu(data_dir):
     assert isinstance(game.active_modal, OpenStartupMenu) and session.booted_via_menu
 
 
-def test_title_click_advances_like_a_command(data_dir):
+def test_title_click_advances_like_a_command(data_dir, profile):
     from PyAitD.app.startup import credits_page_count
 
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ShowTitle())
     session = ModalSession()
     page_count = credits_page_count(
@@ -1425,7 +1424,7 @@ def test_title_click_advances_like_a_command(data_dir):
     assert isinstance(game.active_modal, OpenStartupMenu)
 
 
-def test_title_click_survives_the_first_render_active_mode_reset(data_dir):
+def test_title_click_survives_the_first_render_active_mode_reset(data_dir, profile):
     # Regression: route_mouse's ShowTitle branch used to call reduce_title
     # BEFORE session.reset_for(effect) ran for the first time against this
     # ShowTitle instance -- unlike route_command, which resets first. Since
@@ -1436,7 +1435,7 @@ def test_title_click_survives_the_first_render_active_mode_reset(data_dir):
     # render_active_mode ran afterwards: the player's first click on the
     # title screen did nothing.
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ShowTitle())
     session = ModalSession()
     renderer = SimpleNamespace(scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8))
@@ -1449,7 +1448,7 @@ def test_title_click_survives_the_first_render_active_mode_reset(data_dir):
     )
 
 
-def test_run_advances_the_title_past_its_timeout_with_no_input(data_dir, monkeypatch):
+def test_run_advances_the_title_past_its_timeout_with_no_input(data_dir, profile, monkeypatch):
     # Important 3: run()'s non-PLAY branch calls advance_title every frame,
     # but nothing exercised it through the real event loop -- deleting those
     # lines left the whole suite green. Pump run() with a monkeypatched
@@ -1458,7 +1457,7 @@ def test_run_advances_the_title_past_its_timeout_with_no_input(data_dir, monkeyp
     import PyAitD.app.shell as main
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(ShowTitle())
     session = ModalSession()
     idle_frames = TITLE_TIMEOUT_MS // 20 + 5   # comfortably past the timeout
@@ -1486,8 +1485,8 @@ def test_run_advances_the_title_past_its_timeout_with_no_input(data_dir, monkeyp
     assert isinstance(game.active_modal, ShowTitle), "the timeout advances the phase, not the modal"
 
 
-def test_menu_new_game_opens_the_selector_and_escape_returns(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_menu_new_game_opens_the_selector_and_escape_returns(data_dir, profile):
+    game = init_game(data_dir, profile)
     session = ModalSession()
     open_startup_menu(game, session)
     assert route_command(game, session, Command.ACCEPT) is True
@@ -1496,14 +1495,14 @@ def test_menu_new_game_opens_the_selector_and_escape_returns(data_dir):
     assert isinstance(game.active_modal, OpenStartupMenu)
 
 
-def test_selector_escape_still_quits_without_a_menu(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_selector_escape_still_quits_without_a_menu(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.open_modal(ChooseCharacter())
     assert route_command(game, ModalSession(), Command.CANCEL) is False
 
 
-def test_menu_quit_row_ends_the_loop_and_continue_is_inert(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_menu_quit_row_ends_the_loop_and_continue_is_inert(data_dir, profile):
+    game = init_game(data_dir, profile)
     session = ModalSession()
     open_startup_menu(game, session)
     assert continue_available(session) is False
@@ -1513,8 +1512,8 @@ def test_menu_quit_row_ends_the_loop_and_continue_is_inert(data_dir):
     assert route_mouse(game, session, row.center) is False
 
 
-def test_menu_hover_previews_rows(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_menu_hover_previews_rows(data_dir, profile):
+    game = init_game(data_dir, profile)
     session = ModalSession()
     open_startup_menu(game, session)
     route_hover(game, session, StartupLayout.ROWS[2].center)
@@ -1523,9 +1522,9 @@ def test_menu_hover_previews_rows(data_dir):
     assert session.startup.hover is None
 
 
-def test_render_active_mode_draws_title_and_menu(data_dir):
+def test_render_active_mode_draws_title_and_menu(data_dir, profile):
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     session = ModalSession()
     renderer = SimpleNamespace(scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8))
     game.open_modal(ShowTitle())
@@ -1549,54 +1548,54 @@ class _Renderer:
         return frame
 
 
-def test_boot_hero_cutscene_stages_the_intro(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_boot_hero_cutscene_stages_the_intro(data_dir, profile):
+    game = init_game(data_dir, profile)
     session = ModalSession()
     replaced = _boot_hero(game, _Renderer(), session, InputBuffer(), 1, cutscene=True)
     new_game, new_floor, new_session = replaced[0], replaced[1], replaced[2]
-    assert (new_game.current_floor, new_game.current_room) == AITD1.intro_start
+    assert (new_game.current_floor, new_game.current_room) == profile.intro_start
     assert new_floor.number == 7
     assert new_game.allow_system_menu is False and new_session.cutscene is True
-    assert new_game.cvars[AITD1.cvar_index("CHOOSE_PERSO")] == 1
+    assert new_game.cvars[profile.cvar_index("CHOOSE_PERSO")] == 1
 
 
-def test_boot_hero_plain_boots_the_attic(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_boot_hero_plain_boots_the_attic(data_dir, profile):
+    game = init_game(data_dir, profile)
     replaced = _boot_hero(game, _Renderer(), ModalSession(), InputBuffer(), 0, cutscene=False)
     new_game, new_session = replaced[0], replaced[2]
-    assert (new_game.current_floor, new_game.current_room) == AITD1.game_start
+    assert (new_game.current_floor, new_game.current_room) == profile.game_start
     assert new_game.allow_system_menu is True and new_session.cutscene is False
 
 
-def test_cutscene_end_branch_hands_over_to_the_attic_with_the_same_hero(data_dir):
-    game = init_game(data_dir, AITD1, hero=1)
+def test_cutscene_end_branch_hands_over_to_the_attic_with_the_same_hero(data_dir, profile):
+    game = init_game(data_dir, profile, hero=1)
     session = ModalSession(cutscene=True)
     assert _cutscene_end_branch(game, _Renderer(), session, InputBuffer()) is None
     game.open_modal(CutsceneFinished())
     replaced = _cutscene_end_branch(game, _Renderer(), session, InputBuffer())
     assert replaced is not None
     new_game, new_session = replaced[0], replaced[2]
-    assert new_game.cvars[AITD1.cvar_index("CHOOSE_PERSO")] == 1
-    assert (new_game.current_floor, new_game.current_room) == AITD1.game_start
+    assert new_game.cvars[profile.cvar_index("CHOOSE_PERSO")] == 1
+    assert (new_game.current_floor, new_game.current_room) == profile.game_start
     assert new_session.cutscene is False and new_game.active_modal is None
 
 
-def test_skip_flag_ends_the_cutscene_from_play(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_skip_flag_ends_the_cutscene_from_play(data_dir, profile):
+    game = init_game(data_dir, profile)
     session = ModalSession(cutscene=True, skip_cutscene=True)
     assert _cutscene_end_branch(game, _Renderer(), session, InputBuffer()) is not None
 
 
-def test_cutscene_swallows_play_commands_and_marks_skip(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_cutscene_swallows_play_commands_and_marks_skip(data_dir, profile):
+    game = init_game(data_dir, profile)
     session = ModalSession(cutscene=True)
     assert route_command(game, session, Command.CANCEL) is True
     assert game.active_modal is None and session.skip_cutscene is True   # no system menu opened
 
 
-def test_cutscene_finished_renders_the_frozen_scene(data_dir):
+def test_cutscene_finished_renders_the_frozen_scene(data_dir, profile):
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     game.open_modal(CutsceneFinished())
     frame = render_active_mode(game, ModalSession(cutscene=True), _Renderer())
     assert frame.shape == (200, 320, 4) and frame[..., 3].max() == 0      # transparent: scene shows through

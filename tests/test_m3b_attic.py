@@ -8,14 +8,13 @@ from PyAitD.engine.interaction import (
     inventory_items, request_found,
 )
 from PyAitD.app.ui import InputBuffer, InventoryResult
-from PyAitD.games.aitd1.profile import AITD1
 import pytest
 
 pytestmark = [pytest.mark.engine, pytest.mark.journey]
 
 
-def test_attic_lamp_find_take_use_and_drop_checkpoint(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_attic_lamp_find_take_use_and_drop_checkpoint(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.timer = 300
     lamp_idx = 13
     lamp = game.world_objects[lamp_idx]
@@ -48,7 +47,7 @@ def test_attic_lamp_find_take_use_and_drop_checkpoint(data_dir):
     # LM_DROP (life.cpp:1510) -> drop(vars[9], 1) -> PutAtObjet (main.cpp:3948)
     # -> DeleteInventoryObjet (main.cpp:2356) + foundFlag |= 0x4000.
     assert game.vars[9] == lamp_idx
-    floor = Floor(data_dir, 0, AITD1)
+    floor = Floor(data_dir, 0, profile)
     for _ in range(200):
         if lamp_idx not in inventory_items(game):
             break

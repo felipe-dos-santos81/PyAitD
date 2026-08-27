@@ -5,35 +5,34 @@ import pytest
 
 from PyAitD.engine.assets import Assets
 from PyAitD.engine.floor import load_entry
-from PyAitD.games.aitd1.profile import AITD1
 
 pytestmark = pytest.mark.engine
 
 
-def test_loads(data_dir):
-    assets = Assets(data_dir, AITD1)
+def test_loads(data_dir, profile):
+    assets = Assets(data_dir, profile)
     assert assets.num_bodies == 272
     assert assets.num_anims == 305
 
 
-def test_body_anim_content(data_dir):
-    assets = Assets(data_dir, AITD1)
+def test_body_anim_content(data_dir, profile):
+    assets = Assets(data_dir, profile)
     body = assets.body(12)
     assert len(body.vertices) == 150
     anim = assets.anim(2)
     assert anim.num_frames == 2
 
 
-def test_out_of_range(data_dir):
-    assets = Assets(data_dir, AITD1)
+def test_out_of_range(data_dir, profile):
+    assets = Assets(data_dir, profile)
     with pytest.raises(KeyError):
         assets.body(9999)
     with pytest.raises(KeyError):
         assets.anim(9999)
 
 
-def test_parse_cache(data_dir):
-    assets = Assets(data_dir, AITD1)
+def test_parse_cache(data_dir, profile):
+    assets = Assets(data_dir, profile)
     first = assets.body(12)
     second = assets.body(12)
     assert first is second  # parsed once, cached object
@@ -53,9 +52,9 @@ def test_parse_cache(data_dir):
     ),
 )
 def test_hero_archives_and_representative_content(
-    data_dir, hero, body_name, anim_name, body_hash, anim_hash, vertices, groups,
+    data_dir, profile, hero, body_name, anim_name, body_hash, anim_hash, vertices, groups,
 ):
-    assets = Assets(data_dir, AITD1, hero=hero)
+    assets = Assets(data_dir, profile, hero=hero)
     assert (assets.body_archive_name, assets.anim_archive_name) == (body_name, anim_name)
     assert (assets.num_bodies, assets.num_anims) == (272, 305)
     assert len(assets.body(12).vertices) == vertices
@@ -78,8 +77,8 @@ def test_hero_archives_and_representative_content(
         (8, (8, 44, 3), "aacf9f1337451f8eb9a613726718a2f2e5121617ef4fddfd1b904de8206109fa"),
     ),
 )
-def test_cadre_bank_real_data(data_dir, index, shape, digest):
-    sprite = Assets(data_dir, AITD1).cadre_bank()[index]
+def test_cadre_bank_real_data(data_dir, profile, index, shape, digest):
+    sprite = Assets(data_dir, profile).cadre_bank()[index]
     assert sprite.shape == shape
     assert sha256(sprite.tobytes()).hexdigest() == digest
 
@@ -105,8 +104,8 @@ def _cadre_raw(bad_index, bad_offset, payload=b""):
         # truncated pixel block: sprite 4 declares 20x20 but only 8 pixels follow
     ),
 )
-def test_cadre_bank_malformed(data_dir, monkeypatch, raw, bad_index):
-    assets = Assets(data_dir, AITD1)
+def test_cadre_bank_malformed(data_dir, profile, monkeypatch, raw, bad_index):
+    assets = Assets(data_dir, profile)
     monkeypatch.setattr("PyAitD.engine.assets.load_entry", lambda pak, entry: raw)
     with pytest.raises(ValueError) as excinfo:
         assets.cadre_bank()
@@ -117,10 +116,9 @@ def test_cadre_bank_malformed(data_dir, monkeypatch, raw, bad_index):
         assert f"sprite {bad_index}" in message
 
 
-def test_assets_reads_archive_names_from_the_profile(data_dir):
+def test_assets_reads_archive_names_from_the_profile(data_dir, profile):
     from PyAitD.engine.assets import Assets
-    from PyAitD.games.aitd1.profile import AITD1
-    emily = Assets(data_dir, AITD1, hero=1)
+    emily = Assets(data_dir, profile, hero=1)
     assert (emily.body_archive_name, emily.anim_archive_name) == ("LISTBOD2", "LISTANI2")
     with pytest.raises(ValueError):
-        Assets(data_dir, AITD1, hero=2)
+        Assets(data_dir, profile, hero=2)

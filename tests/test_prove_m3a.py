@@ -8,14 +8,13 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 from PyAitD.engine.assets import Assets
 from PyAitD.engine.formats import parse_defines, parse_objets, parse_priority, parse_vars
-from PyAitD.games.aitd1.profile import AITD1
 import pytest
 
 pytestmark = [pytest.mark.engine, pytest.mark.journey]
 
 
-def test_all_scripts_fetch(data_dir):
-    assets = Assets(data_dir, AITD1)
+def test_all_scripts_fetch(data_dir, profile):
+    assets = Assets(data_dir, profile)
     assert assets.num_lifes == 563
     for i in range(assets.num_lifes):
         raw = assets.life(i)
@@ -23,8 +22,8 @@ def test_all_scripts_fetch(data_dir):
         assert len(raw) >= 2
 
 
-def test_all_tracks_fetch(data_dir):
-    assets = Assets(data_dir, AITD1)
+def test_all_tracks_fetch(data_dir, profile):
+    assets = Assets(data_dir, profile)
     assert assets.num_tracks == 45
     for i in range(assets.num_tracks):
         assert len(assets.track(i)) >= 2
@@ -38,7 +37,7 @@ def test_all_tables_parse(data_dir):
     assert len(parse_priority((d / "PRIORITY.ITD").read_bytes())) == 50
 
 
-def test_headless_boot_ticks(data_dir):
+def test_headless_boot_ticks(data_dir, profile):
     # Headless 60-tick PlayWorld boot with opcode trace, through the same
     # play_tick the game runs — playworld is pygame/GL-free, so CI needs no
     # window. Fails (not skips) if boot breaks or the intro produces no trace.
@@ -49,9 +48,9 @@ def test_headless_boot_ticks(data_dir):
     from PyAitD.app.ui import InputBuffer
 
     trace_path = "/tmp/m3a_trace.log"
-    game = init_game(data_dir, AITD1, hero=0)
+    game = init_game(data_dir, profile, hero=0)
     game.trace = Trace(trace_path)
-    floor = Floor(data_dir, game.current_floor, AITD1)
+    floor = Floor(data_dir, game.current_floor, profile)
     buf = InputBuffer()
     for tick in range(60):
         play_tick(game, floor, buf)

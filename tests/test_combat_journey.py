@@ -23,19 +23,18 @@ from PyAitD.engine.life import process_life
 from PyAitD.engine.playworld import TICK_MS, play_tick
 from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.app.ui import InputBuffer, ModalSession, render_game_over, transparent_canvas
-from PyAitD.games.aitd1.profile import AITD1
 
 pytestmark = [pytest.mark.engine, pytest.mark.journey]
 
 
-def _venue(data_dir):
-    game = init_game(data_dir, AITD1)
+def _venue(data_dir, profile):
+    game = init_game(data_dir, profile)
     enter_combat_venue(game)
-    return game, Floor(data_dir, 5, AITD1), game.world_objects[222].obj_index
+    return game, Floor(data_dir, 5, profile), game.world_objects[222].obj_index
 
 
-def test_obj222_real_script_hits_and_hero_consumes_same_tick(data_dir):
-    game, floor, enemy_idx = _venue(data_dir)
+def test_obj222_real_script_hits_and_hero_consumes_same_tick(data_dir, profile):
+    game, floor, enemy_idx = _venue(data_dir, profile)
     hero_idx = game.current_camera_target_actor
     observed = False
     for _ in range(2400):
@@ -52,10 +51,10 @@ def test_obj222_real_script_hits_and_hero_consumes_same_tick(data_dir):
     assert observed, "obj222 never published its real scripted melee hit"
 
 
-def _fight_to_death(data_dir, budget):
+def _fight_to_death(data_dir, profile, budget):
     """Run the real venue fight, keeping the enemy on the hero, until the real
     hero script has selected its death LIFE. Returns (game, floor, saw_death)."""
-    game, floor, enemy_idx = _venue(data_dir)
+    game, floor, enemy_idx = _venue(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]
     saw_death_life = False
     for _ in range(budget):
@@ -71,20 +70,20 @@ def _fight_to_death(data_dir, budget):
     return game, floor, saw_death_life
 
 
-def test_real_enemy_damage_empties_health_and_selects_the_death_life(data_dir):
+def test_real_enemy_damage_empties_health_and_selects_the_death_life(data_dir, profile):
     # Real data: hero script var 21 starts at 20 and obj222's LM_HIT carries
     # force 1, so the real fight needs 20 landed hits; the hero's LIFE then
     # runs 549 -> 553 per hit and selects death LIFE 39 at var 21 == 0.
-    game, _floor, saw_death_life = _fight_to_death(data_dir, 12000)
+    game, _floor, saw_death_life = _fight_to_death(data_dir, profile, 12000)
     assert game.vars[21] == 0
     assert game.vars[24] == 1
     assert saw_death_life
 
 
-def _journey_to_game_over(data_dir, budget=12000):
+def _journey_to_game_over(data_dir, profile, budget=12000):
     """The whole real death path: 20 published hits, LIFE 39, LIFE 555's
     LM_STAGE onto floor 6, LIFE 554's LM_PICTURE, then LM_GAME_OVER."""
-    game, floor, saw_death_life = _fight_to_death(data_dir, budget)
+    game, floor, saw_death_life = _fight_to_death(data_dir, profile, budget)
     loop_session = ModalSession()
     for _ in range(budget):
         if game.mode is GameMode.GAME_OVER:
@@ -99,12 +98,12 @@ def _journey_to_game_over(data_dir, budget=12000):
         play_tick(game, floor, InputBuffer())
         if floor.number != game.current_floor:
             # the outer loop owns Floor I/O (__main__.run does exactly this)
-            floor = Floor(data_dir, game.current_floor, AITD1)
+            floor = Floor(data_dir, game.current_floor, profile)
     return game, saw_death_life
 
 
-def test_real_enemy_damage_reaches_game_over_and_fresh_restart(data_dir):
-    game, saw_death_life = _journey_to_game_over(data_dir)
+def test_real_enemy_damage_reaches_game_over_and_fresh_restart(data_dir, profile):
+    game, saw_death_life = _journey_to_game_over(data_dir, profile)
 
     assert game.vars[21] == 0
     assert saw_death_life
@@ -134,8 +133,8 @@ def test_real_enemy_damage_reaches_game_over_and_fresh_restart(data_dir):
            "rebuilds the session in the death stage instead of the venue the "
            "player was fighting in. See docs/m3c-combat-proof.md.",
 )
-def test_restart_after_death_returns_to_the_venue_that_was_played(data_dir):
-    game, _saw_death_life = _journey_to_game_over(data_dir)
+def test_restart_after_death_returns_to_the_venue_that_was_played(data_dir, profile):
+    game, _saw_death_life = _journey_to_game_over(data_dir, profile)
     # precondition, so a broken journey fails this test instead of turning the
     # expected failure below into an XPASS for the wrong reason
     assert game.active_modal == GameOver(120)
@@ -165,8 +164,8 @@ def _execute_words(game, actor_idx, words):
         game.assets = assets
 
 
-def test_player_melee_executes_opcode_and_runner(data_dir, monkeypatch):
-    game, _floor, victim_idx = _venue(data_dir)
+def test_player_melee_executes_opcode_and_runner(data_dir, profile, monkeypatch):
+    game, _floor, victim_idx = _venue(data_dir, profile)
     hero_idx = game.current_camera_target_actor
     hero = game.actors[hero_idx]
     assert (hero.body_num, hero.anim, hero.frame) == (12, 4, 0)  # real venue pose
@@ -187,8 +186,8 @@ def test_player_melee_executes_opcode_and_runner(data_dir, monkeypatch):
     assert game.actors[victim_idx].hit_force == 10
 
 
-def test_player_fire_executes_opcode_and_runner(data_dir, monkeypatch):
-    game, _floor, victim_idx = _venue(data_dir)
+def test_player_fire_executes_opcode_and_runner(data_dir, profile, monkeypatch):
+    game, _floor, victim_idx = _venue(data_dir, profile)
     hero_idx = game.current_camera_target_actor
     hero = game.actors[hero_idx]
     hero.object_type &= ~AF_ANIMATED
@@ -205,8 +204,8 @@ def test_player_fire_executes_opcode_and_runner(data_dir, monkeypatch):
     assert hero.hot_point == [20, 0, 30]
 
 
-def test_player_throw_executes_setup_launch_and_flight(data_dir, monkeypatch):
-    game, _floor, victim_idx = _venue(data_dir)
+def test_player_throw_executes_setup_launch_and_flight(data_dir, profile, monkeypatch):
+    game, _floor, victim_idx = _venue(data_dir, profile)
     hero_idx = game.current_camera_target_actor
     hero = game.actors[hero_idx]
     object_idx = 13  # real floor-0 inventory candidate, body 9

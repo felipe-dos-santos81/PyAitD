@@ -13,27 +13,26 @@ from PyAitD.engine.picking import _camera_state_global, pick_floor_any_room, pro
 from PyAitD.engine.playworld import play_tick
 from PyAitD.games.aitd1.scenario import enter_mouse_combat_fixture
 from PyAitD.app.ui import InputBuffer
-from PyAitD.games.aitd1.profile import AITD1
 import pytest
 
 pytestmark = pytest.mark.engine
 
 
-def _settled_venue(data_dir):
-    game = init_game(data_dir, AITD1)
+def _settled_venue(data_dir, profile):
+    game = init_game(data_dir, profile)
     enter_mouse_combat_fixture(game)
     hero_idx = game.current_camera_target_actor
     # This floor-picking regression owns camera slot 5 independently of the
     # manual mouse-combat fixture's now-visible camera-0 lane.
     relocate_actor(game, hero_idx, 5, 4, -7400, -4010, -1000)
-    floor = Floor(data_dir, game.current_floor, AITD1)
+    floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     play_tick(game, floor, InputBuffer())  # one tick: the camera settles
     return game, floor
 
 
-def test_click_on_the_heros_feet_picks_a_floor_point(data_dir):
-    game, floor = _settled_venue(data_dir)
+def test_click_on_the_heros_feet_picks_a_floor_point(data_dir, profile):
+    game, floor = _settled_venue(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]
     assert hero.room == 4 and game.num_camera == 5
     state = _camera_state_global(
@@ -49,8 +48,8 @@ def test_click_on_the_heros_feet_picks_a_floor_point(data_dir):
     assert abs(dest_x - hero.room_x) <= 150 and abs(dest_z - hero.room_z) <= 150
 
 
-def test_click_on_the_heros_feet_resolves_to_a_walk(data_dir):
-    game, floor = _settled_venue(data_dir)
+def test_click_on_the_heros_feet_resolves_to_a_walk(data_dir, profile):
+    game, floor = _settled_venue(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]
     state = _camera_state_global(
         floor, hero.room, floor.rooms[hero.room].camera_indices[game.num_camera],

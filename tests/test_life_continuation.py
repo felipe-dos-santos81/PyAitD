@@ -4,7 +4,6 @@ import struct
 from PyAitD.engine.effects import AfterLife, LifeFrame, ReadText
 from PyAitD.engine.game import init_game
 from PyAitD.engine.interaction import resume_life, run_life
-from PyAitD.games.aitd1.profile import AITD1
 import pytest
 
 pytestmark = pytest.mark.engine
@@ -23,9 +22,9 @@ def words(*values):
     return struct.pack(f"<{len(values)}h", *[v - 0x10000 if v >= 0x8000 else v for v in values])
 
 
-def test_modal_suspends_after_all_read_operands_and_resumes_once(data_dir):
-    game = init_game(data_dir, AITD1)
-    # LM_READ 35 consumes kind, entry, and the AITD1 extra word; LM_INC 20; LM_END 12.
+def test_modal_suspends_after_all_read_operands_and_resumes_once(data_dir, profile):
+    game = init_game(data_dir, profile)
+    # LM_READ 35 consumes kind, entry, and the profile extra word; LM_INC 20; LM_END 12.
     game.assets = Scripts({7: words(35, 1, 4, 99, 20, 6, 12)})
     game.vars[6] = 0
     assert run_life(game, LifeFrame(0, 7)) is False
@@ -39,8 +38,8 @@ def test_modal_suspends_after_all_read_operands_and_resumes_once(data_dir):
     assert game.life_stack == []
 
 
-def test_actor_switch_restores_owner_before_suspension(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_actor_switch_restores_owner_before_suspension(data_dir, profile):
+    game = init_game(data_dir, profile)
     target_world = game.actors[0].index_in_world
     game.assets = Scripts({2: words(0x8000 | 35, target_world, 0, 0, 0, 12)})
     assert run_life(game, LifeFrame(1, 2)) is False
@@ -48,8 +47,8 @@ def test_actor_switch_restores_owner_before_suspension(data_dir):
     assert game.life_stack[-1].pc == 10
 
 
-def test_resume_keeps_parent_below_nested_frame(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_resume_keeps_parent_below_nested_frame(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.life_stack = [LifeFrame(2, 10, pc=14)]
     game.life_stack.append(LifeFrame(3, 11, pc=8, after=AfterLife.FINISH_TAKE, subject_idx=9))
     assert [frame.life_num for frame in game.life_stack] == [10, 11]

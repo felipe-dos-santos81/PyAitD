@@ -219,11 +219,10 @@ def test_cover_zones_for_uses_parse_cover_zones_on_real_floors(monkeypatch):
     assert calls == [(b"xyz", 40, 0)]
 
 
-def test_guide_overlay_real_camera_matches_integer_projection(data_dir):
+def test_guide_overlay_real_camera_matches_integer_projection(data_dir, profile):
     from PyAitD.engine.floor import Floor
     from PyAitD.engine.world import CameraState, transform_point
-    from PyAitD.games.aitd1.profile import AITD1
-    floor = Floor(data_dir, 0, AITD1)
+    floor = Floor(data_dir, 0, profile)
     cam_idx = 0
     room_idx = floor.cameras[cam_idx].viewed_rooms[0].viewed_room_idx
     room = floor.rooms[room_idx]

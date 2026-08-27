@@ -8,13 +8,12 @@ from PyAitD.engine.effects import (
     NavIntent, ShowFound,
 )
 from PyAitD.engine.game import init_game
-from PyAitD.games.aitd1.profile import AITD1
 
 pytestmark = pytest.mark.engine
 
 
-def test_game_initializes_fitd_inventory_and_effect_state(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_game_initializes_fitd_inventory_and_effect_state(data_dir, profile):
+    game = init_game(data_dir, profile)
     assert game.mode is GameMode.PLAY
     assert game.active_modal is None
     assert game.life_stack == []
@@ -25,16 +24,16 @@ def test_game_initializes_fitd_inventory_and_effect_state(data_dir):
     assert game.messages == [None] * 5
 
 
-def test_game_rejects_two_active_modals(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_game_rejects_two_active_modals(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.open_modal(ShowFound(12, False))
     assert game.mode is GameMode.FOUND
     with pytest.raises(RuntimeError, match=r"ShowFound.*ShowFound"):
         game.open_modal(ShowFound(13, False))
 
 
-def test_immediate_effect_is_fifo(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_immediate_effect_is_fifo(data_dir, profile):
+    game = init_game(data_dir, profile)
     game.emit(AddMessage(100))
     game.emit(BeginTake(12))
     assert list(game.immediate_effects) == [AddMessage(100), BeginTake(12)]
@@ -54,8 +53,8 @@ def test_nav_intent_defaults_to_a_non_held_approach():
     ((ChooseCharacter(), GameMode.CHARACTER_SELECT),
      (OpenSystemMenu(), GameMode.SYSTEM_MENU)),
 )
-def test_shell_effects_use_the_existing_modal_mode_mapping(data_dir, effect, mode):
-    game = init_game(data_dir, AITD1)
+def test_shell_effects_use_the_existing_modal_mode_mapping(data_dir, profile, effect, mode):
+    game = init_game(data_dir, profile)
     game.open_modal(effect)
     assert game.mode is mode
 

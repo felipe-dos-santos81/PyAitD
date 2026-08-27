@@ -4,7 +4,6 @@ import pytest
 
 from PyAitD.engine.assets import Assets
 from PyAitD.engine.text import BookToken, parse_book_tokens, parse_system_texts
-from PyAitD.games.aitd1.profile import AITD1
 
 pytestmark = pytest.mark.engine
 
@@ -22,8 +21,8 @@ def test_book_parser_emits_layout_controls():
     )
 
 
-def test_english_and_reading_background_goldens(data_dir):
-    assets = Assets(data_dir, AITD1)
+def test_english_and_reading_background_goldens(data_dir, profile):
+    assets = Assets(data_dir, profile)
     assert assets.system_text(20) == "You Find"
     assert assets.system_text(22) == "Take"
     assert assets.system_text(33) == "Drop/Put"
@@ -34,6 +33,6 @@ def test_english_and_reading_background_goldens(data_dir):
         assert image.dtype == np.uint8
 
 
-def test_missing_text_names_archive_and_id(data_dir):
+def test_missing_text_names_archive_and_id(data_dir, profile):
     with pytest.raises(KeyError, match=r"ENGLISH\.PAK: text 9999 not found"):
-        Assets(data_dir, AITD1).system_text(9999)
+        Assets(data_dir, profile).system_text(9999)

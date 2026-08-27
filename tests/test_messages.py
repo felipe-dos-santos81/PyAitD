@@ -2,14 +2,13 @@
 from PyAitD.engine.effects import AddMessage, BeginTake, LifeFrame
 from PyAitD.engine.game import init_game
 from PyAitD.engine.interaction import advance_messages, drain_immediate_effects
-from PyAitD.games.aitd1.profile import AITD1
 import pytest
 
 pytestmark = pytest.mark.engine
 
 
-def test_messages_refresh_duplicate_fill_five_slots_and_expire(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_messages_refresh_duplicate_fill_five_slots_and_expire(data_dir, profile):
+    game = init_game(data_dir, profile)
     for message_id in range(100, 106):
         game.emit(AddMessage(message_id))
     drain_immediate_effects(game)
@@ -23,8 +22,8 @@ def test_messages_refresh_duplicate_fill_five_slots_and_expire(data_dir):
     assert game.messages == [None] * 5
 
 
-def test_begin_take_runs_after_parent_frame_is_stacked(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_begin_take_runs_after_parent_frame_is_stacked(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     game.life_stack.append(LifeFrame(0, 1, pc=6))
     seen = []
     monkeypatch.setattr("PyAitD.engine.interaction.begin_take", lambda g, i: seen.append((i, len(g.life_stack))) or False)

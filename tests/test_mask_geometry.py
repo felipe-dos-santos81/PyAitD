@@ -6,7 +6,6 @@ import numpy as np
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.mask import create_aitd1_mask, fill_poly
 from PyAitD.engine.mask_geometry import MaskDraw, iter_mask_records, mask_polygons, triangulate_polygon
-from PyAitD.games.aitd1.profile import AITD1
 import pytest
 
 pytestmark = pytest.mark.engine
@@ -190,8 +189,8 @@ def test_create_aitd1_mask_matches_hand_computed_bitmaps_and_bboxes():
         assert np.array_equal(mask.bitmap, expected_bitmap)
 
 
-def test_polygons_rasterize_to_the_bitmap_masks(data_dir):
-    floor = Floor(data_dir, 0, AITD1)
+def test_polygons_rasterize_to_the_bitmap_masks(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
     for cam_idx in range(len(floor.cameras)):
         off = floor.camera_data_offsets[cam_idx]
         bitmaps = create_aitd1_mask(floor.camera_raw, off)
@@ -208,8 +207,8 @@ def test_polygons_rasterize_to_the_bitmap_masks(data_dir):
             assert np.array_equal(bitmap, mask.bitmap)
 
 
-def test_ids_are_positional_and_floor_caches(data_dir):
-    floor = Floor(data_dir, 0, AITD1)
+def test_ids_are_positional_and_floor_caches(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
     draws = floor.mask_draws(0)
     assert [d.id for d in draws] == list(range(len(draws)))
     assert floor.mask_draws(0) is draws

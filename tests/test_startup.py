@@ -11,7 +11,6 @@ from PyAitD.app.startup import (
 )
 from PyAitD.app.ui import Command
 from PyAitD.engine.game import init_game
-from PyAitD.games.aitd1.profile import AITD1
 from PyAitD.render.asset_resolver import AssetResolver
 
 pytestmark = pytest.mark.shell
@@ -72,12 +71,12 @@ def test_hit_tests():
     assert hit_test_title((0, 0)) and hit_test_title((319, 199)) and not hit_test_title((320, 200))
 
 
-def test_title_fades_in_from_black(data_dir):
+def test_title_fades_in_from_black(data_dir, profile):
     import pygame
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     resolver = AssetResolver(game.assets, None)
-    credits = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    credits = game.cvars[profile.cvar_index("TEXTE_CREDITS")] + 1
     black = render_title(TitlePresenter(), game.assets, resolver, 0, credits)
     full = render_title(TitlePresenter(), game.assets, resolver, TITLE_FADE_MS, credits)
     assert black.shape == full.shape == (200, 320, 3)
@@ -87,10 +86,10 @@ def test_title_fades_in_from_black(data_dir):
     assert page.shape == (200, 320, 3) and not (page == game.assets.resource_screen(7)).all()  # text drawn
 
 
-def test_menu_highlights_only_the_cursor_row(data_dir):
+def test_menu_highlights_only_the_cursor_row(data_dir, profile):
     import pygame
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     frame = render_startup_menu(StartupMenuPresenter(cursor=2), game.assets, continue_enabled=False)
     assert frame.shape == (200, 320, 3)
     rows = StartupLayout.ROWS
@@ -103,15 +102,15 @@ def test_menu_highlights_only_the_cursor_row(data_dir):
     assert probe(rows[1]) == (48, 40, 36)             # disabled fill
 
 
-def test_title_and_menu_renders_do_not_bleed_across_calls(data_dir):
+def test_title_and_menu_renders_do_not_bleed_across_calls(data_dir, profile):
     # screen_surface's Surface is shared/cached per (resolver, entry): a renderer
     # that draws on it without .copy() first would bleed its fade/text into every
     # later frame for that entry. Calling twice and comparing catches that.
     import pygame
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     resolver = AssetResolver(game.assets, None)
-    credits = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    credits = game.cvars[profile.cvar_index("TEXTE_CREDITS")] + 1
 
     fade1 = render_title(TitlePresenter(), game.assets, resolver, TITLE_FADE_MS // 2, credits)
     fade2 = render_title(TitlePresenter(), game.assets, resolver, TITLE_FADE_MS // 2, credits)
@@ -122,12 +121,12 @@ def test_title_and_menu_renders_do_not_bleed_across_calls(data_dir):
     assert (page1 == page2).all()
 
 
-def test_credits_reaches_every_page_before_handing_off_to_the_menu(data_dir):
+def test_credits_reaches_every_page_before_handing_off_to_the_menu(data_dir, profile):
     # AITD1.cpp:158-159 sets turnPageFlag before Lire, so the player pages
     # through the whole entry -- not just page 0 (Important 2). On real data
     # this entry lays out to 8 pages; the handoff must land on the last one.
-    game = init_game(data_dir, AITD1)
-    credits = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    game = init_game(data_dir, profile)
+    credits = game.cvars[profile.cvar_index("TEXTE_CREDITS")] + 1
     page_count = credits_page_count(game.assets, credits)
     assert page_count == 8
 
@@ -143,25 +142,25 @@ def test_credits_reaches_every_page_before_handing_off_to_the_menu(data_dir):
     assert presenter.page == page_count - 1, "the handoff must happen on the last page, not the first"
 
 
-def test_credits_render_shows_each_pages_own_content(data_dir):
+def test_credits_render_shows_each_pages_own_content(data_dir, profile):
     # Regression for the truncation bug: page 0's only text is the
     # publisher credit; the director credit only appears on page 1.
     import pygame
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     resolver = AssetResolver(game.assets, None)
-    credits = game.cvars[AITD1.cvar_index("TEXTE_CREDITS")] + 1
+    credits = game.cvars[profile.cvar_index("TEXTE_CREDITS")] + 1
 
     page0 = render_title(TitlePresenter(TitlePhase.CREDITS, page=0), game.assets, resolver, 0, credits)
     page1 = render_title(TitlePresenter(TitlePhase.CREDITS, page=1), game.assets, resolver, 0, credits)
     assert not (page0 == page1).all(), "page 1 must render different content from page 0"
 
 
-def test_menu_text_ids_resolve_to_the_games_own_strings(data_dir):
+def test_menu_text_ids_resolve_to_the_games_own_strings(data_dir, profile):
     # Important/Minor 6: MENU_TEXT_IDS must point at the game's own ENGLISH.PAK
     # strings, not paraphrases -- an id slip would still pass the render test
     # (which only probes fill colours), so pin the actual resolved text.
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     assert [game.assets.system_text(text_id) for text_id in MENU_TEXT_IDS] == [
         "Begin a new game", "Resume a saved game", "Return to DOS",
     ]

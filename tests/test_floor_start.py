@@ -7,7 +7,6 @@ from PyAitD.engine.life import process_life
 from PyAitD.engine.playworld import play_tick
 from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.app.ui import InputBuffer
-from PyAitD.games.aitd1.profile import AITD1
 import pytest
 
 pytestmark = pytest.mark.engine
@@ -15,13 +14,13 @@ pytestmark = pytest.mark.engine
 
 def test_floor_requires_a_profile(data_dir):
     # No default: a default palette pak/entry inside engine/ would be the
-    # AITD1 hardcode this seam exists to remove.
+    # profile hardcode this seam exists to remove.
     with pytest.raises(TypeError):
         Floor(data_dir, 0)
 
 
-def test_relocate_actor_rebases_zv_and_zeroes_steps(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_relocate_actor_rebases_zv_and_zeroes_steps(data_dir, profile):
+    game = init_game(data_dir, profile)
     idx = game.current_camera_target_actor
     actor = game.actors[idx]
     actor.step_x, actor.step_y, actor.step_z = 11, 12, 13
@@ -41,9 +40,9 @@ def test_relocate_actor_rebases_zv_and_zeroes_steps(data_dir):
     assert (actor.step_x, actor.step_y, actor.step_z) == (0, 0, 0)
 
 
-def test_enter_floor_start_applies_transition_postconditions(data_dir, monkeypatch):
+def test_enter_floor_start_applies_transition_postconditions(data_dir, profile, monkeypatch):
     import PyAitD.engine.game as game_module
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     calls = []
     real_spawn = game_module.spawn_stage_actors
     monkeypatch.setattr(
@@ -62,8 +61,8 @@ def test_enter_floor_start_applies_transition_postconditions(data_dir, monkeypat
     assert (game.flag_change_etage, game.flag_genere_aff_list) == (0, 0)
 
 
-def test_init_game_records_the_real_hero_start(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_init_game_records_the_real_hero_start(data_dir, profile):
+    game = init_game(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]
     assert game.floor_start == FloorStart(
         hero.stage, hero.room, hero.room_x, hero.room_y, hero.room_z, 0,
@@ -71,7 +70,7 @@ def test_init_game_records_the_real_hero_start(data_dir):
     assert game.restart_requested is False
 
 
-def test_natural_lm_stage_records_a_reenterable_floor_start(data_dir, monkeypatch):
+def test_natural_lm_stage_records_a_reenterable_floor_start(data_dir, profile, monkeypatch):
     # The real transition this fixture replays: the hero's own death sequence
     # (LISTLIFE 555) runs LM_STAGE(6, 6, -5000, -4000, 11500) after LIFE 39.
     # FITD gives a floor change no camera continuity -- LoadEtage sets
@@ -79,9 +78,9 @@ def test_natural_lm_stage_records_a_reenterable_floor_start(data_dir, monkeypatc
     # slot matches, and its `int newNumCamera = 0` (room.cpp:112) is what
     # reaches NewNumCamera (room.cpp:193). Slot 0 is therefore the observed
     # entry camera, not an assumption.
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     enter_combat_venue(game)
-    floor = Floor(data_dir, 5, AITD1)
+    floor = Floor(data_dir, 5, profile)
     game.current_floor_data = floor
     game.num_camera = game.new_num_camera
     game.flag_init_view = 0
@@ -108,7 +107,7 @@ def test_natural_lm_stage_records_a_reenterable_floor_start(data_dir, monkeypatc
 
     # finish the handoff the outer loop performs: swap the Floor, enter the
     # recorded boundary, then InitView.
-    floor = Floor(data_dir, 6, AITD1)
+    floor = Floor(data_dir, 6, profile)
     game.current_floor_data = floor
     assert len(floor.rooms[6].camera_indices) > game.floor_start.camera_slot
     enter_floor_start(game, game.floor_start)
@@ -121,11 +120,11 @@ def test_natural_lm_stage_records_a_reenterable_floor_start(data_dir, monkeypatc
     assert game.world_objects[40].obj_index != -1  # floor 6's own actors spawned
 
 
-def test_start_game_stages_a_floor_like_fitd_startGame(data_dir):
+def test_start_game_stages_a_floor_like_fitd_startGame(data_dir, profile):
     # main.cpp:4134 startGame + initVars (main.cpp:1235-1236): targets reset,
     # floor and room staged, active list regenerated, hero left where world
     # data put it (stage 0) -- never relocated onto the staged floor.
-    game = init_game(data_dir, AITD1, hero=0)
+    game = init_game(data_dir, profile, hero=0)
     hero_idx = game.current_camera_target_actor
     assert game.actors[hero_idx].index_in_world == 1
     start_game(game, 7, 1)
@@ -139,7 +138,7 @@ def test_start_game_stages_a_floor_like_fitd_startGame(data_dir):
     assert 286 in live and game.actors[game.world_objects[286].obj_index].life == 546
 
 
-def test_start_game_on_the_attic_diverges_from_init_game_targeting(data_dir):
+def test_start_game_on_the_attic_diverges_from_init_game_targeting(data_dir, profile):
     # start_game(0, 0) reaches the same floor/room init_game's own
     # game_start staging does, but NOT the same actor targeting: init_game
     # leaves current_camera_target_actor pointing at the live hero with a
@@ -149,7 +148,7 @@ def test_start_game_on_the_attic_diverges_from_init_game_targeting(data_dir):
     # _boot_hero's attic hand-over (app/shell.py) relies on init_game's own
     # game_start staging rather than calling start_game directly -- see
     # games/base.py's GameProfile.game_start docstring.
-    game = init_game(data_dir, AITD1, hero=1)
+    game = init_game(data_dir, profile, hero=1)
     assert game.current_camera_target_actor != -1
     assert game.floor_start is not None
 

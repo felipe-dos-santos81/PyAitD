@@ -32,7 +32,7 @@ def test_parse_args_skip_intro():
     assert parse_args(["--skip-intro"]).skip_intro is True
 
 
-def test_main_skip_intro_produces_a_session_whose_hero_boot_is_not_a_cutscene(monkeypatch, data_dir):
+def test_main_skip_intro_produces_a_session_whose_hero_boot_is_not_a_cutscene(monkeypatch, data_dir, profile):
     # --skip-intro's only real effect in main() is `session.skip_intro =
     # args.skip_intro`; _hero_branch reads it to decide `cutscene=False`
     # (straight to the attic) instead of `cutscene=True` (the floor-7
@@ -41,7 +41,7 @@ def test_main_skip_intro_produces_a_session_whose_hero_boot_is_not_a_cutscene(mo
     # then drive the real character-confirmation branch with that exact
     # session and prove the hero boot it stages is NOT a cutscene. Deleting
     # `session.skip_intro = args.skip_intro` leaves skip_intro at its False
-    # default and this assertion fails, since AITD1.intro_start is set.
+    # default and this assertion fails, since profile.intro_start is set.
     import numpy as np
 
     import PyAitD.app.shell as main
@@ -64,12 +64,11 @@ def test_main_skip_intro_produces_a_session_whose_hero_boot_is_not_a_cutscene(mo
     assert session.skip_intro is True
 
     from PyAitD.engine.game import init_game
-    from PyAitD.games.aitd1.profile import AITD1
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
-    game = init_game(data_dir, AITD1)
-    assert game.profile.intro_start is not None   # precondition: AITD1 HAS an intro
+    game = init_game(data_dir, profile)
+    assert game.profile.intro_start is not None   # precondition: profile HAS an intro
     session.pending_hero = 0
 
     from types import SimpleNamespace
@@ -457,7 +456,7 @@ def test_config_menu_save_persists_a_render_field_the_player_actually_cycled(tmp
     assert on_disk["render"]["scale"] == default_settings().render.scale
 
 
-def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(monkeypatch, tmp_path):
+def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(profile, monkeypatch, tmp_path):
     # Task 9 was sent back for unpinned run() wiring; pin this end to end
     # through main() -- not just apply_render_overrides in isolation -- by
     # spying on the module-level Renderer/AssetResolver constructors that
@@ -468,7 +467,6 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(monkey
     import PyAitD.app.shell as main
     from PyAitD.app import ui
     from PyAitD.engine.effects import GameMode, InputMode
-    from PyAitD.games.aitd1.profile import AITD1
 
     game = SimpleNamespace(
         _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,
@@ -481,7 +479,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(monkey
         load_floor=lambda number: SimpleNamespace(
             number=0, rooms=[SimpleNamespace(camera_indices=[0])],
         ),
-        profile=AITD1,
+        profile=profile,
     )
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])

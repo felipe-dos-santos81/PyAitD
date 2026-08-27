@@ -11,7 +11,6 @@ from PyAitD.render.render_options import RenderOptions
 from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
 from PyAitD.engine.skel import RenderResult
 from PyAitD.engine.world import CameraState
-from PyAitD.games.aitd1.profile import AITD1
 
 pytestmark = pytest.mark.render
 
@@ -286,10 +285,10 @@ def test_actors_and_mask_render_correctly_above_scale_one(gl_ctx):
     backend.release()
 
 
-def test_stencil_mask_matches_bitmap_erase_at_scale_one(gl_ctx, data_dir):
+def test_stencil_mask_matches_bitmap_erase_at_scale_one(gl_ctx, data_dir, profile):
     from PyAitD.engine.floor import Floor
     from PyAitD.engine.mask import create_aitd1_mask
-    floor = Floor(data_dir, 0, AITD1)
+    floor = Floor(data_dir, 0, profile)
     draws = floor.mask_draws(0)
     bitmaps = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[0])
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))

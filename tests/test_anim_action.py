@@ -11,13 +11,12 @@ from PyAitD.engine.anim_action import (
 from PyAitD.engine.formats import Zone
 from PyAitD.engine.game import AF_ANIMATED, AF_BOXIFY, AF_MOVABLE, AF_SPECIAL, init_game
 from PyAitD.engine.skel import hot_point as skel_hot_point
-from PyAitD.games.aitd1.profile import AITD1
 
 pytestmark = pytest.mark.engine
 
 
-def _live_actors(data_dir, count):
-    game = init_game(data_dir, AITD1)
+def _live_actors(data_dir, profile, count):
+    game = init_game(data_dir, profile)
     live = [i for i, actor in enumerate(game.actors) if actor.index_in_world >= 0]
     assert len(live) >= count
     selected = live[:count]
@@ -27,8 +26,8 @@ def _live_actors(data_dir, count):
     return (game, *selected)
 
 
-def test_melee_waits_for_animation_then_frame(data_dir):
-    game, attacker_idx, _victim_idx = _live_actors(data_dir, 2)
+def test_melee_waits_for_animation_then_frame(data_dir, profile):
+    game, attacker_idx, _victim_idx = _live_actors(data_dir, profile, 2)
     actor = game.actors[attacker_idx]
     actor.anim_action_type = WAIT_FRAPPE_ANIM
     actor.anim_action_anim = actor.anim
@@ -40,7 +39,7 @@ def test_melee_waits_for_animation_then_frame(data_dir):
     assert actor.anim_action_type == FRAPPE_OK
 
 
-def test_melee_cancels_on_anim_mismatch_from_wait_frappe_anim(data_dir):
+def test_melee_cancels_on_anim_mismatch_from_wait_frappe_anim(data_dir, profile):
     # FITD animAction.cpp:19-24: WAIT_FRAPPE_ANIM's case falls through
     # unconditionally into WAIT_FRAPPE_FRAME, whose first statement cancels
     # the melee when the anim hasn't committed yet. hit() (main.cpp:4375)
@@ -48,7 +47,7 @@ def test_melee_cancels_on_anim_mismatch_from_wait_frappe_anim(data_dir):
     # mismatch here is the normal window before the animation commits, and
     # one gere_frappe call must disarm it rather than leave it armed
     # forever.
-    game, attacker_idx, _victim_idx = _live_actors(data_dir, 2)
+    game, attacker_idx, _victim_idx = _live_actors(data_dir, profile, 2)
     actor = game.actors[attacker_idx]
     actor.anim_action_type = WAIT_FRAPPE_ANIM
     actor.anim_action_anim = actor.anim + 1  # deliberately mismatched
@@ -56,8 +55,8 @@ def test_melee_cancels_on_anim_mismatch_from_wait_frappe_anim(data_dir):
     assert actor.anim_action_type == 0
 
 
-def test_frappe_ok_mismatch_still_hit_tests(monkeypatch, data_dir):
-    game, attacker_idx, victim_idx = _live_actors(data_dir, 2)
+def test_frappe_ok_mismatch_still_hit_tests(monkeypatch, data_dir, profile):
+    game, attacker_idx, victim_idx = _live_actors(data_dir, profile, 2)
     attacker = game.actors[attacker_idx]
     attacker.anim_action_type = FRAPPE_OK
     attacker.anim_action_anim = attacker.anim + 1
@@ -71,8 +70,8 @@ def test_frappe_ok_mismatch_still_hit_tests(monkeypatch, data_dir):
     assert game.actors[victim_idx].hit_force == 10
 
 
-def test_melee_stops_at_first_animated_victim(monkeypatch, data_dir):
-    game, attacker_idx, first_idx, second_idx = _live_actors(data_dir, 3)
+def test_melee_stops_at_first_animated_victim(monkeypatch, data_dir, profile):
+    game, attacker_idx, first_idx, second_idx = _live_actors(data_dir, profile, 3)
     game.actors[first_idx].object_type |= AF_ANIMATED
     monkeypatch.setattr(
         "PyAitD.engine.anim_action.check_object_col", lambda *args: (first_idx, second_idx)
@@ -84,24 +83,24 @@ def test_melee_stops_at_first_animated_victim(monkeypatch, data_dir):
     assert game.actors[second_idx].hit_by == -1
 
 
-def test_gere_frappe_rejects_declared_but_unhandled_action(data_dir):
+def test_gere_frappe_rejects_declared_but_unhandled_action(data_dir, profile):
     # FITD declares action value 3 but animAction.cpp never handles it —
     # HANDLED_ACTIONS deliberately excludes it.
-    game, actor_idx = _live_actors(data_dir, 1)
+    game, actor_idx = _live_actors(data_dir, profile, 1)
     game.actors[actor_idx].anim_action_type = 3
     with pytest.raises(ValueError, match=rf"actor {actor_idx}\D+3\b"):
         gere_frappe(game, actor_idx)
 
 
-def test_gere_frappe_rejects_out_of_range_action(data_dir):
-    game, actor_idx = _live_actors(data_dir, 1)
+def test_gere_frappe_rejects_out_of_range_action(data_dir, profile):
+    game, actor_idx = _live_actors(data_dir, profile, 1)
     game.actors[actor_idx].anim_action_type = 11
     with pytest.raises(ValueError, match=rf"actor {actor_idx}\D+11\b"):
         gere_frappe(game, actor_idx)
 
 
-def test_hit_object_state_is_an_explicit_no_op(data_dir):
-    game, actor_idx = _live_actors(data_dir, 1)
+def test_hit_object_state_is_an_explicit_no_op(data_dir, profile):
+    game, actor_idx = _live_actors(data_dir, profile, 1)
     actor = game.actors[actor_idx]
     actor.anim_action_type = HIT_OBJECT
     actor.hit = -1
@@ -114,11 +113,11 @@ def test_hit_object_state_is_an_explicit_no_op(data_dir):
     assert actor.hit_force == 7
 
 
-def test_frappe_ok_builds_the_expected_strike_cube(monkeypatch, data_dir):
+def test_frappe_ok_builds_the_expected_strike_cube(monkeypatch, data_dir, profile):
     # Distinct, non-zero values on every axis so a dropped term, a swapped
     # axis, or a flipped sign in room_*/hot_point/step_* would move the
     # captured cube away from the hand-computed expectation below.
-    game, attacker_idx, victim_idx = _live_actors(data_dir, 2)
+    game, attacker_idx, victim_idx = _live_actors(data_dir, profile, 2)
     attacker = game.actors[attacker_idx]
     attacker.anim_action_type = FRAPPE_OK
     attacker.anim_action_anim = attacker.anim  # no mismatch: keep the fall-through out of this test
@@ -143,8 +142,8 @@ def test_frappe_ok_builds_the_expected_strike_cube(monkeypatch, data_dir):
     assert attacker.hit == victim_idx
 
 
-def test_refresh_hot_point_uses_the_live_anim_pose(data_dir):
-    game, idx = _live_actors(data_dir, 1)
+def test_refresh_hot_point_uses_the_live_anim_pose(data_dir, profile):
+    game, idx = _live_actors(data_dir, profile, 1)
     actor = game.actors[idx]
     actor.anim = 4  # a real body-12 walk anim with non-zero keyframe deltas
     actor.body_num = 12
@@ -178,8 +177,8 @@ def test_refresh_hot_point_uses_the_live_anim_pose(data_dir):
     )
 
 
-def test_refresh_hot_point_uses_zero_states_when_actor_has_no_anim(monkeypatch, data_dir):
-    game, idx = _live_actors(data_dir, 1)
+def test_refresh_hot_point_uses_zero_states_when_actor_has_no_anim(monkeypatch, data_dir, profile):
+    game, idx = _live_actors(data_dir, profile, 1)
     actor = game.actors[idx]
     actor.anim = -1
     actor.body_num = 12  # confirmed INFO_ANIM (flags & 2) so hot_point() does real posing
@@ -201,8 +200,8 @@ def test_refresh_hot_point_uses_zero_states_when_actor_has_no_anim(monkeypatch, 
     assert tuple(actor.hot_point) == expected
 
 
-def test_throw_setup_activates_released_object_then_launches(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_throw_setup_activates_released_object_then_launches(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     thrower_idx = game.current_camera_target_actor
     thrower = game.actors[thrower_idx]
     object_idx = 13
@@ -238,10 +237,10 @@ def test_throw_setup_activates_released_object_then_launches(data_dir, monkeypat
     assert world.alpha == thrower.index_in_world
 
 
-def test_wait_anim_throw_stays_put_until_animation_matches(monkeypatch, data_dir):
+def test_wait_anim_throw_stays_put_until_animation_matches(monkeypatch, data_dir, profile):
     # FITD animAction.cpp:161: case 6 only builds the obstruction cube (and
     # therefore only calls check_hard_col) once ANIM == animActionANIM.
-    game, thrower_idx = _live_actors(data_dir, 1)
+    game, thrower_idx = _live_actors(data_dir, profile, 1)
     thrower = game.actors[thrower_idx]
     thrower.anim_action_type = WAIT_ANIM_THROW
     thrower.anim_action_anim = thrower.anim + 1  # deliberate mismatch
@@ -255,11 +254,11 @@ def test_wait_anim_throw_stays_put_until_animation_matches(monkeypatch, data_dir
     assert calls == []
 
 
-def test_prepare_throw_builds_the_expected_obstruction_cube(monkeypatch, data_dir):
+def test_prepare_throw_builds_the_expected_obstruction_cube(monkeypatch, data_dir, profile):
     # Distinct, non-zero values on every axis so a dropped term, a swapped
     # axis, or a flipped sign in room_*/hot_point/step_* would move the
     # captured cube away from the hand-computed expectation below.
-    game, thrower_idx = _live_actors(data_dir, 1)
+    game, thrower_idx = _live_actors(data_dir, profile, 1)
     thrower = game.actors[thrower_idx]
     object_idx = 13
     world = game.world_objects[object_idx]
@@ -292,8 +291,8 @@ def test_prepare_throw_builds_the_expected_obstruction_cube(monkeypatch, data_di
     assert thrower.anim_action_type == WAIT_ANIM_THROW  # frame mismatch: stayed put
 
 
-def test_prepare_throw_waits_for_frame_before_arming(monkeypatch, data_dir):
-    game, thrower_idx = _live_actors(data_dir, 1)
+def test_prepare_throw_waits_for_frame_before_arming(monkeypatch, data_dir, profile):
+    game, thrower_idx = _live_actors(data_dir, profile, 1)
     thrower = game.actors[thrower_idx]
     object_idx = 13
     world = game.world_objects[object_idx]
@@ -315,8 +314,8 @@ def test_prepare_throw_waits_for_frame_before_arming(monkeypatch, data_dir):
     assert (world.x, world.y, world.z) == (original_x, original_y, original_z)
 
 
-def test_prepare_throw_obstructed_reverts_placement(monkeypatch, data_dir):
-    game, thrower_idx = _live_actors(data_dir, 1)
+def test_prepare_throw_obstructed_reverts_placement(monkeypatch, data_dir, profile):
+    game, thrower_idx = _live_actors(data_dir, profile, 1)
     thrower = game.actors[thrower_idx]
     object_idx = 13
     world = game.world_objects[object_idx]
@@ -346,12 +345,12 @@ def test_prepare_throw_obstructed_reverts_placement(monkeypatch, data_dir):
     assert game.flag_genere_aff_list == 0
 
 
-def test_launch_throw_places_actor_with_expected_zv_and_flight_state(data_dir):
+def test_launch_throw_places_actor_with_expected_zv_and_flight_state(data_dir, profile):
     # Distinct, non-zero values on every axis so a dropped term, a swapped
     # axis, or a wrong source object (e.g. the thrower's own body instead of
     # the thrown object's) would move the result away from the hand-computed
     # expectation below.
-    game, thrower_idx = _live_actors(data_dir, 1)
+    game, thrower_idx = _live_actors(data_dir, profile, 1)
     thrower = game.actors[thrower_idx]
     object_idx = 13
     world = game.world_objects[object_idx]
@@ -397,8 +396,8 @@ def test_launch_throw_places_actor_with_expected_zv_and_flight_state(data_dir):
     assert thrown.speed_change.memo_ticks == 123
 
 
-def test_launch_throw_missing_actor_resets_thrower_only(data_dir):
-    game, thrower_idx = _live_actors(data_dir, 1)
+def test_launch_throw_missing_actor_resets_thrower_only(data_dir, profile):
+    game, thrower_idx = _live_actors(data_dir, profile, 1)
     thrower = game.actors[thrower_idx]
     object_idx = 13
     world = game.world_objects[object_idx]
@@ -414,12 +413,12 @@ def test_launch_throw_missing_actor_resets_thrower_only(data_dir):
     assert (world.x, world.y, world.z) == (original_x, original_y, original_z)
 
 
-def test_prepare_throw_raises_when_thrown_object_has_no_body(data_dir):
+def test_prepare_throw_raises_when_thrown_object_has_no_body(data_dir, profile):
     # Spec: "A thrown object whose world record has no body raises with the
     # object index; silently using the thrower's body is forbidden." Reached
     # through gere_frappe (the real dispatch path), not by calling the
     # private _raw_body_zv/_prepare_throw helpers directly.
-    game, thrower_idx = _live_actors(data_dir, 1)
+    game, thrower_idx = _live_actors(data_dir, profile, 1)
     thrower = game.actors[thrower_idx]
     object_idx = 13
     world = game.world_objects[object_idx]
@@ -432,8 +431,8 @@ def test_prepare_throw_raises_when_thrown_object_has_no_body(data_dir):
         gere_frappe(game, thrower_idx)
 
 
-def test_launch_throw_raises_when_thrown_object_has_no_body(data_dir):
-    game, thrower_idx = _live_actors(data_dir, 1)
+def test_launch_throw_raises_when_thrown_object_has_no_body(data_dir, profile):
+    game, thrower_idx = _live_actors(data_dir, profile, 1)
     thrower = game.actors[thrower_idx]
     object_idx = 13
     world = game.world_objects[object_idx]
@@ -449,12 +448,12 @@ def test_launch_throw_raises_when_thrown_object_has_no_body(data_dir):
 # --- Task 7: firearm volume sweep (checkLineProjectionWithActors) ---
 
 
-def test_fire_sweep_preserves_no_hard_collision_termination(monkeypatch, data_dir):
+def test_fire_sweep_preserves_no_hard_collision_termination(monkeypatch, data_dir, profile):
     # animAction.cpp:3900-3904 AsmCheckListCol branch: the sweep stops with
     # NO hit the instant the swept cube overlaps zero hard-collision
     # entries. This is FITD's verified (if counterintuitive) behaviour, not
     # a raycast-until-blocked convention to "correct".
-    game, shooter_idx, victim_idx = _live_actors(data_dir, 2)
+    game, shooter_idx, victim_idx = _live_actors(data_dir, profile, 2)
     monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *args: [])
     result = check_line_projection_with_actors(game, shooter_idx, 0, 0, 0, 0, 0, 50)
     assert result[0] == -1
@@ -462,7 +461,7 @@ def test_fire_sweep_preserves_no_hard_collision_termination(monkeypatch, data_di
     assert game.actors[victim_idx].hit_by == -1
 
 
-def test_fire_sweep_returns_first_live_non_special_slot(monkeypatch, data_dir):
+def test_fire_sweep_returns_first_live_non_special_slot(monkeypatch, data_dir, profile):
     # Controller ruling: the brief co-locates only three actors, but the
     # sweep iterates every live actor in slot order, so on real floor-0
     # data an unrelated live actor at a lower slot (possibly in another
@@ -470,7 +469,7 @@ def test_fire_sweep_returns_first_live_non_special_slot(monkeypatch, data_dir):
     # swept cube first and make the assertion below flaky. Deactivate every
     # other live actor rather than weaken the asserted contract, which
     # stays: first live, non-AF_SPECIAL, non-shooter actor in slot order.
-    game, shooter_idx, first_idx, second_idx = _live_actors(data_dir, 3)
+    game, shooter_idx, first_idx, second_idx = _live_actors(data_dir, profile, 3)
     for idx, other in enumerate(game.actors):
         if idx not in (shooter_idx, first_idx, second_idx):
             other.index_in_world = -1
@@ -505,19 +504,19 @@ def test_fire_sweep_returns_first_live_non_special_slot(monkeypatch, data_dir):
         (0x200, -19999, -19999),
     ],
 )
-def test_fire_sweep_terminates_outside_xz_bounds(beta, start_x, expected_impact_x, data_dir):
+def test_fire_sweep_terminates_outside_xz_bounds(beta, start_x, expected_impact_x, data_dir, profile):
     # animAction.cpp:3892-3897: X/Z leaving [-20000, 20000] ends the sweep
     # with no hit. The returned impact position is the *pre-step* tempX
     # (animMoveX at loop exit), one step short of the out-of-bounds value
     # that triggered termination — pinned by hand below so an off-by-one
     # iteration bug is not invisible to the assertion.
-    game, shooter_idx = _live_actors(data_dir, 1)
+    game, shooter_idx = _live_actors(data_dir, profile, 1)
     room = game.actors[shooter_idx].room
     result = check_line_projection_with_actors(game, shooter_idx, start_x, 0, 0, beta, room, 1)
     assert result == (-1, expected_impact_x, 0, 0)
 
 
-def test_fire_sweep_adjusts_zv_across_rooms_before_intersecting(monkeypatch, data_dir):
+def test_fire_sweep_adjusts_zv_across_rooms_before_intersecting(monkeypatch, data_dir, profile):
     # animAction.cpp:3910-3922: when the candidate actor is in a different
     # room, the swept cube is copied and AdjustZV'd into that actor's room
     # *before* CubeIntersect runs — the raw same-room cube is never
@@ -525,7 +524,7 @@ def test_fire_sweep_adjusts_zv_across_rooms_before_intersecting(monkeypatch, dat
     # adjust_zv_between_rooms to return a cube that only overlaps the
     # victim (the untouched local cube, still near x=0, does not) proves
     # its return value is what gets tested, not silently discarded.
-    game, shooter_idx, victim_idx = _live_actors(data_dir, 2)
+    game, shooter_idx, victim_idx = _live_actors(data_dir, profile, 2)
     for idx, other in enumerate(game.actors):
         if idx not in (shooter_idx, victim_idx):
             other.index_in_world = -1
@@ -565,11 +564,11 @@ def test_fire_sweep_adjusts_zv_across_rooms_before_intersecting(monkeypatch, dat
     assert len(captured["zv"]) == 6
 
 
-def test_wait_tir_anim_arms_do_tir_only_when_anim_and_frame_match(data_dir):
+def test_wait_tir_anim_arms_do_tir_only_when_anim_and_frame_match(data_dir, profile):
     # animAction.cpp:92-100 case WAIT_TIR_ANIM: two separate early returns
     # in C++ (ANIM mismatch, then frame mismatch) collapse into a single
     # AND-guarded transition in the port; exercise both mismatches.
-    game, actor_idx = _live_actors(data_dir, 1)
+    game, actor_idx = _live_actors(data_dir, profile, 1)
     actor = game.actors[actor_idx]
     actor.anim_action_type = WAIT_TIR_ANIM
     actor.anim_action_anim = actor.anim + 1  # anim mismatch
@@ -587,13 +586,13 @@ def test_wait_tir_anim_arms_do_tir_only_when_anim_and_frame_match(data_dir):
     assert actor.anim_action_type == DO_TIR
 
 
-def test_do_tir_hit_updates_hotpoint_and_publishes_hit(monkeypatch, data_dir):
+def test_do_tir_hit_updates_hotpoint_and_publishes_hit(monkeypatch, data_dir, profile):
     # animAction.cpp:104-149 case DO_TIR: the fire hot point deliberately
     # omits the step_x/y/z terms _hot_point_world adds for melee/throw, and
     # uses beta - 0x100 (not beta) for the sweep angle. Distinct non-zero
     # step_* values make sure an accidental step inclusion would move the
     # captured call away from this hand-computed expectation.
-    game, actor_idx, victim_idx = _live_actors(data_dir, 2)
+    game, actor_idx, victim_idx = _live_actors(data_dir, profile, 2)
     actor = game.actors[actor_idx]
     actor.anim_action_type = DO_TIR
     actor.room_x, actor.room_y, actor.room_z = 1000, 2000, 3000
@@ -624,8 +623,8 @@ def test_do_tir_hit_updates_hotpoint_and_publishes_hit(monkeypatch, data_dir):
     assert actor.anim_action_type == 0
 
 
-def test_do_tir_miss_resets_without_publishing_hit(monkeypatch, data_dir):
-    game, actor_idx = _live_actors(data_dir, 1)
+def test_do_tir_miss_resets_without_publishing_hit(monkeypatch, data_dir, profile):
+    game, actor_idx = _live_actors(data_dir, profile, 1)
     actor = game.actors[actor_idx]
     actor.anim_action_type = DO_TIR
     actor.hot_point[:] = [10, 20, 30]
@@ -646,8 +645,8 @@ def test_do_tir_miss_resets_without_publishing_hit(monkeypatch, data_dir):
 # --- Task 8: in-flight throw and stopped placement ---
 
 
-def _thrown_game(data_dir):
-    game = init_game(data_dir, AITD1)
+def _thrown_game(data_dir, profile):
+    game = init_game(data_dir, profile)
     actor_idx = next(
         i for i, actor in enumerate(game.actors)
         if actor.index_in_world >= 0 and i != game.current_camera_target_actor
@@ -658,8 +657,8 @@ def _thrown_game(data_dir):
     return game, actor_idx
 
 
-def test_throw_stopped_at_searches_back_and_commits_found_state(monkeypatch, data_dir):
-    game, actor_idx = _thrown_game(data_dir)
+def test_throw_stopped_at_searches_back_and_commits_found_state(monkeypatch, data_dir, profile):
+    game, actor_idx = _thrown_game(data_dir, profile)
     checks = iter(([object()], [object()], []))
     monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *args: next(checks))
     throw_stopped_at(game, actor_idx, 1000, 2000)
@@ -671,7 +670,7 @@ def test_throw_stopped_at_searches_back_and_commits_found_state(monkeypatch, dat
     assert not world.found_flag & 0x1000
 
 
-def test_throw_stopped_at_raises_y_band_until_reachable(monkeypatch, data_dir):
+def test_throw_stopped_at_raises_y_band_until_reachable(monkeypatch, data_dir, profile):
     # main.cpp:4076-4090: a spot below Y == -500 only counts as "found" if
     # Carnby could physically reach it (no hard col 100 units higher); when
     # not reachable the search retries 2000 units higher at the *same*
@@ -687,7 +686,7 @@ def test_throw_stopped_at_raises_y_band_until_reachable(monkeypatch, data_dir):
     # cube -- so this value is *not* interchangeable with `//`'s result;
     # it is derived from the C truncation rule, independent of whichever
     # division operator the implementation happens to use.)
-    game, actor_idx = _thrown_game(data_dir)
+    game, actor_idx = _thrown_game(data_dir, profile)
     actor = game.actors[actor_idx]
     actor.room_y = -3000  # y2 == -2000 under C truncation, below -500
 
@@ -707,8 +706,8 @@ def test_throw_stopped_at_raises_y_band_until_reachable(monkeypatch, data_dir):
     assert actor.world_y == 0
 
 
-def test_in_flight_ignores_original_thrower(monkeypatch, data_dir):
-    game, actor_idx = _thrown_game(data_dir)
+def test_in_flight_ignores_original_thrower(monkeypatch, data_dir, profile):
+    game, actor_idx = _thrown_game(data_dir, profile)
     thrown = game.actors[actor_idx]
     original_world = game.world_objects[thrown.index_in_world].alpha
     original_actor = game.world_objects[original_world].obj_index
@@ -717,14 +716,14 @@ def test_in_flight_ignores_original_thrower(monkeypatch, data_dir):
     assert thrown.hit == -1
 
 
-def test_in_flight_thrower_branch_short_circuits_after_publishing_earlier_hit(monkeypatch, data_dir):
+def test_in_flight_thrower_branch_short_circuits_after_publishing_earlier_hit(monkeypatch, data_dir, profile):
     # _check_throw_step decrements `effective` in the original-thrower
     # branch and then returns immediately, so a hit published earlier in
     # the SAME COL[] list is never followed by throw_stopped_at, even
     # though `effective` is still nonzero at that point. This pins that
     # exact (surprising) FITD-observable control flow, not just "the
     # thrower is excluded".
-    game, actor_idx = _thrown_game(data_dir)
+    game, actor_idx = _thrown_game(data_dir, profile)
     thrown = game.actors[actor_idx]
     thrown.hit_force = 42
     world = game.world_objects[thrown.index_in_world]
@@ -751,8 +750,8 @@ def test_in_flight_thrower_branch_short_circuits_after_publishing_earlier_hit(mo
     assert thrown.anim_action_type == THROW_OBJECT
 
 
-def test_in_flight_reflects_from_reverse_object(monkeypatch, data_dir):
-    game, actor_idx = _thrown_game(data_dir)
+def test_in_flight_reflects_from_reverse_object(monkeypatch, data_dir, profile):
+    game, actor_idx = _thrown_game(data_dir, profile)
     # The fixture's default floor/room never spawns the REVERSE_OBJECT
     # cvar's world object (its record's stage is a different floor), so
     # wire a stand-in live actor to it the same way a real spawn would —
@@ -775,7 +774,7 @@ def test_in_flight_reflects_from_reverse_object(monkeypatch, data_dir):
     assert game.world_objects[game.actors[actor_idx].index_in_world].alpha == reverse_world
 
 
-def test_in_flight_reflection_reverts_xz_but_keeps_actual_y(monkeypatch, data_dir):
+def test_in_flight_reflection_reverts_xz_but_keeps_actual_y(monkeypatch, data_dir, profile):
     # animAction.cpp:361-401: xtemp/ztemp are reassigned to x3/z3
     # (old_x/old_z) right before the final commit, but ytemp is never
     # touched in this branch — so the committed world position mixes the
@@ -784,7 +783,7 @@ def test_in_flight_reflection_reverts_xz_but_keeps_actual_y(monkeypatch, data_di
     # non-zero values on every axis so a dropped revert, an axis swap, or
     # a "helpful" revert of y too would move the result away from these
     # hand-computed expectations.
-    game, actor_idx = _thrown_game(data_dir)
+    game, actor_idx = _thrown_game(data_dir, profile)
     thrown = game.actors[actor_idx]
     world = game.world_objects[thrown.index_in_world]
 
@@ -813,11 +812,11 @@ def test_in_flight_reflection_reverts_xz_but_keeps_actual_y(monkeypatch, data_di
     assert thrown.step_y == 22  # untouched, unlike step_x/step_z
 
 
-def test_in_flight_hot_point_cleared_on_ordinary_hit(monkeypatch, data_dir):
+def test_in_flight_hot_point_cleared_on_ordinary_hit(monkeypatch, data_dir, profile):
     # animAction.cpp:339-341: hotPoint is cleared for ANY object collision,
     # not only the trailing hard-collision branch. Non-zero hot_point
     # beforehand so the assertion is real.
-    game, actor_idx = _thrown_game(data_dir)
+    game, actor_idx = _thrown_game(data_dir, profile)
     thrown = game.actors[actor_idx]
     thrown.hot_point[:] = [7, 8, 9]
     world = game.world_objects[thrown.index_in_world]
@@ -834,10 +833,10 @@ def test_in_flight_hot_point_cleared_on_ordinary_hit(monkeypatch, data_dir):
     assert list(thrown.hot_point) == [0, 0, 0]
 
 
-def test_in_flight_hot_point_cleared_when_thrower_ignored(monkeypatch, data_dir):
+def test_in_flight_hot_point_cleared_when_thrower_ignored(monkeypatch, data_dir, profile):
     # Same clearing rule, exercised through the original-thrower
     # short-circuit rather than an ordinary hit.
-    game, actor_idx = _thrown_game(data_dir)
+    game, actor_idx = _thrown_game(data_dir, profile)
     thrown = game.actors[actor_idx]
     thrown.hot_point[:] = [4, 5, 6]
     original_world = game.world_objects[thrown.index_in_world].alpha
@@ -849,8 +848,8 @@ def test_in_flight_hot_point_cleared_when_thrower_ignored(monkeypatch, data_dir)
     assert list(thrown.hot_point) == [0, 0, 0]
 
 
-def test_in_flight_publishes_hit_and_stops_when_ordinary_victim(monkeypatch, data_dir):
-    game, actor_idx = _thrown_game(data_dir)
+def test_in_flight_publishes_hit_and_stops_when_ordinary_victim(monkeypatch, data_dir, profile):
+    game, actor_idx = _thrown_game(data_dir, profile)
     thrown = game.actors[actor_idx]
     thrown.hit_force = 55
     world = game.world_objects[thrown.index_in_world]
@@ -874,8 +873,8 @@ def test_in_flight_publishes_hit_and_stops_when_ordinary_victim(monkeypatch, dat
 
 
 @pytest.mark.parametrize("zone_type", [0, 10])
-def test_in_flight_stops_at_first_containing_zone_type_0_or_10(zone_type, monkeypatch, data_dir):
-    game, actor_idx = _thrown_game(data_dir)
+def test_in_flight_stops_at_first_containing_zone_type_0_or_10(zone_type, monkeypatch, data_dir, profile):
+    game, actor_idx = _thrown_game(data_dir, profile)
     thrown = game.actors[actor_idx]
     world = game.world_objects[thrown.index_in_world]
     old_x, old_y, old_z = world.x, world.y, world.z
@@ -895,12 +894,12 @@ def test_in_flight_stops_at_first_containing_zone_type_0_or_10(zone_type, monkey
     assert calls == [(game, actor_idx, old_x, old_z)]
 
 
-def test_in_flight_zone_type_gate_is_load_bearing(monkeypatch, data_dir):
+def test_in_flight_zone_type_gate_is_load_bearing(monkeypatch, data_dir, profile):
     # Adversarial counterpart to the type-0/10 test above: a zone covering
     # the exact same point but with a type outside {0, 10} must NOT stop
     # the throw, proving the branch checks zone.type and not merely "any
     # containing zone".
-    game, actor_idx = _thrown_game(data_dir)
+    game, actor_idx = _thrown_game(data_dir, profile)
     thrown = game.actors[actor_idx]
     world = game.world_objects[thrown.index_in_world]
     old_x, old_y, old_z = world.x, world.y, world.z
@@ -926,8 +925,8 @@ def test_in_flight_zone_type_gate_is_load_bearing(monkeypatch, data_dir):
     )
 
 
-def test_in_flight_hard_collision_stops_and_clears_hot_point(monkeypatch, data_dir):
-    game, actor_idx = _thrown_game(data_dir)
+def test_in_flight_hard_collision_stops_and_clears_hot_point(monkeypatch, data_dir, profile):
+    game, actor_idx = _thrown_game(data_dir, profile)
     thrown = game.actors[actor_idx]
     thrown.hot_point[:] = [7, 8, 9]
     world = game.world_objects[thrown.index_in_world]
@@ -944,8 +943,8 @@ def test_in_flight_hard_collision_stops_and_clears_hot_point(monkeypatch, data_d
     assert calls == [(game, actor_idx, old_x, old_z)]
 
 
-def test_in_flight_commits_actual_position_when_sweep_rejoins_actor_zv(monkeypatch, data_dir):
-    game, actor_idx = _thrown_game(data_dir)
+def test_in_flight_commits_actual_position_when_sweep_rejoins_actor_zv(monkeypatch, data_dir, profile):
+    game, actor_idx = _thrown_game(data_dir, profile)
     thrown = game.actors[actor_idx]
     thrown.room_x, thrown.room_y, thrown.room_z = 100, 200, 300
     thrown.step_x, thrown.step_y, thrown.step_z = 11, 22, 33
@@ -964,12 +963,12 @@ def test_in_flight_commits_actual_position_when_sweep_rejoins_actor_zv(monkeypat
     assert (world.x, world.y, world.z) == (111, 222, 333)
 
 
-def test_in_flight_sweep_continues_until_it_rejoins_actor_zv(monkeypatch, data_dir):
+def test_in_flight_sweep_continues_until_it_rejoins_actor_zv(monkeypatch, data_dir, profile):
     # Proves the loop actually iterates (not just "exits trivially"): the
     # actor's own zv is placed several 100-unit steps away in Z, so the
     # sweep must run multiple times, moving -100/iteration (beta == 0's
     # rotate_step identity swap), before the exit condition is satisfied.
-    game, actor_idx = _thrown_game(data_dir)
+    game, actor_idx = _thrown_game(data_dir, profile)
     thrown = game.actors[actor_idx]
     thrown.beta = 0
     thrown.room_x, thrown.room_y, thrown.room_z = 100, 200, 300

@@ -3,7 +3,6 @@ import struct
 
 from PyAitD.engine.game import FloorStart, init_game
 from PyAitD.engine.life import process_life
-from PyAitD.games.aitd1.profile import AITD1
 import pytest
 
 pytestmark = pytest.mark.engine
@@ -29,21 +28,21 @@ def _run(game, *words, actor=None):
     return game.actors[actor]
 
 
-def test_angle_sets(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_angle_sets(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     a = _run(game, 74, 0x10, 0x20, 0x30, 11)
     assert (a.alpha, a.beta, a.gamma) == (0x10, 0x20, 0x30)
 
 
-def test_life_and_life_mode(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_life_and_life_mode(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     a = _run(game, 24, 1, 31, 5, 11)
     assert a.life_mode == 1
     assert a.life == 5
 
 
-def test_move_init_track(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_move_init_track(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     a = _run(game, 15, 3, 7, 11)
     assert a.track_mode == 3
     assert a.track_number == 7
@@ -51,14 +50,14 @@ def test_move_init_track(data_dir):
     assert a.mark == -1
 
 
-def test_c_var_write(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_c_var_write(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     _run(game, 60, 0, -1, 99, 11)  # LM_C_VAR idx 0, evalVar literal 99
     assert game.cvars[0] == 99
 
 
-def test_found_flag_masked(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_found_flag_masked(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     actor = next(i for i, a in enumerate(game.actors) if a.index_in_world != -1)
     widx = game.actors[actor].index_in_world
     game.world_objects[widx].found_flag = 0xFFFF
@@ -66,8 +65,8 @@ def test_found_flag_masked(data_dir):
     assert game.world_objects[widx].found_flag == (0xFFFF & 0xE000) | 0x23
 
 
-def test_delete_object(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_delete_object(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     actor = next(i for i, a in enumerate(game.actors) if a.index_in_world != -1)
     widx = game.actors[actor].index_in_world
     _run(game, 32, widx, 11, actor=actor)
@@ -75,27 +74,27 @@ def test_delete_object(data_dir):
     assert game.actors[actor].index_in_world == -1
 
 
-def test_stub_consumes_args(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_stub_consumes_args(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     a = _run(game, 43, 123, 65, 456, 11)  # RND_FREQ + SHAKING stubs, args consumed
     assert a.life == 0  # unchanged; no crash = args consumed correctly
 
 
-def test_type_mask(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_type_mask(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     a = _run(game, 40, 0x0010, 11)  # LM_TYPE AF_MOVABLE
     assert a.object_type & 0x0010
 
 
-def test_camera_param_via_cvar(data_dir):
-    game = init_game(data_dir, AITD1, hero=0)
+def test_camera_param_via_cvar(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
     game.num_camera = 0
     _run(game, 60, 0, 0x1C, 11)  # LM_C_VAR idx 0, evalVar property 0x1B
     assert game.cvars[0] == game.camera_param(0)
 
 
-def test_hero_stage_opcode_records_destination(data_dir):
-    game = init_game(data_dir, AITD1)
+def test_hero_stage_opcode_records_destination(data_dir, profile):
+    game = init_game(data_dir, profile)
     hero_idx = game.current_camera_target_actor
     actor = _run(game, 47, 5, 4, -7800, -4010, -1000, 11, actor=hero_idx)
     assert game.floor_start == FloorStart(5, 4, -7800, -4010, -1000, 0)
@@ -104,8 +103,8 @@ def test_hero_stage_opcode_records_destination(data_dir):
     assert (actor.stage, actor.room) == (5, 4)
 
 
-def test_hit_fire_throw_arm_only_when_init_anim_accepts(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_hit_fire_throw_arm_only_when_init_anim_accepts(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     actor_idx = game.current_camera_target_actor
     actor = game.actors[actor_idx]
 
@@ -134,8 +133,8 @@ def test_hit_fire_throw_arm_only_when_init_anim_accepts(data_dir, monkeypatch):
     assert calls == [(100, 0, 101), (100, 0, 101), (200, 2, 201), (300, 2, 301)]
 
 
-def test_hit_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_hit_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     actor_idx = game.current_camera_target_actor
     actor = game.actors[actor_idx]
     actor.anim_action_type = 99
@@ -157,8 +156,8 @@ def test_hit_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(data
     assert (result.anim_action_param, result.hot_point_id, result.hit_force) == (77, 88, 44)
 
 
-def test_fire_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_fire_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     actor_idx = game.current_camera_target_actor
     actor = game.actors[actor_idx]
     actor.anim_action_type = 99
@@ -175,8 +174,8 @@ def test_fire_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(dat
     assert (result.anim_action_param, result.hot_point_id, result.hit_force) == (77, 88, 44)
 
 
-def test_throw_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(data_dir, monkeypatch):
-    game = init_game(data_dir, AITD1)
+def test_throw_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(data_dir, profile, monkeypatch):
+    game = init_game(data_dir, profile)
     actor_idx = game.current_camera_target_actor
     actor = game.actors[actor_idx]
     actor.anim_action_type = 99
@@ -200,7 +199,7 @@ def test_throw_rejected_by_init_anim_consumes_operands_and_leaves_state_alone(da
     assert world.found_flag == found_flag
 
 
-def test_reduced_stage_onto_the_current_floor_requests_a_spawn(data_dir):
+def test_reduced_stage_onto_the_current_floor_requests_a_spawn(data_dir, profile):
     # FITD regenerates the active list every frame (mainLoop.cpp:249,
     # GenereActiveList main.cpp:1990), so a world object moved onto the
     # current floor by the reduced LM_STAGE (life.cpp:620) spawns next frame.
@@ -208,7 +207,7 @@ def test_reduced_stage_onto_the_current_floor_requests_a_spawn(data_dir):
     # raise it.
     from types import SimpleNamespace
     from PyAitD.games.aitd1.life_reduced import reduced_dispatch
-    game = init_game(data_dir, AITD1, hero=0)
+    game = init_game(data_dir, profile, hero=0)
     game.flag_genere_aff_list = 0
     vm = SimpleNamespace(game=game, script=struct.pack("<5h", 0, 2, 10, 20, 30), pc=0)
     reduced_dispatch(vm, 47, 288)

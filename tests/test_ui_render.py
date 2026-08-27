@@ -10,7 +10,6 @@ from PyAitD.app.config import default_settings
 from PyAitD.engine.effects import FoundResult, ReadText, ShowFound, ShowPicture, TimedMessage
 from PyAitD.engine.game import init_game
 from PyAitD.engine.text import BookToken
-from PyAitD.games.aitd1.profile import AITD1
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
     FoundPresenter, InventoryPresenter, ModalLayout, ReadingPresenter, ReadingResult,
@@ -25,9 +24,9 @@ from PyAitD.app.ui import (
 pytestmark = pytest.mark.shell
 
 
-def test_modal_renderers_return_logical_rgb_frames(data_dir):
+def test_modal_renderers_return_logical_rgb_frames(data_dir, profile):
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     frames = [
         render_found(
             ShowFound(13, False), FoundPresenter(), game.assets,
@@ -51,9 +50,9 @@ def test_book_layout_preserves_tab_prefix_and_center_flag():
     assert pages[0][0] == ("    Entry", True)
 
 
-def test_message_overlay_does_not_mutate_source_frame(data_dir):
+def test_message_overlay_does_not_mutate_source_frame(data_dir, profile):
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     source = np.zeros((200, 320, 3), dtype=np.uint8)
     result = overlay_messages(source, [TimedMessage(100), None, None, None, None], game.assets)
     assert np.count_nonzero(source) == 0
@@ -133,10 +132,10 @@ def test_game_over_locked_frame_is_identical_and_ready_frame_is_overlayed():
     assert not np.array_equal(ready, source)
 
 
-def test_big_cadre_pins_fitd_interior_and_ring(data_dir):
+def test_big_cadre_pins_fitd_interior_and_ring(data_dir, profile):
     surface = pygame.Surface((320, 200))
     surface.fill((0, 0, 0))
-    interior = draw_big_cadre(surface, Assets(data_dir, AITD1).cadre_bank(), (160, 100), (320, 200))
+    interior = draw_big_cadre(surface, Assets(data_dir, profile).cadre_bank(), (160, 100), (320, 200))
     assert interior == pygame.Rect(8, 8, 304, 184)
     frame = pygame.surfarray.array3d(surface).swapaxes(0, 1)
     assert np.count_nonzero(frame) > 0, "the cadre ring drew nothing"
@@ -144,8 +143,8 @@ def test_big_cadre_pins_fitd_interior_and_ring(data_dir):
     assert np.count_nonzero(inside) == 0, "the cadre interior must stay black"
 
 
-def test_character_portraits_restore_art_inside_fitd_cadre(data_dir):
-    assets = Assets(data_dir, AITD1)
+def test_character_portraits_restore_art_inside_fitd_cadre(data_dir, profile):
+    assets = Assets(data_dir, profile)
     base = assets.resource_screen(10)
     frame = render_character_select(CharacterSelectPresenter(choice=0), assets)
     left = CharacterLayout.PORTRAITS[0]
@@ -154,8 +153,8 @@ def test_character_portraits_restore_art_inside_fitd_cadre(data_dir):
     assert not np.array_equal(frame, base)
 
 
-def test_hover_preview_overrides_keyboard_selection_without_changing_it(data_dir):
-    assets = Assets(data_dir, AITD1)
+def test_hover_preview_overrides_keyboard_selection_without_changing_it(data_dir, profile):
+    assets = Assets(data_dir, profile)
     scene = np.zeros((200, 320, 3), dtype=np.uint8)
 
     found = FoundPresenter(choice=FoundResult.TAKE, hover=FoundResult.LEAVE)
@@ -201,9 +200,9 @@ def test_hover_preview_overrides_keyboard_selection_without_changing_it(data_dir
      (1, 0, pygame.Rect(0, 0, 160, 200))),
 )
 def test_story_composes_the_opposite_intro_half_and_expected_text(
-    data_dir, choice, hero, copied,
+    data_dir, profile, choice, hero, copied,
 ):
-    assets = Assets(data_dir, AITD1)
+    assets = Assets(data_dir, profile)
     presenter = CharacterSelectPresenter(choice=choice, phase=CharacterPhase.STORY)
     frame = render_character_select(presenter, assets)
     intro = assets.resource_screen(14)
@@ -226,9 +225,9 @@ def test_settings_notice_overlays_without_mutating_the_mode_frame():
 
 
 @pytest.mark.parametrize("page", tuple(SystemMenuPage))
-def test_system_menu_is_a_logical_rgb_frame(data_dir, page):
+def test_system_menu_is_a_logical_rgb_frame(data_dir, profile, page):
     frame = render_system_menu(
-        SystemMenuPresenter(page=page), default_settings(), Assets(data_dir, AITD1),
+        SystemMenuPresenter(page=page), default_settings(), Assets(data_dir, profile),
     )
     assert frame.shape == (200, 320, 3)
     assert frame.dtype == np.uint8
@@ -303,9 +302,9 @@ def test_character_layout_portraits_come_from_the_export_guide_rects():
     assert tuple(tuple(r) for r in CharacterLayout.PORTRAITS) == be.PORTRAIT_RECTS
 
 
-def test_character_select_uses_a_screen_override_outside_the_portraits(data_dir, tmp_path):
+def test_character_select_uses_a_screen_override_outside_the_portraits(data_dir, profile, tmp_path):
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     path = override_screen_path(tmp_path, 10)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"png")
@@ -323,9 +322,9 @@ def test_character_select_uses_a_screen_override_outside_the_portraits(data_dir,
     assert tuple(original[y + 5, x + 5]) != (0, 255, 0)      # sanity: real art there with no override
 
 
-def test_reading_and_picture_accept_a_resolver(data_dir):
+def test_reading_and_picture_accept_a_resolver(data_dir, profile):
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     resolver = AssetResolver(game.assets, None)
     a = render_reading(ReadText(1, 0), ReadingPresenter(), game.assets, resolver)
     b = render_picture(ShowPicture(10, 60, 4), game.assets, resolver)
@@ -338,12 +337,12 @@ def test_modal_reading_buttons_come_from_the_export_guide_rects():
     assert tuple(ModalLayout.READING_NEXT) == be.READING_NEXT_RECT
 
 
-def test_screen_surface_is_memoized_per_resolver_and_entry(data_dir):
+def test_screen_surface_is_memoized_per_resolver_and_entry(data_dir, profile):
     """shell.py's render loop calls screen_surface every frame for the same
     resolver/entry (character select at 60 Hz); the scaled Surface must be
     reused rather than rebuilt from scratch each call."""
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     resolver = AssetResolver(game.assets, None)
     first = screen_surface(resolver, 10)
     second = screen_surface(resolver, 10)
@@ -354,13 +353,13 @@ def test_screen_surface_is_memoized_per_resolver_and_entry(data_dir):
     assert other_resolver is not first
 
 
-def test_render_reading_does_not_leak_drawing_into_the_cached_screen_surface(data_dir):
+def test_render_reading_does_not_leak_drawing_into_the_cached_screen_surface(data_dir, profile):
     """screen_surface now returns a shared, cached Surface for repeat calls;
     render_reading must copy it before drawing text/buttons on it, or a
     second call for the same resolver would draw over the first call's
     leftover pixels instead of a clean background."""
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     resolver = AssetResolver(game.assets, None)
     presenter = ReadingPresenter()
     first = render_reading(ReadText(1, 0), presenter, game.assets, resolver)
@@ -368,11 +367,11 @@ def test_render_reading_does_not_leak_drawing_into_the_cached_screen_surface(dat
     assert (first == second).all()
 
 
-def test_render_character_select_story_phase_does_not_leak_across_calls(data_dir):
+def test_render_character_select_story_phase_does_not_leak_across_calls(data_dir, profile):
     """Same hazard as render_reading, for the STORY overlay: it blits half
     of resource 14 and book text onto the (now cached) resource-10 surface."""
     pygame.font.init()
-    game = init_game(data_dir, AITD1)
+    game = init_game(data_dir, profile)
     resolver = AssetResolver(game.assets, None)
     presenter = CharacterSelectPresenter(choice=0, phase=CharacterPhase.STORY)
     first = render_character_select(presenter, game.assets, resolver)
