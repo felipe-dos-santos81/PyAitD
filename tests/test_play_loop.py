@@ -2105,37 +2105,47 @@ def test_release_and_a_fresh_press_clears_follow_spent(data_dir, profile, monkey
     assert len(queue) == 0
 
 
-def _cut_fixture(data_dir, profile, after_cut):
-    """A held walk plus a camera slot that changes what the pointer means.
+def _sampled_pixels():
+    """The logical frame at a stride coarse enough to scan with the real
+    resolver, bottom-up: the lower rows are where the attic's floor is."""
+    return ((x, y) for y in range(199, 60, -7) for x in range(5, 320, 7))
 
-    Returns (game, floor, buf, pixel, cut_slot): `pixel` is a real floor pixel
-    the resolver reports as "walk" under the hero's starting camera and as
-    `after_cut` ("walk" to somewhere else, or "blocked") under `cut_slot`.
-    Scanned from real data rather than hard-coded: which pixel qualifies is a
-    property of the attic's five cameras, not of the test.
+
+def _cut_fixture(data_dir, profile, after_cut):
+    """A held walk mid-flight plus a camera slot that changes what the
+    pointer means.
+
+    Returns (game, floor, buf, pixel, cut_slot, before): the press has already
+    been routed, so `before` is the destination the hold is heading for.
+    `pixel` is a real floor pixel the resolver reports as "walk" under the
+    hero's starting camera and as `after_cut` ("walk" to somewhere else, or
+    "blocked") under `cut_slot`. Scanned from real data rather than
+    hard-coded: which pixel qualifies is a property of the attic's five
+    cameras, not of the test.
     """
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     slots = range(len(floor.rooms[game.actors[
         game.current_camera_target_actor].room].camera_indices))
-    for y in range(199, 60, -7):
-        for x in range(5, 320, 7):
-            game.num_camera = game.new_num_camera
-            kind, payload = resolve_play_click(game, floor, (x, y), [])
-            if kind != "walk":
+    for pixel in _sampled_pixels():
+        game.num_camera = game.new_num_camera
+        kind, payload = resolve_play_click(game, floor, pixel, [])
+        if kind != "walk":
+            continue
+        for slot in slots:
+            if slot == game.new_num_camera:
                 continue
-            for slot in slots:
-                if slot == game.new_num_camera:
-                    continue
-                game.num_camera = slot
-                cut_kind, cut_payload = resolve_play_click(game, floor, (x, y), [])
-                if cut_kind != after_cut or cut_payload == payload:
-                    continue
-                game.num_camera = game.new_num_camera
-                return game, floor, InputBuffer(
-                    pointer_held=True, pointer_pos=(x, y),
-                ), (x, y), slot
+            game.num_camera = slot
+            cut_kind, cut_payload = resolve_play_click(game, floor, pixel, [])
+            if cut_kind != after_cut or cut_payload == payload:
+                continue
+            game.num_camera = game.new_num_camera
+            buf = held_pointer(pixel)
+            route_play_click(game, ModalSession(), floor, pixel, [], buf)
+            intent = game.nav_intent
+            before = (intent.dest_x, intent.dest_z, intent.room)
+            return game, floor, buf, pixel, slot, before
     raise AssertionError(f"no floor pixel turns {after_cut!r} across a cut")
 
 
@@ -2145,10 +2155,9 @@ def test_a_camera_cut_with_a_still_pointer_keeps_the_destination(data_dir, profi
     # player never pointed at. A cut is not a gesture: with the hand still, the
     # destination must not move.
     import PyAitD.app.shell as main
-    game, floor, buf, pixel, cut_slot = _cut_fixture(data_dir, profile, "walk")
-    route_play_click(game, ModalSession(), floor, pixel, [], buf)
-    intent = game.nav_intent
-    before = (intent.dest_x, intent.dest_z, intent.room)
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
 
     game.num_camera = cut_slot   # what _camera_switch + InitView leave behind
     main.follow_pointer(game, ModalSession(), floor, pixel, [], buf)
@@ -2164,10 +2173,9 @@ def test_a_camera_cut_that_blocks_the_pixel_does_not_stop_the_hero(data_dir, pro
     # cancels the intent: the hero stops dead mid-hold and stays stopped until
     # the pointer physically moves.
     import PyAitD.app.shell as main
-    game, floor, buf, pixel, cut_slot = _cut_fixture(data_dir, profile, "blocked")
-    route_play_click(game, ModalSession(), floor, pixel, [], buf)
-    intent = game.nav_intent
-    before = (intent.dest_x, intent.dest_z, intent.room)
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "blocked",
+    )
 
     game.num_camera = cut_slot
     main.follow_pointer(game, ModalSession(), floor, pixel, [], buf)
@@ -2182,18 +2190,17 @@ def test_pointer_motion_after_a_cut_still_retargets(data_dir, profile):
     # The freeze is on the cut, not on the follow: moving the hand after a cut
     # must still aim the hero, resolved against the camera now on screen.
     import PyAitD.app.shell as main
-    game, floor, buf, pixel, cut_slot = _cut_fixture(data_dir, profile, "walk")
-    route_play_click(game, ModalSession(), floor, pixel, [], buf)
-    intent = game.nav_intent
-    before = (intent.dest_x, intent.dest_z, intent.room)
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
 
     game.num_camera = cut_slot
     moved = next(
-        (x, y)
-        for y in range(199, 60, -7) for x in range(5, 320, 7)
-        if (x, y) != pixel
-        and resolve_play_click(game, floor, (x, y), [])[0] == "walk"
-        and resolve_play_click(game, floor, (x, y), [])[1][:3] != before
+        candidate
+        for candidate in _sampled_pixels()
+        if candidate != pixel
+        and (resolved := resolve_play_click(game, floor, candidate, []))[0] == "walk"
+        and resolved[1][:3] != before
     )
     buf.pointer_pos = moved
     main.follow_pointer(game, ModalSession(), floor, moved, [], buf)
@@ -2256,33 +2263,47 @@ def _press(main, game, floor, buf, near, monkeypatch, tick):
     return game.nav_intent
 
 
+def _primed(main, game, floor, buf, near, monkeypatch, tick=100):
+    """A hold opened at `tick` and released, so the next press has something
+    to be the second half of."""
+    intent = _press(main, game, floor, buf, near, monkeypatch, tick)
+    main._cancel_follow(game, buf)
+    return intent
+
+
 def test_a_second_press_inside_the_double_press_window_runs(
         data_dir, profile, monkeypatch):
-    # FITD's own run gesture is a double-tap forward within 10 game ticks
-    # (tracks._process_track_manual); the mouse reads a double press the same
-    # way, against the same clock.
+    # FITD's own run gesture is a double-tap forward inside DOUBLE_TAP_TICKS
+    # (tracks._process_track_manual); the mouse reads a double press against
+    # the same clock, the same window and the same strict comparison.
     import PyAitD.app.shell as main
+    from PyAitD.engine.tracks import DOUBLE_TAP_TICKS
     game, floor, buf, near, far = _follow_fixture(data_dir, profile)
-    assert _press(main, game, floor, buf, near, monkeypatch, 100).run is False, (
+    assert _primed(main, game, floor, buf, near, monkeypatch).run is False, (
         "a first press walks: there is nothing to be the second half of"
     )
-    main._cancel_follow(game, buf)   # the release between the two presses
 
-    intent = _press(main, game, floor, buf, far, monkeypatch, 110)
+    intent = _press(
+        main, game, floor, buf, far, monkeypatch, 100 + DOUBLE_TAP_TICKS - 1,
+    )
 
     assert intent.run is True
     assert buf.pointer_run is True
 
 
-def test_a_second_press_after_the_window_walks(data_dir, profile, monkeypatch):
+def test_a_second_press_outside_the_window_walks(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
+    from PyAitD.engine.tracks import DOUBLE_TAP_TICKS
     game, floor, buf, near, far = _follow_fixture(data_dir, profile)
-    _press(main, game, floor, buf, near, monkeypatch, 100)
-    main._cancel_follow(game, buf)
+    _primed(main, game, floor, buf, near, monkeypatch)
 
-    intent = _press(main, game, floor, buf, far, monkeypatch, 111)
+    intent = _press(
+        main, game, floor, buf, far, monkeypatch, 100 + DOUBLE_TAP_TICKS,
+    )
 
-    assert intent.run is False, "one tick past the window is a plain walk"
+    assert intent.run is False, (
+        "the window is exclusive, the way _process_track_manual reads it"
+    )
     assert buf.pointer_run is False
 
 
@@ -2292,8 +2313,7 @@ def test_a_retarget_within_a_running_hold_keeps_running(
     # else without releasing must not drop the hero back to a walk.
     import PyAitD.app.shell as main
     game, floor, buf, near, far = _follow_fixture(data_dir, profile)
-    _press(main, game, floor, buf, near, monkeypatch, 100)
-    main._cancel_follow(game, buf)
+    _primed(main, game, floor, buf, near, monkeypatch)
     assert _press(main, game, floor, buf, near, monkeypatch, 105).run is True
 
     _resolving(monkeypatch, [("walk", far)])
@@ -2310,8 +2330,7 @@ def test_release_ends_the_run_but_keeps_the_press_clock(
     # to outlive the release that ends the run it started.
     import PyAitD.app.shell as main
     game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
-    _press(main, game, floor, buf, near, monkeypatch, 100)
-    main._cancel_follow(game, buf)
+    _primed(main, game, floor, buf, near, monkeypatch)
     _press(main, game, floor, buf, near, monkeypatch, 105)
     assert buf.pointer_run is True
 
@@ -2329,8 +2348,7 @@ def test_a_held_push_never_runs(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
     from PyAitD.engine.interaction import apply_click_intent
     game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
-    _press(main, game, floor, buf, near, monkeypatch, 100)
-    main._cancel_follow(game, buf)
+    _primed(main, game, floor, buf, near, monkeypatch)
     game.timer = 105
     _resolving(monkeypatch, [("push", near)])
     route_play_click(game, ModalSession(), floor, (10, 10), [], buf)

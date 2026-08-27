@@ -7,6 +7,11 @@ from PyAitD.engine.world import cdiv as _cdiv, room_delta, rotate_step
 
 TL_INIT_COOR, TL_GOTO, TL_END, TL_REPEAT, TL_MARK = 0, 1, 2, 3, 4
 TL_WALK, TL_RUN, TL_STOP, TL_BACK, TL_SET_ANGLE = 5, 6, 7, 8, 9
+# track.cpp: a second forward press this soon after the last one runs instead
+# of walking. Named here, where the keyboard's own double tap reads it, so the
+# mouse's double press (app.shell._stamp_press) measures one rule against one
+# clock rather than declaring a second 10 of its own.
+DOUBLE_TAP_TICKS = 10
 TL_COL_OFF, TL_COL_ON, TL_SET_DIST, TL_DEC_OFF, TL_DEC_ON = 10, 11, 12, 13, 14
 TL_GOTO_3D, TL_MEMO_COOR, TL_GOTO_3DX, TL_GOTO_3DZ, TL_ANGLE, TL_CLOSE = 15, 16, 17, 18, 19, 20
 
@@ -105,7 +110,7 @@ def _process_track_manual(game, actor):
     joyd = game.local_joyd
     gere_manual_rot(actor, 60, joyd, game.timer)
     if joyd & 1:
-        if game.timer - game._last_time_forward < 10 and actor.speed != 4:
+        if game.timer - game._last_time_forward < DOUBLE_TAP_TICKS and actor.speed != 4:
             actor.speed = 5
         else:
             if actor.speed == 0 or actor.speed == -1:

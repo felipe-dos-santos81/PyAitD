@@ -71,8 +71,8 @@ class InputBuffer:
     # requires_hold intent) dies mid-hold. Cleared alongside follow_last on
     # release, so a fresh press is what restarts the follow.
     follow_spent: bool = False
-    # A press landing within DOUBLE_PRESS_TICKS of the previous one runs instead
-    # of walks, the mouse's answer to FITD's double-tap forward
+    # A press landing within tracks.DOUBLE_TAP_TICKS of the previous one runs
+    # instead of walks, the mouse's answer to FITD's double-tap forward
     # (tracks._process_track_manual). Cleared by reset_input like every other
     # hold state, so a run never outlives the hold that started it.
     pointer_run: bool = False
@@ -114,16 +114,6 @@ def compile_bindings(settings):
                 raise ValueError(f"unknown pygame key name {name!r}") from exc
             compiled[code] = control
     return compiled
-
-
-# FITD gives the keyboard a run when the second forward press lands within 10
-# game ticks of the first (tracks._process_track_manual, reading game.timer at
-# 50Hz -- 200ms). The mouse is measured in the same unit against the same
-# clock rather than in wall-clock milliseconds off a second one: the two
-# schemes then describe one gesture, and both stop counting while a modal has
-# the game paused, so a press before the inventory and one after it are never
-# a double press however long the player spent in there.
-DOUBLE_PRESS_TICKS = 10
 
 
 def reset_input(state):

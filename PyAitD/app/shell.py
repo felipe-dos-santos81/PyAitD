@@ -18,12 +18,13 @@ from PyAitD.engine.pak import PakError
 # imported by name, not module-qualified: run() reads play_tick as a module
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.engine.playworld import TICK_MS, play_tick
+from PyAitD.engine.tracks import DOUBLE_TAP_TICKS
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import BACKGROUND_FILTERS, SHADING_MODES, validate_render_options
 from PyAitD.games import load_profile
 from PyAitD.render.scene import build_frame
 from PyAitD.app.ui import (
-    Command, DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, configure_input, event_to_input,
+    Command, InputBuffer, ModalSession, configure_input, event_to_input,
     hit_test_settings_notice, render_cursor, render_hit_feedback, render_play_hud,
     render_settings_notice, reset_input, transparent_canvas,
 )
@@ -391,17 +392,18 @@ def route_play_click(
 def _stamp_press(game, input_buffer):
     """Decide whether this press is the second half of a double press.
 
-    Timed on game.timer, the clock FITD's own double-tap forward uses
-    (tracks._process_track_manual), so the two schemes share one rhythm and
-    both stop counting while a modal has the game paused. Every PLAY press is
-    stamped, not just the walks: two presses are two presses whatever each one
-    turned out to resolve to.
+    Timed on game.timer against tracks.DOUBLE_TAP_TICKS -- the same clock and
+    the same window as FITD's own double-tap forward
+    (tracks._process_track_manual), down to the strict comparison, so the two
+    schemes are one rule and both stop counting while a modal has the game
+    paused. Every PLAY press is stamped, not just the walks: two presses are
+    two presses whatever each one turned out to resolve to.
     """
     if input_buffer is None:
         return
     previous = input_buffer.last_press_tick
     input_buffer.pointer_run = (
-        previous is not None and game.timer - previous <= DOUBLE_PRESS_TICKS
+        previous is not None and game.timer - previous < DOUBLE_TAP_TICKS
     )
     input_buffer.last_press_tick = game.timer
 
@@ -477,26 +479,40 @@ def _cancel_pointer_invalidation(game, event, input_buffer):
     return _cancel_follow(game, input_buffer)
 
 
-def _cancel_follow(game, input_buffer):
-    """Drop any navigation intent and the follow latch. True when an intent
-    was live. The buffer is optional only for callers that own no buffer.
+def _drop_destination(game, input_buffer):
+    """Forget where this hold was heading and which pixel said so, and drop
+    the intent that was carrying it. True when an intent was live.
 
-    Clearing follow_spent here is what makes "released and pressed again"
-    work: _cancel_pointer_invalidation runs this on MOUSEBUTTONUP and on
-    focus loss, so a spent hold cannot outlive the release that ends it.
+    The whole of what ending a *destination* means; what ending the *hold*
+    additionally means is the two lines in _cancel_follow below. Keeping them
+    apart is what stops the next per-hold buffer field from being cleared in
+    one path and silently forgotten in the other. The buffer is optional only
+    for callers that own no buffer.
     """
     from PyAitD.engine.interaction import cancel_nav_intent
     if input_buffer is not None:
         input_buffer.follow_last = None
         input_buffer.follow_pos = None
-        input_buffer.follow_spent = False
-        # the run belongs to the hold; last_press_tick survives, since it is
-        # what the *next* press is measured against
-        input_buffer.pointer_run = False
     if game.nav_intent is None:
         return False
     cancel_nav_intent(game)
     return True
+
+
+def _cancel_follow(game, input_buffer):
+    """End the hold itself: the destination, plus everything that belonged to
+    the press that opened it.
+
+    Clearing follow_spent here is what makes "released and pressed again"
+    work: _cancel_pointer_invalidation runs this on MOUSEBUTTONUP and on
+    focus loss, so a spent hold cannot outlive the release that ends it. The
+    run goes the same way, while last_press_tick survives -- it is what the
+    *next* press is measured against.
+    """
+    if input_buffer is not None:
+        input_buffer.follow_spent = False
+        input_buffer.pointer_run = False
+    return _drop_destination(game, input_buffer)
 
 
 def _rebase_follow(game, input_buffer):
@@ -504,18 +520,11 @@ def _rebase_follow(game, input_buffer):
 
     A floor change invalidates the intent -- its `room` indexes the floor that
     was just unloaded -- but the button never came up, so ending the hold here
-    would stop the hero dead on the stairs and demand a fresh press. Clearing
-    follow_pos instead is the one case where a still pointer is re-resolved:
+    would stop the hero dead on the stairs and demand a fresh press. The
+    cleared follow_pos is the one case where a still pointer is re-resolved:
     the old destination is gone, so there is nothing left to hold on to.
     """
-    from PyAitD.engine.interaction import cancel_nav_intent
-    if input_buffer is not None:
-        input_buffer.follow_last = None
-        input_buffer.follow_pos = None
-    if game.nav_intent is None:
-        return False
-    cancel_nav_intent(game)
-    return True
+    return _drop_destination(game, input_buffer)
 
 
 def _play_cursor_kind(game, floor, hover, draw_list, input_buffer):
