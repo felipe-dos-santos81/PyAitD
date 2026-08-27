@@ -10,16 +10,7 @@ from PyAitD.engine.interaction import PLAYER_PUSH_ANIM
 from PyAitD.engine.playworld import _anim_pass, play_tick
 from PyAitD.app.ui import InputBuffer
 
-from tests.purity import assert_presentation_free
-
 pytestmark = pytest.mark.engine
-
-
-def test_playworld_does_not_import_the_presentation_layer():
-    assert_presentation_free(
-        "PyAitD.engine.playworld", "PyAitD.engine.anim_action",
-        why=" — the tick must stay importable without the presentation layer so it can run headless",
-    )
 
 
 def test_play_tick_advances_the_world_without_a_display(data_dir):

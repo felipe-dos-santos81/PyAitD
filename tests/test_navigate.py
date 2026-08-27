@@ -7,14 +7,9 @@ from PyAitD.engine.navigate import (
 )
 from PyAitD.engine.tracks import cap_objet
 
-from tests.purity import assert_presentation_free
 import pytest
 
 pytestmark = pytest.mark.engine
-
-
-def test_navigate_does_not_import_the_presentation_layer():
-    assert_presentation_free("PyAitD.engine.navigate")
 
 
 class _Game:

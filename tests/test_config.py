@@ -9,8 +9,6 @@ from PyAitD.app.config import (
 )
 from PyAitD.render.render_options import RenderOptions
 
-from tests.purity import assert_presentation_free
-
 pytestmark = pytest.mark.shell
 
 
@@ -68,10 +66,6 @@ def test_settings_paths_are_platform_specific(tmp_path):
     assert settings_path(platform="linux", home=tmp_path) == (
         tmp_path / ".config" / "pyaitd" / "settings.json"
     )
-
-
-def test_config_module_does_not_import_pygame():
-    assert_presentation_free("PyAitD.app.config", forbidden=("pygame",))
 
 
 INVALID_PAYLOADS = {

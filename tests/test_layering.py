@@ -12,7 +12,7 @@ import pathlib
 
 import pytest
 
-from tests.purity import PRESENTATION
+from tests.purity import PRESENTATION, assert_presentation_free
 
 pytestmark = pytest.mark.meta
 
@@ -132,3 +132,32 @@ def test_every_python_file_starts_with_the_spdx_line():
         if p.open().readline().rstrip("\n") != "# SPDX-License-Identifier: GPL-2.0-only"
     ]
     assert not missing, missing
+
+
+# The runtime twin of the static import scan above: a module can pass the ast
+# check and still drag the presentation layer in through a transitive import,
+# so each of these is imported in a fresh interpreter. Folded here from six
+# separate test files so the package rules live in one place
+# (2026-08-26-engine-package-reorganization-design.md:110-113). Rows are the
+# modules whose headless importability is load-bearing, each with its reason.
+PRESENTATION_FREE = (
+    ("PyAitD.engine.navigate", PRESENTATION, ""),
+    ("PyAitD.engine.navmesh", PRESENTATION,
+     " — the mesh must stay importable without the presentation layer so it can build headless"),
+    ("PyAitD.engine.picking", PRESENTATION,
+     " — picking is pure math and must not need a window; the shell passes it logical coordinates"),
+    ("PyAitD.engine.playworld,PyAitD.engine.anim_action", PRESENTATION,
+     " — the tick must stay importable without the presentation layer so it can run headless"),
+    ("PyAitD.games.aitd1.mouse_contract", PRESENTATION, ""),
+    # app/config is allowed the rest of the presentation layer; it must only
+    # stay free of pygame so settings can be read and written headless.
+    ("PyAitD.app.config", ("pygame",), ""),
+)
+
+
+@pytest.mark.parametrize(
+    "modules, forbidden, why", PRESENTATION_FREE,
+    ids=[row[0] for row in PRESENTATION_FREE],
+)
+def test_module_imports_stay_presentation_free(modules, forbidden, why):
+    assert_presentation_free(*modules.split(","), forbidden=forbidden, why=why)

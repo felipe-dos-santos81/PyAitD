@@ -7,17 +7,9 @@ from PyAitD.engine.navmesh import COVER_SCALE, GRID_STEP, agent_extent, build_co
 from PyAitD.engine.world import is_in_poly
 from PyAitD.games.aitd1.profile import AITD1
 
-from tests.purity import assert_presentation_free
 import pytest
 
 pytestmark = pytest.mark.engine
-
-
-def test_navmesh_does_not_import_the_presentation_layer():
-    assert_presentation_free(
-        "PyAitD.engine.navmesh",
-        why=" — the mesh must stay importable without the presentation layer so it can build headless",
-    )
 
 
 def test_cover_grid_shape_and_union_are_pinned(data_dir):
