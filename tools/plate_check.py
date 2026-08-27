@@ -14,7 +14,7 @@ import numpy as np
 from PyAitD.render.background_export import draw_polyline, layout_segments
 
 W, H = 320, 200
-THRESHOLDS = {"ncc": 0.50, "edge_recall": 0.60, "region_recall": 0.50,
+THRESHOLDS = {"ncc": 0.50, "edge_recall": 0.60, "region_recall": 0.70,
               "leak": 0.02, "leak_frame": 0.005, "plain": 0.02}
 MIN_REGION_EDGES = 20        # fewer original edge pixels: the region says nothing
 MIN_REGION_AREA = 0.005      # of the frame; smaller regions are dropped

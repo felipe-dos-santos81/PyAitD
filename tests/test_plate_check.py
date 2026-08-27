@@ -103,3 +103,22 @@ def test_gate_rejects_wrong_shapes():
         pc.gate(np.zeros((400, 640, 3), np.uint8), scene(), LAYOUT)
     with pytest.raises(ValueError):
         pc.gate(nearest_upscale(scene(), 4), np.zeros((100, 160, 3), np.uint8), LAYOUT)
+
+
+def test_every_original_passes_the_gate_against_itself(data_dir, profile):
+    """Calibration guard: the pixel-art originals must never trip the gate
+    or the guide-colour bands (green cloths, blue windows) by themselves."""
+    from PyAitD.engine.floor import Floor
+    from PyAitD.render.background_export import layout_geometry
+    failed = []
+    for number in range(8):
+        floor = Floor(data_dir, number, profile)
+        for cam_idx in range(len(floor.cameras)):
+            try:
+                original = floor.camera_image(cam_idx)
+            except KeyError:
+                continue
+            r = pc.gate(nearest_upscale(original, 4), original, layout_geometry(floor, cam_idx))
+            if not r.passed or r.scores["leak_frame"] >= 0.005:
+                failed.append((number, cam_idx, r.failures, r.scores["leak_frame"]))
+    assert failed == []
