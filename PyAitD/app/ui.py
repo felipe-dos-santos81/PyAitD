@@ -121,6 +121,7 @@ def reset_input(state):
     state.mouse_attack_target = None
     state.mouse_attack_ticks = 0
     state.follow_last = None
+    state.follow_pos = None
     state.follow_spent = False
     state.commands.clear()
 
