@@ -699,6 +699,36 @@ class UIPainter:
         every scale -- see layout_book."""
         return _font(size).size(label)
 
+    def blit(self, surface, logical_dest, area=None):
+        """Blit a surface that is ALREADY at canvas scale, positioning it by
+        logical coordinates. `area` is a logical sub-rect of the source."""
+        self.surface.blit(
+            surface, self._pt(logical_dest),
+            None if area is None else self._rect(area),
+        )
+
+    def sprite(self, source, logical_dest, area=None):
+        """Blit logical-size art, nearest-upscaled by an integer factor.
+
+        Game pixel art does not survive fractional resampling, so the factor
+        is rounded and the art stays exact and blocky; the fractional
+        remainder shows as at most a pixel of placement, never as filtering.
+        """
+        surface = source if isinstance(source, pygame.Surface) else _to_surface(source)
+        factor = max(1, round(self.scale))
+        if factor != 1:
+            width, height = surface.get_size()
+            surface = pygame.transform.scale(surface, (width * factor, height * factor))
+        dest = self._pt(logical_dest)
+        if area is None:
+            self.surface.blit(surface, dest)
+        else:
+            area = pygame.Rect(area)
+            self.surface.blit(surface, dest, pygame.Rect(
+                area.left * factor, area.top * factor,
+                area.width * factor, area.height * factor,
+            ))
+
     def to_frame(self):
         return _to_frame(self.surface)
 
@@ -721,40 +751,49 @@ def _to_frame(surface):
     return np.ascontiguousarray(rgb)
 
 
-# Per-resolver cache of the scaled 320x200 Surface for each ITD_RESS entry,
-# so the character-select/STORY/reading screens (rendered every frame by
-# shell.py's render loop) don't redo _to_surface + smoothscale from scratch
-# at 60 Hz. Keyed weakly on the resolver so the cache dies with it; each
-# entry's cache slot holds the pixels array alongside the surface (a strong
-# reference) and is only reused when that pixels object is still the one
-# AssetResolver.resource_screen returns for the entry -- guaranteed stable
-# across calls for the same entry (test_resource_screen_override_is_used_at_
-# any_size_and_cached), but invalidated by e.g. Assets.clear(). Comparing the
-# held array by identity, rather than caching under some derived key like
-# id(pixels), means a garbage-collected-and-reused id can never produce a
-# false hit.
+# Per-resolver cache of the scaled Surface for each (ITD_RESS entry, target
+# size), so the character-select/STORY/reading screens (rendered every frame
+# by shell.py's render loop) don't redo _to_surface + scale from scratch at
+# 60 Hz. Keyed weakly on the resolver so the cache dies with it; each
+# (entry, size) cache slot holds the pixels array alongside the surface (a
+# strong reference) and is only reused when that pixels object is still the
+# one AssetResolver.resource_screen returns for the entry -- guaranteed
+# stable across calls for the same entry (test_resource_screen_override_is_
+# used_at_any_size_and_cached), but invalidated by e.g. Assets.clear().
+# Comparing the held array by identity, rather than caching under some
+# derived key like id(pixels), means a garbage-collected-and-reused id can
+# never produce a false hit.
 _SCREEN_SURFACE_CACHE = WeakKeyDictionary()
 
 
-def screen_surface(resolver, entry):
-    """An ITD_RESS full-screen resource as a 320x200 surface, cached per
-    (resolver, entry). An override of any other size is smooth-scaled
-    down/up here so every rect the callers blit over (portraits, text
-    columns, cadre) stays in 320x200 space.
-    ponytail: compositing at override resolution is the upgrade path.
+def screen_surface(resolver, entry, size=(320, 200)):
+    """An ITD_RESS full-screen resource as a Surface at `size`, cached per
+    (resolver, entry, size).
+
+    The target is the canvas size, not always 320x200: an override larger
+    than the logical frame keeps the resolution it came with instead of being
+    scaled down and then back up for a high-resolution canvas. Scaling is
+    nearest when the target is an exact integer multiple of the source, so
+    original 320x200 art stays blocky, and smooth otherwise, where nearest
+    would only add ragged edges.
 
     The returned Surface is SHARED across calls: callers that draw on it
-    directly (blit, _button, draw_big_cadre...) must `.copy()` it first, or
-    the drawing bleeds into every later call for that entry."""
+    directly must `.copy()` it first, or the drawing bleeds into every later
+    call for that entry."""
     asset = resolver.resource_screen(entry)
     per_entry = _SCREEN_SURFACE_CACHE.setdefault(resolver, {})
-    cached = per_entry.get(entry)
+    key = (entry, size)
+    cached = per_entry.get(key)
     if cached is not None and cached[0] is asset.pixels:
         return cached[1]
     surface = _to_surface(np.ascontiguousarray(asset.pixels))
-    if surface.get_size() != (320, 200):
-        surface = pygame.transform.smoothscale(surface, (320, 200))
-    per_entry[entry] = (asset.pixels, surface)
+    source = surface.get_size()
+    if source != size:
+        exact = (size[0] % source[0] == 0 and size[1] % source[1] == 0
+                 and size[0] // source[0] == size[1] // source[1])
+        scaler = pygame.transform.scale if exact else pygame.transform.smoothscale
+        surface = scaler(surface, size)
+    per_entry[key] = (asset.pixels, surface)
     return surface
 
 

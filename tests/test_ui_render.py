@@ -83,6 +83,18 @@ def test_painter_hairlines_survive_scaling_down_to_one_pixel():
     assert painter.to_frame()[0, 0, 3] == 255, "a 1px outline must not vanish"
 
 
+def test_painter_sprite_upscales_pixel_art_by_an_integer():
+    art = np.zeros((2, 2, 4), np.uint8)
+    art[0, 0] = (255, 0, 0, 255)
+    painter = UIPainter(3)
+    painter.sprite(art, (0, 0))
+    frame = painter.to_frame()
+    for y in range(3):
+        for x in range(3):
+            assert tuple(frame[y, x][:3]) == (255, 0, 0), "each source pixel is a 3x3 block"
+    assert frame[0, 3, 3] == 0, "and nothing bleeds past it"
+
+
 def test_painter_text_scales_size_and_anchor():
     pygame.font.init()
     small, large = UIPainter(1), UIPainter(4)
@@ -406,6 +418,18 @@ def test_screen_surface_is_memoized_per_resolver_and_entry(data_dir, profile):
     assert other_entry is not first
     other_resolver = screen_surface(AssetResolver(game.assets, None), 10)
     assert other_resolver is not first
+
+
+def test_screen_surface_returns_the_requested_size_and_caches_per_size(data_dir, profile):
+    pygame.font.init()
+    game = init_game(data_dir, profile)
+    resolver = AssetResolver(game.assets, None)
+    small = screen_surface(resolver, 10)
+    big = screen_surface(resolver, 10, size=(1280, 800))
+    assert small.get_size() == (320, 200)
+    assert big.get_size() == (1280, 800)
+    assert screen_surface(resolver, 10, size=(1280, 800)) is big, "cached per size"
+    assert screen_surface(resolver, 10) is small, "and the old size still cached"
 
 
 def test_render_reading_does_not_leak_drawing_into_the_cached_screen_surface(data_dir, profile):
