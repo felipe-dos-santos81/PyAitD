@@ -1874,7 +1874,7 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, profile
     import PyAitD.app.shell as main
     from PyAitD.engine.effects import ChooseCharacter
     from PyAitD.engine.game import Game
-    from PyAitD.app.ui import CharacterSelectPresenter, render_character_select
+    from PyAitD.app.ui import CharacterSelectPresenter, UIPainter, render_character_select
 
     calls = []
     presented = []
@@ -1907,7 +1907,9 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, profile
 
     assert "tick" not in calls, "the staging game must never tick PLAY"
     assert presented, "the selector must present its own frame"
-    expected = render_character_select(CharacterSelectPresenter(), game.assets)
+    expected_painter = UIPainter()
+    render_character_select(expected_painter, CharacterSelectPresenter(), game.assets)
+    expected = expected_painter.to_frame()[:, :, :3]
     for frame in presented:
         # run() bridges render_active_mode's numpy frame through a UIPainter
         # before presenting (Task 4), which adds a fully-opaque alpha

@@ -1017,44 +1017,36 @@ def render_inventory(painter, presenter, assets, scene_frame, object_names, acti
         _button(painter, rect, rows[index], selected=index == selection)
 
 
-def render_character_select(presenter, assets, resolver=None):
+def render_character_select(painter, presenter, assets, resolver=None):
     # FITD character select: resource 10 background, cadre around the hovered
     # portrait (left choice 0 = Emily hero 1, right choice 1 = Carnby hero 0);
     # STORY copies the opposite half of resource 14 plus book text 20/21.
     resolver = _resolver_or_originals(assets, resolver)
-    # screen_surface's Surface is shared/cached: copy before drawing on it.
-    surface = screen_surface(resolver, 10).copy()
-    # scratch painter: this presenter isn't converted until Task 7, but
-    # draw_big_cadre and layout_book now need a painter to draw/measure.
-    # Borrowing the live surface keeps draw_big_cadre's blits byte-identical
-    # to the direct pygame calls they replace.
-    painter = UIPainter()
-    painter.surface = surface
-    base = surface.copy()
+    background = screen_surface(resolver, 10, painter.size)
+    painter.blit(background, (0, 0))
     choice = (presenter.hover if presenter.hover is not None
               and presenter.phase is CharacterPhase.PORTRAITS else presenter.choice)
     center = ((80, 100), (240, 100))[choice]
     draw_big_cadre(painter, assets.cadre_bank(), center, (160, 200))
     portrait = CharacterLayout.PORTRAITS[choice]
-    surface.blit(base, portrait.topleft, portrait)
+    # the portrait is re-copied from the clean background, over the cadre
+    painter.blit(background, portrait.topleft, area=portrait)
     if presenter.phase is CharacterPhase.PORTRAITS:
-        return _to_frame(surface)
-    intro = screen_surface(resolver, 14)
+        return
+    intro = screen_surface(resolver, 14, painter.size)
     if presenter.choice == 0:
-        surface.blit(intro, (160, 0), pygame.Rect(160, 0, 160, 200))
+        painter.blit(intro, (160, 0), area=pygame.Rect(160, 0, 160, 200))
         entry, text_x = 21, 165
     else:
-        surface.blit(intro, (0, 0), pygame.Rect(0, 0, 160, 200))
+        painter.blit(intro, (0, 0), area=pygame.Rect(0, 0, 160, 200))
         entry, text_x = 20, 5
-    font = _font(15)
     page = layout_book(assets.book_tokens(entry), painter, 15, 150, 12)[0]
     y = 5
     for text, centered in page:
-        glyph = font.render(text, True, (43, 31, 22))
-        x = text_x + (150 - glyph.get_width()) // 2 if centered else text_x
-        surface.blit(glyph, (x, y))
+        width = painter.text_size(text, 15)[0]
+        x = text_x + (150 - width) // 2 if centered else text_x
+        painter.text(text, 15, (43, 31, 22), topleft=(x, y))
         y += 15
-    return _to_frame(surface)
 
 
 def render_system_menu(painter, presenter, settings, assets):

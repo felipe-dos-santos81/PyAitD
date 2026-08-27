@@ -1026,14 +1026,20 @@ def render_active_mode(game, session, renderer, resolver=None):
         return painter.to_frame()
     if isinstance(effect, ChooseCharacter):
         # the selector owns the whole frame; the staged PLAY scene is never shown
-        return render_character_select(session.character, game.assets, resolver)
+        painter = UIPainter()          # Task 9 replaces these per-branch
+        render_character_select(painter, session.character, game.assets, resolver)
+        return painter.to_frame()
     if isinstance(effect, ShowTitle):
         from PyAitD.app.startup import render_title
-        return render_title(session.title, game.assets, resolver or AssetResolver(game.assets, None),
-                             session.elapsed_ms, _credits_entry(game))
+        painter = UIPainter()          # Task 9 replaces these per-branch
+        render_title(painter, session.title, game.assets, resolver or AssetResolver(game.assets, None),
+                      session.elapsed_ms, _credits_entry(game))
+        return painter.to_frame()
     if isinstance(effect, OpenStartupMenu):
         from PyAitD.app.startup import render_startup_menu
-        return render_startup_menu(session.startup, game.assets, continue_enabled=continue_available(session))
+        painter = UIPainter()          # Task 9 replaces these per-branch
+        render_startup_menu(painter, session.startup, game.assets, continue_enabled=continue_available(session))
+        return painter.to_frame()
     if isinstance(effect, ShowFound):
         world = game.world_objects[effect.object_idx]
         painter = UIPainter()          # Task 9 replaces these per-branch

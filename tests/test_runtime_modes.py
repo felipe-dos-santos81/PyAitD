@@ -1532,9 +1532,9 @@ def test_render_active_mode_draws_title_and_menu(data_dir, profile):
     session = ModalSession()
     renderer = SimpleNamespace(scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8))
     game.open_modal(ShowTitle())
-    assert render_active_mode(game, session, renderer).shape == (200, 320, 3)
+    assert render_active_mode(game, session, renderer).shape == (200, 320, 4)
     open_startup_menu(game, session)
-    assert render_active_mode(game, session, renderer).shape == (200, 320, 3)
+    assert render_active_mode(game, session, renderer).shape == (200, 320, 4)
 
 
 from PyAitD.app.shell import _boot_hero, _cutscene_end_branch

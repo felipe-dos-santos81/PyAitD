@@ -9,7 +9,7 @@ from PyAitD.app.startup import (
     TITLE_TIMEOUT_MS, TitlePhase, TitlePresenter, TitleResult, advance_title, credits_page_count,
     hit_test_startup, hit_test_title, reduce_startup_menu, reduce_title, render_startup_menu, render_title,
 )
-from PyAitD.app.ui import Command
+from PyAitD.app.ui import Command, UIPainter
 from PyAitD.engine.game import init_game
 from PyAitD.render.asset_resolver import AssetResolver
 
@@ -77,26 +77,35 @@ def test_title_fades_in_from_black(data_dir, profile):
     game = init_game(data_dir, profile)
     resolver = AssetResolver(game.assets, None)
     credits = game.cvars[profile.cvar_index("TEXTE_CREDITS")] + 1
-    black = render_title(TitlePresenter(), game.assets, resolver, 0, credits)
-    full = render_title(TitlePresenter(), game.assets, resolver, TITLE_FADE_MS, credits)
-    assert black.shape == full.shape == (200, 320, 3)
-    assert black.max() == 0
-    assert (full == game.assets.resource_screen(13)).all()
-    page = render_title(TitlePresenter(TitlePhase.CREDITS), game.assets, resolver, 0, credits)
-    assert page.shape == (200, 320, 3) and not (page == game.assets.resource_screen(7)).all()  # text drawn
+    black_painter = UIPainter()
+    render_title(black_painter, TitlePresenter(), game.assets, resolver, 0, credits)
+    black = black_painter.to_frame()
+    full_painter = UIPainter()
+    render_title(full_painter, TitlePresenter(), game.assets, resolver, TITLE_FADE_MS, credits)
+    full = full_painter.to_frame()
+    assert black.shape == full.shape == (200, 320, 4)
+    assert black[:, :, :3].max() == 0
+    assert (full[:, :, :3] == game.assets.resource_screen(13)).all()
+    page_painter = UIPainter()
+    render_title(page_painter, TitlePresenter(TitlePhase.CREDITS), game.assets, resolver, 0, credits)
+    page = page_painter.to_frame()
+    assert page.shape == (200, 320, 4)
+    assert not (page[:, :, :3] == game.assets.resource_screen(7)).all()  # text drawn
 
 
 def test_menu_highlights_only_the_cursor_row(data_dir, profile):
     import pygame
     pygame.font.init()
     game = init_game(data_dir, profile)
-    frame = render_startup_menu(StartupMenuPresenter(cursor=2), game.assets, continue_enabled=False)
-    assert frame.shape == (200, 320, 3)
+    painter = UIPainter()
+    render_startup_menu(painter, StartupMenuPresenter(cursor=2), game.assets, continue_enabled=False)
+    frame = painter.to_frame()
+    assert frame.shape == (200, 320, 4)
     rows = StartupLayout.ROWS
     # (x+2, y+2) sits on the rounded corner's 2px border stroke (border_radius=3),
     # not the fill -- verified against pygame-ce's actual rasterization. y+4 clears
     # the corner arc and still lands left of the centered label glyph.
-    probe = lambda r: tuple(frame[r.y + 4, r.x + 2])
+    probe = lambda r: tuple(frame[r.y + 4, r.x + 2, :3])
     assert probe(rows[2]) == (214, 190, 142)          # selected fill (ui._button)
     assert probe(rows[0]) == (78, 59, 46)             # unselected fill
     assert probe(rows[1]) == (48, 40, 36)             # disabled fill
@@ -112,13 +121,17 @@ def test_title_and_menu_renders_do_not_bleed_across_calls(data_dir, profile):
     resolver = AssetResolver(game.assets, None)
     credits = game.cvars[profile.cvar_index("TEXTE_CREDITS")] + 1
 
-    fade1 = render_title(TitlePresenter(), game.assets, resolver, TITLE_FADE_MS // 2, credits)
-    fade2 = render_title(TitlePresenter(), game.assets, resolver, TITLE_FADE_MS // 2, credits)
-    assert (fade1 == fade2).all()
+    fade1_painter = UIPainter()
+    render_title(fade1_painter, TitlePresenter(), game.assets, resolver, TITLE_FADE_MS // 2, credits)
+    fade2_painter = UIPainter()
+    render_title(fade2_painter, TitlePresenter(), game.assets, resolver, TITLE_FADE_MS // 2, credits)
+    assert (fade1_painter.to_frame() == fade2_painter.to_frame()).all()
 
-    page1 = render_title(TitlePresenter(TitlePhase.CREDITS), game.assets, resolver, 0, credits)
-    page2 = render_title(TitlePresenter(TitlePhase.CREDITS), game.assets, resolver, 0, credits)
-    assert (page1 == page2).all()
+    page1_painter = UIPainter()
+    render_title(page1_painter, TitlePresenter(TitlePhase.CREDITS), game.assets, resolver, 0, credits)
+    page2_painter = UIPainter()
+    render_title(page2_painter, TitlePresenter(TitlePhase.CREDITS), game.assets, resolver, 0, credits)
+    assert (page1_painter.to_frame() == page2_painter.to_frame()).all()
 
 
 def test_credits_reaches_every_page_before_handing_off_to_the_menu(data_dir, profile):
@@ -151,9 +164,13 @@ def test_credits_render_shows_each_pages_own_content(data_dir, profile):
     resolver = AssetResolver(game.assets, None)
     credits = game.cvars[profile.cvar_index("TEXTE_CREDITS")] + 1
 
-    page0 = render_title(TitlePresenter(TitlePhase.CREDITS, page=0), game.assets, resolver, 0, credits)
-    page1 = render_title(TitlePresenter(TitlePhase.CREDITS, page=1), game.assets, resolver, 0, credits)
-    assert not (page0 == page1).all(), "page 1 must render different content from page 0"
+    page0_painter = UIPainter()
+    render_title(page0_painter, TitlePresenter(TitlePhase.CREDITS, page=0), game.assets, resolver, 0, credits)
+    page1_painter = UIPainter()
+    render_title(page1_painter, TitlePresenter(TitlePhase.CREDITS, page=1), game.assets, resolver, 0, credits)
+    assert not (page0_painter.to_frame() == page1_painter.to_frame()).all(), (
+        "page 1 must render different content from page 0"
+    )
 
 
 def test_menu_text_ids_resolve_to_the_games_own_strings(data_dir, profile):

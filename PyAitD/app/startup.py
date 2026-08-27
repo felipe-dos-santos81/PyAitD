@@ -10,7 +10,7 @@ import numpy as np
 import pygame
 
 from PyAitD.app.ui import (
-    Command, UIPainter, _button, _font, _to_frame, draw_big_cadre, effective_rects, layout_book,
+    Command, UIPainter, _button, draw_big_cadre, effective_rects, layout_book,
     screen_surface,
 )
 
@@ -48,11 +48,11 @@ def advance_title(presenter, elapsed_ms):
     return None
 
 
-def _credits_pages(assets, painter, size, credits_entry):
+def _credits_pages(painter, assets, credits_entry):
     # Lire(CVars[TEXTE_CREDITS] + 1, 48, 2, 260, 197, 1, 26, 0) (AITD1.cpp:159):
     # shared by reduce_title (page count only) and render_title (page content)
     # so the two can never disagree about how many pages there are.
-    return layout_book(assets.book_tokens(credits_entry), painter, size, 212, 13)
+    return layout_book(assets.book_tokens(credits_entry), painter, 15, 212, 13)
 
 
 def credits_page_count(assets, credits_entry):
@@ -60,7 +60,7 @@ def credits_page_count(assets, credits_entry):
     # text_size measures at scale 1 regardless of which painter is passed,
     # so the page count this produces does not depend on it.
     painter = UIPainter()
-    return len(_credits_pages(assets, painter, 15, credits_entry))
+    return len(_credits_pages(painter, assets, credits_entry))
 
 
 def reduce_title(presenter, command, *, page_count=1):
@@ -147,42 +147,26 @@ def _disabled_button(painter, rect, label, size=18):
     painter.text(label, size, DISABLED_TEXT, center=pygame.Rect(rect).center)
 
 
-def render_title(presenter, assets, resolver, elapsed_ms, credits_entry):
+def render_title(painter, presenter, assets, resolver, elapsed_ms, credits_entry):
     if presenter.phase is TitlePhase.TITLE:
-        # screen_surface's Surface is shared/cached: copy before drawing on it.
-        surface = screen_surface(resolver, 13).copy()                # AITD1_TITRE
+        painter.blit(screen_surface(resolver, 13, painter.size), (0, 0))  # AITD1_TITRE
         alpha = min(255, 255 * max(0, elapsed_ms) // TITLE_FADE_MS)
         if alpha < 255:
-            shade = pygame.Surface((320, 200), flags=pygame.SRCALPHA)
-            shade.fill((0, 0, 0, 255 - alpha))
-            surface.blit(shade, (0, 0))
-        return _to_frame(surface)
-    # screen_surface's Surface is shared/cached: copy before drawing on it.
-    surface = screen_surface(resolver, 7).copy()                     # AITD1_LIVRE
-    font = _font(15)
-    # scratch painter: render_title isn't converted until Task 7, but
-    # _credits_pages now needs a painter to measure logically.
-    painter = UIPainter()
-    pages = _credits_pages(assets, painter, 15, credits_entry)
+            painter.shade((0, 0, 0, 255 - alpha))
+        return
+    painter.blit(screen_surface(resolver, 7, painter.size), (0, 0))       # AITD1_LIVRE
+    pages = _credits_pages(painter, assets, credits_entry)
     page = pages[min(presenter.page, len(pages) - 1)]
     y = 2
     for text, centered in page:
-        glyph = font.render(text, True, (43, 31, 22))
-        x = 48 + (212 - glyph.get_width()) // 2 if centered else 48
-        surface.blit(glyph, (x, y))
+        width = painter.text_size(text, 15)[0]
+        x = 48 + (212 - width) // 2 if centered else 48
+        painter.text(text, 15, (43, 31, 22), topleft=(x, y))
         y += 15
-    return _to_frame(surface)
 
 
-def render_startup_menu(presenter, assets, *, continue_enabled):
-    surface = pygame.Surface((320, 200))
-    surface.fill((0, 0, 0))
-    # scratch painter: render_startup_menu isn't converted until Task 7, but
-    # draw_big_cadre/_button/_disabled_button now need a painter to draw.
-    # Borrowing the live surface keeps the draw calls byte-identical to the
-    # direct pygame calls they replace.
-    painter = UIPainter()
-    painter.surface = surface
+def render_startup_menu(painter, presenter, assets, *, continue_enabled):
+    painter.rect((0, 0, 0), pygame.Rect(0, 0, 320, 200))
     center, size = StartupLayout.CADRE
     draw_big_cadre(painter, assets.cadre_bank(), center, size)
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
@@ -192,4 +176,3 @@ def render_startup_menu(presenter, assets, *, continue_enabled):
             _disabled_button(painter, rect, label, size=14)
         else:
             _button(painter, rect, label, selected=index == selection, size=14)
-    return _to_frame(surface)

@@ -124,6 +124,35 @@ def test_painter_sprite_upscales_pixel_art_by_an_integer():
     assert frame[0, 3, 3] == 0, "and nothing bleeds past it"
 
 
+def test_painter_blit_scales_the_area_subrect_and_destination():
+    # blit's source is ALREADY at canvas scale; only `logical_dest` and
+    # `area` are logical and must be scaled by the painter before use.
+    # render_character_select depends on this to re-copy the portrait
+    # rectangle from the clean background over the cadre -- a wrong area
+    # scaling would put the wrong slice of the background there.
+    scale = 2
+    painter = UIPainter(scale)
+    source = pygame.Surface(painter.size)
+    source.fill((0, 0, 255))
+    logical_area = pygame.Rect(10, 20, 5, 5)
+    # what logical_area becomes once scaled into the source's own (already
+    # canvas-scale) pixels -- only this exact block is marked
+    pixel_area = pygame.Rect(20, 40, 10, 10)
+    source.fill((255, 0, 0), pixel_area)
+    painter.blit(source, (50, 60), area=logical_area)
+    frame = painter.to_frame()
+    dest = pygame.Rect(100, 120, 10, 10)  # (50, 60) and (5, 5) each scaled by `scale`
+    inside = frame[dest.top:dest.bottom, dest.left:dest.right]
+    assert (inside[:, :, :3] == (255, 0, 0)).all(), (
+        "the scaled area sub-rect must land exactly at the scaled destination"
+    )
+    assert (inside[:, :, 3] == 255).all()
+    assert frame[dest.top - 1, dest.left, 3] == 0, "nothing painted just above the destination"
+    assert frame[dest.bottom, dest.left, 3] == 0, "nothing painted just below the destination"
+    assert frame[dest.top, dest.left - 1, 3] == 0, "nothing painted just left of the destination"
+    assert frame[dest.top, dest.right, 3] == 0, "nothing painted just right of the destination"
+
+
 def test_painter_text_scales_size_and_anchor():
     pygame.font.init()
     small, large = UIPainter(1), UIPainter(4)
@@ -252,7 +281,9 @@ def test_big_cadre_pins_fitd_interior_and_ring(data_dir, profile):
 def test_character_portraits_restore_art_inside_fitd_cadre(data_dir, profile):
     assets = Assets(data_dir, profile)
     base = assets.resource_screen(10)
-    frame = render_character_select(CharacterSelectPresenter(choice=0), assets)
+    painter = UIPainter()
+    render_character_select(painter, CharacterSelectPresenter(choice=0), assets)
+    frame = painter.to_frame()[:, :, :3]
     left = CharacterLayout.PORTRAITS[0]
     assert np.array_equal(frame[left.top:left.bottom, left.left:left.right],
                           base[left.top:left.bottom, left.left:left.right])
@@ -284,10 +315,11 @@ def test_hover_preview_overrides_keyboard_selection_without_changing_it(data_dir
     assert inventory.object_cursor == 0
 
     character = CharacterSelectPresenter(choice=0, hover=1)
-    assert not np.array_equal(
-        render_character_select(character, assets),
-        render_character_select(CharacterSelectPresenter(choice=0), assets),
-    )
+    hovered_character = UIPainter()
+    render_character_select(hovered_character, character, assets)
+    plain_character = UIPainter()
+    render_character_select(plain_character, CharacterSelectPresenter(choice=0), assets)
+    assert not np.array_equal(hovered_character.to_frame(), plain_character.to_frame())
     assert character.choice == 0
 
     menu = SystemMenuPresenter(cursor=0, hover=1)
@@ -318,12 +350,14 @@ def test_story_composes_the_opposite_intro_half_and_expected_text(
 ):
     assets = Assets(data_dir, profile)
     presenter = CharacterSelectPresenter(choice=choice, phase=CharacterPhase.STORY)
-    frame = render_character_select(presenter, assets)
+    painter = UIPainter()
+    render_character_select(painter, presenter, assets)
+    frame = painter.to_frame()
     intro = assets.resource_screen(14)
     # Compare a margin outside the text column; the copied half remains exact.
     margin = pygame.Rect(copied.left, 0, 4, 200)
     assert np.array_equal(
-        frame[margin.top:margin.bottom, margin.left:margin.right],
+        frame[margin.top:margin.bottom, margin.left:margin.right, :3],
         intro[margin.top:margin.bottom, margin.left:margin.right],
     )
     assert int(frame.sum()) > 0
@@ -446,15 +480,30 @@ def test_character_select_uses_a_screen_override_outside_the_portraits(data_dir,
     plate = np.zeros((400, 640, 3), np.uint8)
     plate[:, :, 1] = 255                                     # solid green at 2x
     resolver = AssetResolver(game.assets, tmp_path, load_png=lambda p: plate)
-    frame = render_character_select(CharacterSelectPresenter(), game.assets, resolver)
-    assert frame.shape == (200, 320, 3)
-    assert tuple(frame[196, 318]) == (0, 255, 0)             # outside portraits and cadre: the override
+    painter = UIPainter()
+    render_character_select(painter, CharacterSelectPresenter(), game.assets, resolver)
+    frame = painter.to_frame()
+    assert frame.shape == (200, 320, 4)
+    assert tuple(frame[196, 318, :3]) == (0, 255, 0)         # outside portraits and cadre: the override
     x, y, w, h = be.PORTRAIT_RECTS[1]
     # The unhovered portrait isn't special-cased: it's part of resource 10's
     # background, so the override covers it too, same as the rest of the screen.
-    assert tuple(frame[y + 5, x + 5]) == (0, 255, 0)
-    original = render_character_select(CharacterSelectPresenter(), game.assets)
-    assert tuple(original[y + 5, x + 5]) != (0, 255, 0)      # sanity: real art there with no override
+    assert tuple(frame[y + 5, x + 5, :3]) == (0, 255, 0)
+    original_painter = UIPainter()
+    render_character_select(original_painter, CharacterSelectPresenter(), game.assets)
+    original = original_painter.to_frame()
+    assert tuple(original[y + 5, x + 5, :3]) != (0, 255, 0)  # sanity: real art there with no override
+
+
+def test_character_select_background_is_fetched_at_canvas_size(data_dir, profile):
+    pygame.font.init()
+    game = init_game(data_dir, profile)
+    resolver = AssetResolver(game.assets, None)
+    painter = UIPainter(4)
+    render_character_select(painter, CharacterSelectPresenter(), game.assets, resolver)
+    frame = painter.to_frame()
+    assert frame.shape[:2] == (800, 1280)
+    assert frame[:, :, 3].min() == 255, "the selector owns the whole frame"
 
 
 def test_reading_and_picture_accept_a_resolver(data_dir, profile):
@@ -528,6 +577,8 @@ def test_render_character_select_story_phase_does_not_leak_across_calls(data_dir
     game = init_game(data_dir, profile)
     resolver = AssetResolver(game.assets, None)
     presenter = CharacterSelectPresenter(choice=0, phase=CharacterPhase.STORY)
-    first = render_character_select(presenter, game.assets, resolver)
-    second = render_character_select(presenter, game.assets, resolver)
-    assert (first == second).all()
+    first_painter = UIPainter()
+    render_character_select(first_painter, presenter, game.assets, resolver)
+    second_painter = UIPainter()
+    render_character_select(second_painter, presenter, game.assets, resolver)
+    assert (first_painter.to_frame() == second_painter.to_frame()).all()
