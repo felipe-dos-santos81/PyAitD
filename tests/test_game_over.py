@@ -6,7 +6,6 @@ import pytest
 
 from PyAitD.app.shell import route_command, route_mouse
 from PyAitD.engine.effects import GameMode, GameOver
-from PyAitD.engine.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.playworld import play_tick
 from PyAitD.app.ui import Command, InputBuffer, ModalSession

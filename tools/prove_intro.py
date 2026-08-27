@@ -37,7 +37,7 @@ def _boot(data_dir):
     return game, game.load_floor(game.current_floor)
 
 
-def _step(data_dir, game, floor):
+def _step(game, floor):
     play_tick(game, floor, InputBuffer())
     if floor.number != game.current_floor:
         floor = game.load_floor(game.current_floor)
@@ -58,7 +58,7 @@ def visited_cameras(data_dir):
     game, floor = _boot(data_dir)
     visits, last = [], None
     for tick in range(MAX_TICKS):
-        floor = _step(data_dir, game, floor)
+        floor = _step(game, floor)
         key = _camera_key(game, floor)
         if key is not None and key != last:
             visits.append((tick, key[0], key[1]))
@@ -74,7 +74,7 @@ def render_camera(data_dir, tick, scale, ctx):
     cost this incurs when called once per visited camera."""
     game, floor = _boot(data_dir)
     for _ in range(tick + 1):
-        floor = _step(data_dir, game, floor)
+        floor = _step(game, floor)
     frame, _ = build_frame(game, floor, AssetResolver(game.assets))
     backend = GLBackend(ctx, RenderOptions(scale=scale))
     try:
