@@ -14,7 +14,7 @@ from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
     FoundPresenter, InventoryPresenter, ModalLayout, PlayLayout, ReadingPresenter, ReadingResult,
     SystemMenuPage, SystemMenuPresenter, UIPainter,
-    draw_big_cadre, layout_book,
+    _tile_big_cadre, draw_big_cadre, layout_book,
     overlay_messages, render_character_select, render_cursor, render_found,
     render_game_over, render_hit_feedback, render_picture, render_play_hud, render_reading,
     render_inventory, render_settings_notice, render_system_menu,
@@ -27,9 +27,8 @@ pytestmark = pytest.mark.shell
 def test_modal_renderers_return_logical_rgb_frames(data_dir, profile):
     pygame.font.init()
     game = init_game(data_dir, profile)
-    reading = render_reading(ReadText(1, 0), ReadingPresenter(), game.assets)
-    assert reading.shape == (200, 320, 3)
-    assert reading.dtype == np.uint8
+    reading_painter = UIPainter()
+    render_reading(reading_painter, ReadText(1, 0), ReadingPresenter(), game.assets)
 
     found_painter = UIPainter()
     render_found(
@@ -38,9 +37,25 @@ def test_modal_renderers_return_logical_rgb_frames(data_dir, profile):
     )
     picture_painter = UIPainter()
     render_picture(picture_painter, ShowPicture(10, 60, 4), game.assets)
-    frames = [found_painter.to_frame(), picture_painter.to_frame()]
+    frames = [reading_painter.to_frame(), found_painter.to_frame(), picture_painter.to_frame()]
     assert all(frame.shape == (200, 320, 4) for frame in frames)
     assert all(frame.dtype == np.uint8 for frame in frames)
+
+
+def test_reading_page_text_is_sharper_at_scale_four(data_dir, profile):
+    pygame.font.init()
+    game = init_game(data_dir, profile)
+    ink = []
+    for scale in (1, 4):
+        painter = UIPainter(scale)
+        render_reading(painter, ReadText(1, 0), ReadingPresenter(), game.assets)
+        frame = painter.to_frame()
+        dark = ((frame[:, :, 0] < 80) & (frame[:, :, 1] < 80)).sum()
+        ink.append(dark / (scale * scale))
+    assert ink[1] > ink[0], (
+        "4x the canvas must carry more than 4x the glyph pixels, or the text "
+        "was upscaled rather than re-rendered"
+    )
 
 
 def test_found_modal_fills_its_own_background_at_any_scale(data_dir, profile):
@@ -217,14 +232,21 @@ def test_game_over_locked_frame_is_identical_and_ready_frame_is_overlayed():
 
 
 def test_big_cadre_pins_fitd_interior_and_ring(data_dir, profile):
+    cadre_bank = Assets(data_dir, profile).cadre_bank()
     surface = pygame.Surface((320, 200))
     surface.fill((0, 0, 0))
-    interior = draw_big_cadre(surface, Assets(data_dir, profile).cadre_bank(), (160, 100), (320, 200))
+    interior = _tile_big_cadre(surface, cadre_bank, (160, 100), (320, 200))
     assert interior == pygame.Rect(8, 8, 304, 184)
     frame = pygame.surfarray.array3d(surface).swapaxes(0, 1)
     assert np.count_nonzero(frame) > 0, "the cadre ring drew nothing"
     inside = frame[interior.top:interior.bottom, interior.left:interior.right]
     assert np.count_nonzero(inside) == 0, "the cadre interior must stay black"
+
+    painter = UIPainter()
+    draw_big_cadre(painter, cadre_bank, (160, 100), (320, 200))
+    assert np.array_equal(painter.to_frame()[:, :, :3], frame), (
+        "draw_big_cadre through the painter must match the tiled surface at scale 1"
+    )
 
 
 def test_character_portraits_restore_art_inside_fitd_cadre(data_dir, profile):
@@ -269,18 +291,20 @@ def test_hover_preview_overrides_keyboard_selection_without_changing_it(data_dir
     assert character.choice == 0
 
     menu = SystemMenuPresenter(cursor=0, hover=1)
-    assert not np.array_equal(
-        render_system_menu(menu, default_settings(), assets),
-        render_system_menu(SystemMenuPresenter(cursor=0), default_settings(), assets),
-    )
+    hovered_menu = UIPainter()
+    render_system_menu(hovered_menu, menu, default_settings(), assets)
+    plain_menu = UIPainter()
+    render_system_menu(plain_menu, SystemMenuPresenter(cursor=0), default_settings(), assets)
+    assert not np.array_equal(hovered_menu.to_frame(), plain_menu.to_frame())
     assert menu.cursor == 0
 
     assets.book_pages[0] = (("one",), ("two",))
     reading = ReadingPresenter(page=0, hover=ReadingResult(False, 1))
-    assert not np.array_equal(
-        render_reading(ReadText(1, 0), reading, assets),
-        render_reading(ReadText(1, 0), ReadingPresenter(page=0), assets),
-    )
+    hovered_reading = UIPainter()
+    render_reading(hovered_reading, ReadText(1, 0), reading, assets)
+    plain_reading = UIPainter()
+    render_reading(plain_reading, ReadText(1, 0), ReadingPresenter(page=0), assets)
+    assert not np.array_equal(hovered_reading.to_frame(), plain_reading.to_frame())
     assert reading.page == 0
 
 
@@ -315,10 +339,12 @@ def test_settings_notice_overlays_the_painter():
 
 @pytest.mark.parametrize("page", tuple(SystemMenuPage))
 def test_system_menu_is_a_logical_rgb_frame(data_dir, profile, page):
-    frame = render_system_menu(
-        SystemMenuPresenter(page=page), default_settings(), Assets(data_dir, profile),
+    painter = UIPainter()
+    render_system_menu(
+        painter, SystemMenuPresenter(page=page), default_settings(), Assets(data_dir, profile),
     )
-    assert frame.shape == (200, 320, 3)
+    frame = painter.to_frame()
+    assert frame.shape == (200, 320, 4)
     assert frame.dtype == np.uint8
 
 
@@ -349,7 +375,7 @@ def test_system_menu_row_label_mismatch_raises_instead_of_hiding_back_to_menu(mo
 
     with pytest.raises(ValueError):
         render_system_menu(
-            SystemMenuPresenter(page=SystemMenuPage.MAIN), default_settings(), fake_assets,
+            UIPainter(), SystemMenuPresenter(page=SystemMenuPage.MAIN), default_settings(), fake_assets,
         )
 
 
@@ -435,11 +461,13 @@ def test_reading_and_picture_accept_a_resolver(data_dir, profile):
     pygame.font.init()
     game = init_game(data_dir, profile)
     resolver = AssetResolver(game.assets, None)
-    a = render_reading(ReadText(1, 0), ReadingPresenter(), game.assets, resolver)
+    reading_painter = UIPainter()
+    render_reading(reading_painter, ReadText(1, 0), ReadingPresenter(), game.assets, resolver)
+    a = reading_painter.to_frame()
     picture_painter = UIPainter()
     render_picture(picture_painter, ShowPicture(10, 60, 4), game.assets, resolver)
     b = picture_painter.to_frame()
-    assert a.shape == (200, 320, 3) and b.shape == (200, 320, 4)
+    assert a.shape == (200, 320, 4) and b.shape == (200, 320, 4)
 
 
 def test_modal_reading_buttons_come_from_the_export_guide_rects():
@@ -477,17 +505,20 @@ def test_screen_surface_returns_the_requested_size_and_caches_per_size(data_dir,
 
 
 def test_render_reading_does_not_leak_drawing_into_the_cached_screen_surface(data_dir, profile):
-    """screen_surface now returns a shared, cached Surface for repeat calls;
-    render_reading must copy it before drawing text/buttons on it, or a
-    second call for the same resolver would draw over the first call's
-    leftover pixels instead of a clean background."""
+    """screen_surface returns a shared, cached Surface for repeat calls;
+    render_reading blits it onto the painter's own surface rather than
+    drawing text/buttons directly onto the cached Surface, so a second call
+    for the same resolver must not draw over the first call's leftover
+    pixels instead of a clean background."""
     pygame.font.init()
     game = init_game(data_dir, profile)
     resolver = AssetResolver(game.assets, None)
     presenter = ReadingPresenter()
-    first = render_reading(ReadText(1, 0), presenter, game.assets, resolver)
-    second = render_reading(ReadText(1, 0), presenter, game.assets, resolver)
-    assert (first == second).all()
+    first_painter = UIPainter()
+    render_reading(first_painter, ReadText(1, 0), presenter, game.assets, resolver)
+    second_painter = UIPainter()
+    render_reading(second_painter, ReadText(1, 0), presenter, game.assets, resolver)
+    assert (first_painter.to_frame() == second_painter.to_frame()).all()
 
 
 def test_render_character_select_story_phase_does_not_leak_across_calls(data_dir, profile):

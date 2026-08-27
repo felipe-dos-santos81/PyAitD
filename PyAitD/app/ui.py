@@ -808,7 +808,7 @@ def _button(painter, rect, label, selected=False, size=18):
                  center=pygame.Rect(rect).center)
 
 
-def draw_big_cadre(surface, sprites, center, size):
+def _tile_big_cadre(surface, sprites, center, size):
     # FITD AffBigCadre placement (FitdLib/aitdBox.cpp:92-178); pygame clips the
     # full-screen cadre at the surface edge, matching FITD's 320x200 SetClip.
     x, y = center
@@ -846,6 +846,17 @@ def draw_big_cadre(surface, sprites, center, size):
     interior = pygame.Rect(left + 8, top + 8, width - 16, height - 16)
     surface.fill((0, 0, 0), interior)
     return interior
+
+
+def draw_big_cadre(painter, sprites, center, size):
+    # FITD AffBigCadre placement (FitdLib/aitdBox.cpp:92-178). The tiling stays
+    # on a logical 320x200 surface and is scaled once by the painter: the tiles
+    # are pixel art, and an integer upscale of the assembled cadre is exactly
+    # what an integer upscale of each tile would produce, with none of the
+    # seams that scaling each tile separately would introduce.
+    canvas = pygame.Surface((320, 200), flags=pygame.SRCALPHA)
+    _tile_big_cadre(canvas, sprites, center, size)
+    painter.sprite(canvas, (0, 0))
 
 
 def layout_book(tokens, painter, size, width, max_lines):
@@ -957,9 +968,10 @@ def render_settings_notice(painter, message):
 def reading_pages(effect, assets):
     pages = assets.book_pages.get(effect.text_index)
     if pages is None:
-        # scratch painter: the reading presenter isn't converted until Task
-        # 6, but layout_book now needs a painter to measure logically.
-        # text_size measures at scale 1 regardless of which painter is
+        # scratch painter: reading_pages is called from shell.py's hit-test/
+        # command-routing paths (page counting) as well as from
+        # render_reading, so it keeps its own painter rather than taking one
+        # -- text_size measures at scale 1 regardless of which painter is
         # passed, so the page count/wrapping this produces does not depend
         # on it.
         painter = UIPainter()
@@ -968,37 +980,25 @@ def reading_pages(effect, assets):
     return pages
 
 
-def render_reading(effect, presenter, assets, resolver=None):
+def render_reading(painter, effect, presenter, assets, resolver=None):
     resolver = _resolver_or_originals(assets, resolver)
-    # screen_surface's Surface is shared/cached: copy before drawing on it.
-    surface = screen_surface(resolver, {0: 6, 1: 7, 2: 8}[effect.kind]).copy()
+    painter.blit(
+        screen_surface(resolver, {0: 6, 1: 7, 2: 8}[effect.kind], painter.size), (0, 0),
+    )
     pages = reading_pages(effect, assets)
     y = 20
-    font = _font(16)
     for text, centered in pages[presenter.page]:
-        glyph = font.render(text, True, (43, 31, 22))
-        x = 160 - glyph.get_width() // 2 if centered else 60
-        surface.blit(glyph, (x, y))
+        width = painter.text_size(text, 16)[0]
+        x = 160 - width // 2 if centered else 60
+        painter.text(text, 16, (43, 31, 22), topleft=(x, y))
         y += 16
     hover = presenter.hover
-    # scratch painter: render_reading isn't converted until Task 6, but
-    # _button now needs a painter to draw. Borrowing the live surface keeps
-    # the draw calls byte-identical to the direct pygame calls they replace.
-    painter = UIPainter()
-    painter.surface = surface
-    _button(
-        painter, ModalLayout.READING_PREV, "Previous",
-        hover == ReadingResult(False, -1) if hover is not None else presenter.page > 0,
-    )
-    _button(
-        painter, ModalLayout.READING_CLOSE, "Close",
-        hover == ReadingResult(True) if hover is not None else True,
-    )
-    _button(
-        painter, ModalLayout.READING_NEXT, "Next",
-        hover == ReadingResult(False, 1) if hover is not None else presenter.page + 1 < len(pages),
-    )
-    return _to_frame(surface)
+    _button(painter, ModalLayout.READING_PREV, "Previous",
+            hover == ReadingResult(False, -1) if hover is not None else presenter.page > 0)
+    _button(painter, ModalLayout.READING_CLOSE, "Close",
+            hover == ReadingResult(True) if hover is not None else True)
+    _button(painter, ModalLayout.READING_NEXT, "Next",
+            hover == ReadingResult(False, 1) if hover is not None else presenter.page + 1 < len(pages))
 
 
 def render_inventory(painter, presenter, assets, scene_frame, object_names, action_names):
@@ -1024,11 +1024,17 @@ def render_character_select(presenter, assets, resolver=None):
     resolver = _resolver_or_originals(assets, resolver)
     # screen_surface's Surface is shared/cached: copy before drawing on it.
     surface = screen_surface(resolver, 10).copy()
+    # scratch painter: this presenter isn't converted until Task 7, but
+    # draw_big_cadre and layout_book now need a painter to draw/measure.
+    # Borrowing the live surface keeps draw_big_cadre's blits byte-identical
+    # to the direct pygame calls they replace.
+    painter = UIPainter()
+    painter.surface = surface
     base = surface.copy()
     choice = (presenter.hover if presenter.hover is not None
               and presenter.phase is CharacterPhase.PORTRAITS else presenter.choice)
     center = ((80, 100), (240, 100))[choice]
-    draw_big_cadre(surface, assets.cadre_bank(), center, (160, 200))
+    draw_big_cadre(painter, assets.cadre_bank(), center, (160, 200))
     portrait = CharacterLayout.PORTRAITS[choice]
     surface.blit(base, portrait.topleft, portrait)
     if presenter.phase is CharacterPhase.PORTRAITS:
@@ -1041,9 +1047,6 @@ def render_character_select(presenter, assets, resolver=None):
         surface.blit(intro, (0, 0), pygame.Rect(0, 0, 160, 200))
         entry, text_x = 20, 5
     font = _font(15)
-    # scratch painter: this presenter isn't converted until Task 7, but
-    # layout_book now needs a painter to measure logically.
-    painter = UIPainter()
     page = layout_book(assets.book_tokens(entry), painter, 15, 150, 12)[0]
     y = 5
     for text, centered in page:
@@ -1054,11 +1057,16 @@ def render_character_select(presenter, assets, resolver=None):
     return _to_frame(surface)
 
 
-def render_system_menu(presenter, settings, assets):
-    surface = pygame.Surface((320, 200))
-    draw_big_cadre(surface, assets.cadre_bank(), (160, 100), (320, 200))
+def render_system_menu(painter, presenter, settings, assets):
+    # the old scratch surface here was an OPAQUE pygame.Surface((320, 200)),
+    # whose implicit fill is black; paint that ground explicitly so scale-1
+    # output stays byte-identical (draw_big_cadre below only overwrites the
+    # cadre and its interior, not the full frame).
+    painter.rect((0, 0, 0), pygame.Rect(0, 0, 320, 200))
+    draw_big_cadre(painter, assets.cadre_bank(), (160, 100), (320, 200))
     if presenter.page is SystemMenuPage.KEY_PICK:
-        return _render_key_picker(surface, presenter)
+        _render_key_picker(painter, presenter)
+        return
     if presenter.page is SystemMenuPage.MAIN:
         labels = ["Return to Game", "Configuration", "Quit"]
     else:
@@ -1072,30 +1080,16 @@ def render_system_menu(presenter, settings, assets):
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
     button_size = 13 if presenter.page is SystemMenuPage.CONFIG else 18
     rows = zip(SystemMenuLayout.rows(presenter.page), labels, strict=True)
-    # scratch painter: render_system_menu isn't converted until Task 6, but
-    # _button now needs a painter to draw. Borrowing the live surface keeps
-    # the draw calls byte-identical to the direct pygame calls they replace.
-    painter = UIPainter()
-    painter.surface = surface
     for index, (rect, label) in enumerate(rows):
         _button(painter, rect, label, selected=index == selection, size=button_size)
-    return _to_frame(surface)
 
 
-def _render_key_picker(surface, presenter):
-    header = _font(14).render(
-        f"{presenter.capture}: press a key or click one", True, (250, 242, 216),
-    )
-    surface.blit(header, header.get_rect(midtop=(160, 4)))
+def _render_key_picker(painter, presenter):
+    painter.text(f"{presenter.capture}: press a key or click one", 14,
+                 (250, 242, 216), midtop=(160, 4))
     labels = [PICKABLE_KEY_LABELS.get(name, name) for name in PICKABLE_KEYS] + ["Cancel"]
-    # scratch painter: _render_key_picker isn't converted until Task 6, but
-    # _button now needs a painter to draw. Borrowing the live surface keeps
-    # the draw calls byte-identical to the direct pygame calls they replace.
-    painter = UIPainter()
-    painter.surface = surface
     for index, (rect, label) in enumerate(zip(SystemMenuLayout.KEY_PICK_ROWS, labels)):
         _button(painter, rect, label, selected=index == presenter.hover, size=12)
-    return _to_frame(surface)
 
 
 def render_game_over(painter, scene_frame, ready):

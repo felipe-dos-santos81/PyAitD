@@ -177,15 +177,15 @@ def render_title(presenter, assets, resolver, elapsed_ms, credits_entry):
 def render_startup_menu(presenter, assets, *, continue_enabled):
     surface = pygame.Surface((320, 200))
     surface.fill((0, 0, 0))
-    center, size = StartupLayout.CADRE
-    draw_big_cadre(surface, assets.cadre_bank(), center, size)
-    selection = presenter.hover if presenter.hover is not None else presenter.cursor
     # scratch painter: render_startup_menu isn't converted until Task 7, but
-    # _button/_disabled_button now need a painter to draw. Borrowing the live
-    # surface keeps the draw calls byte-identical to the direct pygame calls
-    # they replace.
+    # draw_big_cadre/_button/_disabled_button now need a painter to draw.
+    # Borrowing the live surface keeps the draw calls byte-identical to the
+    # direct pygame calls they replace.
     painter = UIPainter()
     painter.surface = surface
+    center, size = StartupLayout.CADRE
+    draw_big_cadre(painter, assets.cadre_bank(), center, size)
+    selection = presenter.hover if presenter.hover is not None else presenter.cursor
     for index, (rect, text_id) in enumerate(zip(StartupLayout.ROWS, MENU_TEXT_IDS)):
         label = assets.system_text(text_id)
         if index == StartupRow.CONTINUE.value and not continue_enabled:

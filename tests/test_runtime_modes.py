@@ -71,9 +71,13 @@ def test_render_active_mode_resets_a_replaced_system_menu_preview(monkeypatch):
     old_presenter = session.system_menu
     old_presenter.hover = 2
     game = SimpleNamespace(active_modal=replacement, assets=object())
-    monkeypatch.setattr("PyAitD.app.ui.render_system_menu", lambda *args: "menu")
+    # render_system_menu now paints on the painter in place instead of
+    # returning a frame, so render_active_mode's own painter.to_frame() is
+    # what's asserted below, not this stub's return value.
+    monkeypatch.setattr("PyAitD.app.ui.render_system_menu", lambda *args: None)
 
-    assert render_active_mode(game, session, np.zeros((200, 320, 3), dtype=np.uint8)) == "menu"
+    frame = render_active_mode(game, session, np.zeros((200, 320, 3), dtype=np.uint8))
+    assert frame.shape == (200, 320, 4)
     assert session.last_effect is replacement
     assert session.system_menu is not old_presenter
     assert session.system_menu.hover is None

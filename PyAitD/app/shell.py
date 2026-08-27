@@ -1021,7 +1021,9 @@ def render_active_mode(game, session, renderer, resolver=None):
     # once before any presenter can render, including the system menu.
     session.reset_for(effect)
     if isinstance(effect, OpenSystemMenu):
-        return render_system_menu(session.system_menu, session.settings, game.assets)
+        painter = UIPainter()          # Task 9 replaces these per-branch
+        render_system_menu(painter, session.system_menu, session.settings, game.assets)
+        return painter.to_frame()
     if isinstance(effect, ChooseCharacter):
         # the selector owns the whole frame; the staged PLAY scene is never shown
         return render_character_select(session.character, game.assets, resolver)
@@ -1048,7 +1050,9 @@ def render_active_mode(game, session, renderer, resolver=None):
         )
         return painter.to_frame()
     if isinstance(effect, ReadText):
-        return render_reading(effect, session.reading, game.assets, resolver)
+        painter = UIPainter()          # Task 9 replaces these per-branch
+        render_reading(painter, effect, session.reading, game.assets, resolver)
+        return painter.to_frame()
     if isinstance(effect, ShowPicture):
         painter = UIPainter()          # Task 9 replaces these per-branch
         render_picture(painter, effect, game.assets, resolver)   # painters with one per frame
