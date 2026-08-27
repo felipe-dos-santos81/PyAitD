@@ -76,6 +76,46 @@ def test_aitd1_reduced_allowed_pins_the_out_of_floor_opcode_set():
     assert isinstance(AITD1.reduced_allowed, frozenset)
     assert not hasattr(life, "_REDUCED_ALLOWED")
 
+    # Nothing else ties reduced_allowed to reduced_dispatch's elif chain -- a
+    # dispatch case added without its opcode in reduced_allowed (or vice
+    # versa) would go unnoticed by the literal-set pin above. reduced_dispatch
+    # (life_reduced.py) falls through an unhandled opcode to
+    # `raise ValueError(f"opcode {opcode} has no reduced handler")`, so every
+    # opcode in reduced_allowed must reach a real elif branch instead of that
+    # fallback. Operands are all-zero bytes: every handler in the reduced set
+    # only reads s16 words (read_s16) or, for LM_BODY, one evalVar immediate
+    # (tag 0 -> game.vars[0]), so a zero-filled script satisfies every case
+    # without needing real actor/world data.
+    from PyAitD.games.aitd1 import life_reduced
+
+    class _World:
+        def __init__(self):
+            self.flags = 0
+            self.found_flag = 0
+            self.life_mode = 0
+
+    class _Game:
+        def __init__(self):
+            self.vars = [0]
+            self.world_objects = [_World()]
+            self.current_floor = 0
+            self.flag_genere_aff_list = 0
+
+    class _Vm:
+        def __init__(self, game):
+            self.script = bytes(32)
+            self.pc = 0
+            self.game = game
+
+    game = _Game()
+    for opcode in AITD1.reduced_allowed:
+        try:
+            life_reduced.reduced_dispatch(_Vm(game), opcode, 0)
+        except ValueError as exc:
+            if "has no reduced handler" in str(exc):
+                pytest.fail(f"opcode {opcode} is in reduced_allowed but reduced_dispatch has no handler for it")
+            raise
+
 
 def test_aitd1_start_floors_follow_startAITD1():
     # AITD1.cpp:352-361: startGame(7, 1, 0) is the intro, startGame(0, 0, 1) the game

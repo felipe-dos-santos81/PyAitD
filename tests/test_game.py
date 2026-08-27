@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+import numpy as np
 import pytest
 
 from PyAitD.engine.game import NUM_MAX_OBJECT, Game, init_game, game_step_tick, spawn_stage_actors
@@ -137,7 +138,8 @@ def test_load_floor_threads_the_profile_and_does_not_cache(data_dir, profile):
     second = game.load_floor(0)
     assert first.number == 0
     assert first is not second
-    assert first.palette.shape == second.palette.shape
+    assert np.array_equal(first.palette, game.assets._game_palette)
+    assert np.array_equal(second.palette, game.assets._game_palette)
 
 
 def test_rooms_of_floor_does_not_go_through_load_floor(data_dir, profile, monkeypatch):
