@@ -3,7 +3,6 @@ import hashlib
 import io
 import json
 import os
-import pathlib
 import re
 import subprocess
 import types as _t
@@ -49,14 +48,6 @@ def test_discover_filters_floors_and_handles_missing_dir(tmp_path):
     assert rb.discover(tmp_path / "nowhere", None) == []
 
 
-def test_prompts_mention_guide_only_when_present():
-    assert "second image" in rb.describe_prompt(True)
-    assert "second image" not in rb.describe_prompt(False)
-    g = rb.generation_prompt("a dusty attic", "film grain.", True)
-    assert "a dusty attic" in g and g.endswith("film grain.") and "second image" in g
-    assert "second image" not in rb.generation_prompt("x", "s", False)
-
-
 def test_prompt_cache_round_trip_is_atomic(tmp_path):
     path = tmp_path / rb.PROMPTS_FILE
     assert rb.load_prompts(path) == {}
@@ -73,74 +64,131 @@ def png_bytes(rgb):
     return buf.getvalue()
 
 
+INVENTORY = {"prompt": "a dusty attic under sloped rafters", "camera": "eye level, wide, from the stairs",
+             "objects": [{"name": "window", "kind": "small square window", "count": 1, "bbox": [45, 12, 52, 25]},
+                         {"name": "barrels", "kind": "wooden barrels", "count": 3, "bbox": [55, 22, 66, 34]}]}
+
+
+def envelope(obj):
+    return json.dumps({"status": "SUCCESS", "structured_output": obj})
+
+
 class FakeSubprocess:
-    def __init__(self, image_png=None, fail_image_calls=(), no_image=False,
-                 describe_text="  a dusty attic under sloped rafters  "):
+    """Stands in for the agy CLI. `describe` is the structured output for
+    describe calls (None -> an envelope without structured_output); `judge`
+    is a list of verdicts handed out in order (Task 7); `image_png` is what
+    a generate call copies to the requested path."""
+
+    def __init__(self, image_png=None, fail_image_calls=(), no_image=False, describe=INVENTORY, judge=()):
         self.image_png = image_png
         self.fail = set(fail_image_calls)
         self.no_image = no_image
-        self.describe_text = describe_text
+        self.describe = describe
+        self.judge = list(judge)
         self.calls = []
         self.image_calls = 0
 
     def run(self, cmd, capture_output=True, text=True, check=True):
         self.calls.append(cmd)
         prompt = cmd[2]
-        if "generate_image tool" in prompt:
-            self.image_calls += 1
-            if self.image_calls in self.fail:
-                raise subprocess.CalledProcessError(1, cmd, output="quota")
-            
-            if not self.no_image and self.image_png:
-                m = re.search(r"exactly this path: (.*?). Then output", prompt)
-                if m:
-                    path = m.group(1)
-                    with open(path, "wb") as f:
-                        f.write(self.image_png)
-            
-            return _t.SimpleNamespace(stdout="SUCCESS\n", returncode=0)
-        else:
-            if not self.describe_text:
-                return _t.SimpleNamespace(stdout="", returncode=0)
-            return _t.SimpleNamespace(stdout=self.describe_text, returncode=0)
+        if "--json-schema" in cmd:
+            if "For every inventory object" in prompt:
+                verdict = self.judge.pop(0)
+                return _t.SimpleNamespace(stdout=envelope(verdict), returncode=0)
+            if self.describe is None:
+                return _t.SimpleNamespace(stdout=json.dumps({"status": "SUCCESS"}), returncode=0)
+            return _t.SimpleNamespace(stdout=envelope(self.describe), returncode=0)
+        self.image_calls += 1
+        if self.image_calls in self.fail:
+            raise subprocess.CalledProcessError(1, cmd, output="quota")
+        if not self.no_image and self.image_png:
+            m = re.search(r"this path: (.*?)\. (?:Then output|Output)", prompt)
+            if m:
+                with open(m.group(1), "wb") as f:
+                    f.write(self.image_png)
+        return _t.SimpleNamespace(stdout="SUCCESS\n", returncode=0)
 
 
-def test_describe_sends_source_guide_and_prompt(tmp_path, monkeypatch):
+def test_discover_finds_layout_sidecars(tmp_path):
     in_dir = make_in_dir(tmp_path)
-    cam = rb.discover(in_dir, None)[0]
+    (in_dir / "guides" / "floor00").mkdir(parents=True, exist_ok=True)
+    (in_dir / "guides" / "floor00" / "camera000.json").write_text(json.dumps({"schema": 1}))
+    cams = rb.discover(in_dir, None)
+    assert cams[0].layout == in_dir / "guides" / "floor00" / "camera000.json"
+    assert cams[1].layout is None
+
+
+def test_describe_prompt_opens_with_game_context_and_asks_for_objects():
+    text = rb.describe_prompt(True)
+    assert text.startswith(rb.GAME_CONTEXT)
+    assert "Alone in the Dark 1" in rb.GAME_CONTEXT and "Lovecraftian" in rb.GAME_CONTEXT
+    assert "second image" in text and "bounding box" in text
+    assert "the game" not in text.replace(rb.GAME_CONTEXT, "")
+    assert "second image" not in rb.describe_prompt(False)
+
+
+def test_describe_returns_the_inventory_and_sends_schema(tmp_path, monkeypatch):
+    cam = rb.discover(make_in_dir(tmp_path), None)[0]
     fake = FakeSubprocess()
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
-    assert rb.describe("gemini-3.1-pro", cam) == "a dusty attic under sloped rafters"
+    assert rb.describe("gemini-3.1-pro", cam) == INVENTORY
     cmd = fake.calls[0]
-    assert cmd[0] == "agy"
-    assert "--model" in cmd and "gemini-3.1-pro" in cmd
-    prompt = cmd[2]
-    assert str(cam.source.absolute()) in prompt
-    assert str(cam.guide.absolute()) in prompt
-    assert rb.describe_prompt(True) in prompt
+    assert cmd[0] == "agy" and "gemini-3.1-pro" in cmd
+    assert cmd[cmd.index("--output-format") + 1] == "json"
+    assert json.loads(cmd[cmd.index("--json-schema") + 1]) == rb.INVENTORY_SCHEMA
+    assert str(cam.source.absolute()) in cmd[2] and str(cam.guide.absolute()) in cmd[2]
 
 
 def test_describe_without_guide_sends_no_guide_prompt(tmp_path, monkeypatch):
     cam = rb.discover(make_in_dir(tmp_path), None)[1]
     fake = FakeSubprocess()
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
     rb.describe("gemini-3.1-pro", cam)
-    prompt = fake.calls[0][2]
-    assert str(cam.source.absolute()) in prompt
-    assert "guide image" not in prompt
-    assert rb.describe_prompt(False) in prompt
+    assert "guide image" not in fake.calls[0][2] and "second image" not in fake.calls[0][2]
 
 
-@pytest.mark.parametrize("text", [None, "", "   "])
-def test_describe_raises_on_empty_text(tmp_path, text, monkeypatch):
+@pytest.mark.parametrize("bad, message", [
+    (None, "no structured output"),
+    ({"prompt": "  ", "camera": "c", "objects": [{"name": "x", "kind": "x", "count": 1, "bbox": [0, 0, 1, 1]}]},
+     "empty description from text model"),
+    ({"prompt": "p", "camera": "c", "objects": []}, "empty inventory from text model"),
+])
+def test_describe_rejects_bad_inventories(tmp_path, bad, message, monkeypatch):
     cam = rb.discover(make_in_dir(tmp_path), None)[0]
-    fake = FakeSubprocess(describe_text=text)
+    fake = FakeSubprocess(describe=bad)
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
-    with pytest.raises(RuntimeError, match="empty description from text model"):
+    with pytest.raises(RuntimeError, match=message):
         rb.describe("gemini-3.1-pro", cam)
+
+
+def test_generation_prompt_order_and_contents():
+    from tools.plate_check import Region
+    regions = [Region("mask", ((0, 0),), (10, 20, 30, 40)), Region("collision", ((0, 0),), (50, 60, 70, 80)),
+               Region("walkable", ((0, 0),), (0, 75, 100, 100))]
+    text = rb.generation_prompt(INVENTORY, "film grain.", regions, ["window drawn at x 60–68"],
+                                rejected_attempt=1, guide_attached=True)
+    assert text.startswith(rb.GAME_CONTEXT)
+    i = {s: text.index(s) for s in (
+        "Re-render the first image as a photorealistic photograph",
+        "second image marks the layout",
+        "Layout (percent of frame, x left→right, y top→bottom): 1 small square window x 45–52 y 12–25; 3 wooden barrels x 55–66 y 22–34.",
+        "Foreground occluders at x 10–30 y 20–40; solid walls and furniture at x 50–70 y 60–80; walkable floor at x 0–100 y 75–100.",
+        "Attempt 1 was rejected: window drawn at x 60–68.",
+        "eye level, wide, from the stairs", "a dusty attic under sloped rafters")}
+    order = sorted(i, key=i.get)
+    assert order == list(i)
+    assert text.endswith(" film grain.")
+    plain = rb.generation_prompt(INVENTORY, "s.", guide_attached=False)
+    assert "second image" not in plain and "Attempt" not in plain and "occluders" not in plain
+
+
+def test_screen_generation_prompt_uses_illustration_wording():
+    from tools.plate_check import Region
+    text = rb.generation_prompt(INVENTORY, "", [Region("blit", ((0, 0),), (3, 5, 47, 95))],
+                                guide_attached=True, screen=True)
+    assert "painted illustration of exactly this composition" in text
+    assert "Regions that must stay plain: x 3–47 y 5–95." in text
+    assert "drawn there by the game" in text and "walkable" not in text
 
 
 def test_generate_requests_image_and_returns_bytes(tmp_path, monkeypatch):
@@ -180,8 +228,7 @@ def test_fit_to_target_crops_to_16_10_then_scales():
 
 def _run(tmp_path, fake, **kw):
     cams = rb.discover(make_in_dir(tmp_path), None)
-    opts = dict(text_model="gemini-3.1-pro", image_model="gemini-3.1-pro",
-                style="s.", force=False, dry_run=False, log=lambda *_: None)
+    opts = dict(text_model="gemini-3.1-pro", style="s.", force=False, dry_run=False, log=lambda *_: None)
     opts.update(kw)
     return rb.regenerate(cams, tmp_path / "out", **opts)
 
@@ -189,7 +236,7 @@ def _run(tmp_path, fake, **kw):
 def test_regenerate_writes_fitted_pngs_and_prompt_cache(tmp_path, monkeypatch):
     fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 7, np.uint8)))
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
+
     assert _run(tmp_path, fake) == (3, 0)
     out = tmp_path / "out"
     for key in ("floor00/camera000", "floor00/camera001", "floor01/camera000"):
@@ -198,11 +245,10 @@ def test_regenerate_writes_fitted_pngs_and_prompt_cache(tmp_path, monkeypatch):
     assert set(prompts) == {"floor00/camera000", "floor00/camera001", "floor01/camera000"}
     src = (tmp_path / "in/backgrounds/floor00/camera000.png").read_bytes()
     assert prompts["floor00/camera000"] == {
-        "prompt": "a dusty attic under sloped rafters", "model": "gemini-3.1-pro",
-        "sha256": hashlib.sha256(src).hexdigest()}
+        "inventory": INVENTORY, "model": "gemini-3.1-pro", "sha256": hashlib.sha256(src).hexdigest()}
     assert len(fake.calls) == 6
     gen_prompt = fake.calls[1][2]
-    assert rb.generation_prompt("a dusty attic under sloped rafters", "s.", True) in gen_prompt
+    assert rb.generation_prompt(INVENTORY, "s.", guide_attached=True) in gen_prompt
 
 
 def test_regenerate_resumes_and_force_redoes(tmp_path, monkeypatch):
@@ -216,18 +262,18 @@ def test_regenerate_resumes_and_force_redoes(tmp_path, monkeypatch):
     
     path = tmp_path / "out" / rb.PROMPTS_FILE
     prompts = rb.load_prompts(path)
-    prompts["floor00/camera001"]["prompt"] = "EDITED"
+    prompts["floor00/camera001"]["inventory"]["prompt"] = "EDITED"
     rb.save_prompts(path, prompts)
     (tmp_path / "out/backgrounds/floor00/camera001.png").unlink()
-    
+
     assert _run(tmp_path, fake) == (1, 0)
     assert len(fake.calls) == 1 and "EDITED" in fake.calls[0][2]
-    assert rb.load_prompts(path)["floor00/camera001"]["prompt"] == "EDITED"
-    
+    assert rb.load_prompts(path)["floor00/camera001"]["inventory"]["prompt"] == "EDITED"
+
     fake.calls.clear()
     assert _run(tmp_path, fake, force=True) == (3, 0)
     assert len(fake.calls) == 6
-    assert rb.load_prompts(path)["floor00/camera001"]["prompt"] != "EDITED"
+    assert rb.load_prompts(path)["floor00/camera001"]["inventory"]["prompt"] != "EDITED"
 
 
 def test_regenerate_continues_after_a_failed_camera(tmp_path, monkeypatch):
@@ -242,9 +288,10 @@ def test_regenerate_continues_after_a_failed_camera(tmp_path, monkeypatch):
 
 def test_regenerate_counts_empty_description_as_failed(tmp_path, monkeypatch):
     logs = []
-    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)), describe_text=None)
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)),
+                          describe={"prompt": "", "camera": "c", "objects": []})
     monkeypatch.setattr(subprocess, "run", fake.run)
-    
+
     assert _run(tmp_path, fake, log=logs.append) == (0, 3)
     out = tmp_path / "out"
     for key in ("floor00/camera000", "floor00/camera001", "floor01/camera000"):
@@ -269,8 +316,7 @@ def test_regenerate_counts_non_png_image_as_failed(tmp_path, monkeypatch):
 def test_regenerate_redescribes_when_source_hash_changes(tmp_path, monkeypatch):
     in_dir = make_in_dir(tmp_path)
     out_dir = tmp_path / "out"
-    opts = dict(text_model="gemini-3.1-pro", image_model="gemini-3.1-pro",
-                style="s.", force=False, dry_run=False, log=lambda *_: None)
+    opts = dict(text_model="gemini-3.1-pro", style="s.", force=False, dry_run=False, log=lambda *_: None)
     fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
     monkeypatch.setattr(subprocess, "run", fake.run)
     
@@ -289,6 +335,19 @@ def test_regenerate_redescribes_when_source_hash_changes(tmp_path, monkeypatch):
     assert new_sha != old_sha
     new_source_sha = hashlib.sha256((in_dir / "backgrounds/floor00/camera001.png").read_bytes()).hexdigest()
     assert new_sha == new_source_sha
+
+
+def test_regenerate_redescribes_a_schema_1_prompt_entry(tmp_path, monkeypatch):
+    fake = FakeSubprocess(png_bytes(np.zeros((1024, 1536, 3), np.uint8)))
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    out = tmp_path / "out"
+    cams = rb.discover(make_in_dir(tmp_path), {1})
+    sha = hashlib.sha256(cams[0].source.read_bytes()).hexdigest()
+    rb.save_prompts(out / rb.PROMPTS_FILE, {"floor01/camera000": {"prompt": "old prose", "model": "m", "sha256": sha}})
+    assert rb.regenerate(cams, out, text_model="t", style="s.", force=False, dry_run=False,
+                         log=lambda *_: None) == (1, 0)
+    assert "--json-schema" in fake.calls[0]                       # re-described despite a matching sha
+    assert rb.load_prompts(out / rb.PROMPTS_FILE)["floor01/camera000"]["inventory"] == INVENTORY
 
 
 def test_regenerate_dry_run_makes_no_calls_and_no_files(tmp_path, monkeypatch):
@@ -312,7 +371,7 @@ def test_regenerate_round_trips_through_check_overrides(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake.run)
     out = tmp_path / "out"
     
-    assert rb.regenerate(cams, out, text_model="t", image_model="image", style="s",
+    assert rb.regenerate(cams, out, text_model="t", style="s",
                          force=False, dry_run=False, log=lambda *_: None) == (1, 0)
     assert json.loads((out / "manifest.json").read_text()) == manifest
     findings = oc.check_overrides(out, [floor], manifest)
@@ -334,7 +393,7 @@ def test_copy_manifest_never_overwrites_existing_out_manifest(tmp_path, monkeypa
     fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)))
     monkeypatch.setattr(subprocess, "run", fake.run)
     
-    assert rb.regenerate(cams, out, text_model="t", image_model="image", style="s",
+    assert rb.regenerate(cams, out, text_model="t", style="s",
                          force=False, dry_run=False, log=lambda *_: None) == (1, 0)
     assert (out / "manifest.json").read_text() == sentinel
     assert not (out / "manifest.json.tmp").exists()
@@ -368,7 +427,7 @@ def test_main_runs_with_injected_subprocess_and_reports_failures(tmp_path, monke
     monkeypatch.setattr(subprocess, "run", fake.run)
     
     assert rb.main([str(in_dir), "--out", str(tmp_path / "out"), "--floors", "0-7",
-                    "--style", "noir.", "--text-model", "t-model", "--image-model", "image-x"]) == 1
+                    "--style", "noir.", "--text-model", "t-model"]) == 1
     out = capsys.readouterr().out
     assert "floor01/camera000: failed:" in out and "done 2, failed 1" in out
     
@@ -420,16 +479,9 @@ def test_regenerate_screens_land_under_screens_and_copy_manifest(tmp_path, monke
     monkeypatch.setattr(subprocess, "run", fake.run)
     out = tmp_path / "out"
 
-    assert rb.regenerate(cams, out, text_model="t", image_model="image", style="s",
+    assert rb.regenerate(cams, out, text_model="t", style="s",
                          force=False, dry_run=False, log=lambda *_: None) == (1, 0)
     assert (out / "screens" / "ress10.png").is_file()
     assert not (out / "backgrounds").exists()
     assert json.loads((out / "manifest.json").read_text()) == manifest
-
-
-def test_screen_prompts_ask_for_plain_blit_regions():
-    cam = rb.Camera(-1, 10, pathlib.Path("s.png"), pathlib.Path("g.png"), "screens/ress10")
-    text = rb.generation_prompt("a hall", "", True, screen=True)
-    assert "blue" in text and "drawn there by the game" in text
-    assert "walkable" not in text
 

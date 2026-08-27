@@ -22,9 +22,9 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from tools.export_backgrounds import parse_floors, save_png  # noqa: E402
+from tools.plate_check import fmt_bbox, layout_regions  # noqa: E402
 
 DEFAULT_TEXT_MODEL = "gemini-3.1-pro"
-DEFAULT_IMAGE_MODEL = "gemini-3-pro-image"
 DEFAULT_STYLE = "Dark 1920s Louisiana mansion, moody film lighting, subtle grain."
 TARGET_SIZE = (1280, 800)   # 4 x 320x200
 GENERATE_ASPECT = "3:2"     # nearest Gemini ratio to 16:10 (3:2 is narrower); extra height is centre-cropped after
@@ -41,12 +41,14 @@ class Camera:
     source: pathlib.Path
     guide: pathlib.Path | None
     key: str
+    layout: pathlib.Path | None = None
 
 
 def discover(in_dir, floors, screens=True):
     """Every IN/backgrounds/floorNN/cameraNNN.png, sorted, restricted to
     `floors` (None = all); then every IN/screens/ressNN.png (floor -1,
-    camera = entry) when `screens`. Guide path only when the file exists."""
+    camera = entry) when `screens`. Guide and layout-sidecar paths only
+    when the files exist."""
     in_dir = pathlib.Path(in_dir)
     cams = []
     for path in sorted((in_dir / "backgrounds").glob("floor[0-9][0-9]/camera[0-9][0-9][0-9].png")):
@@ -56,13 +58,17 @@ def discover(in_dir, floors, screens=True):
             continue
         key = f"floor{floor:02d}/camera{cam:03d}"
         guide = in_dir / "guides" / f"{key}.png"
-        cams.append(Camera(floor, cam, path, guide if guide.is_file() else None, key))
+        layout = in_dir / "guides" / f"{key}.json"
+        cams.append(Camera(floor, cam, path, guide if guide.is_file() else None, key,
+                           layout if layout.is_file() else None))
     if screens:
         for path in sorted((in_dir / "screens").glob("ress[0-9][0-9].png")):
             entry = int(_SCREEN_RE.search(path.as_posix()).group(1))
             key = f"screens/ress{entry:02d}"
             guide = in_dir / "guides" / f"{key}.png"
-            cams.append(Camera(-1, entry, path, guide if guide.is_file() else None, key))
+            layout = in_dir / "guides" / f"{key}.json"
+            cams.append(Camera(-1, entry, path, guide if guide.is_file() else None, key,
+                               layout if layout.is_file() else None))
     return cams
 
 
@@ -82,63 +88,123 @@ _SCREEN_GENERATE = ("The second image outlines in blue the regions where text an
                     "drawn there by the game: keep those areas plain, without text, and do not "
                     "draw the blue lines." + _GUIDE_LEGEND_NOTE)
 
+GAME_CONTEXT = ("This image depicts a scene from the Alone in the Dark 1 game. Atmosphere notes: The "
+                "entire Alone in the Dark 1 game evokes a gothic horror/Lovecraftian mood. The darkness, "
+                "somber portraits, and period-appropriate text work together to set the tone before the "
+                "player even enters the mansion. The design is effective at establishing dread and mystery.")
+
+INVENTORY_SCHEMA = {
+    "type": "object", "required": ["prompt", "camera", "objects"],
+    "properties": {
+        "prompt": {"type": "string"},
+        "camera": {"type": "string"},
+        "objects": {"type": "array", "items": {
+            "type": "object", "required": ["name", "kind", "count", "bbox"],
+            "properties": {"name": {"type": "string"}, "kind": {"type": "string"},
+                           "count": {"type": "integer", "minimum": 1},
+                           "bbox": {"type": "array", "minItems": 4, "maxItems": 4,
+                                    "items": {"type": "integer", "minimum": 0, "maximum": 100}}}}}}}
+
+_CAMERA_RERENDER = ("Re-render the first image as a photorealistic photograph of exactly this scene: same "
+                    "camera position, framing and perspective; every wall, door, window, stair and piece "
+                    "of furniture stays where it is, same kind and same count — add nothing, remove "
+                    "nothing. Change only materials, lighting detail and realism.")
+_SCREEN_RERENDER = ("Re-render the first image as a painted illustration of exactly this composition, "
+                    "keeping the framing and every element's placement; change only the medium and finish.")
+_REGION_LABELS = (("mask", "foreground occluders at "), ("collision", "solid walls and furniture at "),
+                  ("walkable", "walkable floor at "))
+
 
 def describe_prompt(guide_present, screen=False):
-    text = ("Describe this 320x200 pixel-art background from a 1992 adventure game as a "
-            "single-paragraph prompt for a photorealistic image generator. Name the room type, "
-            "the camera angle and height, every piece of furniture and architecture with its "
-            "position in frame, the light sources and their direction, materials and colours, "
-            "and the mood. Do not mention pixel art, the game, or resolution. Output only the prompt.")
+    text = (GAME_CONTEXT + " Describe this 320x200 background as a single-paragraph prompt for a "
+            "photorealistic image generator. Name the room type, the camera angle and height, every "
+            "piece of furniture and architecture with its position in frame, the light sources and "
+            "their direction, materials and colours, and the mood. Do not mention pixel art or "
+            "resolution. Then list every distinct object with its kind, count and bounding box in "
+            "percent of frame (x0, y0, x1, y1; x left to right, y top to bottom).")
     if not guide_present:
         return text
     return text + " " + (_SCREEN_DESCRIBE if screen else _GUIDE_DESCRIBE)
 
 
-def generation_prompt(description, style, guide_present, screen=False):
+def _bbox_list(bbox):
+    x0, y0, x1, y1 = bbox
+    return fmt_bbox((x0, y0, x1, y1))
+
+
+def generation_prompt(inventory, style, regions=(), corrections=(), rejected_attempt=0,
+                      guide_attached=False, screen=False):
+    """The Prompt argument of the generate_image call, in the spec's order:
+    game context, re-render instruction, guide sentence, layout from the
+    inventory and the sidecar regions, corrections from the last rejected
+    attempt, the inventory's camera and prose, then `style` verbatim."""
+    parts = [GAME_CONTEXT, _SCREEN_RERENDER if screen else _CAMERA_RERENDER]
+    if guide_attached:
+        parts.append(_SCREEN_GENERATE if screen else _GUIDE_GENERATE)
+    objects = "; ".join(f"{o['count']} {o['kind']} {_bbox_list(o['bbox'])}" for o in inventory["objects"])
+    parts.append("Layout (percent of frame, x left→right, y top→bottom): " + objects + ".")
+    by_kind = {}
+    for region in regions:
+        by_kind.setdefault(region.kind, []).append(fmt_bbox(region.bbox_pct))
     if screen:
-        text = ("Recreate the first image as a painted illustration of the same composition, "
-                "keeping the framing and every element's placement. ")
+        if by_kind.get("blit"):
+            parts.append("Regions that must stay plain: " + "; ".join(by_kind["blit"]) + ".")
     else:
-        text = ("Recreate the first image as a photorealistic photograph of the same scene, keeping "
-                "the exact camera position, framing, perspective and the placement of every wall, "
-                "door, window, stair and piece of furniture. ")
-    if guide_present:
-        text += (_SCREEN_GENERATE if screen else _GUIDE_GENERATE) + " "
-    return text + description.strip() + " " + style
+        clauses = [label + ", ".join(by_kind[kind]) for kind, label in _REGION_LABELS if by_kind.get(kind)]
+        if clauses:
+            sentence = "; ".join(clauses)
+            parts.append(sentence[0].upper() + sentence[1:] + ".")
+    if corrections:
+        parts.append(f"Attempt {rejected_attempt} was rejected: " + "; ".join(corrections) + ".")
+    parts.append(inventory["camera"].strip())
+    parts.append(inventory["prompt"].strip())
+    return " ".join(p for p in parts if p) + " " + style
 
 
-def load_prompts(path):
+def load_json(path):
     path = pathlib.Path(path)
     return json.loads(path.read_text()) if path.is_file() else {}
 
 
-def save_prompts(path, prompts):
+def save_json(path, data):
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(prompts, indent=1, sort_keys=True))
+    tmp.write_text(json.dumps(data, indent=1, sort_keys=True))
     os.replace(tmp, path)
 
 
+load_prompts = load_json
+save_prompts = save_json
+
+
+def agy_structured(model, instructions, schema):
+    """One agy call with an enforced JSON schema; returns structured_output."""
+    cmd = ["agy", "-p", instructions, "--dangerously-skip-permissions", "--effort", "low",
+           "--model", model, "--output-format", "json", "--json-schema", json.dumps(schema)]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError:
+        payload = None
+    out = payload.get("structured_output") if isinstance(payload, dict) else None
+    if not isinstance(out, dict):
+        raise RuntimeError("agy returned no structured output")
+    return out
+
+
 def describe(model, cam):
-    """One text-model call via agy CLI: original (+ guide) -> scene prompt."""
-    prompt = describe_prompt(cam.guide is not None, screen=cam.floor == -1)
+    """One text-model call via agy: original (+ guide) -> inventory dict."""
     instructions = f"Look at the image at {cam.source.absolute()}. "
     if cam.guide:
         instructions += f"Also look at the guide image at {cam.guide.absolute()}. "
-    instructions += f"Then output ONLY the prompt: {prompt}"
-    
-    cmd = [
-        "agy", "-p", instructions,
-        "--dangerously-skip-permissions",
-        "--effort", "low",
-        "--model", model
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    text = result.stdout.strip()
-    if not text:
+    instructions += describe_prompt(cam.guide is not None, screen=cam.floor == -1)
+    inventory = agy_structured(model, instructions, INVENTORY_SCHEMA)
+    if not str(inventory.get("prompt", "")).strip():
         raise RuntimeError("empty description from text model")
-    return text
+    if not inventory.get("objects"):
+        raise RuntimeError("empty inventory from text model")
+    return inventory
 
 
 def generate(model, cam, prompt):
@@ -209,10 +275,10 @@ def _copy_manifest(cams, out_dir):
         os.replace(tmp, dst)
 
 
-def regenerate(cams, out_dir, *, text_model, image_model, style, force, dry_run, log=print):
+def regenerate(cams, out_dir, *, text_model, style, force, dry_run, log=print):
     """Describe + generate every camera into out_dir. Returns (done, failed).
-    Existing outputs are skipped unless force; cached prompts are reused
-    unless force; prompts.json is saved after every camera."""
+    Existing outputs are skipped unless force; cached inventories are reused
+    unless force or the source sha changed; prompts.json is saved after every camera."""
     out_dir = pathlib.Path(out_dir)
     prompts_path = out_dir / PROMPTS_FILE
     prompts = load_prompts(prompts_path)
@@ -223,19 +289,22 @@ def regenerate(cams, out_dir, *, text_model, image_model, style, force, dry_run,
             log(f"{cam.key}: exists, skipped")
             continue
         guide = "yes" if cam.guide is not None else "no"
-        cached = "yes" if cam.key in prompts else "no"
+        cached = "yes" if cam.key in prompts and "inventory" in prompts[cam.key] else "no"
         if dry_run:
             log(f"{cam.key}: would regenerate (guide {guide}, prompt cached {cached})")
             continue
         try:
             source_sha = hashlib.sha256(cam.source.read_bytes()).hexdigest()
-            stale = cam.key in prompts and prompts[cam.key].get("sha256") != source_sha
-            if cam.key not in prompts or force or stale:
-                text = describe(text_model, cam)
-                prompts[cam.key] = {"prompt": text, "model": text_model, "sha256": source_sha}
+            entry = prompts.get(cam.key)
+            stale = entry is None or "inventory" not in entry or entry.get("sha256") != source_sha
+            if stale or force:
+                inventory = describe(text_model, cam)
+                prompts[cam.key] = {"inventory": inventory, "model": text_model, "sha256": source_sha}
                 save_prompts(prompts_path, prompts)
-            prompt = generation_prompt(prompts[cam.key]["prompt"], style, cam.guide is not None,
-                                       screen=cam.floor == -1)
+            inventory = prompts[cam.key]["inventory"]
+            layout = json.loads(cam.layout.read_text()) if cam.layout else None
+            prompt = generation_prompt(inventory, style, layout_regions(layout),
+                                       guide_attached=cam.guide is not None, screen=cam.floor == -1)
             image = generate(text_model, cam, prompt)
             save_png(target, fit_to_target(image))
         except Exception as exc:  # per-camera: SDK error types are not imported here
@@ -261,7 +330,6 @@ def _parse_args(argv):
     p.add_argument("--floors", default="0-7")
     p.add_argument("--style", default=DEFAULT_STYLE)
     p.add_argument("--text-model", default=DEFAULT_TEXT_MODEL)
-    p.add_argument("--image-model", default=DEFAULT_IMAGE_MODEL)
     p.add_argument("--force", action="store_true", help="redo existing outputs and cached prompts")
     p.add_argument("--dry-run", action="store_true", help="list what would be processed; no API calls")
     p.add_argument("--screens", action=argparse.BooleanOptionalAction, default=True,
@@ -280,8 +348,7 @@ def main(argv=None):
               + ("" if not args.screens else " and no screens/ plates"), file=sys.stderr)
         return 2
     
-    done, failed = regenerate(cams, args.out, text_model=args.text_model,
-                              image_model=args.image_model, style=args.style,
+    done, failed = regenerate(cams, args.out, text_model=args.text_model, style=args.style,
                               force=args.force, dry_run=args.dry_run)
     print(f"done {done}, failed {failed}")
     return 1 if failed else 0
