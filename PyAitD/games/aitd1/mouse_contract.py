@@ -62,7 +62,7 @@ CAPABILITY_ROUTES = {
     PlayerCapability.PAGE_READING: MouseRoute("left_click", "Previous or Next button", frozenset({GameMode.READING})),
     PlayerCapability.CLOSE_READING: MouseRoute("left_click", "Close button", frozenset({GameMode.READING})),
     PlayerCapability.DISMISS_PICTURE: MouseRoute("left_click", "picture", frozenset({GameMode.READING})),
-    PlayerCapability.ATTACK_TARGET: MouseRoute("left_click", "armed combat actor", frozenset({GameMode.PLAY})),
+    PlayerCapability.ATTACK_TARGET: MouseRoute("left_click", "combat actor, with something in hand", frozenset({GameMode.PLAY})),
     PlayerCapability.HOLD_PUSH_OBJECT: MouseRoute(
         "left_hold", "push-capable scripted actor", frozenset({GameMode.PLAY}),
     ),

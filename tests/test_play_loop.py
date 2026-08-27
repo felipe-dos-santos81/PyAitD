@@ -1511,6 +1511,39 @@ def test_combat_actor_resolves_attack_or_blocked_not_walk(data_dir, profile):
     assert resolve_play_click(game, floor, point, draw_list) == ("attack", enemy_idx)
 
 
+def test_a_weapon_equipped_through_the_inventory_can_attack(data_dir, profile):
+    # Equipping leaves the *wielded* variant in hand, not the inventory entry:
+    # choosing Fight on the attic lamp (13) leaves object 2, whose own
+    # inventory flags carry no Fight at all. Gating the click on the held
+    # object's Fight action therefore refused every weapon a player actually
+    # equipped -- the cursor stayed blocked -- while holding action swung it
+    # perfectly well. Equipped here through the real inventory path, never by
+    # assigning in_hand_table, which is what hid this from every other test.
+    from PyAitD.engine.interaction import choose_inventory_action, combat_action_for
+
+    game = init_game(data_dir, profile)
+    enter_combat_venue(game)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    enemy_idx = game.world_objects[222].obj_index
+    draw_list = [(enemy_idx, (100, 60, 200, 160))]
+    hero = game.actors[game.current_camera_target_actor]
+
+    _finish_take(game, 13)
+    choose_inventory_action(game, 13, 32)   # 32 == Fight
+
+    held = game.in_hand_table[game.current_inventory]
+    assert held not in (-1, 13), "the lamp's LIFE swaps in its wielded variant"
+    assert combat_action_for(game, held) is None, (
+        "and that variant offers no Fight action of its own -- the premise "
+        "this regression exists for"
+    )
+    hero.anim_action_type = 0   # the equip's own swing has finished
+    assert resolve_play_click(game, floor, (150, 100), draw_list) == (
+        "attack", enemy_idx,
+    )
+
+
 def _expanded_target_candidates(game):
     hero_idx = game.current_camera_target_actor
     return [

@@ -225,7 +225,12 @@ action runner.
 - `scenario.enter_mouse_combat_fixture` owns the deterministic object-38
   automated/manual proof start; the M3c `enter_combat_venue` remains unchanged.
 - `app.shell.resolve_play_click` is the one HUD/attack/target/walk/blocked
-  resolver used by hover, the press, and the per-frame held follow.
+  resolver used by hover, the press, and the per-frame held follow. Its attack
+  branch gates on `interaction.can_strike` -- something in hand, hero idle --
+  not on the held object's Fight action: equipping leaves the wielded variant
+  in hand (the attic lamp's Fight leaves object 2, whose flags carry no
+  Fight), and the swing comes from that object's own LIFE, which `play_tick`
+  runs every tick.
 - `app.shell.follow_pointer` runs after the ticks and the scene refresh
   while the left button is held in PLAY, and resolves only on the frames the
   pointer moved off `InputBuffer.follow_pos` -- a camera cut with a still

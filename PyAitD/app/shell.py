@@ -257,7 +257,7 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
     do, payload None).
     """
     from PyAitD.engine.interaction import (
-        combat_action_for, hold_action_approach, is_combat_target,
+        can_strike, hold_action_approach, is_combat_target,
         is_hold_action_target,
     )
     from PyAitD.engine.navmesh import agent_extent, approach_cell, nearest_walkable
@@ -282,10 +282,9 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
     if actor_idx is None:
         actor_idx = pick_actor(logical_pos, expand_actor_targets(targets))
     if actor_idx is not None and is_combat_target(game, actor_idx):
-        object_idx = game.in_hand_table[game.current_inventory]
-        if combat_action_for(game, object_idx) is None:
-            # a combat target without an available combat action is blocked,
-            # never a fall-through to a floor walk
+        if not can_strike(game):
+            # an empty hand or a hero already mid-swing is blocked, never a
+            # fall-through to a floor walk: the click was aimed at the enemy
             return ("blocked", None)
         return ("attack", actor_idx)
     if actor_idx is not None:

@@ -249,6 +249,32 @@ def combat_action_for(game, object_idx, *, require_idle=True):
     )
 
 
+def can_strike(game, *, require_idle=True):
+    """True when a click on a combat target should swing.
+
+    The swing comes from the in-hand object's own LIFE, which play_tick runs
+    every tick: no object in hand, no script, no strike. What that object *is*
+    is not ours to judge. Equipping a weapon leaves the wielded variant in
+    hand, not the inventory entry -- choosing Fight on the attic lamp (13)
+    leaves object 2, whose own inventory flags carry no Fight at all -- so
+    asking the held object for a Fight action refuses every weapon the player
+    actually equipped, while the engine swings perfectly well.
+
+    `require_idle` is the difference between starting a strike and keeping one
+    alive: a click may only start combat from an idle hero, but the tick seam
+    re-validates while the melee animation is still running.
+    """
+    hero_idx = game.current_camera_target_actor
+    if hero_idx == -1:
+        return False
+    if require_idle and game.actors[hero_idx].anim_action_type != 0:
+        return False
+    inventory = game.current_inventory
+    if not 0 <= inventory < len(game.in_hand_table):
+        return False
+    return game.in_hand_table[inventory] != -1
+
+
 def request_found(game, object_idx, parameter):
     from PyAitD.engine.effects import ShowFound
     if object_idx < 0:
@@ -506,12 +532,9 @@ def attack_in_hand(game, target_actor_idx):
     # this module stays free of track-system imports at module load time.
     from PyAitD.engine.tracks import face_toward
 
+    if not is_combat_target(game, target_actor_idx) or not can_strike(game):
+        return False
     hero_idx = game.current_camera_target_actor
-    if hero_idx == -1 or not is_combat_target(game, target_actor_idx):
-        return False
-    object_idx = game.in_hand_table[game.current_inventory]
-    if combat_action_for(game, object_idx) is None:
-        return False
 
     hero = game.actors[hero_idx]
     target = game.actors[target_actor_idx]

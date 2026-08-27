@@ -228,7 +228,7 @@ inventory rather than creating a second modal-opening implementation.
 
 `render_cursor` gains distinct `inventory` and `attack` presentations using
 the existing `pygame.draw` primitives. The five kinds must produce distinct
-pixel output. Hovering the HUD reports `inventory`; hovering an armed combat
+pixel output. Hovering the HUD reports `inventory`; hovering a combat
 target reports `attack`; unavailable combat reports `blocked`.
 
 The software cursor is drawn after the HUD. Manual evidence must confirm that
@@ -375,7 +375,14 @@ posting emulated system events, so no event-test library is needed.
   and one present per outer frame.
 - One top-level resolver drives PLAY hover and PLAY clicks, including the HUD.
 - Existing `_turn_toward` behavior and its callers are unchanged.
-- Combat is armed only through `choose_inventory_action`.
+- Combat is armed only through `choose_inventory_action`. Superseded in part:
+  the *click* no longer asks the held object for a Fight action, because
+  equipping leaves the wielded variant in hand rather than the inventory entry
+  (the attic lamp's Fight leaves object 2, whose flags carry no Fight), so that
+  question refused every weapon a player actually equipped. `can_strike` asks
+  only whether something is in hand and the hero is idle; the swing itself
+  still comes from the in-hand object's own LIFE, which `play_tick` runs every
+  tick. `combat_action_for` continues to gate the inventory's Fight row.
 - An attack click cancels navigation and does not move toward the target.
 - Every interaction requires at most one left click per decision; no precision
   gesture, chord, drag, double-click, or hold is introduced.

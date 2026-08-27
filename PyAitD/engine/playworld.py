@@ -273,19 +273,14 @@ def _apply_mouse_attack(game, input_buffer):
     the caller until the melee animation completes -- automatically, and
     bounded, so the player never has to hold or time a button.
     """
-    from PyAitD.engine.interaction import combat_action_for, is_combat_target
+    from PyAitD.engine.interaction import can_strike, is_combat_target
 
     target_idx = input_buffer.mouse_attack_target
     if target_idx is None:
         return False
     hero_idx = game.current_camera_target_actor
-    inventory = game.current_inventory
-    in_hand = (
-        game.in_hand_table[inventory]
-        if 0 <= inventory < len(game.in_hand_table) else -1
-    )
-    if (hero_idx == -1 or not is_combat_target(game, target_idx)
-            or combat_action_for(game, in_hand, require_idle=False) is None):
+    if (not is_combat_target(game, target_idx)
+            or not can_strike(game, require_idle=False)):
         _clear_mouse_attack(input_buffer)
         return False
     ticks = input_buffer.mouse_attack_ticks
