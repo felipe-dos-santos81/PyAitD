@@ -534,3 +534,59 @@ def test_regenerate_screens_land_under_screens_and_copy_manifest(tmp_path, monke
     assert not (out / "backgrounds").exists()
     assert json.loads((out / "manifest.json").read_text()) == manifest
 
+
+GOOD_VERDICT = {"camera_same": True, "guide_lines_visible": False,
+                "objects": [{"name": "window", "present": True, "same_kind": True, "same_count": True,
+                             "same_position": True, "note": ""},
+                            {"name": "barrels", "present": True, "same_kind": True, "same_count": True,
+                             "same_position": True, "note": ""}],
+                "extra_objects": [], "corrections": []}
+
+
+def _verdict(**changes):
+    v = json.loads(json.dumps(GOOD_VERDICT))
+    v.update(changes)
+    return v
+
+
+def test_judge_sends_both_images_the_inventory_and_the_schema(tmp_path, monkeypatch):
+    cam = rb.discover(make_in_dir(tmp_path), None)[0]
+    fake = FakeSubprocess(judge=[GOOD_VERDICT])
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    ref, cand = tmp_path / "ref.png", tmp_path / "cand.png"
+    assert rb.judge("gemini-3.1-pro", cam, INVENTORY, ref, cand) == GOOD_VERDICT
+    cmd = fake.calls[0]
+    assert json.loads(cmd[cmd.index("--json-schema") + 1]) == rb.JUDGE_SCHEMA
+    text = cmd[2]
+    assert str(ref.absolute()) in text and str(cand.absolute()) in text
+    assert rb.GAME_CONTEXT in text and json.dumps(INVENTORY["objects"]) in text
+    assert "For every inventory object" in text and "within about 5 %" in text
+
+
+def test_judge_accepts_only_a_fully_matching_verdict():
+    assert rb.judge_accepts(GOOD_VERDICT, INVENTORY)
+    assert not rb.judge_accepts(_verdict(camera_same=False), INVENTORY)
+    assert not rb.judge_accepts(_verdict(guide_lines_visible=True), INVENTORY)
+    assert not rb.judge_accepts(_verdict(extra_objects=["table"]), INVENTORY)
+    bad = _verdict()
+    bad["objects"][1]["same_count"] = False
+    assert not rb.judge_accepts(bad, INVENTORY)
+    unreported = _verdict(objects=GOOD_VERDICT["objects"][:1])
+    assert not rb.judge_accepts(unreported, INVENTORY)
+
+
+def test_judge_corrections_name_every_problem():
+    v = _verdict(camera_same=False, guide_lines_visible=True, extra_objects=["table"],
+                 corrections=["move the window left"])
+    v["objects"][1].update(same_count=False, note="four barrels instead of three")
+    v["objects"] = v["objects"][:2]
+    out = rb.judge_corrections(v, INVENTORY)
+    assert out[0] == "move the window left"
+    assert "barrels: four barrels instead of three" in out
+    assert "extra object: table" in out
+    assert "red, blue or green guide lines are visible: do not draw them" in out
+    assert "camera position, framing or perspective differs" in out
+    assert rb.judge_corrections(GOOD_VERDICT, INVENTORY) == []
+    missing = _verdict(objects=GOOD_VERDICT["objects"][:1])
+    assert "barrels: not assessed by the judge" in rb.judge_corrections(missing, INVENTORY)
+

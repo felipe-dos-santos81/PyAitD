@@ -207,6 +207,72 @@ def describe(model, cam):
     return inventory
 
 
+JUDGE_SCHEMA = {
+    "type": "object",
+    "required": ["camera_same", "guide_lines_visible", "objects", "extra_objects", "corrections"],
+    "properties": {
+        "camera_same": {"type": "boolean"},
+        "guide_lines_visible": {"type": "boolean"},
+        "objects": {"type": "array", "items": {
+            "type": "object",
+            "required": ["name", "present", "same_kind", "same_count", "same_position", "note"],
+            "properties": {"name": {"type": "string"}, "present": {"type": "boolean"},
+                           "same_kind": {"type": "boolean"}, "same_count": {"type": "boolean"},
+                           "same_position": {"type": "boolean"}, "note": {"type": "string"}}}},
+        "extra_objects": {"type": "array", "items": {"type": "string"}},
+        "corrections": {"type": "array", "items": {"type": "string"}}}}
+
+_OBJECT_FLAGS = ("present", "same_kind", "same_count", "same_position")
+
+
+def judge(model, cam, inventory, ref_path, candidate_path):
+    """One text-model call via agy: original + candidate + inventory -> verdict."""
+    instructions = (
+        f"Look at the image at {pathlib.Path(ref_path).absolute()} (the original) and the image at "
+        f"{pathlib.Path(candidate_path).absolute()} (the candidate). {GAME_CONTEXT} The original's "
+        f"inventory is: {json.dumps(inventory['objects'])} For every inventory object report whether it "
+        "is present in the candidate, of the same kind, the same count, and at the same position (within "
+        "about 5 % of the frame). List objects in the candidate that are not in the inventory. Say whether "
+        "the camera position, framing and perspective are the same, and whether any red, blue or green "
+        "outline lines are visible. Give one short correction sentence per problem.")
+    return agy_structured(model, instructions, JUDGE_SCHEMA)
+
+
+def _reported(verdict):
+    return {o.get("name"): o for o in verdict.get("objects", [])}
+
+
+def judge_accepts(verdict, inventory):
+    if not verdict.get("camera_same") or verdict.get("guide_lines_visible") or verdict.get("extra_objects"):
+        return False
+    reported = _reported(verdict)
+    for obj in inventory["objects"]:
+        r = reported.get(obj["name"])
+        if r is None or not all(r.get(flag) for flag in _OBJECT_FLAGS):
+            return False
+    return True
+
+
+def judge_corrections(verdict, inventory):
+    """Corrections for the next attempt: the judge's own sentences, then one
+    line per failing or unreported object, extra object and flag."""
+    out = list(verdict.get("corrections", []))
+    reported = _reported(verdict)
+    for obj in inventory["objects"]:
+        r = reported.get(obj["name"])
+        if r is None:
+            out.append(f"{obj['name']}: not assessed by the judge")
+        elif not all(r.get(flag) for flag in _OBJECT_FLAGS):
+            out.append(f"{obj['name']}: {r.get('note') or 'differs from the original'}")
+    for extra in verdict.get("extra_objects", []):
+        out.append(f"extra object: {extra}")
+    if verdict.get("guide_lines_visible"):
+        out.append("red, blue or green guide lines are visible: do not draw them")
+    if not verdict.get("camera_same"):
+        out.append("camera position, framing or perspective differs")
+    return out
+
+
 def temp_png():
     """An empty temp file with a .png suffix; the caller unlinks it."""
     fd, path = tempfile.mkstemp(suffix=".png")
