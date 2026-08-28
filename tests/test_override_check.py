@@ -142,7 +142,7 @@ def test_body_material_findings_name_the_body_and_the_reason(tmp_path):
     good.write_text('{"indices": {"5": "metal"}}')
     override_body_material_path(tmp_path, 2).write_text('{"indices": {"5": "velvet"}}')
     override_body_material_path(tmp_path, 3).write_text('not json')
-    f = oc.check_body_materials(tmp_path)
+    f = oc.check_bodies(tmp_path)
     assert [(x.floor, x.camera, x.kind) for x in f] == [(-2, 2, "invalid"), (-2, 3, "invalid")]
     assert "velvet" in f[0].detail
     assert oc.has_errors(f)
@@ -150,7 +150,7 @@ def test_body_material_findings_name_the_body_and_the_reason(tmp_path):
 
 
 def test_no_bodies_directory_is_no_finding(tmp_path):
-    assert oc.check_body_materials(tmp_path) == []
+    assert oc.check_bodies(tmp_path) == []
 
 
 def test_a_misnamed_body_file_is_reported_and_does_not_hide_the_real_one(tmp_path):
@@ -164,9 +164,20 @@ def test_a_misnamed_body_file_is_reported_and_does_not_hide_the_real_one(tmp_pat
     (bodies / "body7.json").write_text('{"indices": {"5": "metal"}}')
     (bodies / "bodyfoo.json").write_text('{"indices": {"5": "metal"}}')
     override_body_material_path(tmp_path, 7).write_text('{"indices": {"5": "metal"}}')
-    f = oc.check_body_materials(tmp_path)
+    f = oc.check_bodies(tmp_path)
     assert [(x.floor, x.camera, x.path.name, x.kind) for x in f] == [
         (-2, 7, "body7.json", "invalid"),
         (-2, -1, "bodyfoo.json", "invalid"),
     ]
     assert "body007.json" in f[0].detail and "body<NNN>.json" in f[1].detail
+
+
+def test_an_invalid_crease_is_a_body_finding(tmp_path):
+    from PyAitD.render.asset_resolver import override_body_material_path
+    bad = override_body_material_path(tmp_path, 4)
+    bad.parent.mkdir(parents=True)
+    bad.write_text('{"crease": "soft"}')
+    override_body_material_path(tmp_path, 5).write_text('{"crease": 30}')
+    f = oc.check_bodies(tmp_path)
+    assert [(x.camera, x.kind) for x in f] == [(4, "invalid")]
+    assert "crease" in f[0].detail

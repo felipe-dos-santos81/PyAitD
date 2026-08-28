@@ -6,7 +6,9 @@ accepts, and vice versa. PNG decoding is asset_resolver.load_png_rgb.
 """
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
+from PyAitD.engine.formats import Body, Primitive
 from PyAitD.render.asset_resolver import (
     AssetResolver, load_png_rgb, override_background_path, override_body_material_path, override_screen_path,
 )
@@ -16,6 +18,11 @@ ERROR_KINDS = ("invalid", "aspect")
 _ASPECT = 320 / 200
 _ASPECT_TOL = 0.01
 _ORDER = ("regenerated", "original", "missing", "invalid", "aspect")
+# check_bodies validates a bodies/body<NNN>.json file's contents -- crease
+# range and material class names -- not any real body's topology, so
+# refinement() (which needs *a* body to plan from) is fed this placeholder
+# triangle for every number rather than requiring real game assets here.
+_PLACEHOLDER_BODY = Body(0, (0,) * 6, (), [(0, 0, 0), (100, 0, 0), (0, 100, 0)], [], [], [Primitive(1, 0, 1, [0, 1, 2])])
 
 
 @dataclass(frozen=True)
@@ -129,9 +136,9 @@ def screen_coverage(override_dir, assets, manifest, *, load_png=load_png_rgb):
     return counts
 
 
-def check_body_materials(override_dir):
-    """One Finding per file under bodies/ the game would not load: a
-    body<NNN>.json the resolver rejects, or a body*.json whose name the
+def check_bodies(override_dir):
+    """One Finding per file under bodies/ the game would not load -- a
+    material remap or a crease it rejects, or a body*.json whose name the
     resolver would never ask for. `floor` is -2 and `camera` is the body
     number, or -1 when the name carries no readable one. Loads through
     AssetResolver so acceptance stays identical to the game's."""
@@ -139,7 +146,7 @@ def check_body_materials(override_dir):
     findings = []
     # One resolver for the whole directory, as the game has: a fresh one per
     # file would re-log every failure and defeat AssetResolver's log-once.
-    resolver = AssetResolver(None, override_dir)
+    resolver = AssetResolver(SimpleNamespace(body=lambda num: _PLACEHOLDER_BODY), override_dir)
     for path in sorted(bodies.glob("body*.json")):
         # The name must round-trip through the path the game actually asks
         # for. body7.json reads as body 7 but the game only ever opens
@@ -153,6 +160,7 @@ def check_body_materials(override_dir):
                                     f"the game never loads this name; it opens {wanted}"))
             continue
         resolver.material_table(num)
+        resolver.refinement(num)      # same file, same verdict; kept explicit so a future split still checks both
         if path in resolver.failures:
             findings.append(Finding(-2, num, path, "invalid", resolver.failures[path]))
     return findings

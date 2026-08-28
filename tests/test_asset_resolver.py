@@ -287,3 +287,50 @@ def test_invalid_body_override_logs_once_and_falls_back(tmp_path, caplog):
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1 and "velvet" in warnings[0].getMessage()
     assert path in resolver.failures
+
+
+def _triangle_body():
+    from PyAitD.engine.formats import Body, Primitive
+    return Body(0, (0,) * 6, (), [(0, 0, 0), (100, 0, 0), (0, 100, 0)], [], [], [Primitive(1, 0, 1, [0, 1, 2])])
+
+
+def test_refinement_plans_once_per_body():
+    from PyAitD.render.refine import CREASE_DEG, Refinement
+    calls = []
+    body = _triangle_body()
+
+    def counting_body(num):
+        calls.append(num)
+        return body
+
+    resolver = AssetResolver(SimpleNamespace(body=counting_body), None)
+    first = resolver.refinement(7)
+    second = resolver.refinement(7)
+    assert isinstance(first, Refinement) and first is second and calls == [7]
+    assert first.crease_deg == CREASE_DEG and first.straight.tolist() == [[0.0, 0.0, 0.0]]
+
+
+def test_refinement_follows_a_per_body_crease_override(tmp_path):
+    from PyAitD.render.asset_resolver import override_body_material_path
+    path = override_body_material_path(tmp_path, 7)
+    path.parent.mkdir(parents=True)
+    path.write_text('{"crease": 45, "indices": {"5": "metal"}}')
+    resolver = AssetResolver(SimpleNamespace(body=lambda n: _triangle_body()), tmp_path)
+    assert resolver.refinement(7).crease_deg == 45.0
+    assert resolver.material_table(7).classes[5] == "metal"    # the same file feeds both
+    assert resolver.refinement(8).crease_deg == 80.0            # no file, the default
+
+
+def test_an_invalid_crease_rejects_the_whole_body_file_once(tmp_path, caplog):
+    from PyAitD.render.asset_resolver import override_body_material_path
+    from PyAitD.render.materials import default_table
+    path = override_body_material_path(tmp_path, 2)
+    path.parent.mkdir(parents=True)
+    path.write_text('{"crease": "soft", "indices": {"5": "metal"}}')
+    resolver = AssetResolver(SimpleNamespace(body=lambda n: _triangle_body()), tmp_path)
+    with caplog.at_level(logging.WARNING):
+        assert resolver.refinement(2).crease_deg == 80.0
+        assert resolver.material_table(2) is default_table()    # one file, one verdict
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1 and "crease" in warnings[0].getMessage()
+    assert path in resolver.failures

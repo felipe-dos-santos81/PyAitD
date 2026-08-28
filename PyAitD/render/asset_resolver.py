@@ -13,6 +13,7 @@ import numpy as np
 from PyAitD.render.lighting import estimate_light
 from PyAitD.render.materials import default_table, parse_assignments
 from PyAitD.render.occlusion import bake_vertex_ao
+from PyAitD.render.refine import CREASE_DEG, parse_crease, plan_refinement
 
 log = logging.getLogger("PyAitD.engine.assets")
 
@@ -53,6 +54,13 @@ def load_png_rgb(path):
     return np.ascontiguousarray(pygame.surfarray.array3d(surface).swapaxes(0, 1)).astype(np.uint8)
 
 
+def _validate_body_override(data):
+    """One verdict per bodies/body<NNN>.json: its material assignments and
+    its optional crease must both parse, or the whole file is ignored."""
+    parse_assignments(data)
+    parse_crease(data)
+
+
 class AssetResolver:
     def __init__(self, assets, override_dir=None, *, load_png=load_png_rgb):
         self._assets = assets
@@ -62,6 +70,7 @@ class AssetResolver:
         self._lights = {}
         self._material_tables = {}
         self._aos = {}
+        self._refinements = {}
         self.failures = {}
 
     def body(self, num):
@@ -76,7 +85,7 @@ class AssetResolver:
             table = default_table()
             if self._override_dir is not None:
                 data = self._override(override_body_material_path(self._override_dir, num),
-                                      parse_assignments, load=load_json)
+                                      _validate_body_override, load=load_json)
                 if data is not None:
                     table = table.remapped(parse_assignments(data))
             self._material_tables[num] = table
@@ -87,6 +96,24 @@ class AssetResolver:
         if num not in self._aos:
             self._aos[num] = bake_vertex_ao(self.body(num))
         return self._aos[num]
+
+    def refinement(self, num):
+        """The tessellation plan for body `num` (refine.plan_refinement),
+        made once per session at the crease threshold its override file
+        sets, or refine.CREASE_DEG. Read through the same cached, once-
+        validated file as material_table: an invalid crease rejects the
+        materials too, and vice versa."""
+        if num not in self._refinements:
+            crease = CREASE_DEG
+            if self._override_dir is not None:
+                data = self._override(override_body_material_path(self._override_dir, num),
+                                      _validate_body_override, load=load_json)
+                if data is not None:
+                    value = parse_crease(data)
+                    if value is not None:
+                        crease = value
+            self._refinements[num] = plan_refinement(self.body(num), crease)
+        return self._refinements[num]
 
     def _override(self, path, validate, load=None):
         load = self._load_png if load is None else load

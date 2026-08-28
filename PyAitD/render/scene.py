@@ -161,7 +161,8 @@ def build_frame(game, floor, resolver):
         draw_list.append((index, actor_bbox(logical)))
         actors.append(ActorDraw(
             index,
-            pose_geometry(body, states, angles, ao=resolver.geometry_ao(actor.body_num)),
+            pose_geometry(body, states, angles, ao=resolver.geometry_ao(actor.body_num),
+                          refinement=resolver.refinement(actor.body_num)),
             position,
             actor.room,
             tuple(actor.zv),

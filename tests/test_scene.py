@@ -383,6 +383,10 @@ class _StubResolver:
     def geometry_ao(self, num):
         return np.full(len(self._bodies[num].vertices), 0.5, np.float32)
 
+    def refinement(self, num):
+        from PyAitD.render.refine import plan_refinement
+        return plan_refinement(self._bodies[num])
+
 
 def _legacy_stub_scene(game, floor, resolver):
     # Independent re-derivation of the pre-layer _scene_frame body, adapted
@@ -504,6 +508,9 @@ def test_build_frame_assembles_frame_description_from_stubs(monkeypatch):
     for actor in frame.actors:
         assert actor.materials is default_table()
         assert (actor.geometry.ao == 0.5).all()
+        assert actor.geometry.corner_normals.shape == (len(actor.geometry.tris), 3, 3)
+        assert actor.geometry.straight is resolver.refinement(game.actors[actor.index].body_num).straight or (
+            actor.geometry.straight.shape == (len(actor.geometry.tris), 3))
 
     # the animated actor's logical points reflect the fake group_states,
     # not the anim==-1 default -- an independent skin() call with the same
