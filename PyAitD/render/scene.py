@@ -132,6 +132,29 @@ def mask_applies_to_actor(mask, actor_room, zv):
     )
 
 
+def _killed_sorcerer(game):
+    """Whether KILLED_SORCERER is set. Game-neutral: reads through
+    game.profile.cvar_index, with fallback for stub games."""
+    try:
+        return bool(game.cvars[game.profile.cvar_index("KILLED_SORCERER")])
+    except Exception:
+        return False
+
+
+def _background(resolver, floor, cam_idx, killed):
+    try:
+        return resolver.background(floor, cam_idx, killed_sorcerer=killed)
+    except TypeError:
+        return resolver.background(floor, cam_idx)
+
+
+def _light(resolver, floor, cam_idx, killed):
+    try:
+        return resolver.light(floor, cam_idx, killed_sorcerer=killed)
+    except TypeError:
+        return resolver.light(floor, cam_idx)
+
+
 def build_frame(game, floor, resolver):
     """The per-frame scene: a float FrameDescription for the new renderers,
     and the unchanged draw_list (from the logical skin() bbox) so picking,
@@ -169,12 +192,13 @@ def build_frame(game, floor, resolver):
             tuple(m.id for m in masks if mask_applies_to_actor(m, actor.room, actor.zv)),
             resolver.material_table(actor.body_num),
         ))
+    killed = _killed_sorcerer(game)
     frame = FrameDescription(
         CameraView(state),
-        resolver.background(floor, cam_idx),
+        _background(resolver, floor, cam_idx, killed),
         resolver.palette(floor),
         tuple(actors),
         masks,
-        resolver.light(floor, cam_idx),
+        _light(resolver, floor, cam_idx, killed),
     )
     return frame, draw_list

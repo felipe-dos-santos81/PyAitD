@@ -15,22 +15,46 @@ repo ships no model, no key and no game data.
 
 Produces:
 
-    ~/aitd-overrides/manifest.json
-    ~/aitd-overrides/backgrounds/floorNN/cameraNNN.png   the 320x200 originals
-    ~/aitd-overrides/guides/floorNN/cameraNNN.png        originals x4 with structure lines
+    ~/aitd-overrides/manifest.json                       schema 3: cameras (144) + alt_cameras (5) + screens (7)
+    ~/aitd-overrides/backgrounds/floorNN/cameraNNN.png   the 320x200 originals (144)
+    ~/aitd-overrides/alt_backgrounds/floorNN/cameraNNN.png the 5 KILLED_SORCERER road alts (ITD_RESS 15-19, shared guides)
+    ~/aitd-overrides/palette.png                         256×1 RGB palette (ITD_RESS entry 3)
+    ~/aitd-overrides/guides/floorNN/cameraNNN.png        originals x4 with structure lines (shared for alts)
     ~/aitd-overrides/guides/floorNN/cameraNNN.json       the same structures as JSON (320x200 px)
     ~/aitd-overrides/screens/ressNN.png                  the seven ITD_RESS full-screen originals
     ~/aitd-overrides/guides/screens/ressNN.png           originals x4 with blit-rect guides
     ~/aitd-overrides/guides/screens/ressNN.json          the blit rects as JSON
 
+The five road alts (FITD `AITD1.h:15-19`, `main.cpp:1243`) are the only
+camera backgrounds that swap when `KILLED_SORCERER==1` (CVar 12):
+
+| floor | cam | ITD_RESS entry | macro |
+|------:|----:|----------------:|-------|
+| 7 | 0 | 15 | `AITD1_CAM07000` |
+| 7 | 1 | 16 | `AITD1_CAM07001` |
+| 6 | 0 | 17 | `AITD1_CAM06000` |
+| 6 | 5 | 18 | `AITD1_CAM06005` |
+| 6 | 8 | 19 | `AITD1_CAM06008` |
+
+Each alt reuses its base camera's masks/collision/walkable and guide
+(`guides/floorNN/cameraNNN.{png,json}`) — no duplicate guide is written.
+The plate is decoded from `ITD_RESS` entry 15-19 via `raw[:64000]` +
+palette entry 3, the same path as `Assets.resource_screen`. At play
+time `AssetResolver.background(floor,cam, killed_sorcerer=bool(cvars[KILLED_SORCERER]))`
+checks `alt_backgrounds/` first when the flag is set, then
+`backgrounds/`, then the original; `light()` is estimated from whichever
+plate is actually shown and memoised per `(floor,cam,killed)`.
+
 The export refuses to run into a directory that already has `backgrounds/`
-(your regenerated images) unless you pass `force=1`. Pass `screens=0` to
-skip the ITD_RESS screens.
+or `alt_backgrounds/` (your regenerated images) unless you pass `force=1`.
+Pass `screens=0` to skip the ITD_RESS screens. `palette.png` is always
+written (256×1, `ITD_RESS:3` palette) and never blocks the run on failure.
 
 ## 2. Regenerate
 
-Overwrite `backgrounds/floorNN/cameraNNN.png` in place. Rules the engine
-cares about:
+Overwrite `backgrounds/floorNN/cameraNNN.png` (and
+`alt_backgrounds/floorNN/cameraNNN.png` when `KILLED_SORCERER==1`) in
+place. Rules the engine cares about:
 
 - A PNG pygame can decode (RGB, RGBA, palettized and greyscale all load as
   RGB), any size up to 8192x8192.
@@ -68,8 +92,9 @@ wall, door, window, stair and piece of furniture at the same place, same
 kind, same count. Materials, lighting and style may change. A plate that
 drifts is not written; the game shows the original for that camera.
 
-For each `backgrounds/floorNN/cameraNNN.png` (with its guide and layout
-sidecar when present) the tool:
+For each `backgrounds/floorNN/cameraNNN.png` and each
+`alt_backgrounds/floorNN/cameraNNN.png` (with the shared guide and layout
+sidecar when present) and each `screens/ressNN.png` the tool:
 
 1. asks the text model (`gemini-3.1-pro` via `agy`) for an **inventory** —
    a scene prompt plus every object with kind, count and bounding box in
@@ -99,8 +124,9 @@ Every prompt opens with a fixed game-context block naming Alone in the
 Dark 1 and its gothic horror / Lovecraftian mood; `style=` is appended
 verbatim at the end.
 
-- `report.json` in the output directory records every attempt's gate
-  scores and judge verdict per camera.
+ - `report.json` in the output directory records every attempt's gate
+  scores and judge verdict per camera (keys are `floorNN/cameraNNN`,
+  `alt_backgrounds/floorNN/cameraNNN` and `screens/ressNN`).
 - Cameras that already exist in the output are skipped; rerun after an
   interruption or a rejection and it retries only the missing ones.
   `force=1` redoes existing plates and their inventories.
@@ -121,7 +147,10 @@ verbatim at the end.
 - Export directories made before the layout sidecars existed still work:
   such cameras get the framing scores and the judge only, and the log says
   `no layout: framing gate only`. Re-export (`make export-backgrounds
-  force=1`) to add the sidecars.
+  force=1`) to add the sidecars. Alt plates reuse the base guides, so
+  their gate and judge run against the same `guides/floorNN/cameraNNN.png`
+  and layout as the base — no duplicate `alt_backgrounds` guide is written
+  or expected.
 
 Then `make check-overrides overrides=data/aitd1/overrides-ai proof=1` and
 `make run overrides=data/aitd1/overrides-ai`.
@@ -138,7 +167,11 @@ them as `screen ressNN` and reports a `screens:` coverage line; `proof=1`
 writes `screen-ressNN.png` side-by-sides. Regenerated screens go through
 the same gate and judge; the gate additionally requires the blit regions
 to stay plain (edge density <= 2 %). `make export-backgrounds
-screens=0` / `regenerate-backgrounds screens=0` skip them.
+screens=0` / `regenerate-backgrounds screens=0` skip them. Alts that
+pass the gate still go through the judge with the same inventory
+(`camera_same`, `guide_lines_visible`, per-object `present`/`same_*`) and
+retry with corrections; a leaked guide is dropped from the next attempt
+exactly as for bases.
 
 One of the seven is not yet read at run time: 12 (dead end) is exported for
 completeness, but this reimplementation's game-over overlay composes a
@@ -165,7 +198,12 @@ Findings, one line each, then a per-floor coverage summary:
 Exit status is 1 when any `invalid` or `aspect` finding exists. Coverage
 (`regenerated / original / missing / invalid / aspect`) compares each file's
 pixels with the sha256 recorded in `manifest.json` at export time, so
-untouched exports count as `original`.
+untouched exports count as `original`. When a manifest with
+`alt_cameras` is present, a separate `alt_backgrounds:` line counts the
+five road plates the same way; `screens:` and `alt_backgrounds:` are
+omitted without a manifest. `proof=1` renders `floorNN-cameraNNN-alt.png`
+side-by-sides for every `alt_backgrounds/` plate that actually overrides
+(the base proof stays `floorNN-cameraNNN.png`).
 
 ## 4. Play
 

@@ -59,9 +59,10 @@ class Camera:
 
 def discover(in_dir, floors, screens=True):
     """Every IN/backgrounds/floorNN/cameraNNN.png, sorted, restricted to
-    `floors` (None = all); then every IN/screens/ressNN.png (floor -1,
-    camera = entry) when `screens`. Guide and layout-sidecar paths only
-    when the files exist."""
+    `floors` (None = all); every IN/alt_backgrounds/floorNN/cameraNNN.png
+    (the 5 KILLED_SORCERER road alts, shared guides); then every
+    IN/screens/ressNN.png (floor -1, camera = entry) when `screens`.
+    Guide and layout-sidecar paths only when the files exist."""
     in_dir = pathlib.Path(in_dir)
     cams = []
     for path in sorted((in_dir / "backgrounds").glob("floor[0-9][0-9]/camera[0-9][0-9][0-9].png")):
@@ -72,6 +73,19 @@ def discover(in_dir, floors, screens=True):
         key = f"floor{floor:02d}/camera{cam:03d}"
         guide = in_dir / "guides" / f"{key}.png"
         layout = in_dir / "guides" / f"{key}.json"
+        cams.append(Camera(floor, cam, path, guide if guide.is_file() else None, key,
+                           layout if layout.is_file() else None))
+    for path in sorted((in_dir / "alt_backgrounds").glob("floor[0-9][0-9]/camera[0-9][0-9][0-9].png")):
+        m = _CAMERA_RE.search(path.as_posix())
+        if m is None:
+            continue
+        floor, cam = int(m.group(1)), int(m.group(2))
+        if floors is not None and floor not in floors:
+            continue
+        base_key = f"floor{floor:02d}/camera{cam:03d}"
+        key = f"alt_backgrounds/{base_key}"
+        guide = in_dir / "guides" / f"{base_key}.png"
+        layout = in_dir / "guides" / f"{base_key}.json"
         cams.append(Camera(floor, cam, path, guide if guide.is_file() else None, key,
                            layout if layout.is_file() else None))
     if screens:
@@ -511,7 +525,12 @@ def regenerate(cams, out_dir, *, text_model, style, attempts=3, gate_scale=1.0, 
     prompts, report = load_prompts(prompts_path), load_json(report_path)
     done = failed = errors = rejects = 0
     for cam in cams:
-        target = out_dir / (f"backgrounds/{cam.key}.png" if cam.floor >= 0 else f"{cam.key}.png")
+        if cam.floor == -1:
+            target = out_dir / f"{cam.key}.png"
+        elif cam.key.startswith("alt_backgrounds/"):
+            target = out_dir / f"{cam.key}.png"
+        else:
+            target = out_dir / f"backgrounds/{cam.key}.png"
         if target.is_file() and not force:
             log(f"{cam.key}: exists, skipped")
             continue
