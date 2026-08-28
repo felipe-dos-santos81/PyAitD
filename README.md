@@ -66,7 +66,7 @@ click on any large button. Found objects open a Take/Leave prompt; inventory
 exposes the object's own actions; letters and books are readable; pictures
 play full-screen.
 
-The in-game Configuration screen's Graphics rows, and six CLI flags for a
+The in-game Configuration screen's Graphics rows, and seven CLI flags for a
 single session, control the enhanced renderer: `--render-scale N` (1-8, the
 internal render resolution as a multiple of 320x200), `--shading
 {flat,lambert,smooth}` (the per-actor shading model: where surface normals
@@ -76,11 +76,17 @@ come from), `--background-filter {nearest,bilinear,xbr}` (how the original
 estimates each camera's light direction and colour from its own background
 image and casts a ground shadow under every actor), `--msaa {0,2,4,8}`
 (multisampling on the internal render target),
+`--realism {classic,enhanced}` (`classic` is the flat-material look;
+`enhanced` gives every surface a material — specular, rim, occlusion and
+grain — from a palette-index table in `PyAitD/render/materials.json`, which
+`make bootstrap-materials` regenerates and an override directory can remap
+per body under `DIR/bodies/body<NNN>.json`),
 and `--overrides DIR` (a user-supplied replacement asset directory; this repo
 still ships no game data — `make run` passes `data/aitd1/overrides` unless you
 override or clear `overrides=`). An override directory holds
 `DIR/backgrounds/floor<NN>/camera<NNN>.png` (any size) per camera and
-`DIR/palette.png` (256 pixels wide) for the palette; a missing override file
+`DIR/palette.png` (256 pixels wide) for the palette, and `DIR/bodies/body<NNN>.json`
+(a per-body material remap); a missing override file
 falls back to the original asset silently, while one that exists but fails
 to load logs a warning and falls back — the game never crashes on a bad
 override. CLI flags apply only to the current session and are not persisted;

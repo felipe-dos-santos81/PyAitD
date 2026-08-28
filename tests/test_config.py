@@ -200,5 +200,5 @@ def test_save_writes_schema_2_with_render(tmp_path):
     assert payload["schema"] == SCHEMA
     assert payload["render"] == {"scale": 3, "shading": "flat",
                                  "background_filter": "xbr", "override_dir": None,
-                                 "lighting": "scene", "msaa": 4, "realism": "classic"}
+                                 "lighting": "scene", "msaa": 4, "realism": "enhanced"}
     assert load_settings(path) == (settings, None)

@@ -20,7 +20,7 @@ class RenderOptions:
     override_dir: str | None = None
     lighting: str = "scene"
     msaa: int = 4
-    realism: str = "classic"
+    realism: str = "enhanced"
 
     def to_payload(self):
         return {

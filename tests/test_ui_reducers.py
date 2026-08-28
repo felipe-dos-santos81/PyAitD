@@ -120,7 +120,7 @@ def test_graphics_rows_cycle_render_options():
     state.cursor = first + 2
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(background_filter="xbr")
     state.cursor = first + 5
-    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(realism="enhanced")
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(realism="classic")
     assert state.page is SystemMenuPage.CONFIG  # never opens the key picker
 
 

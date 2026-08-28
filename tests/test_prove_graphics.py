@@ -7,7 +7,7 @@ import pathlib
 import numpy as np
 import pytest
 
-from PyAitD.render.render_options import SHADING_MODES
+from PyAitD.render.render_options import REALISM_MODES, SHADING_MODES
 from tools.prove_graphics import FIXTURES, _parse_args, main, output_paths, render_fixture
 
 pytestmark = pytest.mark.tools
@@ -17,6 +17,8 @@ def test_render_fixture_produces_scaled_frames(data_dir, gl_ctx):
     rgb = render_fixture(data_dir, "attic", scale=2, shading="smooth", ctx=gl_ctx)
     assert rgb.shape == (400, 640, 3)
     assert rgb.std() > 10  # not a blank frame
+    classic = render_fixture(data_dir, "attic", scale=2, shading="smooth", ctx=gl_ctx, realism="classic")
+    assert not np.array_equal(rgb, classic)   # the default is enhanced, and it shows
 
 
 def test_parse_args_defaults():
@@ -32,13 +34,13 @@ def test_parse_args_overrides():
     assert args.scale == 2
 
 
-def test_output_paths_covers_every_fixture_and_shading_mode():
+def test_output_paths_covers_every_fixture_shading_mode_and_realism():
     paths = output_paths("docs/graphics-proof")
-    assert len(paths) == len(FIXTURES) * len(SHADING_MODES)
-    names = {(name, mode) for name, mode, _ in paths}
-    assert names == {(name, mode) for name in FIXTURES for mode in SHADING_MODES}
-    for name, mode, path in paths:
-        assert path == pathlib.Path("docs/graphics-proof") / f"{name}-{mode}.png"
+    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES)
+    names = {(name, mode, realism) for name, mode, realism, _ in paths}
+    assert names == {(n, m, r) for n in FIXTURES for m in SHADING_MODES for r in REALISM_MODES}
+    for name, mode, realism, path in paths:
+        assert path == pathlib.Path("docs/graphics-proof") / f"{name}-{mode}-{realism}.png"
 
 
 def test_main_exits_2_when_data_directory_is_absent(tmp_path, capsys):
@@ -66,4 +68,4 @@ def test_render_fixture_is_importable_with_the_documented_signature():
     # positional args in a later edit, without needing GL or game data.
     import inspect
     params = list(inspect.signature(render_fixture).parameters)
-    assert params == ["data_dir", "name", "scale", "shading", "ctx"]
+    assert params == ["data_dir", "name", "scale", "shading", "ctx", "realism"]

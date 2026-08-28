@@ -2,7 +2,8 @@
 """Render fixed fixtures through the enhanced pipeline for the manual proof.
 
 Boots two fixtures on a standalone ModernGL context and writes one PNG per
-fixture per shading mode to `--out` (default `docs/graphics-proof/`):
+fixture per shading mode per realism preset to `--out` (default
+`docs/graphics-proof/`):
 
 - `attic`: the M1/M2 attic debug start (`init_game`, floor 0).
 - `combat`: the shared floor-5 debug venue (`scenario.enter_combat_venue`).
@@ -21,7 +22,7 @@ import numpy as np
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.game import init_game
 from PyAitD.render.render_gl import GLBackend
-from PyAitD.render.render_options import SHADING_MODES, RenderOptions
+from PyAitD.render.render_options import REALISM_MODES, SHADING_MODES, RenderOptions
 from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.render.scene import build_frame
 from PyAitD.games.aitd1.profile import AITD1
@@ -37,10 +38,10 @@ def _boot(data_dir, name):
     return game, game.load_floor(game.current_floor)
 
 
-def render_fixture(data_dir, name, scale, shading, ctx):
+def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced"):
     game, floor = _boot(data_dir, name)
     frame, _ = build_frame(game, floor, AssetResolver(game.assets))
-    backend = GLBackend(ctx, RenderOptions(scale=scale, shading=shading))
+    backend = GLBackend(ctx, RenderOptions(scale=scale, shading=shading, realism=realism))
     try:
         backend.draw(frame)
         return backend.read_rgb()
@@ -49,13 +50,14 @@ def render_fixture(data_dir, name, scale, shading, ctx):
 
 
 def output_paths(out_dir):
-    """(name, mode, path) for every fixture x shading-mode combination, in
-    the order rendered and printed by `main`."""
+    """(name, mode, realism, path) for every fixture x shading-mode x realism
+    combination, in the order rendered and printed by `main`."""
     out_dir = pathlib.Path(out_dir)
     return [
-        (name, mode, out_dir / f"{name}-{mode}.png")
+        (name, mode, realism, out_dir / f"{name}-{mode}-{realism}.png")
         for name in FIXTURES
         for mode in SHADING_MODES
+        for realism in REALISM_MODES
     ]
 
 
@@ -85,8 +87,8 @@ def main(argv=None):
 
     try:
         args.out.mkdir(parents=True, exist_ok=True)
-        for name, mode, path in output_paths(args.out):
-            rgb = render_fixture(args.data, name, args.scale, mode, ctx)
+        for name, mode, realism, path in output_paths(args.out):
+            rgb = render_fixture(args.data, name, args.scale, mode, ctx, realism)
             surface = pygame.surfarray.make_surface(np.ascontiguousarray(rgb.swapaxes(0, 1)))
             pygame.image.save(surface, str(path))
             print(path)

@@ -86,12 +86,14 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `engine/world.py`, `engine/cos_table.py` | Fixed-point rotations, camera transform/projection (M2-verified goldens) |
 | `engine/skel.py`, `engine/mask.py` | Skinning/projection (the FITD-faithful integer path, `skin()`), mask bitmap rasterization |
 | `render/scene.py` | `build_frame(game, floor, resolver) -> (FrameDescription, draw_list)`: per-frame scene description shared by both backends; `CameraView`, a float twin of `skel.skin`'s projection, for the new renderers. `draw_list` stays built from the logical `skin()` bbox — picking, masks and the mouse contract are untouched |
-| `render/geometry.py` | `pose_geometry(...) -> BodyGeometry`: float posed vertices, per-vertex normals, triangulated/line/point/sphere primitives, shared with `skel.pose_vertices` so pose can never disagree |
+| `render/materials.py` | `Material`, `CLASS_PRESETS`, `MaterialTable`, `parse_table`/`load_table`/`default_table`, `RealismPreset`/`PRESETS`: palette-index material classes, the committed `materials.json`, the two realism presets; pygame/GL-free |
+| `render/occlusion.py` | `bake_vertex_ao(body) -> (N,) float32`: rest-pose hemisphere-ray vertex occlusion, baked once per body; pygame/GL-free |
+| `render/geometry.py` | `pose_geometry(..., ao=None) -> BodyGeometry`: float posed vertices, per-vertex normals, rest-pose vertices, baked AO, triangulated/line/point/sphere primitives, shared with `skel.pose_vertices` so pose can never disagree |
 | `engine/mask_geometry.py` | Mask polygons in 320x200 screen space plus their trigger rects, parsed once from the existing mask data |
-| `render/asset_resolver.py` | `AssetResolver(assets, override_dir=None)`: background/palette lookup, checking an optional override directory first and falling back to the original asset |
+| `render/asset_resolver.py` | `AssetResolver(assets, override_dir=None)`: background/palette/light lookup, per-body material table (with `bodies/body<NNN>.json` override) and AO bake, checking an optional override directory first and falling back to the original asset |
 | `render/lighting.py` | `estimate_light(pixels) -> SceneLight`, `shading_terms`, `project_to_plane`: a per-camera light read off the background image, and the ground-plane projection the shadow pass uses; pygame/GL-free |
-| `render/render_options.py` | `RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa)`: validation, clamping, menu-cycle helpers; pygame/GL-free |
-| `render/render_gl.py` | `GLBackend(ctx, options)`: ModernGL pipeline, per-actor depth, GPU mask-texture erasure, shading modes, estimated scene lighting, projected ground shadows, multisampling, background filtering |
+| `render/render_options.py` | `RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism)`: validation, clamping, menu-cycle helpers; pygame/GL-free |
+| `render/render_gl.py` | `GLBackend(ctx, options)`: ModernGL pipeline, per-actor depth, GPU mask-texture erasure, shading modes, estimated scene lighting, projected ground shadows, per-material surface response, multisampling, background filtering |
 | `render/render_soft.py` | `SoftwareBackend`: numpy/pygame compositor over the logical projection, used headless and as the GL-failure fallback |
 | `render/render.py` | `Renderer(options)`: window/context ownership, backend selection and fallback, UI composite, present, `window_to_logical` |
 | `engine/anim_action.py` | GereFrappe action runner: melee (1→10→2), hit-object, firearm volume sweep (4→5), throw setup/launch/flight (6→7→9). Publishes `hit`/`hit_by`/`hit_force` only — never actor `life` |
@@ -106,7 +108,7 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `render/override_check.py` | Pure validation of an override directory exactly as `AssetResolver` would load it; structural manifest checks |
 | `app/config.py` | Pygame-free settings schema (v1), platform settings path, validated load, atomic save |
 | `app/shell.py` | The process shell formerly in `__main__.py`; `__main__.py` is now a one-line re-export |
-| `tools/` | CLI proofs and pipelines: `prove_mouse`, `prove_combat`, `prove_graphics`, `export_backgrounds`, `check_overrides`, `regenerate_backgrounds` (the only module that talks to an AI service; PNG encoding lives here, not in `PyAitD/`) |
+| `tools/` | CLI proofs and pipelines: `prove_mouse`, `prove_combat`, `prove_graphics`, `export_backgrounds`, `check_overrides`, `regenerate_backgrounds` (the only module that talks to an AI service; PNG encoding lives here, not in `PyAitD/`), `bootstrap_materials` (survey/label/emit/check of the material table; its label stage reaches Gemini through `regenerate_backgrounds.agy_structured`) |
 
 ## Fidelity notes (hard-won)
 

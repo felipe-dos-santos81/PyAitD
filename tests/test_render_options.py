@@ -9,19 +9,19 @@ pytestmark = pytest.mark.render
 
 
 def test_defaults():
-    assert RenderOptions() == RenderOptions(4, "smooth", "bilinear", None, "scene", 4, "classic")
+    assert RenderOptions() == RenderOptions(4, "smooth", "bilinear", None, "scene", 4, "enhanced")
     assert SHADING_MODES == ("flat", "lambert", "smooth")
     assert BACKGROUND_FILTERS == ("nearest", "bilinear", "xbr")
 
 
-def test_realism_defaults_to_classic_and_cycles():
+def test_realism_defaults_to_enhanced_and_cycles():
     from PyAitD.render.render_options import REALISM_MODES, cycle_realism
     assert REALISM_MODES == ("classic", "enhanced")
     options = RenderOptions()
-    assert options.realism == "classic"
-    assert cycle_realism(options).realism == "enhanced"
-    assert cycle_realism(cycle_realism(options)).realism == "classic"
-    assert RenderOptions(realism="enhanced").to_payload()["realism"] == "enhanced"
+    assert options.realism == "enhanced"
+    assert cycle_realism(options).realism == "classic"
+    assert cycle_realism(cycle_realism(options)).realism == "enhanced"
+    assert RenderOptions(realism="classic").to_payload()["realism"] == "classic"
 
 
 def test_invalid_realism_falls_back_alone():
@@ -39,13 +39,13 @@ def test_valid_payload_round_trips():
 def test_each_invalid_field_falls_back_alone():
     options, error = validate_render_options(
         {"scale": 99, "shading": "smooth", "background_filter": "bilinear", "override_dir": None,
-         "lighting": "fixed", "msaa": 0, "realism": "classic"})
-    assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0, "classic")  # clamped, not rejected
+         "lighting": "fixed", "msaa": 0, "realism": "enhanced"})
+    assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0, "enhanced")  # clamped, not rejected
     assert error is None
     options, error = validate_render_options(
         {"scale": "x", "shading": "neon", "background_filter": "bilinear", "override_dir": 3,
-         "lighting": "fixed", "msaa": 0, "realism": "classic"})
-    assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0, "classic")
+         "lighting": "fixed", "msaa": 0, "realism": "enhanced"})
+    assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0, "enhanced")
     assert "scale" in error and "shading" in error and "override_dir" in error
 
 

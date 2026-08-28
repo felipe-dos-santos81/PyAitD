@@ -16,12 +16,13 @@ make test-meta     # the repo's own rules (package layering, test grouping)
 make test-journey  # real run() event pump and long real-data simulations
 make proof-mouse   # navmesh for every camera-visible room, every floor (needs game data)
 make proof-combat  # venue, real enemy damage, player arms, game over (needs game data)
-make proof-graphics # attic + combat fixtures per shading mode (needs GL + game data)
+make proof-graphics # attic + combat fixtures per shading mode x realism preset (needs GL + game data)
 make proof-intro   # opening cutscene: headless gate + one GL render per visited camera
 make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
 make export-backgrounds # originals + ITD_RESS screens + guides + layout sidecars + manifest to data/aitd1/overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1, screens=0 to skip)
 make check-overrides # validate data/aitd1/overrides (or overrides=DIR) as the game loads it; proof=1 renders side-by-sides
 make regenerate-backgrounds # Gemini describe+render+verify data/aitd1/overrides -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1, attempts=3, gate_scale=1.0); rejects drifted plates; needs the `agy` CLI on PATH
+make bootstrap-materials # palette ramps + body usage -> PyAitD/render/materials.json (vision=1 asks Gemini through agy about uncertain ramps)
 ```
 
 Every pytest target runs headless via the Makefile's `HEADLESS` variable, so
@@ -170,13 +171,15 @@ a rule — add the test with the rule.
   `screen_layout_rel_path`); a sidecar holds the guide's own geometry, so
   `layout_segments` is the single source both the guide pixels and
   `tools/plate_check.py`'s leak check draw from — never re-derive either.
-- `tools/regenerate_backgrounds.py` is the only module that may talk to an
-  AI service. It shells out to the `agy` CLI (`subprocess.run`) — it imports no
-  SDK — and its unit tests monkeypatch `subprocess.run`, so they never touch the
-  network. `tests/test_layering.py` pins that boundary. Credentials belong to
-  that CLI, not to this repo (a `.env` is git-ignored); never commit keys or
-  generated `overrides*/` output. `tools/plate_check.py` is the offline gate
-  (numpy only, no I/O); it never calls anything.
+- `tools/regenerate_backgrounds.py` owns the AI-service boundary: it is the
+  only module that shells out to the `agy` CLI, and
+  `tools/bootstrap_materials.py`'s label stage reaches Gemini only through
+  its `agy_structured`. Neither module imports an AI SDK directly — and
+  `regenerate_backgrounds`'s unit tests monkeypatch `subprocess.run`, so they
+  never touch the network. `tests/test_layering.py` pins that boundary.
+  Credentials belong to that CLI, not to this repo (a `.env` is git-ignored);
+  never commit keys or generated `overrides*/` output. `tools/plate_check.py`
+  is the offline gate (numpy only, no I/O); it never calls anything.
 - `skel.skin`'s integer projection stays authoritative for picking, masks and
   the mouse contract; `draw_list` entries must stay byte-identical.
   `scene.CameraView` is a parallel float path for rendering only and is
