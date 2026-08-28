@@ -110,7 +110,7 @@ def test_graphics_rows_cycle_render_options():
     from dataclasses import replace
     from PyAitD.app.ui import GRAPHICS_ROWS, config_row_count
     from PyAitD.render.render_options import RenderOptions
-    assert GRAPHICS_ROWS == 3 and config_row_count() == 2 + len(REMAPPABLE_CONTROLS) + 3
+    assert GRAPHICS_ROWS == 5 and config_row_count() == 2 + len(REMAPPABLE_CONTROLS) + 5
     first = 1 + len(REMAPPABLE_CONTROLS)
     settings = default_settings()
     state = SystemMenuPresenter(page=SystemMenuPage.CONFIG, cursor=first)

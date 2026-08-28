@@ -178,9 +178,11 @@ def test_story_whole_frame_confirms_and_menu_rows_are_large():
             hits = SystemMenuLayout.hit_rows(page)
             assert all(rect.width >= 12 and rect.height >= 12 for rect in hits)
         elif page is SystemMenuPage.CONFIG:
-            # the 12-row CONFIG page packs at a 16 px pitch to fit Scale,
-            # Shading and Filter above Back without overflowing the screen
-            assert all(rect.width >= 224 and rect.height >= 16 for rect in rows)
+            # the 14-row CONFIG page packs at a 14 px pitch to fit Scale,
+            # Shading, Filter, Lighting and AA above Back without
+            # overflowing the screen; effective_rects still pads every row
+            # past the 12x12 minimum target size
+            assert all(rect.width >= 224 and rect.height >= 14 for rect in rows)
         else:
             assert all(rect.width >= 224 and rect.height >= 20 for rect in rows)
         for index, rect in enumerate(rows):

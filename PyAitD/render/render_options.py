@@ -6,6 +6,8 @@ SHADING_MODES = ("flat", "lambert", "smooth")
 BACKGROUND_FILTERS = ("nearest", "bilinear", "xbr")
 SCALE_STEPS = (1, 2, 3, 4, 6, 8)
 MIN_SCALE, MAX_SCALE = 1, 8
+LIGHTING_MODES = ("fixed", "scene")
+MSAA_LEVELS = (0, 2, 4, 8)
 
 
 @dataclass(frozen=True)
@@ -14,6 +16,8 @@ class RenderOptions:
     shading: str = "smooth"
     background_filter: str = "bilinear"
     override_dir: str | None = None
+    lighting: str = "fixed"
+    msaa: int = 0
 
     def to_payload(self):
         return {
@@ -21,6 +25,8 @@ class RenderOptions:
             "shading": self.shading,
             "background_filter": self.background_filter,
             "override_dir": self.override_dir,
+            "lighting": self.lighting,
+            "msaa": self.msaa,
         }
 
 
@@ -47,7 +53,17 @@ def validate_render_options(payload):
     if override_dir is not None and (not isinstance(override_dir, str) or not override_dir):
         errors.append("override_dir must be null or a non-empty string")
         override_dir = None
-    options = RenderOptions(scale, shading, background_filter, override_dir)
+    lighting = payload.get("lighting")
+    if lighting not in LIGHTING_MODES:
+        errors.append(f"lighting must be one of {', '.join(LIGHTING_MODES)}")
+        lighting = defaults.lighting
+    msaa = payload.get("msaa")
+    # `type(x) is int` rejects bools: `False in MSAA_LEVELS` is True, since
+    # False == 0. Same guard the scale field above uses, same reason.
+    if not (type(msaa) is int and msaa in MSAA_LEVELS):
+        errors.append(f"msaa must be one of {', '.join(str(v) for v in MSAA_LEVELS)}")
+        msaa = defaults.msaa
+    options = RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa)
     return options, ("; ".join(errors) or None)
 
 
@@ -66,3 +82,12 @@ def cycle_shading(options):
 
 def cycle_filter(options):
     return replace(options, background_filter=_cycle(BACKGROUND_FILTERS, options.background_filter))
+
+
+def cycle_lighting(options):
+    return replace(options, lighting=_cycle(LIGHTING_MODES, options.lighting))
+
+
+def cycle_msaa(options):
+    current = options.msaa if options.msaa in MSAA_LEVELS else MSAA_LEVELS[0]
+    return replace(options, msaa=_cycle(MSAA_LEVELS, current))

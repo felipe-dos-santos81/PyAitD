@@ -19,7 +19,9 @@ from PyAitD.engine.pak import PakError
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.engine.playworld import TICK_MS, play_tick
 from PyAitD.render.render import Renderer
-from PyAitD.render.render_options import BACKGROUND_FILTERS, SHADING_MODES, validate_render_options
+from PyAitD.render.render_options import (
+    BACKGROUND_FILTERS, LIGHTING_MODES, MSAA_LEVELS, SHADING_MODES, validate_render_options,
+)
 from PyAitD.games import load_profile
 from PyAitD.render.scene import build_frame
 from PyAitD.app.ui import (
@@ -73,6 +75,14 @@ def parse_args(argv):
         help="background upscale filter",
     )
     p.add_argument(
+        "--lighting", choices=LIGHTING_MODES, default=None,
+        help="fixed rig, or a light estimated from each camera's background",
+    )
+    p.add_argument(
+        "--msaa", type=int, choices=MSAA_LEVELS, default=None,
+        help="multisample anti-aliasing samples (0 disables)",
+    )
+    p.add_argument(
         "--overrides", type=pathlib.Path, default=None, help="asset override directory",
     )
     p.add_argument(
@@ -97,6 +107,10 @@ def apply_render_overrides(settings, args):
         payload["shading"] = args.shading
     if args.background_filter is not None:
         payload["background_filter"] = args.background_filter
+    if args.lighting is not None:
+        payload["lighting"] = args.lighting
+    if args.msaa is not None:
+        payload["msaa"] = args.msaa
     if args.overrides is not None:
         payload["override_dir"] = str(args.overrides)
     render, _error = validate_render_options(payload)
@@ -572,11 +586,12 @@ def _route_game_over_command(game, session, modal_command):
 
 
 # The only render.RenderOptions fields the CONFIG menu can actually change
-# (SystemMenuPage.CONFIG's Scale/Shading/Filter rows, via cycle_scale /
-# cycle_shading / cycle_filter in ui.reduce_system_menu). `override_dir` has
-# no menu row at all, so it is never in this set and a save can never pick
-# it up from the in-memory, possibly CLI-set, session.settings.render.
-_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter")
+# (SystemMenuPage.CONFIG's Scale/Shading/Filter/Lighting/AA rows, via
+# cycle_scale / cycle_shading / cycle_filter / cycle_lighting / cycle_msaa in
+# ui.reduce_system_menu). `override_dir` has no menu row at all, so it is
+# never in this set and a save can never pick it up from the in-memory,
+# possibly CLI-set, session.settings.render.
+_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa")
 
 
 def _persisted_render(session):

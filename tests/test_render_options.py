@@ -21,11 +21,13 @@ def test_valid_payload_round_trips():
 
 def test_each_invalid_field_falls_back_alone():
     options, error = validate_render_options(
-        {"scale": 99, "shading": "smooth", "background_filter": "bilinear", "override_dir": None})
+        {"scale": 99, "shading": "smooth", "background_filter": "bilinear", "override_dir": None,
+         "lighting": "fixed", "msaa": 0})
     assert options == RenderOptions(8, "smooth", "bilinear", None)  # clamped, not rejected
     assert error is None
     options, error = validate_render_options(
-        {"scale": "x", "shading": "neon", "background_filter": "bilinear", "override_dir": 3})
+        {"scale": "x", "shading": "neon", "background_filter": "bilinear", "override_dir": 3,
+         "lighting": "fixed", "msaa": 0})
     assert options == RenderOptions(4, "smooth", "bilinear", None)
     assert "scale" in error and "shading" in error and "override_dir" in error
 
@@ -39,3 +41,33 @@ def test_cycles():
     assert cycle_scale(o).scale == 6 and cycle_scale(RenderOptions(scale=8)).scale == 1
     assert cycle_shading(o).shading == "flat"
     assert cycle_filter(o).background_filter == "xbr"
+
+
+def test_lighting_and_msaa_default_off_and_cycle():
+    from PyAitD.render.render_options import (
+        LIGHTING_MODES, MSAA_LEVELS, cycle_lighting, cycle_msaa,
+    )
+    assert LIGHTING_MODES == ("fixed", "scene")
+    assert MSAA_LEVELS == (0, 2, 4, 8)
+    options = RenderOptions()
+    assert options.lighting == "fixed" and options.msaa == 0
+    assert cycle_lighting(options).lighting == "scene"
+    assert cycle_lighting(cycle_lighting(options)).lighting == "fixed"
+    assert cycle_msaa(options).msaa == 2
+    assert cycle_msaa(RenderOptions(msaa=8)).msaa == 0
+
+
+def test_invalid_lighting_and_msaa_fall_back_alone():
+    payload = RenderOptions().to_payload()
+    payload["lighting"] = "neon"
+    options, error = validate_render_options(payload)
+    assert options == RenderOptions() and "lighting" in error
+    payload = RenderOptions().to_payload()
+    payload["msaa"] = 3
+    options, error = validate_render_options(payload)
+    assert options == RenderOptions() and "msaa" in error
+    # a bool is not an int here: True/False must not slip through as 1/0
+    payload = RenderOptions().to_payload()
+    payload["msaa"] = False
+    options, error = validate_render_options(payload)
+    assert options == RenderOptions() and "msaa" in error

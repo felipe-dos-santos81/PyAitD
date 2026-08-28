@@ -16,11 +16,13 @@ from PyAitD.engine.effects import ChooseCharacter, FoundResult, OpenStartupMenu,
 from PyAitD.render.background_export import (
     PORTRAIT_RECTS, READING_CLOSE_RECT, READING_NEXT_RECT, READING_PREV_RECT,
 )
-from PyAitD.render.render_options import RenderOptions, cycle_filter, cycle_scale, cycle_shading
+from PyAitD.render.render_options import (
+    RenderOptions, cycle_filter, cycle_lighting, cycle_msaa, cycle_scale, cycle_shading,
+)
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.text import BookToken
 
-GRAPHICS_ROWS = 3
+GRAPHICS_ROWS = 5
 
 
 def config_row_count():
@@ -417,7 +419,7 @@ def reduce_system_menu(state, command, settings):
             settings=replace(settings, sticky_action=not settings.sticky_action),
         )
     elif command is Command.ACCEPT and state.cursor > len(REMAPPABLE_CONTROLS):
-        cycles = (cycle_scale, cycle_shading, cycle_filter)
+        cycles = (cycle_scale, cycle_shading, cycle_filter, cycle_lighting, cycle_msaa)
         cycle = cycles[state.cursor - 1 - len(REMAPPABLE_CONTROLS)]
         return SystemMenuResult(settings=replace(settings, render=cycle(settings.render)))
     elif command is Command.ACCEPT:
@@ -558,8 +560,12 @@ class CharacterLayout:
 
 class SystemMenuLayout:
     MAIN_ROWS = tuple(pygame.Rect(48, 45 + i * 42, 224, 32) for i in range(3))
+    # 14 rows at a 14 px pitch from y=2 ends at y=198. The previous 16 px
+    # pitch fitted exactly 12 rows and had no room for the Lighting and AA
+    # rows. Rows stay >= 14 px tall, so effective_rects' 12x12 minimum
+    # target contract still holds.
     CONFIG_ROWS = tuple(
-        pygame.Rect(16, 4 + i * 16, 288, 16)
+        pygame.Rect(16, 2 + i * 14, 288, 14)
         for i in range(config_row_count())
     )
     # 8 columns x 7 rows of key cells under a one-line header, then a wide
@@ -1134,9 +1140,11 @@ def render_system_menu(painter, presenter, settings, assets):
         labels.append(f"Scale: {settings.render.scale}x")
         labels.append(f"Shading: {settings.render.shading.title()}")
         labels.append(f"Filter: {settings.render.background_filter.title()}")
+        labels.append(f"Lighting: {settings.render.lighting.title()}")
+        labels.append(f"AA: {settings.render.msaa}x" if settings.render.msaa else "AA: Off")
         labels.append("Back to Menu")
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
-    button_size = 13 if presenter.page is SystemMenuPage.CONFIG else 18
+    button_size = 12 if presenter.page is SystemMenuPage.CONFIG else 18
     rows = zip(SystemMenuLayout.rows(presenter.page), labels, strict=True)
     for index, (rect, label) in enumerate(rows):
         _button(painter, rect, label, selected=index == selection, size=button_size)

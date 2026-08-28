@@ -199,5 +199,6 @@ def test_save_writes_schema_2_with_render(tmp_path):
     payload = json.loads(path.read_text())
     assert payload["schema"] == SCHEMA
     assert payload["render"] == {"scale": 3, "shading": "flat",
-                                 "background_filter": "xbr", "override_dir": None}
+                                 "background_filter": "xbr", "override_dir": None,
+                                 "lighting": "fixed", "msaa": 0}
     assert load_settings(path) == (settings, None)
