@@ -855,6 +855,20 @@ def test_classic_ignores_the_material_table(gl_ctx):
 
 def test_metal_is_brighter_than_matte_under_enhanced(gl_ctx):
     # n = l = view = the half-vector: the highlight lands dead centre.
+    #
+    # Two CLASS_PRESETS constants bound this, in opposite directions. The
+    # triangle is drawn in palette index 1, a saturated red, whose red
+    # channel is already at the ceiling: the specular term is
+    # `mix(vec3(1), v_color, metallic)`, so the metallic part of the
+    # highlight lands almost entirely on a channel that clamps and
+    # contributes nothing measurable. The whole of the margin below comes
+    # from the *non*-metallic part, scaled by `metal.specular`. So raising
+    # `metal.metallic` toward 1.0 shrinks the measured delta (it fails
+    # somewhere above ~0.9) and lowering `metal.specular` shrinks it too --
+    # and in both cases the failure would read as if the specular term had
+    # broken. It has not; the test simply cannot see a highlight that has
+    # been tinted entirely into a clamped channel. Re-tune against a
+    # desaturated palette entry before touching either constant.
     backend = _enhanced_backend(gl_ctx)
     tri = _facing_tri(600.0, 1, (0.0, 0.0, -1.0))
     backend.draw(_lit_frame([_material_actor(0, tri, _table_of("matte"))], (0.0, 0.0, -1.0)))

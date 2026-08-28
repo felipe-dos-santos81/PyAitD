@@ -14,7 +14,15 @@ from PyAitD.render.geometry import _vertex_normals, pose_geometry
 DEFAULT_RAYS = 16      # 32 measured ~500ms worst-case on real body data (379 verts/570 tris,
                         # AITD1 body 266); halved per the brief's guidance to bring the
                         # worst case down to ~240ms with a median of ~9ms across 272 bodies
-_CHUNK = 4096          # rays per intersection batch: caps the (rays, tris) broadcast
+_CHUNK = 512           # rays per intersection batch: caps the (rays, tris) broadcast.
+                        # Pure batching, so the result is bit-identical at any value and
+                        # only cost moves. Measured on a 379-vertex/570-triangle body,
+                        # one process per row: 4096 -> 288 ms / 546 MB peak RSS,
+                        # 512 -> 245 ms / 103 MB, 128 -> 241 ms / 65 MB. Several
+                        # (rays, tris, 3) float64 temporaries are live at once (56 MB
+                        # each at 4096), so the big chunk bought nothing and cost half
+                        # a gigabyte; 512 keeps the batches wide enough to stay in
+                        # numpy while holding transient memory near a tenth of that.
 _RELATIVE_EPSILON = 1e-3
 
 

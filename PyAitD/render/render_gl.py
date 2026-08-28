@@ -163,7 +163,13 @@ void main() {
     vec3 h = normalize(l + view);
     // Camera-space y grows downward, so "up" (the sky half of the
     // hemisphere ambient) is -n.y.
-    float hemi = mix(1.0 - 0.3 * preset_b.z, 1.0 + 0.3 * preset_b.z, clamp(-n.y * 0.5 + 0.5, 0.0, 1.0));
+    // Written as `1.0 + strength * ...`, like every other new term, so that
+    // realism=classic (preset_b.z == 0) collapses to exactly 1.0 by
+    // construction. The equivalent mix(1.0 - k, 1.0 + k, t) is only
+    // *probably* exact at k == 0: GLSL defines mix as x*(1-a) + y*a, which
+    // Sterbenz guarantees for a >= 0.5 but not below, leaving the branch's
+    // byte-for-byte classic identity to the driver's discretion.
+    float hemi = 1.0 + preset_b.z * 0.3 * (clamp(-n.y * 0.5 + 0.5, 0.0, 1.0) * 2.0 - 1.0);
     // World y grows downward too: the feet are at plane_y and everything
     // above them has a smaller y. Darkens by up to half at the plane.
     float height = clamp((plane_y - v_world_y) / contact_height, 0.0, 1.0);
@@ -279,6 +285,16 @@ def _quad_corners(sx, sy, depth, dx, dy):
     c0 = _to_ndc(sx - dx, sy - dy, depth)
     c1 = _to_ndc(sx + dx, sy + dy, depth)
     return c0, c1
+
+
+def _plane_y(actor):
+    """The world y of the ground plane under `actor`: the lower of its
+    bounding box's two y bounds (world y grows downward, so the larger
+    number is the lower point). The contact darkening in the scene shader
+    and the plane a shadow is projected onto must be the same plane or the
+    shadow detaches from the darkening at the feet -- one helper so the two
+    cannot drift."""
+    return float(max(actor.zv[2], actor.zv[3]))
 
 
 class GLBackend:
@@ -570,7 +586,7 @@ class GLBackend:
             self._screen_prog["mask_tex"].value = 1
 
             if scene_lit:
-                self._actor_prog["plane_y"].value = float(max(actor.zv[2], actor.zv[3]))
+                self._actor_prog["plane_y"].value = _plane_y(actor)
                 self._upload_materials(actor.materials)
             self._draw_actor(actor, frame, palette)
             self._ctx.disable(moderngl.DEPTH_TEST)
@@ -670,7 +686,7 @@ class GLBackend:
             # coverage left over from an earlier, larger one at the pixels
             # its own triangles don't reach.
             return False
-        plane_y = float(max(actor.zv[2], actor.zv[3]))
+        plane_y = _plane_y(actor)
         world = geometry.vertices.astype(np.float64) + np.asarray(actor.position, np.float64)
         flat = project_to_plane(world, travel, plane_y)
         verts = flat[geometry.tris.reshape(-1)].astype("f4")
@@ -728,7 +744,13 @@ class GLBackend:
     def _upload_materials(self, table):
         """Write `table.parameters()` into the material texture unless it is
         the table object uploaded last time (default_table() is cached, so
-        every actor on the default shares one object and one upload)."""
+        every actor on the default shares one object and one upload).
+
+        Identity is a sound cache key only because both a MaterialTable and
+        the CLASS_PRESETS it reads are immutable: the same object can never
+        produce different parameters. A test that mutates CLASS_PRESETS must
+        hand every actor a fresh MaterialTable, or this will serve the
+        parameters from before the mutation."""
         if table is self._material_key:
             return
         params = table.parameters()                      # (256, 8)
