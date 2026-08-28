@@ -10,7 +10,7 @@ fixture per shading mode per realism preset to `--out` (default
 
 This repo never ships game data, so the PNGs are never committed --
 `docs/graphics-proof/` keeps only a `.gitkeep`. See
-`docs/enhanced-graphics-proof.md` for the manual attestation these renders
+`docs/graphics-realism-proof.md` for the manual attestation these renders
 feed.
 """
 import argparse
