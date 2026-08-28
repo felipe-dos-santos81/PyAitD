@@ -1005,7 +1005,7 @@ def _write_if_present(prog, name, matrix):
 
 def test_tessellation_shader_matches_the_numpy_reference(gl_ctx):
     from PyAitD.render import refine
-    from PyAitD.render.lighting import project_to_plane
+    from PyAitD.render.lighting import project_to_plane, _clamp_downward
     from PyAitD.render.render_gl import _TESS_VSH, instance_layout
     rng = np.random.default_rng(7)
     corners = rng.uniform(-300.0, 300.0, (4, 3, 3))
@@ -1031,15 +1031,27 @@ def test_tessellation_shader_matches_the_numpy_reference(gl_ctx):
     assert np.allclose(got[..., :3], ref_pos, atol=0.05)      # 1e-4 of a 600-unit patch
     assert np.allclose(got[..., 3:], ref_nrm, atol=1e-3)
 
-    # the shadow mode is project_to_plane's twin
-    travel = (0.3, 0.8, 0.2)
-    prog["project"].value = 1
-    prog["travel"].value = travel
-    prog["plane_y"].value = 250.0
-    vao.transform(out, moderngl.POINTS, vertices=len(bary), instances=len(corners))
-    projected = np.frombuffer(out.read(), "f4").reshape(len(corners), len(bary), 6)[..., :3]
-    expected = project_to_plane(ref_pos.reshape(-1, 3), travel, 250.0).reshape(ref_pos.shape)
-    assert np.allclose(projected, expected, atol=0.05)
+    # The shadow mode is project_to_plane's math for an ALREADY-CLAMPED
+    # travel (see _TESS_VSH's comment on the `project` uniform block): the
+    # shader itself never tips travel onto the MIN_UP cone, so this proves
+    # equivalence only once the uniform actually carries the clamped
+    # vector, exactly as render_gl (task 6) will write it. (0.3, 0.8, 0.2)'s
+    # unit y is ~0.91, already inside the cone -- its own clamp is a no-op,
+    # so on its own it cannot distinguish a clamped shader input from an
+    # unclamped one. (1.0, 0.1, 0.0) sits outside the cone (unit y ~0.10 <
+    # MIN_UP), so _clamp_downward genuinely changes it, and its case alone
+    # pins the precondition: feed the shader the pre-clamped uniform,
+    # compare against project_to_plane's *raw* input (which reaches the
+    # same clamped vector internally), and they must still agree.
+    for travel in ((0.3, 0.8, 0.2), (1.0, 0.1, 0.0)):
+        clamped = tuple(float(v) for v in _clamp_downward(travel))
+        prog["project"].value = 1
+        prog["travel"].value = clamped
+        prog["plane_y"].value = 250.0
+        vao.transform(out, moderngl.POINTS, vertices=len(bary), instances=len(corners))
+        projected = np.frombuffer(out.read(), "f4").reshape(len(corners), len(bary), 6)[..., :3]
+        expected = project_to_plane(ref_pos.reshape(-1, 3), travel, 250.0).reshape(ref_pos.shape)
+        assert np.allclose(projected, expected, atol=0.05)
     for resource in (vao, out, inst_buf, bary_buf, prog):
         resource.release()
 
@@ -1101,3 +1113,70 @@ def test_smoothing_zero_draws_through_the_legacy_path(gl_ctx, monkeypatch):
     monkeypatch.setattr(backend, "_render_instanced", lambda *a, **k: (_ for _ in ()).throw(AssertionError("tessellated")))
     backend.draw(_frame([_actor(0, _planned_geometry(_closed_cube_body()))]))
     backend.release()
+
+
+def test_instance_data_packs_each_corners_own_columns(gl_ctx):
+    # Finding 2 (task 5 review): the pixel tests above cannot pin
+    # _instance_data's straight-column ordering -- the hex prism's straight
+    # is uniformly 0, the cube's patches are planar so edge_point's
+    # dot(pj-pi, ni) term vanishes and the chord comes out the same
+    # whatever straight says, and the sphere passes np.zeros. A transposed
+    # or rolled `geometry.straight[:, :, None]` (or any other column) would
+    # pass the entire existing suite. Pin the documented per-corner layout
+    # directly instead: per corner k, (pos.xyz, ao), (normal.xyz,
+    # straight_k), (rgb, index), rest.xyz -- 15 floats, using a value
+    # distinct per corner in every field that varies per corner.
+    pos = np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0]], np.float32)
+    normals = np.array([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]], np.float32)
+    straight = np.array([[1.0, 0.0, 1.0]], np.float32)   # distinct per corner: not uniform, not a palindrome
+    ao = np.array([0.2, 0.5, 0.9], np.float32)
+    rest = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]], np.float32)
+    geometry = BodyGeometry(
+        pos, normals[0], np.array([[0, 1, 2]], np.int32), np.array([2], np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8),
+        rest, ao, normals, straight)
+    palette = _palette().astype("f4") / 255.0
+    backend = _flat_backend(gl_ctx, 0)
+    row = backend._instance_data(geometry, np.zeros(3, np.float64), palette)[0]
+    backend.release()
+    for k in range(3):
+        block = row[15 * k: 15 * (k + 1)]
+        assert np.allclose(block[0:3], pos[k]), f"corner {k} position"
+        assert block[3] == pytest.approx(ao[k]), f"corner {k} ao"
+        assert np.allclose(block[4:7], normals[0, k]), f"corner {k} normal"
+        assert block[7] == pytest.approx(straight[0, k]), f"corner {k} straight"
+        assert np.allclose(block[8:11], palette[2]), f"corner {k} colour"
+        assert block[11] == pytest.approx(2.0), f"corner {k} palette index"
+        assert np.allclose(block[12:15], rest[k]), f"corner {k} rest"
+
+
+def _enhanced_tessellated_backend(gl_ctx, level=2):
+    return GLBackend(gl_ctx, RenderOptions(
+        scale=2, shading="smooth", lighting="scene", msaa=0, realism="enhanced", smoothing=level))
+
+
+def test_scene_lit_enhanced_tessellation_shades_a_sphere_nonuniformly(gl_ctx):
+    # Finding 3 (task 5 review): every pixel test above runs shading="flat",
+    # where _ACTOR_FSH returns the raw palette colour and returns before
+    # v_normal, v_ao, v_rest, v_index, plane_y, contact_height or
+    # material_tex are ever read on the tessellated path -- so nothing
+    # exercised the scene_lit half of _set_frame_uniforms, the tessellated
+    # plane_y write, or the ao/rest/index columns of _instance_data. Task 7
+    # ships smoothing=2 under exactly shading="smooth"/lighting="scene"/
+    # realism="enhanced", so that is the configuration that needs one real
+    # picture: a lit sphere, tessellated, must show a genuine range of
+    # shading across its surface, not one flat colour.
+    sphere = BodyGeometry(
+        np.array([[0.0, 0.0, 600.0]], np.float32), np.array([[0.0, 0.0, -1.0]], np.float32),
+        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, 300.0, 1),),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    backend = _enhanced_tessellated_backend(gl_ctx)
+    actor = _material_actor(0, sphere, _table_of("matte"))
+    backend.draw(_lit_frame([actor], (0.3, -0.6, -0.7)))
+    rgb = backend.read_rgb().astype(int)
+    backend.release()
+    lit = rgb[rgb.sum(axis=2) > 0]
+    assert len(lit) > 500                  # the sphere is really drawn
+    assert lit.std(axis=0).max() > 10      # a real spread of shading, not one flat colour

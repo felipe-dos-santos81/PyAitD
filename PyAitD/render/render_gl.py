@@ -222,7 +222,12 @@ _TESS_VSH = """
 // refine.evaluate is the numpy twin the parity test pins this against.
 uniform mat4 mvp; uniform mat3 rot;
 // project == 1 is the shadow mode: the evaluated point slides along
-// `travel` onto the plane y == plane_y before mvp -- lighting.project_to_plane.
+// `travel` onto the plane y == plane_y before mvp -- lighting.project_to_plane's
+// math for an ALREADY-CLAMPED travel. This shader does no clamping itself:
+// the caller must tip `travel` onto the MIN_UP cone (lighting._clamp_downward)
+// before writing this uniform, exactly as project_to_plane does on the CPU
+// side, or an unclamped near-horizontal travel divides by a near-zero
+// travel.y here.
 uniform int project; uniform vec3 travel; uniform float plane_y;
 in vec3 in_bary;
 in vec4 in_p0; in vec4 in_n0; in vec4 in_c0; in vec3 in_r0;
@@ -539,7 +544,12 @@ class GLBackend:
             # over to the software backend when a driver rejects it.
             self._tess_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_ACTOR_FSH)
             self._tess_shadow_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_STENCIL_FSH)
-            self._tess_prog["travel"].value = (0.0, 1.0, 0.0)
+            # Seeded on the shadow program, not _tess_prog: _tess_prog always
+            # writes project=0 itself (_draw_actor_tessellated), so travel is
+            # never read there. _tess_shadow_prog is the one that will set
+            # project=1 (task 6); an unseeded uniform defaults to (0,0,0) and
+            # divides by zero (travel.y) if that write is ever missed.
+            self._tess_shadow_prog["travel"].value = (0.0, 1.0, 0.0)
             self._tess_layout = instance_layout(self._tess_prog)
             self._tess_shadow_layout = instance_layout(self._tess_shadow_prog)
             for level in SMOOTHING_LEVELS[1:]:
