@@ -100,7 +100,10 @@ def test_main_writes_manifest_via_tmp_and_replace(tmp_path, monkeypatch):
     _patch_floors(monkeypatch, {0})
     out = tmp_path / "ov"
     assert xb.main([str(tmp_path), "--out", str(out), "--floors", "0"]) == 0
-    assert sorted(p.name for p in out.iterdir()) == ["backgrounds", "guides", "manifest.json"]
+    names = sorted(p.name for p in out.iterdir())
+    # palette.png now written alongside backgrounds (task 4), alt_backgrounds only when floors include 6/7
+    assert {"backgrounds", "guides", "manifest.json"} <= set(names)
+    assert "palette.png" in names
 
 
 def test_main_force_subset_keeps_other_floors_in_manifest(tmp_path, monkeypatch, capsys):

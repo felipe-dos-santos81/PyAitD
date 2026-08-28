@@ -16,10 +16,11 @@ import sys
 
 import numpy as np
 
-from PyAitD.render.asset_resolver import AssetResolver
+from PyAitD.render.asset_resolver import AssetResolver, override_alt_background_path
 from PyAitD.render.background_export import SCREEN_ENTRIES, SUPPORTED_SCHEMAS
 from PyAitD.render.override_check import (
-    check_body_materials, check_overrides, check_screens, coverage, has_errors, screen_coverage, summarize,
+    alt_coverage, check_alt_backgrounds, check_body_materials, check_overrides, check_screens, coverage, has_errors,
+    screen_coverage, summarize,
 )
 from PyAitD.engine.pak import PakError
 from PyAitD.render.render_gl import GLBackend
@@ -53,16 +54,25 @@ def _plate(ctx, floor, cam_idx, asset, scale):
         backend.release()
 
 
-def render_proof(ctx, floor, cam_idx, override_dir, out_dir, scale=4, save=save_png):
-    """original | override for one camera, or None if no loadable override."""
+def render_proof(ctx, floor, cam_idx, override_dir, out_dir, scale=4, save=save_png, *, killed_sorcerer=False):
+    """original | override for one camera, or None if no loadable override.
+
+    When `killed_sorcerer` is True, the alt_backgrounds path is checked via
+    `resolver.background(..., killed_sorcerer=True)` and the output filename
+    is suffixed with ``-alt`` to avoid colliding with the base proof."""
     resolver = AssetResolver(None, override_dir)
-    override = resolver.background(floor, cam_idx)
+    override = resolver.background(floor, cam_idx, killed_sorcerer=killed_sorcerer)
     if not override.is_override:
         return None
+    if killed_sorcerer:
+        alt_path = override_alt_background_path(override_dir, floor.number, cam_idx)
+        if alt_path in resolver.failures or not alt_path.is_file():
+            return None
     original = AssetResolver(None, None).background(floor, cam_idx)
     left = _plate(ctx, floor, cam_idx, original, scale)
     right = _plate(ctx, floor, cam_idx, override, scale)
-    path = pathlib.Path(out_dir) / f"floor{floor.number:02d}-camera{cam_idx:03d}.png"
+    suffix = "-alt" if killed_sorcerer else ""
+    path = pathlib.Path(out_dir) / f"floor{floor.number:02d}-camera{cam_idx:03d}{suffix}.png"
     save(path, np.concatenate([left, right], axis=1))
     return path
 
@@ -137,14 +147,16 @@ def main(argv=None):
         print(f"warning: screens skipped: {exc}", file=sys.stderr)
 
     findings = check_overrides(args.overrides, floors, manifest)
+    findings = findings + check_alt_backgrounds(args.overrides, floors, manifest)
     findings = findings + check_body_materials(args.overrides)
     cov = coverage(args.overrides, floors, manifest) if manifest is not None else None
+    alt_cov = alt_coverage(args.overrides, floors, manifest) if manifest is not None else None
     screen_cov = None
     if assets is not None:
         findings = findings + check_screens(args.overrides, assets)
         if manifest is not None:
             screen_cov = screen_coverage(args.overrides, assets, manifest)
-    print(summarize(findings, cov, screen_cov))
+    print(summarize(findings, cov, screen_cov, alt_cov))
 
     if args.proof is not None:
         if assets is not None:
@@ -163,6 +175,25 @@ def main(argv=None):
                         path = render_proof(ctx, floor, cam_idx, args.overrides, args.proof)
                         if path is not None:
                             print(path)
+                # alt_backgrounds proofs via killed_sorcerer flag
+                alt_tuples = []
+                if manifest is not None and manifest.get("alt_cameras"):
+                    alt_tuples = [(c["floor"], c["camera"]) for c in manifest["alt_cameras"]]
+                else:
+                    # fallback to profile when no manifest alt_cameras (e.g. old schema or --proof without manifest)
+                    try:
+                        from PyAitD.games import load_profile
+                        alt_tuples = list(load_profile("aitd1").alt_camera_sources.keys())
+                    except Exception:
+                        alt_tuples = []
+                floor_by_number = {f.number: f for f in floors}
+                for fnum, cidx in alt_tuples:
+                    floor = floor_by_number.get(fnum)
+                    if floor is None or cidx >= len(floor.cameras):
+                        continue
+                    path = render_proof(ctx, floor, cidx, args.overrides, args.proof, killed_sorcerer=True)
+                    if path is not None:
+                        print(path)
             finally:
                 ctx.release()
     return 1 if has_errors(findings) else 0

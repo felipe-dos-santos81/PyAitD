@@ -170,3 +170,20 @@ def test_a_misnamed_body_file_is_reported_and_does_not_hide_the_real_one(tmp_pat
         (-2, -1, "bodyfoo.json", "invalid"),
     ]
     assert "body007.json" in f[0].detail and "body<NNN>.json" in f[1].detail
+
+
+def test_check_alt_backgrounds_missing_and_invalid(tmp_path):
+    from PyAitD.render.override_check import check_alt_backgrounds
+    from tests.stub_floor import StubFloor
+    floor = StubFloor(number=7)
+    manifest = {"alt_cameras": [{"floor": 7, "camera": 0, "source": "alt_backgrounds/floor07/camera000.png", "sha256": "a"}]}
+    findings = check_alt_backgrounds(tmp_path, [floor], manifest)
+    assert any(f.kind == "missing" and f.floor == 7 and f.camera == 0 for f in findings)
+
+
+def test_summarize_includes_alt_line():
+    from PyAitD.render.override_check import summarize
+    cov = {6: {"regenerated": 3, "original": 0, "missing": 0, "invalid": 0}}
+    alt_cov = {"regenerated": 5, "original": 0, "missing": 0, "invalid": 0}
+    msg = summarize([], cov, None, alt_cov)
+    assert "alt_backgrounds:" in msg
