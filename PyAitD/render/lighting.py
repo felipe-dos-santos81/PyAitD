@@ -24,10 +24,15 @@ import numpy as np
 # Rec. 709 luma weights: perceived brightness, not a channel average.
 LUMA = np.array([0.2126, 0.7152, 0.0722])
 
-# The light is forced to sit at least this far above the scene. A light
-# level with the floor projects a shadow to the horizon; this bound also
-# caps the horizontal throw at sqrt(1 - MIN_UP^2) / MIN_UP times the drop
-# (about 2.7x), which is why project_to_plane needs no clamp of its own.
+# The minimum vertical component of a light, as a fraction of its unit
+# length. A light level with the floor projects a shadow to the horizon, so
+# two independent places force the same cone: estimate_light lifts its own
+# camera-space `direction` at least this far above the scene, and
+# project_to_plane tips whatever `travel` it is handed at least this far
+# below the horizontal. The two are separate enforcements on purpose --
+# `direction` is camera space and `travel` is world space, and the rotation
+# between them does not preserve a bound on the y component (see
+# project_to_plane).
 MIN_UP = 0.35
 # A fixed toward-the-viewer component, so the light can never degenerate
 # into pure sidelight that rakes every surface at once.
@@ -130,17 +135,48 @@ def shading_terms(light):
     return tuple(key), tuple(ambient)
 
 
+def _clamp_downward(travel):
+    """`travel` as a unit vector whose y is at least MIN_UP, keeping its
+    azimuth (the x:z ratio) unchanged.
+
+    y grows downward, so "at least MIN_UP downward" is "no less than
+    +MIN_UP" -- the mirror of the cone estimate_light forces on its
+    upward-pointing `direction`. A vector already inside the cone is only
+    normalised; one outside it (level with the ground, or travelling
+    upward because the light ended up below the plane) is tipped down onto
+    the cone's surface."""
+    travel = np.asarray(travel, dtype=np.float64).reshape(3)
+    length = float(np.linalg.norm(travel))
+    if not length:
+        return np.array([0.0, 1.0, 0.0])
+    travel = travel / length
+    if travel[1] >= MIN_UP:
+        return travel
+    horizontal = float(np.hypot(travel[0], travel[2]))
+    if not horizontal:
+        return np.array([0.0, 1.0, 0.0])
+    scale = float(np.sqrt(1.0 - MIN_UP ** 2)) / horizontal
+    return np.array([travel[0] * scale, MIN_UP, travel[2] * scale])
+
+
 def project_to_plane(vertices, travel, plane_y):
     """Slide each vertex along `travel` onto the horizontal plane `y == plane_y`.
 
     `travel` is the direction light *travels* (`-SceneLight.direction`), in
-    the same space as `vertices`. A `travel` with no vertical component
-    casts no shadow at all, and the vertices come back unmoved; an estimated
-    light can never be in that state, because estimate_light clamps its
-    vertical component to at least MIN_UP."""
+    the same space as `vertices`. Whatever is handed in is first tipped onto
+    the MIN_UP cone (see _clamp_downward), which is what bounds the
+    horizontal throw at sqrt(1 - MIN_UP^2) / MIN_UP times the drop -- about
+    2.7x -- for *any* input, and gives a level or upward-travelling light a
+    downward shadow rather than none or one thrown behind the caster.
+
+    The clamp lives here rather than being inherited from estimate_light
+    because the guarantee estimate_light makes is a camera-space one. The
+    shadow pass rotates `direction` into world space through an arbitrary
+    camera rotation (`render_gl._draw_frame`), and a rotation with any pitch
+    or roll does not preserve a bound on the y component: measured over
+    every shipped (room, camera) pair, the unclamped world-space travel ran
+    to 1.3M units of throw and pointed *upward* for four of them."""
     verts = np.asarray(vertices, dtype=np.float64).reshape(-1, 3)
-    travel = np.asarray(travel, dtype=np.float64)
-    if travel[1] == 0.0:
-        return verts.copy()
+    travel = _clamp_downward(travel)
     steps = (plane_y - verts[:, 1]) / travel[1]
     return verts + steps[:, None] * travel

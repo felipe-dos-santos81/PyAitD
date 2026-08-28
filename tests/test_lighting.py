@@ -2,6 +2,7 @@
 import numpy as np
 import pytest
 
+from PyAitD.engine.world import CameraState
 from PyAitD.render.lighting import (
     FORWARD, LEGACY_LIGHT, MIN_UP, SceneLight, estimate_light, project_to_plane,
     shading_terms,
@@ -104,20 +105,68 @@ def test_project_to_plane_throws_the_shadow_along_the_light():
     assert out[0] == pytest.approx([100.0, 0.0, 0.0])
 
 
-def test_an_estimated_light_cannot_throw_the_shadow_to_the_horizon():
-    # MIN_UP bounds the light's slope, so the horizontal throw is bounded by
-    # construction: no per-vertex clamp is needed anywhere downstream.
-    plate = _plate()
-    plate[100:110, 300:320] = 255
-    travel = -np.array(estimate_light(plate).direction)
+# The horizontal throw project_to_plane guarantees for a 100-unit drop.
+_BOUND = 100.0 * np.sqrt(1 - MIN_UP ** 2) / MIN_UP
+
+
+@pytest.mark.parametrize("travel", [
+    (1.0, 0.0, 0.0),        # level with the ground: would project to infinity
+    (1.0, -0.2, 0.0),       # travelling upward: would throw behind the caster
+    (0.6, 0.05, -0.8),      # a shallow but downward light
+    (0.0, 0.0, 0.0),        # degenerate
+    (30.0, 1.0, -40.0),     # not unit length
+])
+def test_project_to_plane_bounds_the_throw_for_any_travel(travel):
+    # The bound is enforced here, not inherited from estimate_light: this
+    # function is called with world-space travel, and no invariant on a
+    # camera-space direction survives an arbitrary camera rotation.
     verts = np.array([[0.0, -100.0, 0.0]])
     out = project_to_plane(verts, travel, 0.0)
-    assert np.linalg.norm(out[0, [0, 2]]) <= 100.0 * np.sqrt(1 - MIN_UP ** 2) / MIN_UP
+    assert np.allclose(out[:, 1], 0.0)
+    assert np.linalg.norm(out[0, [0, 2]]) <= _BOUND + 1e-9
 
 
-def test_project_to_plane_with_a_flat_light_is_a_no_op():
+def test_project_to_plane_drops_an_upward_light_along_its_own_azimuth():
+    # A light that ends up below the ground plane still casts downward, and
+    # on the side the light travels toward -- not behind the caster.
     verts = np.array([[0.0, -100.0, 0.0]])
-    assert np.allclose(project_to_plane(verts, (1.0, 0.0, 0.0), 0.0), verts)
+    out = project_to_plane(verts, (1.0, -0.2, 0.0), 0.0)
+    assert out[0, 0] > 0.0
+    assert out[0, 2] == pytest.approx(0.0)
+
+
+def test_a_rotated_camera_still_lands_inside_the_bounded_throw():
+    # The regression this whole clamp exists for. estimate_light guarantees
+    # direction[1] <= -MIN_UP in *camera* space; the shadow pass consumes
+    # -(rot.T @ direction) in *world* space. A yaw-only camera maps world y
+    # onto camera y exactly, so it cannot see the difference -- but 139 of
+    # AITD1's 144 shipped cameras carry a pitch or a roll, and those do
+    # destroy the invariant. floor 3 camera 14's angles below take the
+    # world-space travel *upward*.
+    from PyAitD.render.render_gl import rotation_matrix
+
+    plate = _plate()
+    plate[100:110, 300:320] = 255
+    direction = np.array(estimate_light(plate).direction)
+    assert direction[1] <= -MIN_UP          # the camera-space guarantee holds
+    verts = np.array([[0.0, -100.0, 0.0]])
+    angles = [
+        (0, 256, 0),        # yaw only: the one case in which travel[1] == -direction[1]
+        (947, 821, 24),     # floor 3 camera 14, the worst shipped pair
+        (895, 0, 0),        # floor 7 camera 5: pure pitch
+        (608, 0, 128),      # pitch and roll together
+    ]
+    escaped = False
+    for alpha, beta, gamma in angles:
+        state = CameraState(alpha, beta, gamma, 0, 0, 0, 1, 1, 1).angles()
+        travel = -(rotation_matrix(state).T @ direction)
+        escaped |= travel[1] < MIN_UP       # the raw travel leaves the cone
+        out = project_to_plane(verts, travel, 0.0)
+        assert np.allclose(out[:, 1], 0.0)
+        assert np.linalg.norm(out[0, [0, 2]]) <= _BOUND + 1e-9
+    # ...and the assertions above are not vacuous: without the clamp, at
+    # least one of these rotations really does escape the cone.
+    assert escaped
 
 
 def test_legacy_light_is_the_old_hard_coded_rig():
