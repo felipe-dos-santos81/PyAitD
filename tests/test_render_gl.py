@@ -33,6 +33,15 @@ def _tri_geometry(z, color, span=400.0):
                         np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
 
 
+# zv=(0,)*6 puts plane_y = max(zv[2], zv[3]) = 0 -- the ground plane at
+# eye level for this test camera. Every projected shadow vertex collapses
+# onto sy=100 (the horizon), so the silhouette is a zero-area triangle
+# and the shadow pass rasterises nothing, even under lighting="scene".
+# That makes this helper silently shadow-blind: an actor built with it
+# renders identically whether or not a shadow pass runs. Use
+# _standing_actor (below) instead when a test wants a real, visible
+# shadow -- its feet_y sits below the plane so the projection is not
+# degenerate.
 def _actor(index, geometry, room=0, mask_ids=()):
     return ActorDraw(index, geometry, (0.0, 0.0, 0.0), room, (0,) * 6, RenderResult([], []), mask_ids)
 
@@ -570,7 +579,7 @@ def test_shading_modes_differ(gl_ctx):
                           tilted.points, tilted.point_sizes, tilted.point_colors)
     outputs = {}
     for mode in ("flat", "lambert", "smooth"):
-        backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading=mode))
+        backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading=mode, lighting="fixed"))
         backend.draw(_frame([_actor(0, tilted)]))
         outputs[mode] = backend.read_rgb()[100, 140].copy()  # see the note in test_depth_test_...
         backend.release()
