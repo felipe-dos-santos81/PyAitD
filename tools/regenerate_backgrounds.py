@@ -360,7 +360,11 @@ def attachments(cam, ref, leaked):
 
 
 def image_name(cam):
-    return f"screen_ress{cam.camera:02d}" if cam.floor == -1 else f"plate_f{cam.floor:02d}_c{cam.camera:03d}"
+    if cam.floor == -1:
+        return f"screen_ress{cam.camera:02d}"
+    if cam.key.startswith("alt_backgrounds/"):
+        return f"alt_plate_f{cam.floor:02d}_c{cam.camera:03d}"
+    return f"plate_f{cam.floor:02d}_c{cam.camera:03d}"
 
 
 def generate(model, cam, prompt, attached, out_path):

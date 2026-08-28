@@ -1001,6 +1001,71 @@ def test_the_unchanged_correction_reaches_the_next_prompt(tmp_path, monkeypatch)
     assert rb.UNCHANGED_CORRECTION not in gen[0] and rb.UNCHANGED_CORRECTION in gen[1]
 
 
+def test_image_name_is_distinct_for_alt():
+    base = rb.Camera(6, 0, pathlib.Path("/tmp/b.png"), None, "floor06/camera000")
+    alt = rb.Camera(6, 0, pathlib.Path("/tmp/a.png"), None, "alt_backgrounds/floor06/camera000")
+    assert rb.image_name(base) == "plate_f06_c000"
+    assert rb.image_name(alt) == "alt_plate_f06_c000"
+    assert rb.image_name(base) != rb.image_name(alt)
+    assert rb.image_name(rb.Camera(-1, 10, pathlib.Path("/tmp/s.png"), None, "screens/ress10")) == "screen_ress10"
+
+
+def test_discover_finds_alt_backgrounds_with_shared_guides(tmp_path):
+    in_dir = tmp_path / "in"
+    xb.save_png(in_dir / "backgrounds" / "floor07/camera000.png", checker_pixels(1))
+    xb.save_png(in_dir / "guides" / "floor07/camera000.png", np.zeros((812, 1280, 3), np.uint8))
+    (in_dir / "guides" / "floor07" / "camera000.json").write_text(json.dumps({"schema": 1, "size": [320, 200]}))
+    xb.save_png(in_dir / "alt_backgrounds" / "floor07/camera000.png", checker_pixels(2))
+    xb.save_png(in_dir / "alt_backgrounds" / "floor06/camera005.png", checker_pixels(3))
+    cams = rb.discover(in_dir, None)
+    keys = [c.key for c in cams]
+    assert "floor07/camera000" in keys
+    assert "alt_backgrounds/floor07/camera000" in keys
+    assert "alt_backgrounds/floor06/camera005" in keys
+    alt = next(c for c in cams if c.key == "alt_backgrounds/floor07/camera000")
+    assert alt.floor == 7 and alt.camera == 0
+    # shared guide/layout, not alt_backgrounds/
+    assert alt.guide == in_dir / "guides/floor07/camera000.png"
+    assert alt.layout == in_dir / "guides/floor07/camera000.json"
+    # second alt without guide
+    alt2 = next(c for c in cams if c.key == "alt_backgrounds/floor06/camera005")
+    assert alt2.guide is None or alt2.guide == in_dir / "guides/floor06/camera005.png"
+    # floors filter
+    assert any(c.key.startswith("alt_backgrounds") for c in rb.discover(in_dir, {7}))
+    assert not any(c.key.startswith("alt_backgrounds") for c in rb.discover(in_dir, {0}))
+
+
+def test_regenerate_writes_alt_backgrounds_and_prompts_key(tmp_path, monkeypatch):
+    in_dir = tmp_path / "in"
+    xb.save_png(in_dir / "backgrounds" / "floor07/camera000.png", checker_pixels(1))
+    xb.save_png(in_dir / "alt_backgrounds" / "floor07/camera000.png", checker_pixels(2))
+    xb.save_png(in_dir / "guides" / "floor07/camera000.png", np.zeros((812, 1280, 3), np.uint8))
+    (in_dir / "guides" / "floor07").mkdir(parents=True, exist_ok=True)
+    (in_dir / "guides" / "floor07" / "camera000.json").write_text(
+        json.dumps({"schema": 1, "size": [320, 200], "masks": [[[10, 10], [20, 10], [20, 20]]], "collision": [], "walkable": []}))
+    cams = rb.discover(in_dir, None)
+    assert any(c.key.startswith("alt_backgrounds") for c in cams)
+    fake = FakeSubprocess(png_bytes(np.full((1024, 1536, 3), 9, np.uint8)), judge=[GOOD_VERDICT] * 2)
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    _gate_script(monkeypatch, [(True, False, [])] * 2)
+    out = tmp_path / "out"
+    done, failed = rb.regenerate(cams, out, text_model="t", style="s.", force=False, dry_run=False, log=lambda *_: None)
+    assert done == 2 and failed == 0
+    assert (out / "backgrounds" / "floor07" / "camera000.png").is_file()
+    assert (out / "alt_backgrounds" / "floor07" / "camera000.png").is_file()
+    assert load_png_rgb(out / "alt_backgrounds" / "floor07" / "camera000.png").shape == (800, 1280, 3)
+    prompts = rb.load_prompts(out / rb.PROMPTS_FILE)
+    assert "alt_backgrounds/floor07/camera000" in prompts
+    assert "floor07/camera000" in prompts
+    assert prompts["alt_backgrounds/floor07/camera000"]["inventory"] == INVENTORY
+    # image_name distinct -> generate prompt contains alt_plate for alt
+    gen_calls = [c[2] for c in fake.calls if is_image_call(c)]
+    assert 'ImageName = "plate_f07_c000"' in gen_calls[0]
+    assert 'ImageName = "alt_plate_f07_c000"' in gen_calls[1]
+    report = rb.load_json(out / rb.REPORT_FILE)
+    assert report["alt_backgrounds/floor07/camera000"]["accepted"] is True
+
+
 def test_is_reference_copy_tolerates_re_encoding_but_not_a_real_repaint(tmp_path):
     from PyAitD.render.background_export import nearest_upscale
     original = load_png_rgb(make_in_dir(tmp_path) / "backgrounds/floor00/camera000.png")

@@ -167,7 +167,7 @@ def export_alt_backgrounds(data_dir, out_dir, guide_scale=4, save=save_png, save
     When `floors` is not None, only alts whose floor is in that iterable are
     exported (mirrors main()'s --floors filter).
     """
-    del guide_scale, save_layout  # shared guides; kept for caller symmetry
+    _ = (guide_scale, save_layout)  # shared guides; kept for caller symmetry
     out_dir = pathlib.Path(out_dir)
     alt_map = dict(PROFILE.alt_camera_sources)
     if not alt_map:
@@ -216,14 +216,11 @@ def export_palette(data_dir, out_dir, save=save_png):
     """Write palette.png (256x1 RGB) from Floor 0's palette, atomically via save_png.
 
     Returns True on success, False on failure (warns)."""
+    assert pathlib.Path(out_dir) / "palette.png" == override_palette_path(out_dir)
     try:
         palette = load_floor(data_dir, 0).palette  # (256, 3)
         row = palette[None, :, :].astype(np.uint8)  # (1, 256, 3)
-        # Path must stay identical to asset_resolver.override_palette_path tail
         save(pathlib.Path(out_dir) / "palette.png", row)
-        # Also assert resolver path matches, but saving via literal keeps it simple;
-        # override_palette_path produces same Path.
-        assert pathlib.Path(out_dir) / "palette.png" == override_palette_path(out_dir)
         return True
     except Exception as exc:
         print(f"warning: palette skipped: {exc}", file=sys.stderr)

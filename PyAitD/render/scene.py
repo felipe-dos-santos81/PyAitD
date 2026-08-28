@@ -137,21 +137,25 @@ def _killed_sorcerer(game):
     game.profile.cvar_index, with fallback for stub games."""
     try:
         return bool(game.cvars[game.profile.cvar_index("KILLED_SORCERER")])
-    except Exception:
+    except (LookupError, ValueError, AttributeError, IndexError, KeyError):
         return False
 
 
 def _background(resolver, floor, cam_idx, killed):
     try:
         return resolver.background(floor, cam_idx, killed_sorcerer=killed)
-    except TypeError:
+    except TypeError as exc:
+        if "killed_sorcerer" not in str(exc):
+            raise
         return resolver.background(floor, cam_idx)
 
 
 def _light(resolver, floor, cam_idx, killed):
     try:
         return resolver.light(floor, cam_idx, killed_sorcerer=killed)
-    except TypeError:
+    except TypeError as exc:
+        if "killed_sorcerer" not in str(exc):
+            raise
         return resolver.light(floor, cam_idx)
 
 

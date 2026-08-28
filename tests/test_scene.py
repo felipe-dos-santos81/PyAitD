@@ -523,6 +523,80 @@ def test_build_frame_assembles_frame_description_from_stubs(monkeypatch):
     assert frame.palette is palette
 
 
+def test_build_frame_uses_alt_when_killed(profile):
+    # KILLED_SORCERER (CVar 12) swaps the 5 road plates. build_frame must
+    # read game.cvars via profile.cvar_index and pass killed_sorcerer to
+    # AssetResolver.background / light so the variant is selected and its
+    # light cache is per-(floor,cam,killed).
+    from PyAitD.render.lighting import SceneLight
+
+    aitd1 = profile  # fixture is AITD1
+    base_pixels = np.full((200, 320, 3), 10, np.uint8)
+    alt_pixels = np.full((200, 320, 3), 20, np.uint8)
+    base_light = SceneLight((0, 1, 0), (0, 0, 1), (1, 0, 0), 0.5)
+    alt_light = SceneLight((1, 0, 0), (1, 1, 1), (0, 1, 0), 0.7)
+
+    body = _flat_body([(0, 0, 0), (50, 0, 0), (0, 50, 0)])
+    actor = _StubActor(0, 0, -1, (0, 0, 500), (0, 0, 0), (0, 0, 0), room=0, zv=(0, 0, 0, 0, 0, 0))
+    game = _StubGame(current_room=0, num_camera=0, actors=[actor])
+    game.profile = aitd1  # type: ignore[attr-defined]
+    game.cvars = [0] * len(aitd1.cvar_names)  # type: ignore[attr-defined]
+
+    room = Room(world_x=0, world_y=0, world_z=0, camera_indices=[0],
+                hard_cols=[], sce_zones=[], offset_to_hard_col=0, offset_to_sce_zones=0)
+    camera = Camera(alpha=0, beta=0, gamma=0, x=0, y=0, z=0, focal1=300, focal2=100, focal3=100)
+    floor = _StubFloor(rooms=[room], cameras=[camera], masks_by_camera={0: []})
+
+    class _KilledResolver:
+        def __init__(self):
+            self.bg_calls = []
+            self.light_calls = []
+        def body(self, num):
+            return body
+        def background(self, floor, cam_idx, killed_sorcerer=False):
+            self.bg_calls.append(killed_sorcerer)
+            pix = alt_pixels if killed_sorcerer else base_pixels
+            return ImageAsset(pix, True)
+        def palette(self, floor):
+            return np.zeros((256, 3), dtype=np.uint8)
+        def light(self, floor, cam_idx, killed_sorcerer=False):
+            self.light_calls.append(killed_sorcerer)
+            return alt_light if killed_sorcerer else base_light
+        def material_table(self, num):
+            from PyAitD.render.materials import default_table
+            return default_table()
+        def geometry_ao(self, num):
+            return np.full(len(body.vertices), 0.5, np.float32)
+
+    resolver = _KilledResolver()
+
+    # killed = 0 -> base variant
+    game.cvars[aitd1.cvar_index("KILLED_SORCERER")] = 0
+    frame, _ = build_frame(game, floor, resolver)
+    assert np.array_equal(frame.background.pixels, base_pixels)
+    assert frame.light is base_light
+    assert resolver.bg_calls[-1] is False
+    assert resolver.light_calls[-1] is False
+
+    # killed = 1 -> alt variant, distinct pixels and light
+    game.cvars[aitd1.cvar_index("KILLED_SORCERER")] = 1
+    frame2, _ = build_frame(game, floor, resolver)
+    assert np.array_equal(frame2.background.pixels, alt_pixels)
+    assert frame2.light is alt_light
+    assert resolver.bg_calls[-1] is True
+    assert resolver.light_calls[-1] is True
+    assert not np.array_equal(frame.background.pixels, frame2.background.pixels)
+    assert frame.light is not frame2.light
+
+    # missing cvar (stub game without profile) must not raise, defaults to base
+    class _NoCvarGame(_StubGame):
+        pass
+    plain = _NoCvarGame(current_room=0, num_camera=0, actors=[actor])
+    # no profile/cvars attributes -> _killed_sorcerer fallback False
+    frame3, _ = build_frame(plain, floor, resolver)
+    assert np.array_equal(frame3.background.pixels, base_pixels)
+
+
 def test_actor_draw_zv_does_not_alias_the_live_mutable_actor_zv():
     # Actor.zv is a plain list the simulation writes every tick (game.py's
     # default_factory, plus every collision/anim_action write site). If

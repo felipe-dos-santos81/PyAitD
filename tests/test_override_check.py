@@ -187,3 +187,11 @@ def test_summarize_includes_alt_line():
     alt_cov = {"regenerated": 5, "original": 0, "missing": 0, "invalid": 0}
     msg = summarize([], cov, None, alt_cov)
     assert "alt_backgrounds:" in msg
+
+
+def test_default_alt_keys_match_profile():
+    from PyAitD.games import load_profile
+    from PyAitD.render.override_check import _DEFAULT_ALT_KEYS
+    aitd1 = load_profile("aitd1")
+    assert sorted(_DEFAULT_ALT_KEYS) == sorted(aitd1.alt_camera_sources)
+    assert set(_DEFAULT_ALT_KEYS) == set(aitd1.alt_camera_sources.keys())
