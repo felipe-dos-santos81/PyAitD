@@ -45,6 +45,20 @@ def test_key_and_ambient_are_the_bright_and_dark_means():
     assert light.contrast > 0.5                     # a bright band on a dark field
 
 
+def test_the_quantile_selection_reads_exactly_the_decile_and_the_quartile():
+    # Bands sized to land exactly on the two boundaries, so no equal-luma
+    # tie has to be broken and the selection is unambiguous whatever
+    # routine finds it: the brightest decile is the 20-row band and the
+    # darkest quartile the 50-row one, exactly.
+    plate = _plate((100, 100, 100))
+    plate[:20] = (200, 200, 200)        # 6400 px == 10% of 64000
+    plate[20:50] = (150, 150, 150)
+    plate[150:] = (10, 10, 10)          # 16000 px == 25%
+    light = estimate_light(plate)
+    assert light.key == pytest.approx((200 / 255,) * 3)
+    assert light.ambient == pytest.approx((10 / 255,) * 3)
+
+
 def test_uniform_plate_is_low_contrast_and_frontal():
     light = estimate_light(_plate((128, 128, 128)))
     assert light.contrast == pytest.approx(0.0, abs=1e-6)

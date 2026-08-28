@@ -13,7 +13,7 @@ from PyAitD.engine.actors import anim_player_for, sort_actor_indices
 from PyAitD.render.asset_resolver import ImageAsset
 from PyAitD.engine.cos_table import sin_cos
 from PyAitD.render.geometry import BodyGeometry, pose_geometry
-from PyAitD.render.lighting import LEGACY_LIGHT
+from PyAitD.render.lighting import LEGACY_LIGHT, SceneLight
 from PyAitD.engine.mask_geometry import MaskDraw
 from PyAitD.engine.picking import actor_bbox
 from PyAitD.engine.skel import RenderResult, skin
@@ -112,7 +112,7 @@ class FrameDescription:
     palette: np.ndarray
     actors: tuple[ActorDraw, ...]
     masks: tuple[MaskDraw, ...]
-    light: object = LEGACY_LIGHT
+    light: SceneLight = LEGACY_LIGHT
 
 
 def mask_applies_to_actor(mask, actor_room, zv):

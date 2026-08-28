@@ -1141,7 +1141,13 @@ def render_system_menu(painter, presenter, settings, assets):
         labels.append(f"Shading: {settings.render.shading.title()}")
         labels.append(f"Filter: {settings.render.background_filter.title()}")
         labels.append(f"Lighting: {settings.render.lighting.title()}")
-        labels.append(f"AA: {settings.render.msaa}x" if settings.render.msaa else "AA: Off")
+        # "up to", because this row shows the *option*, and GLBackend clamps
+        # it to ctx.max_samples at construction (many drivers cap at 4). The
+        # menu has no handle on the live backend to read the real count off,
+        # so the label states the request honestly rather than claiming a
+        # sample count the GPU may not be giving.
+        labels.append(f"AA: up to {settings.render.msaa}x"
+                      if settings.render.msaa else "AA: Off")
         labels.append("Back to Menu")
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
     button_size = 12 if presenter.page is SystemMenuPage.CONFIG else 18

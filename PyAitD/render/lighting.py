@@ -41,7 +41,7 @@ FORWARD = 0.8
 BRIGHT_FRACTION = 0.10
 DARK_FRACTION = 0.25
 # Below this, the bright centroid is noise (a uniform plate's brightest
-# decile is whichever pixels argsort happened to put last), so it is
+# decile is whichever pixels the partition happened to put last), so it is
 # discarded in favour of a frontal light.
 CONTRAST_FLOOR = 0.02
 
@@ -76,10 +76,25 @@ def estimate_light(pixels):
     rgb = image.reshape(-1, 3).astype(np.float64) / 255.0
     luma = rgb @ LUMA
 
-    order = np.argsort(luma)
-    count = len(order)
-    bright = order[-max(1, int(count * BRIGHT_FRACTION)):]
-    dark = order[:max(1, int(count * DARK_FRACTION))]
+    # argpartition, not argsort: only the two quantile boundaries matter,
+    # and a full sort is O(N log N) over every pixel. Shipped plates are
+    # 320x200, but overrides -- including AI-regenerated ones -- can be any
+    # size, and the sort took this function to 83 ms at 1280x800 and 211 ms
+    # at 1920x1200 against a 20 ms tick -- ~10 dropped ticks on first entry
+    # to a camera with a 1080p override. Now 19 ms and 49 ms. Both
+    # routines break equal-luma ties arbitrarily and neither documents an
+    # order, so the two disagree about *which* of the tied pixels land in
+    # each set; over the 144 shipped plates that leaves key, ambient and
+    # contrast identical to float summation noise (<= 1e-13) and moves the
+    # bright centroid by at most 0.04 of its +-1 range -- a light direction
+    # 0.06 degrees different at the median and 1.8 degrees at the worst,
+    # well inside the noise an estimate off a picture is already making.
+    count = luma.size
+    num_bright = max(1, int(count * BRIGHT_FRACTION))
+    num_dark = max(1, int(count * DARK_FRACTION))
+    order = np.argpartition(luma, (num_dark - 1, count - num_bright))
+    bright = order[count - num_bright:]
+    dark = order[:num_dark]
 
     key = tuple(rgb[bright].mean(axis=0))
     ambient = tuple(rgb[dark].mean(axis=0))

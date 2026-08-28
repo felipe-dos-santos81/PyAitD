@@ -69,8 +69,9 @@ play full-screen.
 The in-game Configuration screen's Graphics rows, and six CLI flags for a
 single session, control the enhanced renderer: `--render-scale N` (1-8, the
 internal render resolution as a multiple of 320x200), `--shading
-{flat,lambert,smooth}` (per-actor lighting), `--background-filter
-{nearest,bilinear,xbr}` (how the original 320x200 backgrounds are upscaled),
+{flat,lambert,smooth}` (the per-actor shading model: where surface normals
+come from), `--background-filter {nearest,bilinear,xbr}` (how the original
+320x200 backgrounds are upscaled),
 `--lighting {fixed,scene}` (`fixed` is the old hard-coded rig; `scene`
 estimates each camera's light direction and colour from its own background
 image and casts a ground shadow under every actor), `--msaa {0,2,4,8}`

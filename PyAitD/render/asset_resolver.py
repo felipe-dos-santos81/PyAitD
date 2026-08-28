@@ -96,9 +96,14 @@ class AssetResolver:
         AI-regenerated plate, is estimated from the override rather than
         from the original.
 
-        Memoised per (floor, camera) exactly as backgrounds are: a camera's
+        Memoised per (floor number, camera) on the resolver: a camera's
         light is a property of a static image, so one estimate per camera
-        per session is all this can ever need."""
+        per session is all this can ever need. Note that this is not where
+        backgrounds are cached -- a raw plate's decode is memoised on the
+        Floor itself (Floor.camera_image), and only an override's decode
+        lives on the resolver (AssetResolver._override) -- so a new
+        resolver over the same Floor re-estimates every light while
+        re-decoding nothing."""
         key = (floor.number, cam_idx)
         if key not in self._lights:
             self._lights[key] = estimate_light(self.background(floor, cam_idx).pixels)
