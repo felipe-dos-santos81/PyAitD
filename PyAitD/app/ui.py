@@ -595,9 +595,10 @@ class CharacterLayout:
 
 class SystemMenuLayout:
     MAIN_ROWS = tuple(pygame.Rect(48, 45 + i * 42, 224, 32) for i in range(3))
-    # 15 rows at a 13 px pitch from y=2 ends at y=197. The 14 px pitch fitted
-    # exactly 14 rows and had no room for the Realism row. Rows stay >= 13 px
-    # tall, so effective_rects' 12x12 minimum target contract still holds.
+    # config_row_count() rows at a 13 px pitch from y=2; with the graphics
+    # rows moved to their own page this now bottoms out well short of the
+    # screen. Rows stay >= 13 px tall, so effective_rects' 12x12 minimum
+    # target contract still holds.
     CONFIG_ROWS = tuple(
         pygame.Rect(16, 2 + i * 13, 288, 13)
         for i in range(config_row_count())
