@@ -5,6 +5,7 @@ them, optionally ask a vision model about the uncertain ramps, and emit the
 table the game loads.
 
     survey  palette ramps + body usage + heuristic proposal -> OUT/survey.json, OUT/sheets/
+            (an existing survey.json's hand `label`/`vision_class` are carried forward)
     label   (--vision, needs the `agy` CLI) vision_class for ramps under --threshold
     emit    survey.json -> materials.json, precedence: hand `label` > vision_class > heuristic
     check   exit 1 when the committed table differs from a fresh emit of survey.json
@@ -161,13 +162,30 @@ def propose(lo, hi, palette, usage, bodies=None):
     return "matte", 0.3, "unclassified hue on scenery"
 
 
-def survey(palette, bodies):
+# What a re-survey must not destroy: everything a human or a model put on a
+# ramp. `label` in particular has no other home -- the documented fix for a
+# misclassification is to hand-label a ramp in survey.json and re-run `make
+# bootstrap-materials`, which runs the survey stage first.
+CARRIED_FIELDS = ("label", "vision_class", "vision_reason")
+
+
+def survey(palette, bodies, previous=None):
+    """The ramp table for `palette`: boundaries, heuristic proposal and body
+    usage, all re-derived. `previous` is an earlier survey whose human and
+    model fields (CARRIED_FIELDS) are carried onto the ramp with the same
+    (lo, hi). Ramp boundaries are deterministic from the palette, so in
+    practice every ramp matches; one whose boundaries moved is a different
+    ramp and inherits nothing rather than a stale label."""
     usage = body_usage(bodies)
+    carried = {(r.get("lo"), r.get("hi")): r for r in (previous or {}).get("ramps", ())}
     ramps = []
     for lo, hi in split_ramps(palette):
         name, confidence, reason = propose(lo, hi, palette, usage, bodies)
-        ramps.append({"lo": lo, "hi": hi, "class": name, "confidence": round(confidence, 2),
-                      "reason": reason, "usage": _ramp_usage(lo, hi, usage)})
+        ramp = {"lo": lo, "hi": hi, "class": name, "confidence": round(confidence, 2),
+                "reason": reason, "usage": _ramp_usage(lo, hi, usage)}
+        old = carried.get((lo, hi), {})
+        ramp.update({k: old[k] for k in CARRIED_FIELDS if k in old})
+        ramps.append(ramp)
     return {"ramps": ramps}
 
 
@@ -222,17 +240,31 @@ def resolve_class(ramp):
 
 
 def emit_table(data):
+    """The committed table: one row per ramp that says something.
+
+    A ramp that no body uses and that nothing classified as anything but
+    `matte` resolves to exactly what parse_table's implicit `matte` default
+    already gives it, so emitting it would add a row saying nothing to a file
+    a human is meant to read and hand-edit. Note segments with nothing in
+    them are dropped for the same reason. `matte` on a ramp bodies *do* use
+    is a real answer about a real surface and keeps its row."""
     ramps = []
     for ramp in data["ramps"]:
         used = ramp["usage"]
-        note = [f"bodies {', '.join(used['bodies'][:6])}" + (" ..." if len(used["bodies"]) > 6 else ""),
-                f"groups {', '.join(str(g) for g in used['groups'][:8])}",
-                f"heuristic: {ramp['class']} ({ramp.get('confidence', 0)})"]
+        name = resolve_class(ramp)
+        if not used["bodies"] and name == "matte":
+            continue
+        note = []
+        if used["bodies"]:
+            note.append(f"bodies {', '.join(used['bodies'][:6])}" + (" ..." if len(used["bodies"]) > 6 else ""))
+        if used["groups"]:
+            note.append(f"groups {', '.join(str(g) for g in used['groups'][:8])}")
+        note.append(f"heuristic: {ramp['class']} ({ramp.get('confidence', 0)})")
         if ramp.get("vision_class"):
             note.append(f"vision: {ramp['vision_class']}")
         if ramp.get("label"):
             note.append(f"label: {ramp['label']}")
-        ramps.append({"lo": ramp["lo"], "hi": ramp["hi"], "class": resolve_class(ramp), "note": "; ".join(note)})
+        ramps.append({"lo": ramp["lo"], "hi": ramp["hi"], "class": name, "note": "; ".join(note)})
     return {"ramps": ramps, "indices": {}}
 
 
@@ -287,7 +319,8 @@ def main(argv=None):
             print(f"error: game data directory not found: {args.data}", file=sys.stderr)
             return 2
         palette, bodies = load_game(args.data)
-        data = survey(palette, bodies)
+        previous = _read_json(survey_path) if survey_path.is_file() else None
+        data = survey(palette, bodies, previous)
         write_sheets(args.out, data, palette, bodies)
         _write_json(survey_path, data)
         print(f"{survey_path}: {len(data['ramps'])} ramps over {len(bodies)} bodies")

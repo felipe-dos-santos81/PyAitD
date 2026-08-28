@@ -104,6 +104,89 @@ def test_emit_table_writes_load_table_shape_with_evidence_notes():
     assert parsed.classes[18] == "skin" and parsed.classes[3] == "stone"
 
 
+def test_emit_table_omits_unused_matte_ramps_and_dangling_note_segments():
+    # An unused ramp classified matte is exactly parse_table's implicit
+    # default, so emitting it would add a row saying nothing to a file a
+    # human hand-edits -- and the row it emitted carried two empty note
+    # segments ("bodies ; groups ; heuristic: matte (0.9)").
+    data = bm.survey(_palette(), {"0:0": _body([16], groups=12)})
+    table = bm.emit_table(data)
+    emitted = {(r["lo"], r["hi"]) for r in table["ramps"]}
+    assert (16, 21) in emitted                        # used: kept
+    assert (22, 22) not in emitted                    # unused + matte: dropped
+    assert all("; ;" not in r["note"] and not r["note"].startswith(";") for r in table["ramps"])
+    assert all("bodies ;" not in r["note"] and "groups ;" not in r["note"] for r in table["ramps"])
+    # dropping those rows cannot move any of the 256 indices: the default covers them
+    assert parse_table(table).classes == parse_table(
+        {"ramps": [{"lo": r["lo"], "hi": r["hi"], "class": bm.resolve_class(r)} for r in data["ramps"]]}
+    ).classes
+
+
+def test_emit_table_keeps_a_ramp_that_is_matte_only_because_a_body_uses_it():
+    # `matte` on a *used* ramp is a real answer about a real surface, not the
+    # default filling a hole: the row stays so the note stays.
+    data = {"ramps": [{"lo": 0, "hi": 15, "class": "matte", "confidence": 0.3, "reason": "unclassified",
+                       "usage": {"bodies": ["0:1"], "triangles": 2, "groups": [0]}}]}
+    assert [r["lo"] for r in bm.emit_table(data)["ramps"]] == [0]
+
+
+def test_the_committed_table_carries_every_index_that_is_not_the_matte_default():
+    # The shipped materials.json, parsed: the rows it does carry must be the
+    # only ones that move an index off `matte`.
+    from PyAitD.render.materials import DEFAULT_TABLE_PATH, PALETTE_SIZE
+    committed = json.loads(DEFAULT_TABLE_PATH.read_text())
+    classes = parse_table(committed).classes
+    assert len(classes) == PALETTE_SIZE
+    covered = {i for r in committed["ramps"] for i in range(r["lo"], r["hi"] + 1)}
+    assert {i for i, c in enumerate(classes) if c != "matte"} <= covered
+
+
+def test_survey_carries_a_hand_label_and_a_vision_class_across_a_re_survey():
+    # The documented fix for a misclassification is to hand-label a ramp in
+    # survey.json and re-run `make bootstrap-materials`, whose first stage is
+    # survey: a wholesale overwrite would destroy the label every time.
+    bodies = {"0:0": _body([16, 17], groups=12)}
+    first = bm.survey(_palette(), bodies)
+    by = {(r["lo"], r["hi"]): r for r in first["ramps"]}
+    by[(16, 21)]["label"] = "leather"
+    by[(0, 15)]["vision_class"] = "stone"
+    by[(0, 15)]["vision_reason"] = "looks like flagstones"
+    again = {(r["lo"], r["hi"]): r for r in bm.survey(_palette(), bodies, first)["ramps"]}
+    assert again[(16, 21)]["label"] == "leather"
+    assert again[(0, 15)]["vision_class"] == "stone"
+    assert again[(0, 15)]["vision_reason"] == "looks like flagstones"
+    assert again[(16, 21)]["class"] == "skin"          # the heuristic is still re-derived
+    assert bm.resolve_class(again[(16, 21)]) == "leather"
+
+
+def test_a_ramp_whose_boundaries_moved_inherits_nothing():
+    previous = {"ramps": [{"lo": 16, "hi": 20, "class": "skin", "label": "leather",
+                           "vision_class": "wood", "vision_reason": "stale",
+                           "usage": {"bodies": [], "triangles": 0, "groups": []}}]}
+    again = {(r["lo"], r["hi"]): r for r in
+             bm.survey(_palette(), {"0:0": _body([16], groups=12)}, previous)["ramps"]}
+    assert (16, 20) not in again and (16, 21) in again
+    assert "label" not in again[(16, 21)] and "vision_class" not in again[(16, 21)]
+
+
+def test_survey_stage_reruns_over_an_existing_survey_without_losing_a_label(tmp_path, monkeypatch):
+    palette, bodies = _palette(), {"0:0": _body([16], groups=12)}
+    monkeypatch.setattr(bm, "load_game", lambda data_dir: (palette, bodies))
+    monkeypatch.setattr(bm, "write_sheets", lambda *a: None)
+    data = tmp_path / "data"
+    data.mkdir()
+    out = tmp_path / "out"
+    assert bm.main([str(data), "survey", "--out", str(out)]) == 0
+    survey = json.loads((out / "survey.json").read_text())
+    for ramp in survey["ramps"]:
+        if (ramp["lo"], ramp["hi"]) == (16, 21):
+            ramp["label"] = "leather"
+    (out / "survey.json").write_text(json.dumps(survey))
+    assert bm.main([str(data), "survey", "--out", str(out)]) == 0
+    again = {(r["lo"], r["hi"]): r for r in json.loads((out / "survey.json").read_text())["ramps"]}
+    assert again[(16, 21)]["label"] == "leather"
+
+
 def test_contact_sheet_renders_the_body_and_highlights_a_ramp():
     body = _body([16], groups=1)
     plain = bm.contact_sheet(body, _palette())
