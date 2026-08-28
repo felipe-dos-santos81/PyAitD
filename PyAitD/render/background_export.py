@@ -61,8 +61,8 @@ def sha256_rgb(pixels):
     return hashlib.sha256(np.ascontiguousarray(pixels, dtype=np.uint8).tobytes()).hexdigest()
 
 
-MANIFEST_SCHEMA = 2
-SUPPORTED_SCHEMAS = (1, 2)   # 1: cameras only; 2: cameras + screens
+MANIFEST_SCHEMA = 3
+SUPPORTED_SCHEMAS = (1, 2, 3)   # 1: cameras only; 2: cameras + screens; 3: cameras + screens + alt_cameras
 LEGEND = {"red": "masks", "blue": "collision", "green": "walkable"}
 
 
@@ -78,6 +78,10 @@ def guide_rel_path(floor_number, cam_idx):
 
 def layout_rel_path(floor_number, cam_idx):
     return f"guides/floor{floor_number:02d}/camera{cam_idx:03d}.json"
+
+
+def alt_background_rel_path(floor_number, cam_idx):
+    return f"alt_backgrounds/floor{floor_number:02d}/camera{cam_idx:03d}.png"
 
 
 def manifest_record(floor, cam_idx, pixels):
@@ -109,13 +113,26 @@ def manifest_record(floor, cam_idx, pixels):
     return rec
 
 
-def export_manifest(records, data_dir, guide_scale, screens=()):
+def alt_manifest_record(floor, cam_idx, pixels, itd_entry):
+    rec = manifest_record(floor, cam_idx, pixels)
+    # reuse base fields (source/guide/layout/size/sha256/viewed_rooms/masks)
+    # but source points to alt tree
+    if pixels is not None:
+        rec["source"] = alt_background_rel_path(floor.number, cam_idx)
+        # guide/layout stay shared (point at base guides/)
+    rec["itd_entry"] = int(itd_entry)
+    rec["variant"] = "killed_sorcerer"
+    return rec
+
+
+def export_manifest(records, data_dir, guide_scale, screens=(), alt_cameras=()):
     return {
         "schema": MANIFEST_SCHEMA,
         "data_dir": str(data_dir),
         "guide_scale": int(guide_scale),
         "legend": dict(LEGEND),
         "cameras": list(records),
+        "alt_cameras": list(alt_cameras),
         "screens": list(screens),
     }
 

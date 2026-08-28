@@ -281,9 +281,9 @@ def test_screen_guide_draws_blit_rects_and_legend():
 
 def test_manifest_v2_carries_screens_and_accepts_v1():
     m = be.export_manifest([], "/data", 4, screens=[{"entry": 13}])
-    assert m["schema"] == 2 and m["screens"] == [{"entry": 13}]
+    assert m["schema"] == 3 and m["screens"] == [{"entry": 13}]
     assert be.export_manifest([], "/data", 4)["screens"] == []
-    assert be.SUPPORTED_SCHEMAS == (1, 2)
+    assert be.SUPPORTED_SCHEMAS == (1, 2, 3)
 
 
 def test_layout_geometry_lists_masks_collision_and_walkable():
@@ -342,3 +342,43 @@ def test_records_carry_layout_paths():
     assert be.manifest_record(StubFloor(number=3), 0, checker_pixels())["layout"] == "guides/floor03/camera000.json"
     assert be.manifest_record(StubFloor(), 7, None)["layout"] is None
     assert be.screen_record(10, np.zeros((200, 320, 3), np.uint8))["layout"] == "guides/screens/ress10.json"
+
+
+def test_alt_background_rel_path_mirrors_resolver(tmp_path):
+    from PyAitD.render import background_export as be
+    from PyAitD.render.asset_resolver import override_alt_background_path
+    assert (tmp_path / be.alt_background_rel_path(7, 0)) == override_alt_background_path(tmp_path, 7, 0)
+    assert be.alt_background_rel_path(6, 5) == "alt_backgrounds/floor06/camera005.png"
+
+
+def test_alt_manifest_record_fields():
+    from PyAitD.render import background_export as be
+    from tests.stub_floor import StubFloor, checker_pixels
+    px = checker_pixels()
+    rec = be.alt_manifest_record(StubFloor(number=7), 0, px, 15)
+    assert rec["source"] == "alt_backgrounds/floor07/camera000.png"
+    assert rec["guide"] == "guides/floor07/camera000.png"  # shared
+    assert rec["layout"] == "guides/floor07/camera000.json"
+    assert rec["itd_entry"] == 15 and rec["variant"] == "killed_sorcerer"
+    assert rec["size"] == [320,200] and rec["viewed_rooms"] == [0]
+
+
+def test_export_manifest_schema3_carries_alt_cameras():
+    from PyAitD.render import background_export as be
+    from tests.stub_floor import StubFloor, checker_pixels
+    rec = be.manifest_record(StubFloor(number=6), 0, checker_pixels())
+    alt = be.alt_manifest_record(StubFloor(number=7), 0, checker_pixels(), 15)
+    m = be.export_manifest([rec], "/data", 4, screens=[{"entry":13}], alt_cameras=[alt])
+    assert m["schema"] == 3 and m["alt_cameras"] == [alt]
+    assert be.SUPPORTED_SCHEMAS == (1,2,3)
+    # old call without alt_cameras still works (schema 3 but empty list)
+    assert be.export_manifest([rec], "/data", 4)["alt_cameras"] == []
+
+
+def test_alt_background_rel_path_and_manifest_record_match_asset_resolver_layout():
+    import json
+    from PyAitD.render import background_export as be
+    from tests.stub_floor import StubFloor, checker_pixels
+    rec = be.alt_manifest_record(StubFloor(number=6), 8, checker_pixels(), 19)
+    json.dumps(rec)  # serialisable
+    assert rec["layout"] == be.layout_rel_path(6,8)

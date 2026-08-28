@@ -27,6 +27,10 @@ def override_background_path(override_dir, floor_number, cam_idx):
     return Path(override_dir) / "backgrounds" / f"floor{floor_number:02d}" / f"camera{cam_idx:03d}.png"
 
 
+def override_alt_background_path(override_dir, floor_number, cam_idx):
+    return Path(override_dir) / "alt_backgrounds" / f"floor{floor_number:02d}" / f"camera{cam_idx:03d}.png"
+
+
 def override_palette_path(override_dir):
     return Path(override_dir) / "palette.png"
 
