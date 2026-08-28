@@ -123,6 +123,35 @@ def test_only_the_regeneration_tool_may_import_an_ai_sdk():
     assert hits <= {"regenerate_backgrounds.py"}, hits
 
 
+def test_only_the_regeneration_tool_may_shell_out_to_the_agy_cli():
+    # The other half of the AI-service boundary AGENTS.md states: reaching
+    # Gemini through the `agy` CLI is regenerate_backgrounds' job alone, and
+    # bootstrap_materials' label stage goes through its `agy_structured`
+    # rather than building its own command. Naming the binary in a prompt or
+    # a help string is not shelling out, so this looks for it as an argv
+    # element -- the first item of a list passed to subprocess.
+    tools = pathlib.Path(__file__).resolve().parents[1] / "tools"
+    hits = set()
+    for path in list(tools.glob("*.py")) + _modules(""):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.List) and node.elts:
+                head = node.elts[0]
+                if isinstance(head, ast.Constant) and head.value == "agy":
+                    hits.add(path.name)
+    assert hits <= {"regenerate_backgrounds.py"}, hits
+
+
+def test_the_material_bootstrap_reaches_a_model_only_through_agy_structured():
+    # bootstrap_materials is the one other module that talks to a model at
+    # all; it must do so through regenerate_backgrounds' single entry point
+    # and import nothing else from it.
+    tools = pathlib.Path(__file__).resolve().parents[1] / "tools"
+    names = _imports(tools / "bootstrap_materials.py")
+    reached = {n for n in names if n.startswith("tools.regenerate_backgrounds")}
+    assert reached == {"tools.regenerate_backgrounds", "tools.regenerate_backgrounds.agy_structured"}, reached
+    assert not any(n.startswith("subprocess") for n in names), names
+
+
 def test_every_python_file_starts_with_the_spdx_line():
     repo = ROOT.parent
     missing = [

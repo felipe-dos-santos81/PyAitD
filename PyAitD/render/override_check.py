@@ -130,17 +130,28 @@ def screen_coverage(override_dir, assets, manifest, *, load_png=load_png_rgb):
 
 
 def check_body_materials(override_dir):
-    """One Finding per bodies/body<NNN>.json the resolver would reject;
-    `floor` is -2, `camera` is the body number. Loads through
+    """One Finding per file under bodies/ the game would not load: a
+    body<NNN>.json the resolver rejects, or a body*.json whose name the
+    resolver would never ask for. `floor` is -2 and `camera` is the body
+    number, or -1 when the name carries no readable one. Loads through
     AssetResolver so acceptance stays identical to the game's."""
     bodies = Path(override_dir) / "bodies"
     findings = []
+    # One resolver for the whole directory, as the game has: a fresh one per
+    # file would re-log every failure and defeat AssetResolver's log-once.
+    resolver = AssetResolver(None, override_dir)
     for path in sorted(bodies.glob("body*.json")):
-        try:
-            num = int(path.stem[4:])
-        except ValueError:
+        # The name must round-trip through the path the game actually asks
+        # for. body7.json reads as body 7 but the game only ever opens
+        # body007.json, so such a file would silently never load -- a silent
+        # no-op is exactly the failure a checker exists to catch, so it is
+        # reported rather than skipped.
+        num = int(path.stem[4:]) if path.stem[4:].isdigit() else None
+        if num is None or path != override_body_material_path(override_dir, num):
+            wanted = override_body_material_path(override_dir, num).name if num is not None else "body<NNN>.json"
+            findings.append(Finding(-2, num if num is not None else -1, path, "invalid",
+                                    f"the game never loads this name; it opens {wanted}"))
             continue
-        resolver = AssetResolver(None, override_dir)
         resolver.material_table(num)
         if path in resolver.failures:
             findings.append(Finding(-2, num, path, "invalid", resolver.failures[path]))
@@ -154,7 +165,9 @@ def summarize(findings, cov, screen_cov=None):
             if f.floor == -1:
                 lines.append(f"{f.kind:<7} screen ress{f.camera:02d}  {f.path}: {f.detail}")
             elif f.floor == -2:
-                lines.append(f"{f.kind:<7} body {f.camera:03d}  {f.path}: {f.detail}")
+                # camera is -1 when the filename carries no readable body number
+                body = f"{f.camera:03d}" if f.camera >= 0 else "???"
+                lines.append(f"{f.kind:<7} body {body}  {f.path}: {f.detail}")
             else:
                 lines.append(f"{f.kind:<7} floor {f.floor:02d} camera {f.camera:03d}  {f.path}: {f.detail}")
     if cov is None:

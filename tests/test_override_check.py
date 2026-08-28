@@ -151,3 +151,22 @@ def test_body_material_findings_name_the_body_and_the_reason(tmp_path):
 
 def test_no_bodies_directory_is_no_finding(tmp_path):
     assert oc.check_body_materials(tmp_path) == []
+
+
+def test_a_misnamed_body_file_is_reported_and_does_not_hide_the_real_one(tmp_path):
+    # body7.json parses as body 7 but the game only ever opens body007.json,
+    # so it would silently never load. One resolver for the whole directory
+    # also means AssetResolver's log-once dedup survives: the same broken
+    # body is reported once, not once per file inspected.
+    from PyAitD.render.asset_resolver import override_body_material_path
+    bodies = tmp_path / "bodies"
+    bodies.mkdir(parents=True)
+    (bodies / "body7.json").write_text('{"indices": {"5": "metal"}}')
+    (bodies / "bodyfoo.json").write_text('{"indices": {"5": "metal"}}')
+    override_body_material_path(tmp_path, 7).write_text('{"indices": {"5": "metal"}}')
+    f = oc.check_body_materials(tmp_path)
+    assert [(x.floor, x.camera, x.path.name, x.kind) for x in f] == [
+        (-2, 7, "body7.json", "invalid"),
+        (-2, -1, "bodyfoo.json", "invalid"),
+    ]
+    assert "body007.json" in f[0].detail and "body<NNN>.json" in f[1].detail
