@@ -783,7 +783,8 @@ GOLDEN = pathlib.Path(__file__).parent / "golden" / "scene_lit_classic.npy"
 
 
 def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0, realism="classic"))
+    # smoothing=0 names the legacy path explicitly: the golden predates tessellation
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0, realism="classic", smoothing=0))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()

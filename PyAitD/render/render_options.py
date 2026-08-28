@@ -22,7 +22,7 @@ class RenderOptions:
     lighting: str = "scene"
     msaa: int = 4
     realism: str = "enhanced"
-    smoothing: int = 0
+    smoothing: int = 2
 
     def to_payload(self):
         return {

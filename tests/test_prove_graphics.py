@@ -19,6 +19,8 @@ def test_render_fixture_produces_scaled_frames(data_dir, gl_ctx):
     assert rgb.std() > 10  # not a blank frame
     classic = render_fixture(data_dir, "attic", scale=2, shading="smooth", ctx=gl_ctx, realism="classic")
     assert not np.array_equal(rgb, classic)   # the default is enhanced, and it shows
+    flat = render_fixture(data_dir, "attic", scale=2, shading="smooth", ctx=gl_ctx, smoothing=0)
+    assert not np.array_equal(rgb, flat)   # the default rounds the bodies, and it shows
 
 
 def test_parse_args_defaults():
@@ -34,13 +36,24 @@ def test_parse_args_overrides():
     assert args.scale == 2
 
 
-def test_output_paths_covers_every_fixture_shading_mode_and_realism():
+def test_output_paths_cover_every_combination_plus_a_flat_mesh_pair():
+    from PyAitD.render.render_options import RenderOptions
     paths = output_paths("docs/graphics-proof")
-    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES)
-    names = {(name, mode, realism) for name, mode, realism, _ in paths}
-    assert names == {(n, m, r) for n in FIXTURES for m in SHADING_MODES for r in REALISM_MODES}
-    for name, mode, realism, path in paths:
-        assert path == pathlib.Path("docs/graphics-proof") / f"{name}-{mode}-{realism}.png"
+    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + len(FIXTURES)
+    default = RenderOptions().smoothing
+    names = {(name, mode, realism, level) for name, mode, realism, level, _ in paths}
+    expected = {(n, m, r, default) for n in FIXTURES for m in SHADING_MODES for r in REALISM_MODES}
+    expected |= {(n, "smooth", "enhanced", 0) for n in FIXTURES}
+    assert names == expected
+    for name, mode, realism, level, path in paths:
+        suffix = "-flatmesh" if level == 0 else ""
+        assert path == pathlib.Path("docs/graphics-proof") / f"{name}-{mode}-{realism}{suffix}.png"
+
+
+def test_parse_args_smoothing_defaults_to_the_render_default():
+    from PyAitD.render.render_options import RenderOptions
+    assert _parse_args(["d"]).smoothing == RenderOptions().smoothing
+    assert _parse_args(["d", "--smoothing", "0"]).smoothing == 0
 
 
 def test_main_exits_2_when_data_directory_is_absent(tmp_path, capsys):
@@ -68,4 +81,4 @@ def test_render_fixture_is_importable_with_the_documented_signature():
     # positional args in a later edit, without needing GL or game data.
     import inspect
     params = list(inspect.signature(render_fixture).parameters)
-    assert params == ["data_dir", "name", "scale", "shading", "ctx", "realism"]
+    assert params == ["data_dir", "name", "scale", "shading", "ctx", "realism", "smoothing"]

@@ -9,7 +9,7 @@ pytestmark = pytest.mark.render
 
 
 def test_defaults():
-    assert RenderOptions() == RenderOptions(4, "smooth", "bilinear", None, "scene", 4, "enhanced", 0)
+    assert RenderOptions() == RenderOptions(4, "smooth", "bilinear", None, "scene", 4, "enhanced", 2)
     assert SHADING_MODES == ("flat", "lambert", "smooth")
     assert BACKGROUND_FILTERS == ("nearest", "bilinear", "xbr")
 
@@ -89,12 +89,12 @@ def test_invalid_lighting_and_msaa_fall_back_alone():
     assert options == RenderOptions() and "msaa" in error
 
 
-def test_smoothing_defaults_to_off_and_cycles():
+def test_smoothing_defaults_to_medium_and_cycles():
     from PyAitD.render.render_options import SMOOTHING_LEVELS, cycle_smoothing
     assert SMOOTHING_LEVELS == (0, 1, 2, 3)
     options = RenderOptions()
-    assert options.smoothing == 0
-    assert cycle_smoothing(options).smoothing == 1
+    assert options.smoothing == 2
+    assert cycle_smoothing(options).smoothing == 3
     assert cycle_smoothing(RenderOptions(smoothing=3)).smoothing == 0
     assert RenderOptions(smoothing=2).to_payload()["smoothing"] == 2
 

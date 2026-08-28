@@ -133,7 +133,7 @@ def test_graphics_rows_cycle_render_options():
     state.cursor = 5
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(realism="classic")
     state.cursor = 6
-    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(smoothing=1)
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(smoothing=3)
     assert state.page is SystemMenuPage.GRAPHICS  # a cycle never leaves the page
 
 
