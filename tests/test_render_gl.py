@@ -1210,15 +1210,28 @@ def test_the_tessellated_shadow_is_as_round_as_the_actor(gl_ctx):
 
 
 def test_a_tessellated_shadow_is_still_erased_under_a_mask(gl_ctx):
+    # A full-screen mask would erase the actor draw itself (mask_tex is
+    # shared by _actor_prog and _tess_prog), so rendered == plain_background
+    # would hold even if the shadow pass drew nothing or drew garbage --
+    # that version of this test could not fail. Use a partial mask instead,
+    # covering only the right half of the shadow's own footprint (measured:
+    # for this actor/light, the shadow below the feet -- rows 137-153 --
+    # spans columns ~101-216), and assert both halves of the erasure: gone
+    # where the mask covers it, still cast where it doesn't.
     plate = np.full((200, 320, 3), 200, np.uint8)
     geometry = _planned_geometry(_hex_prism_body())
     actor = ActorDraw(0, geometry, (0.0, 0.0, 0.0), 0, (0, 0, -50, 150, 0, 0), RenderResult([], []), (0,))
-    full = MaskDraw(0, (np.array([[0, 0], [320, 0], [320, 200], [0, 200]], np.int16),),
-                    (0, 0, 320, 200), 0, ())
+    poly = np.array([[160, 137], [320, 137], [320, 200], [160, 200]], np.int16)
+    right_half = MaskDraw(0, (poly,), (160, 137, 320, 200), 0, ())
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene", msaa=0, smoothing=2))
-    backend.draw(_shadow_frame(actor, plate, [full]))
-    assert np.array_equal(backend.read_rgb(), _plain_background(gl_ctx, plate))
+    backend.draw(_shadow_frame(actor, plate, [right_half]))
+    rendered = backend.read_rgb().astype(int)
     backend.release()
+    plain = _plain_background(gl_ctx, plate)
+    below, right, left = slice(137, None), slice(160, None), slice(0, 160)
+    assert np.array_equal(rendered[below, right], plain[below, right])            # masked: shadow erased
+    outside = int((rendered[below, left] < plain[below, left] - 5).any(axis=2).sum())
+    assert outside > 400                                                          # unmasked: shadow still cast (measured 826)
 
 
 def test_a_sphere_casts_a_shadow_only_once_tessellated(gl_ctx):
