@@ -20,6 +20,15 @@ def test_every_class_has_a_preset_with_a_positive_detail_scale():
         assert 0 <= material.detail_kind <= 4, name
 
 
+def test_a_zero_detail_scale_is_rejected_naming_the_field():
+    # The shader divides by it; a zero would make the detail noise NaN, and
+    # `0.0 * NaN` is NaN, so it would break realism=classic's byte identity.
+    with pytest.raises(ValueError, match="detail_scale must be > 0"):
+        Material(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, DETAIL_NONE)
+    with pytest.raises(ValueError, match="detail_scale must be > 0"):
+        Material(1.0, 0.0, 0.0, 0.0, 0.0, -1.0, DETAIL_NONE)
+
+
 def test_matte_has_no_specular_rim_or_detail():
     matte = CLASS_PRESETS["matte"]
     assert (matte.specular, matte.rim, matte.detail, matte.detail_kind) == (0.0, 0.0, 0.0, DETAIL_NONE)

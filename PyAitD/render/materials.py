@@ -34,6 +34,17 @@ class Material:
     detail_scale: float  # FITD units per noise cell; always > 0, the shader divides by it
     detail_kind: int     # DETAIL_NONE .. DETAIL_BRUSHED
 
+    def __post_init__(self):
+        # The shader divides v_rest by this, so a zero would make the noise
+        # NaN -- and under realism=classic `0.0 * NaN` is NaN too, which is
+        # the one way a data change alone could break the byte-for-byte
+        # classic identity. Rejected here, in the pure module that owns
+        # every other material invariant, rather than clamped in the
+        # shader: a clamp would quietly render a nonsense material instead
+        # of naming the bad field.
+        if not self.detail_scale > 0:
+            raise ValueError(f"detail_scale must be > 0, got {self.detail_scale!r}")
+
     def parameters(self):
         return np.array([self.roughness, self.specular, self.metallic, self.rim,
                          self.detail, self.detail_scale, float(self.detail_kind), 0.0], dtype=np.float32)

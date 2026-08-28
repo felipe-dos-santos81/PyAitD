@@ -780,8 +780,7 @@ def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
-    if not GOLDEN.is_file():
-        pytest.skip(f"{GOLDEN} not captured yet")
+    assert GOLDEN.is_file(), f"{GOLDEN} is missing: the realism=classic identity net is disarmed"
     assert np.array_equal(out, np.load(GOLDEN))
 
 
