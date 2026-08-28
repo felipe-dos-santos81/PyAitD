@@ -288,12 +288,11 @@ def _quad_corners(sx, sy, depth, dx, dy):
 
 
 def _plane_y(actor):
-    """The world y of the ground plane under `actor`: the lower of its
-    bounding box's two y bounds (world y grows downward, so the larger
-    number is the lower point). The contact darkening in the scene shader
-    and the plane a shadow is projected onto must be the same plane or the
-    shadow detaches from the darkening at the feet -- one helper so the two
-    cannot drift."""
+    """The world y of the ground plane under `actor`: the larger of its
+    bounding box's two y bounds, which -- world y grows downward -- is its
+    lowest point, the feet. The contact darkening in the scene shader and
+    the plane a shadow is projected onto must be the same plane or the
+    shadow detaches from the darkening at the feet, so both read it here."""
     return float(max(actor.zv[2], actor.zv[3]))
 
 
