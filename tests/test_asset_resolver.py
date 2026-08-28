@@ -190,3 +190,37 @@ def test_resource_screen_invalid_override_warns_once_and_falls_back(tmp_path, ca
     assert not asset.is_override
     assert path in resolver.failures
     assert len(caplog.records) == 1
+
+
+def test_light_is_estimated_once_per_camera():
+    calls = []
+
+    class CountingFloor:
+        number = 3
+        palette = np.zeros((256, 3), dtype=np.uint8)
+
+        def camera_image(self, idx):
+            calls.append(idx)
+            plate = np.zeros((200, 320, 3), np.uint8)
+            plate[:40] = 255
+            return plate
+
+    floor = CountingFloor()
+    resolver = AssetResolver(SimpleNamespace(body=lambda n: n), None)
+    first = resolver.light(floor, 0)
+    second = resolver.light(floor, 0)
+    assert first is second
+    assert calls == [0]                     # one decode, one estimate
+    assert first.direction[1] < 0           # a bright ceiling band lights from above
+
+
+def test_light_follows_an_override_background(tmp_path):
+    from PyAitD.render.asset_resolver import override_background_path
+    path = override_background_path(tmp_path, 3, 0)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"")                   # content comes from the stub loader below
+    bright_left = np.zeros((200, 320, 3), np.uint8)
+    bright_left[:, :40] = 255
+    resolver = AssetResolver(None, tmp_path, load_png=lambda p: bright_left)
+    light = resolver.light(_floor(), 0)
+    assert light.direction[0] < 0           # estimated from the override, not the flat original

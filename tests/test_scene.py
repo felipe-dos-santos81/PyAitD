@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import numpy as np
 
-from PyAitD.render.asset_resolver import AssetResolver
+from PyAitD.render.asset_resolver import AssetResolver, ImageAsset
 from PyAitD.engine.floor import Floor
 from PyAitD.engine.formats import Body, Camera, Group, Room
 from PyAitD.engine.game import init_game
@@ -60,13 +60,16 @@ def _distance_scaled_bound(depth, focal2, focal3, world_trunc_bound=8.0):
 
 def test_build_frame_matches_legacy_order_and_draw_list(data_dir, profile):
     game, floor = _boot(data_dir, profile)
-    frame, draw_list = build_frame(game, floor, AssetResolver(game.assets))
+    resolver = AssetResolver(game.assets)
+    frame, draw_list = build_frame(game, floor, resolver)
     legacy = _legacy_scene(game, floor)
     assert isinstance(frame, FrameDescription)
     assert draw_list == [(i, bbox) for i, bbox, _ in legacy]
     assert [a.index for a in frame.actors] == [i for i, _, _ in legacy]
     for actor, (_, _, result) in zip(frame.actors, legacy):
         assert actor.logical.points == result.points
+    room = floor.rooms[game.current_room]
+    assert frame.light is resolver.light(floor, room.camera_indices[game.num_camera])
 
 
 def test_mask_ids_follow_the_trigger_rule(data_dir, profile):
@@ -75,6 +78,28 @@ def test_mask_ids_follow_the_trigger_rule(data_dir, profile):
     for actor in frame.actors:
         expected = tuple(m.id for m in frame.masks if mask_applies_to_actor(m, actor.room, actor.zv))
         assert actor.mask_ids == expected
+
+
+def test_software_backend_ignores_the_scene_light():
+    # The spec keeps the software fallback flat and unlit. Nothing in that
+    # path may start reading frame.light by accident.
+    from PyAitD.render.lighting import SceneLight
+    from PyAitD.render.render_soft import SoftwareBackend
+    view = CameraView(CameraState(0, 0, 0, 0, 0, 0, 1000, 320, 320).angles())
+    plate = np.full((200, 320, 3), 90, np.uint8)
+    plain = FrameDescription(view, ImageAsset(plate, False), np.zeros((256, 3), np.uint8), (), ())
+    wild = FrameDescription(view, ImageAsset(plate, False), np.zeros((256, 3), np.uint8), (), (),
+                            SceneLight((0.9, -0.4, -0.2), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0), 1.0))
+    assert np.array_equal(SoftwareBackend().draw(plain), SoftwareBackend().draw(wild))
+
+
+def test_frame_description_defaults_to_the_legacy_light():
+    from PyAitD.render.lighting import LEGACY_LIGHT
+    frame = FrameDescription(
+        CameraView(CameraState(0, 0, 0, 0, 0, 0, 1000, 320, 320).angles()),
+        None, None, (), (),
+    )
+    assert frame.light is LEGACY_LIGHT
 
 
 def _on_screen(points):
@@ -346,6 +371,10 @@ class _StubResolver:
 
     def palette(self, floor):
         return self._palette
+
+    def light(self, floor, cam_idx):
+        from PyAitD.render.lighting import LEGACY_LIGHT
+        return LEGACY_LIGHT
 
 
 def _legacy_stub_scene(game, floor, resolver):

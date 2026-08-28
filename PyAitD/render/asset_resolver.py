@@ -9,6 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
+from PyAitD.render.lighting import estimate_light
+
 log = logging.getLogger("PyAitD.engine.assets")
 
 
@@ -44,6 +46,7 @@ class AssetResolver:
         self._override_dir = Path(override_dir) if override_dir else None
         self._load_png = load_png
         self._cache = {}
+        self._lights = {}
         self.failures = {}
 
     def body(self, num):
@@ -86,6 +89,20 @@ class AssetResolver:
             if pixels is not None:
                 return np.ascontiguousarray(pixels[0, :256, :3]).astype(np.uint8)
         return floor.palette
+
+    def light(self, floor, cam_idx):
+        """The SceneLight for a camera, estimated from whatever background
+        that camera actually resolves to -- an override, including an
+        AI-regenerated plate, is estimated from the override rather than
+        from the original.
+
+        Memoised per (floor, camera) exactly as backgrounds are: a camera's
+        light is a property of a static image, so one estimate per camera
+        per session is all this can ever need."""
+        key = (floor.number, cam_idx)
+        if key not in self._lights:
+            self._lights[key] = estimate_light(self.background(floor, cam_idx).pixels)
+        return self._lights[key]
 
     def resource_screen(self, entry):
         if self._override_dir is not None:
