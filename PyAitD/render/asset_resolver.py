@@ -4,13 +4,14 @@
 Only load_png_rgb touches pygame; everything else is pure so headless tests
 inject a loader."""
 from dataclasses import dataclass
+import json
 import logging
 from pathlib import Path
 
 import numpy as np
 
 from PyAitD.render.lighting import estimate_light
-from PyAitD.render.materials import default_table
+from PyAitD.render.materials import default_table, parse_assignments
 from PyAitD.render.occlusion import bake_vertex_ao
 
 log = logging.getLogger("PyAitD.engine.assets")
@@ -36,6 +37,16 @@ def override_screen_path(override_dir, entry):
     return Path(override_dir) / "screens" / f"ress{entry:02d}.png"
 
 
+def override_body_material_path(override_dir, num):
+    # Per-body material remaps, applied on top of the committed default
+    # table. Same shape as PyAitD/render/materials.json.
+    return Path(override_dir) / "bodies" / f"body{num:03d}.json"
+
+
+def load_json(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
 def load_png_rgb(path):
     import pygame
     surface = pygame.image.load(str(path))
@@ -57,10 +68,18 @@ class AssetResolver:
         return self._assets.body(num)
 
     def material_table(self, num):
-        """The MaterialTable for body `num`: the committed default. (A
-        per-body override lands in a later task.) Memoised per body."""
+        """The MaterialTable for body `num`: the committed default with the
+        override directory's bodies/body<NNN>.json remapped on top when one
+        exists. A missing file is silent; an unreadable or invalid one logs
+        once, lands in `failures`, and leaves the default. Memoised per body."""
         if num not in self._material_tables:
-            self._material_tables[num] = default_table()
+            table = default_table()
+            if self._override_dir is not None:
+                data = self._override(override_body_material_path(self._override_dir, num),
+                                      parse_assignments, load=load_json)
+                if data is not None:
+                    table = table.remapped(parse_assignments(data))
+            self._material_tables[num] = table
         return self._material_tables[num]
 
     def geometry_ao(self, num):
@@ -69,7 +88,8 @@ class AssetResolver:
             self._aos[num] = bake_vertex_ao(self.body(num))
         return self._aos[num]
 
-    def _override(self, path, validate):
+    def _override(self, path, validate, load=None):
+        load = self._load_png if load is None else load
         if self._override_dir is None or path in self.failures:
             return None
         if path in self._cache:
@@ -81,14 +101,14 @@ class AssetResolver:
             # Only an override that exists but is unreadable or invalid logs.
             return None
         try:
-            pixels = self._load_png(path)
-            validate(pixels)
+            loaded = load(path)
+            validate(loaded)
         except Exception as exc:  # any loader/validation failure degrades, never crashes
             self.failures[path] = str(exc)
             log.warning("override %s ignored: %s", path, exc)
             return None
-        self._cache[path] = pixels
-        return pixels
+        self._cache[path] = loaded
+        return loaded
 
     def background(self, floor, cam_idx):
         if self._override_dir is not None:

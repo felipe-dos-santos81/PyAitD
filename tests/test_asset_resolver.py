@@ -247,3 +247,43 @@ def test_geometry_ao_bakes_once_per_body():
     second = resolver.geometry_ao(7)
     assert first is second and calls == [7]
     assert np.array_equal(first, np.ones(3, np.float32))
+
+
+def test_body_material_path_follows_the_convention(tmp_path):
+    from PyAitD.render.asset_resolver import override_body_material_path
+    assert override_body_material_path(tmp_path, 7) == tmp_path / "bodies" / "body007.json"
+
+
+def test_material_table_follows_a_per_body_override(tmp_path):
+    from PyAitD.render.asset_resolver import override_body_material_path
+    from PyAitD.render.materials import default_table
+    path = override_body_material_path(tmp_path, 7)
+    path.parent.mkdir(parents=True)
+    path.write_text('{"indices": {"5": "metal"}, "ramps": [{"lo": 40, "hi": 41, "class": "glass"}]}')
+    resolver = AssetResolver(SimpleNamespace(body=lambda n: n), tmp_path)
+    table = resolver.material_table(7)
+    assert table.classes[5] == "metal" and table.classes[40] == "glass"
+    assert table.classes[6] == default_table().classes[6]      # everything else untouched
+    assert resolver.material_table(7) is table                 # memoised
+    assert resolver.material_table(8) is default_table()       # no file, no change
+
+
+def test_missing_body_override_is_silent(tmp_path, caplog):
+    with caplog.at_level(logging.WARNING):
+        AssetResolver(SimpleNamespace(body=lambda n: n), tmp_path).material_table(3)
+    assert caplog.records == []
+
+
+def test_invalid_body_override_logs_once_and_falls_back(tmp_path, caplog):
+    from PyAitD.render.asset_resolver import override_body_material_path
+    from PyAitD.render.materials import default_table
+    path = override_body_material_path(tmp_path, 2)
+    path.parent.mkdir(parents=True)
+    path.write_text('{"indices": {"5": "velvet"}}')
+    resolver = AssetResolver(SimpleNamespace(body=lambda n: n), tmp_path)
+    with caplog.at_level(logging.WARNING):
+        assert resolver.material_table(2) is default_table()
+        assert resolver.material_table(2) is default_table()
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1 and "velvet" in warnings[0].getMessage()
+    assert path in resolver.failures

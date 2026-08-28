@@ -133,3 +133,21 @@ def test_screen_coverage_distinguishes_original_from_regenerated(tmp_path):
     assert cov == {"regenerated": 1, "original": 1, "missing": 5, "invalid": 0}
     text = oc.summarize([], {}, cov)
     assert "screens: regenerated 1 / original 1 / missing 5 / invalid 0" in text
+
+
+def test_body_material_findings_name_the_body_and_the_reason(tmp_path):
+    from PyAitD.render.asset_resolver import override_body_material_path
+    good = override_body_material_path(tmp_path, 1)
+    good.parent.mkdir(parents=True)
+    good.write_text('{"indices": {"5": "metal"}}')
+    override_body_material_path(tmp_path, 2).write_text('{"indices": {"5": "velvet"}}')
+    override_body_material_path(tmp_path, 3).write_text('not json')
+    f = oc.check_body_materials(tmp_path)
+    assert [(x.floor, x.camera, x.kind) for x in f] == [(-2, 2, "invalid"), (-2, 3, "invalid")]
+    assert "velvet" in f[0].detail
+    assert oc.has_errors(f)
+    assert "invalid body 002" in oc.summarize(f, None)
+
+
+def test_no_bodies_directory_is_no_finding(tmp_path):
+    assert oc.check_body_materials(tmp_path) == []

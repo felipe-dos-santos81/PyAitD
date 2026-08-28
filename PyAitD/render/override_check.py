@@ -7,7 +7,9 @@ accepts, and vice versa. PNG decoding is asset_resolver.load_png_rgb.
 from dataclasses import dataclass
 from pathlib import Path
 
-from PyAitD.render.asset_resolver import AssetResolver, load_png_rgb, override_background_path, override_screen_path
+from PyAitD.render.asset_resolver import (
+    AssetResolver, load_png_rgb, override_background_path, override_body_material_path, override_screen_path,
+)
 from PyAitD.render.background_export import SCREEN_ENTRIES, sha256_rgb
 
 ERROR_KINDS = ("invalid", "aspect")
@@ -127,12 +129,32 @@ def screen_coverage(override_dir, assets, manifest, *, load_png=load_png_rgb):
     return counts
 
 
+def check_body_materials(override_dir):
+    """One Finding per bodies/body<NNN>.json the resolver would reject;
+    `floor` is -2, `camera` is the body number. Loads through
+    AssetResolver so acceptance stays identical to the game's."""
+    bodies = Path(override_dir) / "bodies"
+    findings = []
+    for path in sorted(bodies.glob("body*.json")):
+        try:
+            num = int(path.stem[4:])
+        except ValueError:
+            continue
+        resolver = AssetResolver(None, override_dir)
+        resolver.material_table(num)
+        if path in resolver.failures:
+            findings.append(Finding(-2, num, path, "invalid", resolver.failures[path]))
+    return findings
+
+
 def summarize(findings, cov, screen_cov=None):
     lines = []
     for f in findings:
         if f.kind != "missing":
             if f.floor == -1:
                 lines.append(f"{f.kind:<7} screen ress{f.camera:02d}  {f.path}: {f.detail}")
+            elif f.floor == -2:
+                lines.append(f"{f.kind:<7} body {f.camera:03d}  {f.path}: {f.detail}")
             else:
                 lines.append(f"{f.kind:<7} floor {f.floor:02d} camera {f.camera:03d}  {f.path}: {f.detail}")
     if cov is None:

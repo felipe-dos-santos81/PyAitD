@@ -18,7 +18,9 @@ import numpy as np
 
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.render.background_export import SCREEN_ENTRIES, SUPPORTED_SCHEMAS
-from PyAitD.render.override_check import check_overrides, check_screens, coverage, has_errors, screen_coverage, summarize
+from PyAitD.render.override_check import (
+    check_body_materials, check_overrides, check_screens, coverage, has_errors, screen_coverage, summarize,
+)
 from PyAitD.engine.pak import PakError
 from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import RenderOptions
@@ -135,6 +137,7 @@ def main(argv=None):
         print(f"warning: screens skipped: {exc}", file=sys.stderr)
 
     findings = check_overrides(args.overrides, floors, manifest)
+    findings = findings + check_body_materials(args.overrides)
     cov = coverage(args.overrides, floors, manifest) if manifest is not None else None
     screen_cov = None
     if assets is not None:
