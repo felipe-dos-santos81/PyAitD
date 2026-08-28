@@ -1180,3 +1180,57 @@ def test_scene_lit_enhanced_tessellation_shades_a_sphere_nonuniformly(gl_ctx):
     lit = rgb[rgb.sum(axis=2) > 0]
     assert len(lit) > 500                  # the sphere is really drawn
     assert lit.std(axis=0).max() > 10      # a real spread of shading, not one flat colour
+
+
+def _shadow_frame(actor, plate, masks=()):
+    # the light sits behind the prism and above it: the shadow falls toward
+    # the camera across the ground plane, so it has an area on screen
+    # rather than collapsing onto the horizon row
+    light = _scene_light((0.0, -0.5, 0.85))
+    return FrameDescription(_view(), ImageAsset(plate, False), _palette(), (actor,), tuple(masks), light)
+
+
+def _darkened_below_the_feet(gl_ctx, level, actor, plate):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene", msaa=0, smoothing=level))
+    backend.draw(_shadow_frame(actor, plate))
+    rendered = backend.read_rgb().astype(int)
+    backend.release()
+    plain = _plain_background(gl_ctx, plate)
+    # rows 137+ are below the prism's nearest foot (row ~134): shadow only
+    return int((rendered[137:] < plain[137:] - 5).any(axis=2).sum())
+
+
+def test_the_tessellated_shadow_is_as_round_as_the_actor(gl_ctx):
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    actor = _standing_actor(0, _planned_geometry(_hex_prism_body()), feet_y=150)
+    flat = _darkened_below_the_feet(gl_ctx, 0, actor, plate)
+    rounded = _darkened_below_the_feet(gl_ctx, 2, actor, plate)
+    assert flat > 100                     # a real shadow band, ~8 rows x ~69 px
+    assert rounded > flat + 40            # ~11 px wider on every row
+
+
+def test_a_tessellated_shadow_is_still_erased_under_a_mask(gl_ctx):
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    geometry = _planned_geometry(_hex_prism_body())
+    actor = ActorDraw(0, geometry, (0.0, 0.0, 0.0), 0, (0, 0, -50, 150, 0, 0), RenderResult([], []), (0,))
+    full = MaskDraw(0, (np.array([[0, 0], [320, 0], [320, 200], [0, 200]], np.int16),),
+                    (0, 0, 320, 200), 0, ())
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene", msaa=0, smoothing=2))
+    backend.draw(_shadow_frame(actor, plate, [full]))
+    assert np.array_equal(backend.read_rgb(), _plain_background(gl_ctx, plate))
+    backend.release()
+
+
+def test_a_sphere_casts_a_shadow_only_once_tessellated(gl_ctx):
+    # The CPU shadow path projects geometry.tris and never saw a sphere
+    # primitive; the instance stream carries them, so heads and hands cast
+    # shadows under smoothing > 0. Pinned so the change stays deliberate.
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    sphere = BodyGeometry(
+        np.array([[0.0, 0.0, 600.0]], np.float32), np.array([[0.0, 0.0, -1.0]], np.float32),
+        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, 150.0, 1),),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    actor = _standing_actor(0, sphere, feet_y=150)
+    assert _darkened_below_the_feet(gl_ctx, 0, actor, plate) == 0
+    assert _darkened_below_the_feet(gl_ctx, 2, actor, plate) > 50

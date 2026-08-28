@@ -24,7 +24,7 @@ import numpy as np
 
 from PyAitD.engine.cos_table import sin_cos
 from PyAitD.render.geometry import icosphere
-from PyAitD.render.lighting import project_to_plane, shading_terms, shadow_opacity
+from PyAitD.render.lighting import _clamp_downward, project_to_plane, shading_terms, shadow_opacity
 from PyAitD.render.materials import PALETTE_SIZE, PRESETS
 from PyAitD.render.refine import subpatch
 from PyAitD.render.render_options import SMOOTHING_LEVELS
@@ -667,8 +667,13 @@ class GLBackend:
                 data = self._instance_data(actor.geometry, np.asarray(actor.position, np.float64), palette)
                 instances = (self._ctx.buffer(data.tobytes()), len(data)) if len(data) else None
 
-            if scene_lit and self._rasterize_shadow(actor, travel, mvp):
-                self._composite_shadow(frame.light)
+            if scene_lit:
+                if level:
+                    cast = self._rasterize_shadow_tessellated(instances, travel, mvp, _plane_y(actor), level)
+                else:
+                    cast = self._rasterize_shadow(actor, travel, mvp)
+                if cast:
+                    self._composite_shadow(frame.light)
 
             self._target.use()
             self._ctx.viewport = (0, 0, *self.size)
@@ -889,6 +894,28 @@ class GLBackend:
         vao.render(moderngl.TRIANGLES)
         vao.release()
         buf.release()
+        return True
+
+    def _rasterize_shadow_tessellated(self, instances, travel, mvp, plane_y, level):
+        """_rasterize_shadow's twin for the tessellated path: the same
+        instance buffer the actor is about to be drawn from, evaluated by
+        _TESS_VSH in its `project` mode, so the coverage silhouette is
+        exactly as round as the actor. `travel` is tipped onto the MIN_UP
+        cone here, as project_to_plane does on the CPU, and handed to the
+        shader already clamped. Sphere primitives are in the instance
+        stream, so unlike the CPU path they cast shadows too."""
+        self._shadow_fbo.use()
+        self._ctx.viewport = (0, 0, *self.size)
+        self._ctx.disable(moderngl.DEPTH_TEST)
+        self._shadow_fbo.clear(0.0, 0.0, 0.0, 0.0)
+        if instances is None:
+            return False
+        prog = self._tess_shadow_prog
+        prog["mvp"].write(mvp.T.astype("f4").tobytes())
+        prog["project"].value = 1
+        prog["travel"].value = tuple(float(v) for v in _clamp_downward(travel))
+        prog["plane_y"].value = plane_y
+        self._render_instanced(prog, self._tess_shadow_layout, instances[0], instances[1], level)
         return True
 
     def _composite_shadow(self, light):
