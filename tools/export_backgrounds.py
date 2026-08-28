@@ -26,14 +26,17 @@ import sys
 import numpy as np
 
 from PyAitD.render.background_export import (
-    SCREEN_ENTRIES, SCREEN_NAMES, SUPPORTED_SCHEMAS, background_rel_path, export_manifest, guide_overlay,
-    guide_rel_path, layout_geometry, layout_rel_path, manifest_record, screen_guide, screen_guide_rel_path,
-    screen_layout, screen_layout_rel_path, screen_record, screen_rel_path,
+    SCREEN_ENTRIES, SCREEN_NAMES, SUPPORTED_SCHEMAS, alt_background_rel_path, alt_manifest_record,
+    background_rel_path, export_manifest, guide_overlay, guide_rel_path, layout_geometry, layout_rel_path,
+    manifest_record, screen_guide, screen_guide_rel_path, screen_layout, screen_layout_rel_path,
+    screen_record, screen_rel_path,
 )
 from PyAitD.engine.assets import Assets
-from PyAitD.engine.floor import Floor
-from PyAitD.engine.pak import PakError
+from PyAitD.engine.floor import Floor, load_entry
+from PyAitD.engine.formats import decode_image
+from PyAitD.engine.pak import PakError, find_pak
 from PyAitD.games import load_profile
+from PyAitD.render.asset_resolver import override_palette_path
 
 
 # This tool exports AITD1 data and has no Game to take a profile from, so it
@@ -154,6 +157,79 @@ def export_screens(assets, out_dir, guide_scale, save=save_png, save_layout=save
     return records
 
 
+def export_alt_backgrounds(data_dir, out_dir, guide_scale=4, save=save_png, save_layout=save_layout, floors=None):
+    """Export the 5 KILLED_SORCERER road alt plates from ITD_RESS.
+
+    Each entry is decoded via raw[:64000] + Floor(0).palette (same path as
+    Assets.resource_screen) and written to alt_backgrounds/floorNN/cameraNNN.png
+    with an alt_manifest_record. Guides/layouts are not duplicated -- the alt
+    reuses the base guides/ for the same floor/camera. Failures warn and skip.
+    When `floors` is not None, only alts whose floor is in that iterable are
+    exported (mirrors main()'s --floors filter).
+    """
+    del guide_scale, save_layout  # shared guides; kept for caller symmetry
+    out_dir = pathlib.Path(out_dir)
+    alt_map = dict(PROFILE.alt_camera_sources)
+    if not alt_map:
+        return []
+    if floors is not None:
+        floor_set = set(floors)
+        alt_map = {k: v for k, v in alt_map.items() if k[0] in floor_set}
+        if not alt_map:
+            return []
+    # Palette for ITD_RESS decode -- same as Assets._game_palette (ITD_RESS:3)
+    try:
+        palette = load_floor(data_dir, 0).palette  # (256, 3) uint8
+    except Exception as exc:
+        print(f"warning: palette skipped, alts not exported: {exc}", file=sys.stderr)
+        return []
+    # Cache Floors per number
+    floors_cache: dict[int, Floor] = {}
+    records = []
+    # Reuse find_pak lookup once
+    try:
+        itd_ress_pak = str(find_pak(data_dir, "ITD_RESS"))
+    except Exception as exc:
+        print(f"warning: ITD_RESS PAK not found, alts skipped: {exc}", file=sys.stderr)
+        return []
+    for (floor_num, cam_idx), entry in sorted(alt_map.items()):
+        if floor_num not in floors_cache:
+            try:
+                floors_cache[floor_num] = load_floor(data_dir, floor_num)
+            except Exception as exc:
+                print(f"warning: floor {floor_num:02d} skipped: {exc}", file=sys.stderr)
+                continue
+        floor = floors_cache[floor_num]
+        try:
+            raw = load_entry(itd_ress_pak, entry)
+            pixels = decode_image(raw[:64000], palette)
+        except Exception as exc:
+            print(f"warning: alt floor {floor_num:02d} cam {cam_idx:03d} ITD_RESS:{entry} skipped: {exc}", file=sys.stderr)
+            continue
+        # no guide/layout write -- shared with base
+        save(out_dir / alt_background_rel_path(floor_num, cam_idx), pixels)
+        records.append(alt_manifest_record(floor, cam_idx, pixels, entry))
+    return records
+
+
+def export_palette(data_dir, out_dir, save=save_png):
+    """Write palette.png (256x1 RGB) from Floor 0's palette, atomically via save_png.
+
+    Returns True on success, False on failure (warns)."""
+    try:
+        palette = load_floor(data_dir, 0).palette  # (256, 3)
+        row = palette[None, :, :].astype(np.uint8)  # (1, 256, 3)
+        # Path must stay identical to asset_resolver.override_palette_path tail
+        save(pathlib.Path(out_dir) / "palette.png", row)
+        # Also assert resolver path matches, but saving via literal keeps it simple;
+        # override_palette_path produces same Path.
+        assert pathlib.Path(out_dir) / "palette.png" == override_palette_path(out_dir)
+        return True
+    except Exception as exc:
+        print(f"warning: palette skipped: {exc}", file=sys.stderr)
+        return False
+
+
 def _parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("data", type=pathlib.Path, help="game data directory (e.g. .../INDARK)")
@@ -186,6 +262,12 @@ def main(argv=None):
             print(f"error: {args.out / sub} exists; pass --force to overwrite "
                   "(this discards regenerated images)", file=sys.stderr)
             return 3
+    # alt_backgrounds exists check mirrors backgrounds/ (Task 4)
+    alt_map = dict(PROFILE.alt_camera_sources)
+    if alt_map and (args.out / "alt_backgrounds").exists() and not args.force:
+        print(f"error: {args.out / 'alt_backgrounds'} exists; pass --force to overwrite "
+              "(this discards regenerated images)", file=sys.stderr)
+        return 3
 
     records, exported = [], 0
     for number in floors:
@@ -205,13 +287,28 @@ def main(argv=None):
             print(f"screens: {len(screens)}")
         except (PakError, FileNotFoundError, OSError, ValueError) as exc:
             print(f"warning: screens skipped: {exc}", file=sys.stderr)
-    if not exported and not screens:
+    # alt_backgrounds: respect --floors filter, warn and continue on failure
+    try:
+        alt_records = export_alt_backgrounds(args.data, args.out, args.guide_scale, floors=floors)
+        if alt_records:
+            print(f"alt_backgrounds: {len(alt_records)}")
+    except (PakError, FileNotFoundError, OSError, ValueError) as exc:
+        print(f"warning: alt_backgrounds skipped: {exc}", file=sys.stderr)
+        alt_records = []
+    # palette.png: always attempt, warn on failure (never blocks)
+    try:
+        if export_palette(args.data, args.out):
+            print("palette: 1")
+    except Exception as exc:
+        print(f"warning: palette skipped: {exc}", file=sys.stderr)
+    if not exported and not screens and not alt_records:
         print("error: nothing exported", file=sys.stderr)
         return 2
     args.out.mkdir(parents=True, exist_ok=True)
     records = _merge_manifest_records(args.out, records)
     screens = _merge_manifest_records(args.out, screens, key="screens")
-    manifest = export_manifest(records, args.data.resolve(), args.guide_scale, screens=screens)
+    alt_records = _merge_manifest_records(args.out, alt_records, key="alt_cameras")
+    manifest = export_manifest(records, args.data.resolve(), args.guide_scale, screens=screens, alt_cameras=alt_records)
     print(save_manifest(args.out, manifest))
     return 0
 
