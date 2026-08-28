@@ -4,8 +4,8 @@ import pytest
 
 from PyAitD.engine.world import CameraState
 from PyAitD.render.lighting import (
-    FORWARD, LEGACY_LIGHT, MIN_UP, SceneLight, estimate_light, project_to_plane,
-    shading_terms,
+    FORWARD, LEGACY_LIGHT, MAX_TINT_RATIO, MIN_UP, SceneLight, estimate_light,
+    key_weight, project_to_plane, shading_terms, shadow_opacity,
 )
 
 pytestmark = pytest.mark.render
@@ -64,7 +64,7 @@ def test_degenerate_plates_still_produce_a_usable_light(fill):
     assert light.contrast == pytest.approx(0.0, abs=1e-6)
 
 
-def test_shading_terms_are_unit_mean_tints_split_by_contrast():
+def test_shading_terms_split_a_neutral_room_by_contrast():
     flat = SceneLight((0.0, -1.0, 0.0), (0.5, 0.5, 0.5), (0.2, 0.2, 0.2), 0.0)
     key, ambient = shading_terms(flat)
     assert np.mean(key) == pytest.approx(0.25)
@@ -88,6 +88,76 @@ def test_shading_terms_survive_a_black_plate():
     black = SceneLight((0.0, -1.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 0.0)
     key, ambient = shading_terms(black)
     assert key == (0.0, 0.0, 0.0) and ambient == (0.0, 0.0, 0.0)
+
+
+# Colour pairs chosen to be hostile: a near-mono-channel ambient is what a
+# real unlit room's darkest quartile actually looks like (the shipped
+# plates reach per-channel ratios in the thousands), and a saturated key
+# over a differently-hued fill is what used to clip.
+_HOSTILE = [
+    ((0.9, 0.2, 0.05), (0.02, 0.002, 0.0)),     # a fire-lit room, mono-channel fill
+    ((0.03, 0.02, 0.09), (0.9, 0.9, 0.95)),     # a dark blue key under a bright fill
+    ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),         # pure red key, pure blue fill
+    ((0.5, 0.5, 0.5), (0.001, 0.0, 0.0)),       # grey key, single-channel fill
+    ((0.004, 0.004, 0.004), (0.002, 0.002, 0.002)),   # a very dark, neutral room
+]
+
+
+@pytest.mark.parametrize("key_rgb, ambient_rgb", _HOSTILE)
+@pytest.mark.parametrize("contrast", [0.0, 0.4, 0.69, 1.0])
+def test_shading_terms_never_exceed_one_per_channel(key_rgb, ambient_rgb, contrast):
+    # f_color = v_color * (fill + key * wrapped^2) in the actor shader, so
+    # any channel of fill + key above 1.0 is a palette colour clipped.
+    key, fill = shading_terms(SceneLight((0.0, -1.0, 0.0), key_rgb, ambient_rgb, contrast))
+    lit = np.asarray(key) + np.asarray(fill)
+    assert np.all(lit <= 1.0 + 1e-12)
+    assert lit.max() == pytest.approx(1.0)      # and it does reach 1.0: no dimming either
+
+
+@pytest.mark.parametrize("key_rgb, ambient_rgb", _HOSTILE)
+@pytest.mark.parametrize("contrast", [0.0, 0.4, 0.69, 1.0])
+def test_shading_terms_bound_saturation_everywhere_on_the_wrap(key_rgb, ambient_rgb, contrast):
+    # The shader evaluates fill + key*w for w in 0..1, so the bound has to
+    # hold along that whole segment, not just at its lit end.
+    key, fill = shading_terms(SceneLight((0.0, -1.0, 0.0), key_rgb, ambient_rgb, contrast))
+    for wrapped in (0.0, 0.25, 0.5, 0.75, 1.0):
+        term = np.asarray(fill) + np.asarray(key) * wrapped
+        if term.max() <= 0.0:
+            continue                            # a black room tints nothing
+        assert term.min() > 0.0 or term.max() == 0.0
+        assert term.max() <= MAX_TINT_RATIO * term.min() + 1e-12
+
+
+def test_shading_terms_do_not_dim_with_the_rooms_absolute_darkness():
+    # The property the old per-colour mean normalisation was there for: two
+    # rooms with the same hue and contrast but 50x the brightness shade an
+    # actor identically, so a crypt does not render its occupants invisible.
+    bright = SceneLight((0.0, -1.0, 0.0), (0.80, 0.70, 0.50), (0.30, 0.28, 0.34), 0.6)
+    dark = SceneLight((0.0, -1.0, 0.0), (0.016, 0.014, 0.010), (0.006, 0.0056, 0.0068), 0.6)
+    assert np.allclose(shading_terms(bright), shading_terms(dark))
+    key, fill = shading_terms(dark)
+    assert (np.asarray(key) + np.asarray(fill)).max() == pytest.approx(1.0)
+
+
+def test_a_mono_channel_fill_still_leans_the_right_way():
+    # Capping saturation must not flatten the hue out of existence: the
+    # direction survives even when the input has a channel at zero.
+    light = SceneLight((0.0, -1.0, 0.0), (0.5, 0.5, 0.5), (0.4, 0.05, 0.0), 0.5)
+    _, fill = shading_terms(light)
+    assert fill[0] > fill[1] > fill[2] > 0.0
+
+
+def test_the_two_contrast_curves_live_together_and_differ():
+    # Both read SceneLight.contrast; neither is the other. Keeping them in
+    # one module is the point -- they were written by different tasks and
+    # drifted.
+    assert key_weight(0.0) == pytest.approx(0.25)
+    assert key_weight(1.0) == pytest.approx(0.75)
+    assert shadow_opacity(0.0) == pytest.approx(0.25)
+    assert shadow_opacity(1.0) == pytest.approx(0.70)
+    for out_of_range in (-1.0, 2.0):
+        assert 0.25 <= key_weight(out_of_range) <= 0.75
+        assert 0.25 <= shadow_opacity(out_of_range) <= 0.70
 
 
 def test_project_to_plane_lands_every_vertex_on_the_plane():

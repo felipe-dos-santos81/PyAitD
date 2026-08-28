@@ -114,25 +114,111 @@ def estimate_light(pixels):
     return SceneLight(direction, key, ambient, contrast)
 
 
-def shading_terms(light):
-    """`(key, ambient)` multipliers for the shader: unit-mean tints carrying
-    the room's hue, split by contrast into a directional share and a fill
-    share that sum to roughly 1.
+def key_weight(contrast):
+    """The directional share of an actor's shading: how much of the light on
+    a body comes from the key rather than from the fill.
 
-    Keeping the sum near 1 is what stops a lit surface from drifting far
-    from its palette colour: a fully lit face lands near `ambient + key == 1`
-    and an unlit one falls to the fill share alone, which is the same
-    0.55-to-1.0 band the old fixed rig produced."""
-    weight = 0.25 + 0.5 * float(np.clip(light.contrast, 0.0, 1.0))
-    key = np.asarray(light.key, dtype=np.float64)
-    ambient = np.asarray(light.ambient, dtype=np.float64)
-    key_mean = float(key.mean())
-    ambient_mean = float(ambient.mean())
-    # A pitch-black plate has no hue to preserve and no light to give: it
-    # stays black rather than being normalised into a division by zero.
-    key = key / key_mean * weight if key_mean > 0.0 else key
-    ambient = ambient / ambient_mean * (1.0 - weight) if ambient_mean > 0.0 else ambient
-    return tuple(key), tuple(ambient)
+    One of the two curves `contrast` drives; `shadow_opacity` is the other.
+    They live side by side because they are easy to mistake for one map of
+    one quantity, and are not: this one splits a *normalised* pair of tints
+    whose lit sum is pinned to 1.0, so it can run the full 0.25..0.75 range
+    without ever darkening or brightening the scene overall. The shadow's
+    opacity multiplies the background by an *absolute* reflectance, so its
+    range is deliberately shallower -- an opaque shadow at high contrast
+    would drop a real room's plate to near black. Rebalancing one of them
+    is not automatically a reason to move the other, but seeing only one of
+    them is how they drifted apart in the first place."""
+    return 0.25 + 0.5 * float(np.clip(contrast, 0.0, 1.0))
+
+
+def shadow_opacity(contrast):
+    """How strongly a ground shadow multiplies the background toward the
+    room's raw ambient reflectance. See key_weight for why the two curves
+    differ."""
+    return 0.25 + 0.45 * float(np.clip(contrast, 0.0, 1.0))
+
+
+# The widest per-channel ratio either shading tint is allowed: the room's
+# hue survives, its saturation does not run away.
+#
+# The bound is set just under the brightness modulation the game already
+# had. The fixed rig ran an actor's shade over 0.55..1.0 across one body, a
+# 1.82:1 spread, so holding the *chromatic* spread below that keeps light
+# and shade reading louder than hue -- a tint, not a recolour. The plates
+# themselves are far more saturated than that: over the 144 shipped
+# cameras the lit-side ratio of the un-capped tints reached 3.97, and the
+# dark quartiles of unlit rooms are close to mono-channel (ratios in the
+# thousands). At 3.97 a white palette entry rendered (255, 189, 117) and
+# the opening room's blue-glass lantern came out bright orange; at 1.5 the
+# same entry renders (255, 192, 170) and the lantern stays blue-grey.
+MAX_TINT_RATIO = 1.5
+
+
+def _tint(colour):
+    """`colour` as a unit-mean hue, desaturated until its per-channel ratio
+    is within MAX_TINT_RATIO. A colour with no light in it stays black
+    rather than being normalised into a division by zero."""
+    colour = np.asarray(colour, dtype=np.float64)
+    mean = float(colour.mean())
+    if mean <= 0.0:
+        return np.zeros(3)
+    colour = colour / mean
+    hi, lo = float(colour.max()), float(colour.min())
+    if hi <= MAX_TINT_RATIO * lo:
+        return colour
+    # Blend toward the colour's own mean -- 1.0, since it is unit-mean now
+    # -- by exactly the amount that lands the ratio on the bound. Solving
+    # ((1-t)hi + t) == R((1-t)lo + t) for t; the denominator is positive
+    # whenever the numerator is, and t < 1 strictly even for a mono-channel
+    # colour (lo == 0), so the hue's *direction* always survives.
+    numerator = hi - MAX_TINT_RATIO * lo
+    t = numerator / (numerator + (MAX_TINT_RATIO - 1.0))
+    return colour * (1.0 - t) + t
+
+
+def shading_terms(light):
+    """`(key_tint, fill_tint)` multipliers for the actor shader: the room's
+    hue as a directional share and a fill share, scaled so that a fully lit
+    surface's `fill_tint + key_tint` peaks at exactly 1.0 in its strongest
+    channel and no channel of it ever exceeds 1.0.
+
+    These are *tints*, not reflectances: each carries only the hue of
+    `light.key` / `light.ambient`, never their absolute brightness, so a
+    dark room shades an actor with its colour without dimming it into
+    invisibility. (`SceneLight.ambient` is also consumed raw, as an
+    absolute reflectance, by the shadow composite -- a different quantity
+    under a similar name.)
+
+    Three properties the shader depends on, in order of how they are built:
+
+    - **Bounded saturation.** Each tint is capped at MAX_TINT_RATIO between
+      its own strongest and weakest channel. Since `max(u + v) <= max u +
+      max v <= R(min u + min v) <= R * min(u + v)`, the lit multiplier and
+      every wrapped value between it and the fill inherit the same bound.
+    - **No clipping.** A single shared divisor -- the peak channel of the
+      summed lit multiplier -- scales both terms, so `fill + key <= 1.0`
+      per channel by construction. Sharing the divisor is what preserves
+      the two terms' relationship; dividing each by its own mean, as this
+      function once did, amplified a dark tinted room into a multiplier
+      with channels up to 1.81 and clipped in 95% of shipped cameras.
+    - **A predictable band.** For a neutral room this is exactly the old
+      split: the lit side lands on 1.0 and the unlit side on
+      `1 - key_weight(contrast)` -- 0.75 at zero contrast, 0.25 at full
+      contrast, 0.40 at the 0.69 median contrast of the shipped plates. A
+      tinted room's unlit side is that value reshaped by the fill's hue
+      and by the shared divisor. Measured over the 144 shipped cameras:
+      the lit side runs 0.667..1.0 per channel, and the unlit side
+      0.170..0.542 -- except for the eight rooms whose darkest quartile is
+      literally black, which have no fill colour at all and whose unlit
+      side is therefore black, as it was before this function was
+      rewritten."""
+    weight = key_weight(light.contrast)
+    key = _tint(light.key) * weight
+    fill = _tint(light.ambient) * (1.0 - weight)
+    peak = float((key + fill).max())
+    if peak > 0.0:
+        key, fill = key / peak, fill / peak
+    return tuple(key), tuple(fill)
 
 
 def _clamp_downward(travel):

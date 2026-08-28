@@ -24,7 +24,7 @@ import numpy as np
 
 from PyAitD.engine.cos_table import sin_cos
 from PyAitD.render.geometry import icosphere
-from PyAitD.render.lighting import project_to_plane, shading_terms
+from PyAitD.render.lighting import project_to_plane, shading_terms, shadow_opacity
 from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
 
 W, H = 320, 200
@@ -74,7 +74,11 @@ void main() { gl_Position = mvp * vec4(in_pos, 1.0); v_color = in_color; v_norma
 _ACTOR_FSH = """
 #version 330
 uniform int shading; uniform int lighting;
-uniform vec3 light; uniform vec3 key; uniform vec3 ambient;
+// key_tint/fill_tint are shading_terms()'s *normalised tints*, not
+// reflectances: they carry the room's hue and sum to a peak of 1.0. The
+// shadow composite's `shadow_color` is the other thing -- SceneLight's raw
+// ambient, an absolute reflectance. Same room, two different quantities.
+uniform vec3 light; uniform vec3 key_tint; uniform vec3 fill_tint;
 uniform sampler2D mask_tex; uniform vec2 target_size;
 in vec3 v_color; in vec3 v_normal; out vec4 f_color;
 void main() {
@@ -96,11 +100,20 @@ void main() {
     }
     // Orient rather than fold: -z is toward the camera, so a normal with a
     // positive z faces away from the viewer and is pointing into the body.
+    //
+    // NOT dead code under shading == 1. There the normal is
+    // normalize(cross(dFdx(gl_FragCoord.xyz), dFdy(gl_FragCoord.xyz))),
+    // whose z is algebraically a constant +1 before normalisation
+    // (dFdx(gl_FragCoord.xy) == (1,0) and dFdy == (0,1) at every
+    // fragment), so this branch fires for *every* lambert fragment. That
+    // is the point: it makes the derivative normal a camera-facing one,
+    // which is what removes the winding dependence FITD geometry cannot
+    // provide. Deleting the flip inverts every lambert normal.
     if (n.z > 0.0) n = -n;
-    // Half-Lambert: the lit side reaches ambient + key, the shadow side
-    // falls to ambient rather than to black.
+    // Half-Lambert: the lit side reaches fill_tint + key_tint, the shadow
+    // side falls to fill_tint rather than to black.
     float wrapped = clamp(dot(n, l) * 0.5 + 0.5, 0.0, 1.0);
-    f_color = vec4(v_color * (ambient + key * wrapped * wrapped), 1.0);
+    f_color = vec4(v_color * (fill_tint + key_tint * wrapped * wrapped), 1.0);
 }
 """
 _SCREEN_VSH = """
@@ -423,22 +436,26 @@ class GLBackend:
         self._actor_prog["mvp"].write(mvp.T.tobytes())
         self._actor_prog["rot"].write(rot.T.tobytes())
         scene_lit = self._options.lighting == "scene"
-        # rotation_matrix maps world -> camera and is orthonormal, so its
-        # transpose maps back. `direction` points toward the light; light
-        # travels the other way.
-        travel = -(rot.astype(np.float64).T @ np.asarray(frame.light.direction, np.float64))
         self._actor_prog["shading"].value = _SHADING_INDEX[self._options.shading]
         if scene_lit:
-            key, ambient = shading_terms(frame.light)
+            # rotation_matrix maps world -> camera and is orthonormal, so
+            # its transpose maps back. `direction` points toward the light;
+            # light travels the other way. Computed here rather than above
+            # the branch so the byte-for-byte `fixed` escape hatch never
+            # touches frame.light at all.
+            travel = -(rot.astype(np.float64).T
+                       @ np.asarray(frame.light.direction, np.float64))
+            key_tint, fill_tint = shading_terms(frame.light)
             self._actor_prog["lighting"].value = 1
             self._actor_prog["light"].value = tuple(float(v) for v in frame.light.direction)
-            self._actor_prog["key"].value = tuple(float(v) for v in key)
-            self._actor_prog["ambient"].value = tuple(float(v) for v in ambient)
+            self._actor_prog["key_tint"].value = tuple(float(v) for v in key_tint)
+            self._actor_prog["fill_tint"].value = tuple(float(v) for v in fill_tint)
         else:
+            travel = None
             self._actor_prog["lighting"].value = 0
             self._actor_prog["light"].value = LIGHT_DIR
-            self._actor_prog["key"].value = (0.0, 0.0, 0.0)
-            self._actor_prog["ambient"].value = (0.0, 0.0, 0.0)
+            self._actor_prog["key_tint"].value = (0.0, 0.0, 0.0)
+            self._actor_prog["fill_tint"].value = (0.0, 0.0, 0.0)
         self._actor_prog["target_size"].value = self.size
         self._screen_prog["target_size"].value = self.size
 
@@ -591,7 +608,25 @@ class GLBackend:
         the room's ambient colour -- never brightened -- regardless of how
         the destination compares to ambient. An alpha blend of the same
         colour would pull the destination toward ambient from either side,
-        brightening any pixel already darker than ambient."""
+        brightening any pixel already darker than ambient.
+
+        This consumes `SceneLight.ambient` *raw*, as an absolute
+        reflectance of the room -- a different quantity from the
+        normalised `fill_tint` the actor shader gets out of
+        shading_terms(), which shares the field's name but not its
+        meaning. Its opacity comes from lighting.shadow_opacity, which
+        sits beside lighting.key_weight: two curves over the same
+        `contrast`, deliberately different, kept in one place.
+
+        Ordering caveat: this is a full-target quad with the depth test
+        disabled, composited inside the per-actor loop, so it darkens
+        whatever the target already holds -- including actors drawn earlier
+        in this same frame. A nearer actor's silhouette can therefore paint
+        over a farther actor's body. The painter's-order loop makes it rare
+        (measured at 0 overlapping pixels across 50 live frames), and the
+        mask discard keeps foreground geometry safe, but the mechanism is
+        real: a true fix would need the shadows gathered into one coverage
+        pass before any actor is drawn."""
         self._target.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
@@ -601,7 +636,7 @@ class GLBackend:
         self._shadow_prog["mask_tex"].value = 1
         self._shadow_prog["target_size"].value = self.size
         self._shadow_prog["shadow_color"].value = tuple(float(c) for c in light.ambient)
-        self._shadow_prog["opacity"].value = float(0.25 + 0.45 * light.contrast)
+        self._shadow_prog["opacity"].value = shadow_opacity(light.contrast)
         self._ctx.enable(moderngl.BLEND)
         self._ctx.blend_func = moderngl.DST_COLOR, moderngl.ZERO
         self._shadow_quad_vao.render(moderngl.TRIANGLES)
