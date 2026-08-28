@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0-only
+import math
 import pathlib
 
 import moderngl
 import numpy as np
 import pytest
 
+from PyAitD.engine.formats import Body, Primitive
 from PyAitD.render.asset_resolver import ImageAsset
 from PyAitD.render.geometry import BodyGeometry
 from PyAitD.engine.mask_geometry import MaskDraw
@@ -717,12 +719,17 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         "_bg_prog", "_actor_prog", "_screen_prog", "_stencil_prog",
         "_quad", "_quad_vao", "_thumb_tex", "_thumb_fbo",
         "_thumb_quad", "_thumb_quad_vao", "_material_tex",
+        "_tess_prog", "_tess_shadow_prog",
     ):
         resource = getattr(backend, attr)
         assert resource is not None, f"{attr} was never allocated before the failure"
         assert isinstance(resource.mglo, moderngl.InvalidObject), f"{attr} leaked (not released)"
         leak_checked += 1
-    assert leak_checked == 25  # every GL resource __init__ allocates, none skipped
+    assert sorted(backend._subpatch_bufs) == [1, 2, 3]
+    for level, buf in backend._subpatch_bufs.items():
+        assert isinstance(buf.mglo, moderngl.InvalidObject), f"subpatch buffer {level} leaked"
+        leak_checked += 1
+    assert leak_checked == 30  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
@@ -943,3 +950,154 @@ def test_contact_darkens_toward_the_feet_under_enhanced(gl_ctx):
     # 350), inside the hypotenuse x + y < 260, and inside the contact fade.
     top, bottom = rgb[60, 120], rgb[170, 85]
     assert bottom.sum() < top.sum() - 20
+
+
+def _body_of(vertices, polys, color=1):
+    return Body(0, (0,) * 6, (), [tuple(int(c) for c in v) for v in vertices], [], [],
+                [Primitive(1, 0, color, list(p)) for p in polys])
+
+
+def _hex_prism_body(z=600.0, radius=200.0, half_height=150.0):
+    """An open hexagonal prism around the y axis at depth z, two faces
+    square-on to +-x: its flat silhouette is 2 R cos 30 wide, its rounded
+    one closer to 2 R."""
+    ring = [(round(radius * math.cos(math.radians(30 + 60 * k))), round(z + radius * math.sin(math.radians(30 + 60 * k))))
+            for k in range(6)]
+    v = [(x, -half_height, zz) for x, zz in ring] + [(x, half_height, zz) for x, zz in ring]
+    return _body_of(v, [(k, (k + 1) % 6, 6 + (k + 1) % 6, 6 + k) for k in range(6)])
+
+
+def _closed_cube_body():
+    v = [(-100, -100, -100), (100, -100, -100), (100, 100, -100), (-100, 100, -100),
+         (-100, -100, 100), (100, -100, 100), (100, 100, 100), (-100, 100, 100)]
+    return _body_of(v, [(0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (2, 3, 7, 6), (0, 3, 7, 4), (1, 2, 6, 5)])
+
+
+def _planned_geometry(body):
+    from PyAitD.render.geometry import pose_geometry
+    from PyAitD.render.refine import plan_refinement
+    return pose_geometry(body, [], (0, 0, 0), refinement=plan_refinement(body))
+
+
+def _flat_backend(gl_ctx, level, scale=1):
+    return GLBackend(gl_ctx, RenderOptions(scale=scale, shading="flat", lighting="fixed", msaa=0, smoothing=level))
+
+
+def _instance_rows(corners, normals, straight):
+    """(M,45) float32 rows in GLBackend._instance_data's layout -- per corner
+    (pos.xyz, ao), (normal.xyz, straight), (rgb, index), rest -- with ao=1,
+    black, index 0 and rest 0: only positions, normals and flags matter to
+    the tessellation itself."""
+    m = len(corners)
+    parts = []
+    for k in range(3):
+        parts += [corners[:, k], np.ones((m, 1)), normals[:, k], straight[:, k:k + 1],
+                  np.zeros((m, 3)), np.zeros((m, 1)), np.zeros((m, 3))]
+    return np.concatenate(parts, axis=1).astype("f4")
+
+
+def _write_if_present(prog, name, matrix):
+    try:
+        prog[name].write(matrix.tobytes())
+    except KeyError:      # a uniform the linker dropped as unused
+        pass
+
+
+def test_tessellation_shader_matches_the_numpy_reference(gl_ctx):
+    from PyAitD.render import refine
+    from PyAitD.render.lighting import project_to_plane
+    from PyAitD.render.render_gl import _TESS_VSH, instance_layout
+    rng = np.random.default_rng(7)
+    corners = rng.uniform(-300.0, 300.0, (4, 3, 3))
+    normals = rng.normal(size=(4, 3, 3))
+    normals /= np.linalg.norm(normals, axis=2, keepdims=True)
+    straight = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 1], [1, 1, 1]], np.float64)
+    bary = refine.subpatch(2)
+    ref_pos, ref_nrm = refine.evaluate(corners, normals, straight, bary)
+
+    prog = gl_ctx.program(vertex_shader=_TESS_VSH, varyings=["v_world", "v_normal"])
+    _write_if_present(prog, "rot", np.eye(3, dtype="f4"))
+    _write_if_present(prog, "mvp", np.eye(4, dtype="f4"))
+    prog["project"].value = 0
+    prog["travel"].value = (0.0, 1.0, 0.0)
+    prog["plane_y"].value = 0.0
+    bary_buf = gl_ctx.buffer(np.ascontiguousarray(bary, dtype="f4").tobytes())
+    inst_buf = gl_ctx.buffer(_instance_rows(corners, normals, straight).tobytes())
+    fmt, names = instance_layout(prog)
+    vao = gl_ctx.vertex_array(prog, [(bary_buf, "3f", "in_bary"), (inst_buf, fmt, *names)])
+    out = gl_ctx.buffer(reserve=len(corners) * len(bary) * 6 * 4)
+    vao.transform(out, moderngl.POINTS, vertices=len(bary), instances=len(corners))
+    got = np.frombuffer(out.read(), "f4").reshape(len(corners), len(bary), 6)
+    assert np.allclose(got[..., :3], ref_pos, atol=0.05)      # 1e-4 of a 600-unit patch
+    assert np.allclose(got[..., 3:], ref_nrm, atol=1e-3)
+
+    # the shadow mode is project_to_plane's twin
+    travel = (0.3, 0.8, 0.2)
+    prog["project"].value = 1
+    prog["travel"].value = travel
+    prog["plane_y"].value = 250.0
+    vao.transform(out, moderngl.POINTS, vertices=len(bary), instances=len(corners))
+    projected = np.frombuffer(out.read(), "f4").reshape(len(corners), len(bary), 6)[..., :3]
+    expected = project_to_plane(ref_pos.reshape(-1, 3), travel, 250.0).reshape(ref_pos.shape)
+    assert np.allclose(projected, expected, atol=0.05)
+    for resource in (vao, out, inst_buf, bary_buf, prog):
+        resource.release()
+
+
+def _row_width(rgb, row):
+    return int((rgb[row].astype(int).sum(axis=1) > 0).sum())
+
+
+def test_a_hexagonal_prism_is_wider_at_mid_face_once_rounded(gl_ctx):
+    # At scale 4 so the bow shows: PN under-bulges a 60-degree facet (the
+    # cubic reaches ~0.06 R past the chord, not the circle's 0.13 R), which
+    # is 296 -> 308 px here and only 74 -> 76 px at scale 1.
+    geometry = _planned_geometry(_hex_prism_body())
+    widths = {}
+    for level in (0, 2):
+        backend = _flat_backend(gl_ctx, level, scale=4)
+        backend.draw(_frame([_actor(0, geometry)]))
+        widths[level] = _row_width(backend.read_rgb(), 400)
+        backend.release()
+    assert widths[0] >= 280                   # ~296 px: 2 R cos 30 at depth 1500, times 4
+    assert widths[2] >= widths[0] + 8         # ~308 px: the faces bow out toward the circle
+
+
+def test_a_creased_cube_renders_the_same_rounded_or_not(gl_ctx):
+    # Every cube edge is a 90-degree crease, so each face is a flat PN
+    # patch: the sub-triangles tile the original exactly. Sub-vertices on a
+    # straight edge are collinear to ~1e-5 px, so a pixel centre that close
+    # to an edge can still flip -- hence a tolerance rather than equality.
+    geometry = _planned_geometry(_closed_cube_body())
+    frames = {}
+    for level in (0, 2):
+        backend = _flat_backend(gl_ctx, level)
+        backend.draw(_frame([_actor(0, geometry)]))
+        frames[level] = backend.read_rgb()
+        backend.release()
+    assert (frames[0].astype(int).sum(axis=2) > 0).sum() > 500     # the cube is really drawn
+    assert int(np.any(frames[0] != frames[2], axis=2).sum()) <= 2
+
+
+def test_a_sphere_gets_rounder_with_smoothing(gl_ctx):
+    sphere = BodyGeometry(
+        np.array([[0.0, 0.0, 600.0]], np.float32), np.array([[0.0, 0.0, -1.0]], np.float32),
+        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, 300.0, 1),),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    counts = {}
+    for level in (0, 2):
+        backend = _flat_backend(gl_ctx, level)
+        backend.draw(_frame([_actor(0, sphere)]))
+        counts[level] = int((backend.read_rgb().astype(int).sum(axis=2) > 0).sum())
+        backend.release()
+    # the level-1 icosphere's silhouette is a ~12-gon inscribed in the disc;
+    # PN patches bow it back out toward the circle
+    assert counts[2] > counts[0] + 100
+
+
+def test_smoothing_zero_draws_through_the_legacy_path(gl_ctx, monkeypatch):
+    backend = _flat_backend(gl_ctx, 0)
+    monkeypatch.setattr(backend, "_render_instanced", lambda *a, **k: (_ for _ in ()).throw(AssertionError("tessellated")))
+    backend.draw(_frame([_actor(0, _planned_geometry(_closed_cube_body()))]))
+    backend.release()
