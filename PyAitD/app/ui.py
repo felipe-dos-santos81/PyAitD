@@ -18,11 +18,12 @@ from PyAitD.render.background_export import (
 )
 from PyAitD.render.render_options import (
     RenderOptions, cycle_filter, cycle_lighting, cycle_msaa, cycle_realism, cycle_scale, cycle_shading,
+    cycle_smoothing,
 )
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.text import BookToken
 
-GRAPHICS_ROWS = 6          # rows on the Graphics page above Back, in GRAPHICS_CYCLES order
+GRAPHICS_ROWS = 7          # rows on the Graphics page above Back, in GRAPHICS_CYCLES order
 
 
 def config_row_count():
@@ -394,7 +395,9 @@ def reduce_character_select(state, command):
 
 # One cycle per Graphics-page row above Back; graphics_labels draws them in
 # the same order, and tests pin that the two never drift apart.
-GRAPHICS_CYCLES = (cycle_scale, cycle_shading, cycle_filter, cycle_lighting, cycle_msaa, cycle_realism)
+GRAPHICS_CYCLES = (
+    cycle_scale, cycle_shading, cycle_filter, cycle_lighting, cycle_msaa, cycle_realism, cycle_smoothing,
+)
 
 
 def _leave_graphics(state):
@@ -1175,6 +1178,9 @@ def render_character_select(painter, presenter, assets, resolver=None):
         y += 15
 
 
+SMOOTHING_LABELS = ("Off", "Low", "Medium", "High")   # index = smoothing level
+
+
 def graphics_labels(render):
     """One label per Graphics-page row above Back, in GRAPHICS_CYCLES order."""
     return [
@@ -1189,6 +1195,7 @@ def graphics_labels(render):
         # sample count the GPU may not be giving.
         f"AA: up to {render.msaa}x" if render.msaa else "AA: Off",
         f"Realism: {render.realism.title()}",
+        f"Smoothing: {SMOOTHING_LABELS[render.smoothing]}",
     ]
 
 
