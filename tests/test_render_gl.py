@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
+import pathlib
+
 import moderngl
 import numpy as np
 import pytest
@@ -750,6 +752,37 @@ def _facing_tri(z, color, normal):
     return BodyGeometry(v, n, np.array([[0, 1, 2]], np.int32), np.array([color], np.uint8),
                         np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
                         np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+
+
+def _golden_frame():
+    """A fixed synthetic scene-lit frame: two facing triangles, one sphere,
+    a slanted light. Rendered once by the pre-materials backend into
+    tests/golden/scene_lit_classic.npy; realism="classic" must reproduce
+    it byte for byte forever after."""
+    from PyAitD.render.lighting import SceneLight
+    light = SceneLight((0.3, -0.5, -0.8), (0.9, 0.8, 0.7), (0.2, 0.2, 0.3), 0.7)
+    body = _facing_tri(600.0, 1, (0.0, -0.6, -0.8))
+    sphere = BodyGeometry(
+        np.array([[300.0, 0.0, 700.0]], np.float32), np.array([[0.0, 0.0, -1.0]], np.float32),
+        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, 120.0, 2),),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    actors = (_standing_actor(0, body, 400.0), _standing_actor(1, sphere, 400.0))
+    return FrameDescription(_view(), ImageAsset(np.full((200, 320, 3), 40, np.uint8), False),
+                            _palette(), actors, (), light)
+
+
+GOLDEN = pathlib.Path(__file__).parent / "golden" / "scene_lit_classic.npy"
+
+
+def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0, realism="classic"))
+    backend.draw(_golden_frame())
+    out = backend.read_rgb()
+    backend.release()
+    if not GOLDEN.is_file():
+        pytest.skip(f"{GOLDEN} not captured yet")
+    assert np.array_equal(out, np.load(GOLDEN))
 
 
 def test_fixed_lighting_is_unchanged_by_the_scene_light(gl_ctx):
