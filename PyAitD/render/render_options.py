@@ -2,6 +2,8 @@
 """Pygame-free rendering options: validation, clamping, and menu cycling."""
 from dataclasses import dataclass, replace
 
+from PyAitD.render.materials import REALISM_MODES
+
 SHADING_MODES = ("flat", "lambert", "smooth")
 BACKGROUND_FILTERS = ("nearest", "bilinear", "xbr")
 SCALE_STEPS = (1, 2, 3, 4, 6, 8)
@@ -18,6 +20,7 @@ class RenderOptions:
     override_dir: str | None = None
     lighting: str = "scene"
     msaa: int = 4
+    realism: str = "classic"
 
     def to_payload(self):
         return {
@@ -27,6 +30,7 @@ class RenderOptions:
             "override_dir": self.override_dir,
             "lighting": self.lighting,
             "msaa": self.msaa,
+            "realism": self.realism,
         }
 
 
@@ -63,7 +67,11 @@ def validate_render_options(payload):
     if not (type(msaa) is int and msaa in MSAA_LEVELS):
         errors.append(f"msaa must be one of {', '.join(str(v) for v in MSAA_LEVELS)}")
         msaa = defaults.msaa
-    options = RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa)
+    realism = payload.get("realism")
+    if realism not in REALISM_MODES:
+        errors.append(f"realism must be one of {', '.join(REALISM_MODES)}")
+        realism = defaults.realism
+    options = RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism)
     return options, ("; ".join(errors) or None)
 
 
@@ -91,3 +99,7 @@ def cycle_lighting(options):
 def cycle_msaa(options):
     current = options.msaa if options.msaa in MSAA_LEVELS else MSAA_LEVELS[0]
     return replace(options, msaa=_cycle(MSAA_LEVELS, current))
+
+
+def cycle_realism(options):
+    return replace(options, realism=_cycle(REALISM_MODES, options.realism))

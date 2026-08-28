@@ -110,7 +110,7 @@ def test_graphics_rows_cycle_render_options():
     from dataclasses import replace
     from PyAitD.app.ui import GRAPHICS_ROWS, config_row_count
     from PyAitD.render.render_options import RenderOptions
-    assert GRAPHICS_ROWS == 5 and config_row_count() == 2 + len(REMAPPABLE_CONTROLS) + 5
+    assert GRAPHICS_ROWS == 6 and config_row_count() == 2 + len(REMAPPABLE_CONTROLS) + 6
     first = 1 + len(REMAPPABLE_CONTROLS)
     settings = default_settings()
     state = SystemMenuPresenter(page=SystemMenuPage.CONFIG, cursor=first)
@@ -119,6 +119,8 @@ def test_graphics_rows_cycle_render_options():
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(shading="flat")
     state.cursor = first + 2
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(background_filter="xbr")
+    state.cursor = first + 5
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(realism="enhanced")
     assert state.page is SystemMenuPage.CONFIG  # never opens the key picker
 
 

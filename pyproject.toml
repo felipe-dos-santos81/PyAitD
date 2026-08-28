@@ -20,6 +20,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["PyAitD*"]
 
+[tool.setuptools.package-data]
+PyAitD = ["render/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--strict-markers"

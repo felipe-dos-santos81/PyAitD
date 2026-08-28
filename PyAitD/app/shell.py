@@ -20,7 +20,7 @@ from PyAitD.engine.pak import PakError
 from PyAitD.engine.playworld import TICK_MS, play_tick
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import (
-    BACKGROUND_FILTERS, LIGHTING_MODES, MSAA_LEVELS, SHADING_MODES, validate_render_options,
+    BACKGROUND_FILTERS, LIGHTING_MODES, MSAA_LEVELS, REALISM_MODES, SHADING_MODES, validate_render_options,
 )
 from PyAitD.games import load_profile
 from PyAitD.render.scene import build_frame
@@ -83,6 +83,10 @@ def parse_args(argv):
         help="multisample anti-aliasing samples (0 disables)",
     )
     p.add_argument(
+        "--realism", choices=REALISM_MODES, default=None,
+        help="classic (today's look) or enhanced (per-material specular, rim, occlusion and grain)",
+    )
+    p.add_argument(
         "--overrides", type=pathlib.Path, default=None, help="asset override directory",
     )
     p.add_argument(
@@ -111,6 +115,8 @@ def apply_render_overrides(settings, args):
         payload["lighting"] = args.lighting
     if args.msaa is not None:
         payload["msaa"] = args.msaa
+    if args.realism is not None:
+        payload["realism"] = args.realism
     if args.overrides is not None:
         payload["override_dir"] = str(args.overrides)
     render, _error = validate_render_options(payload)
@@ -586,12 +592,12 @@ def _route_game_over_command(game, session, modal_command):
 
 
 # The only render.RenderOptions fields the CONFIG menu can actually change
-# (SystemMenuPage.CONFIG's Scale/Shading/Filter/Lighting/AA rows, via
-# cycle_scale / cycle_shading / cycle_filter / cycle_lighting / cycle_msaa in
-# ui.reduce_system_menu). `override_dir` has no menu row at all, so it is
-# never in this set and a save can never pick it up from the in-memory,
-# possibly CLI-set, session.settings.render.
-_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa")
+# (SystemMenuPage.CONFIG's Scale/Shading/Filter/Lighting/AA/Realism rows, via
+# cycle_scale / cycle_shading / cycle_filter / cycle_lighting / cycle_msaa /
+# cycle_realism in ui.reduce_system_menu). `override_dir` has no menu row at
+# all, so it is never in this set and a save can never pick it up from the
+# in-memory, possibly CLI-set, session.settings.render.
+_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism")
 
 
 def _persisted_render(session):
