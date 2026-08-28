@@ -136,7 +136,12 @@ void main() {
     if (texture(mask_tex, uv).r > 0.5) discard;
     // Coverage is binary, so overlapping limbs darken a pixel once.
     if (texture(shadow_tex, uv).r < 0.5) discard;
-    f_color = vec4(shadow_color, opacity);
+    // A per-channel factor <= 1.0 (shadow_color is 0..1), multiplied
+    // (not alpha-blended) into the destination below: this can only ever
+    // scale the background down toward the room's ambient hue, never
+    // brighten it, unlike a src-alpha blend which pulls the destination
+    // toward ambient from either side.
+    f_color = vec4(mix(vec3(1.0), shadow_color, opacity), 1.0);
 }
 """
 
@@ -214,6 +219,7 @@ class GLBackend:
         self.texture = None
         self._depth = None
         self._fbo = None
+        self._target = None
         self._mask_tex = None
         self._mask_fbo = None
         self._shadow_tex = None
@@ -313,15 +319,24 @@ class GLBackend:
                 self._bg_prog, [(self._thumb_quad, "2f 2f", "in_pos", "in_uv")])
 
             self._sphere = icosphere(1)
-            # Task 6 replaces this with a multisample framebuffer; every
-            # draw call below already targets `self._target` so that swap
-            # is a one-line change instead of touching every call site.
+            # `_draw_frame` renders exclusively through `self._target`, never
+            # `self._fbo`, directly; today the two are the same object, so
+            # Task 6 can swap this one line for a real multisample
+            # framebuffer without touching any call site below. `self._fbo`
+            # itself is still named directly only where it is genuinely the
+            # single-sampled result -- allocation above, `release()`, and
+            # (once Task 6 lands) the resolve target.
             self._target = self._fbo
         except Exception:
             self.release()
             raise
 
     def release(self):
+        # `self._target` is intentionally absent: today it aliases `self._fbo`
+        # (Task 6 gives it its own multisample framebuffer, resolved into
+        # `self._fbo`), and `self._fbo` is released below under its own
+        # name. Releasing it a second time through `self._target` would be
+        # a double-release of the same GL object.
         for resource in (
             self._quad_vao, self._quad,
             self._thumb_quad_vao, self._thumb_quad,
@@ -346,11 +361,15 @@ class GLBackend:
     def draw(self, frame):
         """Renders `frame` into `.texture`.
 
-        Postcondition: the context's viewport, depth_func and previously-
-        bound framebuffer are restored before returning (best-effort for
-        depth_func, which ModernGL exposes write-only: reset to its own
-        default, "<"), so a caller sharing this `ctx` -- task 8's Renderer
-        -- is not left with our internal FBO or scratch viewport bound.
+        Postcondition: the context's viewport, depth_func, blend state and
+        previously-bound framebuffer are restored before returning
+        (best-effort for depth_func and blend_func, which ModernGL exposes
+        write-only, with no way to read back what a caller had set before
+        `draw()` ran: each is reset to its own default -- depth_func to
+        "<", blend_func to moderngl.DEFAULT_BLENDING -- and BLEND itself is
+        disabled, matching a fresh context's state), so a caller sharing
+        this `ctx` -- task 8's Renderer -- is not left with our internal
+        FBO, scratch viewport or shadow-compositing blend state bound.
         """
         if self._released:
             # render.Renderer.compose_scene's draw-failure fallback releases
@@ -366,6 +385,8 @@ class GLBackend:
         finally:
             self._ctx.viewport = prev_viewport
             self._ctx.depth_func = "<"  # ModernGL's own default
+            self._ctx.disable(moderngl.BLEND)
+            self._ctx.blend_func = moderngl.DEFAULT_BLENDING  # ModernGL's own default
             # Best-effort: prev_fbo can have been release()'d by another
             # backend sharing this ctx between when we captured it and now
             # (moderngl.InvalidObject`d, not cleared) -- restoring a dead
@@ -374,10 +395,10 @@ class GLBackend:
                 prev_fbo.use()
 
     def _draw_frame(self, frame):
-        self._fbo.use()
+        self._target.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
-        self._fbo.color_mask = (True, True, True, True)
+        self._target.color_mask = (True, True, True, True)
         self._ctx.clear(0.0, 0.0, 0.0, 1.0)
 
         self._draw_background(frame.background)
@@ -413,8 +434,7 @@ class GLBackend:
             masks = [mask_by_id[i] for i in actor.mask_ids if i in mask_by_id]
             self._rasterize_masks(masks)  # switches to the mask FBO and disables depth test
 
-            if scene_lit:
-                self._rasterize_shadow(actor, travel, mvp)
+            if scene_lit and self._rasterize_shadow(actor, travel, mvp):
                 self._composite_shadow(frame.light)
 
             self._target.use()
@@ -424,13 +444,14 @@ class GLBackend:
             # A fresh depth buffer per actor: within one actor's own
             # primitives, depth decides what's in front; across actors,
             # later draws simply paint over earlier ones (painter's order).
-            self._fbo.color_mask = (False, False, False, False)
-            self._fbo.clear(depth=1.0)
-            self._fbo.color_mask = (True, True, True, True)
+            self._target.color_mask = (False, False, False, False)
+            self._target.clear(depth=1.0)
+            self._target.color_mask = (True, True, True, True)
             # Framebuffer.clear() leaves moderngl's colour-mask state
-            # desynced from the GL binding point: re-`use()` the FBO so the
-            # restored mask actually takes effect before the next render.
-            self._fbo.use()
+            # desynced from the GL binding point: re-`use()` the target so
+            # the restored mask actually takes effect before the next
+            # render.
+            self._target.use()
 
             self._mask_tex.use(location=1)
             self._actor_prog["mask_tex"].value = 1
@@ -505,7 +526,9 @@ class GLBackend:
 
     def _rasterize_shadow(self, actor, travel, mvp):
         """This actor's triangles, flattened onto the ground plane beneath it,
-        into the single-channel coverage texture.
+        into the single-channel coverage texture. Returns whether anything
+        was actually rasterised, so the caller can skip compositing an
+        empty coverage texture entirely.
 
         The plane is the actor's own zv lower bound -- world y grows
         downward, so the feet are the larger of the two y bounds. It travels
@@ -517,7 +540,11 @@ class GLBackend:
         self._shadow_fbo.clear(0.0, 0.0, 0.0, 0.0)
         geometry = actor.geometry
         if not len(geometry.tris):
-            return
+            # The clear above must stay above this guard, not move below
+            # it: it is the only thing that stops a triangle-less actor
+            # from inheriting the previous actor's leftover coverage in
+            # this one shared texture.
+            return False
         plane_y = float(max(actor.zv[2], actor.zv[3]))
         world = geometry.vertices.astype(np.float64) + np.asarray(actor.position, np.float64)
         flat = project_to_plane(world, travel, plane_y)
@@ -528,11 +555,18 @@ class GLBackend:
         vao.render(moderngl.TRIANGLES)
         vao.release()
         buf.release()
+        return True
 
     def _composite_shadow(self, light):
-        """Blend the coverage texture over the background as the room's own
-        ambient colour: a shadowed floor still shows the fill light, so the
-        result can never go darker than the room's own shadows do."""
+        """Multiply the background toward the room's ambient hue through the
+        coverage texture: `mix(1, ambient, opacity)` is a per-channel
+        factor <= 1.0 (ambient is 0..1), and it is multiplied into the
+        destination via blend_func=(DST_COLOR, ZERO) rather than alpha-
+        blended, so a shadowed pixel can only ever be scaled down toward
+        the room's ambient colour -- never brightened -- regardless of how
+        the destination compares to ambient. An alpha blend of the same
+        colour would pull the destination toward ambient from either side,
+        brightening any pixel already darker than ambient."""
         self._target.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
@@ -544,6 +578,7 @@ class GLBackend:
         self._shadow_prog["shadow_color"].value = tuple(float(c) for c in light.ambient)
         self._shadow_prog["opacity"].value = float(0.25 + 0.45 * light.contrast)
         self._ctx.enable(moderngl.BLEND)
+        self._ctx.blend_func = moderngl.DST_COLOR, moderngl.ZERO
         self._shadow_quad_vao.render(moderngl.TRIANGLES)
         self._ctx.disable(moderngl.BLEND)
 

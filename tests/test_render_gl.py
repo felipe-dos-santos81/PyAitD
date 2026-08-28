@@ -136,6 +136,99 @@ def test_fixed_lighting_casts_no_shadow(gl_ctx):
     backend.release()
 
 
+def test_shadow_lands_where_the_light_direction_says_under_a_rotated_camera(gl_ctx):
+    # _view()'s camera has every angle zero, so rotation_matrix returns the
+    # identity and rot == rot.T: a bug that used rot where rot.T belongs (or
+    # vice versa) would still pass every other shadow test in this file. A
+    # rotated camera makes the two genuinely different matrices, and the
+    # shadow's on-screen centroid is re-derived here independently (same
+    # formula as _draw_frame, but computed in the test, not trusted from
+    # it) and pinned tightly enough that swapping rot for rot.T moves the
+    # expected centroid by ~7.4px against a 2.5px tolerance (checked by
+    # hand). The centroid, not a vertex-projection bounding box, is what's
+    # compared: at this rotation the flattened triangle is a thin sliver in
+    # screen space (~2px tall), so its topmost vertex's x barely survives
+    # rasterisation at all -- a raw vertex bbox overstates the actual
+    # rasterised coverage by ~11px and would make this test flaky for the
+    # wrong reason. The centroid of actual dark pixels does not have that
+    # problem and still moves the ~7.4px a rot/rot.T swap requires.
+    from PyAitD.render.render_gl import rotation_matrix
+    from PyAitD.render.lighting import project_to_plane
+
+    state = CameraState(0, 90, 0, 0, 0, 0, 1000, 320, 320).angles()
+    view = CameraView(state)
+    backend = _lit_scene_backend(gl_ctx)
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    span = 100.0
+    geometry = _tri_geometry(600.0, 1, span=span)
+    actor = _standing_actor(0, geometry, feet_y=150)
+    direction = (0.0, -1.0, -0.2)
+    light = _scene_light(direction)
+    frame = FrameDescription(view, ImageAsset(plate, False), _palette(), (actor,), (), light)
+    backend.draw(frame)
+    rendered = backend.read_rgb().astype(int)
+
+    empty = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene"))
+    empty.draw(FrameDescription(view, ImageAsset(plate, False), _palette(), (), ()))
+    plain = empty.read_rgb().astype(int)
+    empty.release()
+    backend.release()
+
+    # The actor's own body projects to rows ~78..122 at this rotation; only
+    # below that can the shadow -- and nothing else -- appear.
+    dark = np.any(rendered[125:, :] < plain[125:, :] - 5, axis=2)
+    rows_idx, cols_idx = np.where(dark)
+    assert rows_idx.size, "no shadow pixels found below the actor"
+    rendered_centroid = np.array([cols_idx.mean(), rows_idx.mean() + 125])
+
+    # Independently re-derive where the shadow belongs: same formula
+    # _draw_frame uses (rot.T, then project_to_plane, then the logical
+    # camera projection), computed fresh here rather than trusted from the
+    # implementation under test.
+    rot = rotation_matrix(state)
+    travel = -(rot.T @ np.asarray(direction, np.float64))
+    world = np.array([[-span, -span, 600.0], [span, -span, 600.0], [-span, span, 600.0]])
+    plane_y = float(max(actor.zv[2], actor.zv[3]))
+    flat = project_to_plane(world, travel, plane_y)
+    expected_centroid = view.project(flat)[:, :2].mean(axis=0)
+
+    assert np.linalg.norm(rendered_centroid - expected_centroid) <= 2.5
+
+
+def test_a_triangle_less_actor_leaves_no_shadow_and_does_not_disturb_another_actors(gl_ctx):
+    """The shadow texture is a single scratch resource shared across actors
+    and reset per actor. A frame with a triangle-less actor alongside a
+    real shadow caster -- in either draw order -- must render byte-
+    identical to the caster alone: the triangle-less actor must not
+    inherit the caster's leftover coverage (which would show up as a
+    phantom shadow at its own, different, position), and the caster's own
+    shadow must be unaffected by whichever actor drew immediately before
+    it. This is also what exercises the `if not len(geometry.tris): return`
+    guard in `_rasterize_shadow` at all -- every other scene-lit test in
+    this file uses a single actor."""
+    backend = _lit_scene_backend(gl_ctx)
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    light = _scene_light((0.0, -1.0, -0.2))
+    caster = _standing_actor(0, _tri_geometry(600.0, 1, span=100.0), feet_y=150)
+    empty_geometry = BodyGeometry(
+        np.zeros((0, 3), np.float32), np.zeros((0, 3), np.float32),
+        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    triangle_less = ActorDraw(1, empty_geometry, (500.0, 0.0, 0.0), 0, (0, 0, -50, 150, 0, 0),
+                              RenderResult([], []), ())
+
+    solo = FrameDescription(_view(), ImageAsset(plate, False), _palette(), (caster,), (), light)
+    backend.draw(solo)
+    solo_result = backend.read_rgb().copy()
+
+    for order in ((triangle_less, caster), (caster, triangle_less)):
+        backend.draw(FrameDescription(_view(), ImageAsset(plate, False), _palette(), order, (), light))
+        assert np.array_equal(backend.read_rgb(), solo_result)
+
+    backend.release()
+
+
 def test_target_size_follows_scale(gl_ctx):
     backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="flat"))
     assert backend.size == (640, 400)
