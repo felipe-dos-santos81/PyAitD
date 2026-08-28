@@ -437,3 +437,58 @@ def test_draw_after_release_raises_a_clear_error(gl_ctx):
     backend.release()
     with pytest.raises(RuntimeError, match="release"):
         backend.draw(_frame([]))
+
+
+def _lit_frame(actors, direction):
+    from PyAitD.render.lighting import SceneLight
+    light = SceneLight(direction, (1.0, 1.0, 1.0), (0.2, 0.2, 0.2), 1.0)
+    return FrameDescription(_view(), ImageAsset(np.zeros((200, 320, 3), np.uint8), False),
+                            _palette(), tuple(actors), (), light)
+
+
+def _facing_tri(z, color, normal):
+    span = 400.0
+    v = np.array([[-span, -span, z], [span, -span, z], [-span, span, z]], np.float32)
+    n = np.tile(normal, (3, 1)).astype(np.float32)
+    return BodyGeometry(v, n, np.array([[0, 1, 2]], np.int32), np.array([color], np.uint8),
+                        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
+                        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+
+
+def test_fixed_lighting_is_unchanged_by_the_scene_light(gl_ctx):
+    # The regression net: with lighting="fixed" the frame's light is ignored
+    # entirely, so a wild SceneLight cannot move a single pixel.
+    options = RenderOptions(scale=1, shading="smooth", lighting="fixed")
+    backend = GLBackend(gl_ctx, options)
+    actor = _actor(0, _facing_tri(600.0, 1, (0.0, 0.0, -1.0)))
+    backend.draw(_frame([actor]))
+    plain = backend.read_rgb().copy()
+    backend.draw(_lit_frame([actor], (0.9, -0.3, -0.3)))
+    assert np.array_equal(backend.read_rgb(), plain)
+    backend.release()
+
+
+def test_scene_lighting_gives_a_face_a_lit_and_a_dark_side(gl_ctx):
+    # What abs(dot(N, L)) could never do: two faces with opposite normals
+    # under one light must not come out the same brightness.
+    options = RenderOptions(scale=1, shading="smooth", lighting="scene")
+    backend = GLBackend(gl_ctx, options)
+    toward = _lit_frame([_actor(0, _facing_tri(600.0, 1, (0.0, -1.0, 0.0)))], (0.0, -1.0, 0.0))
+    away = _lit_frame([_actor(0, _facing_tri(600.0, 1, (0.0, 1.0, 0.0)))], (0.0, -1.0, 0.0))
+    backend.draw(toward)
+    lit = backend.read_rgb().astype(int).max()
+    backend.draw(away)
+    dark = backend.read_rgb().astype(int).max()
+    assert lit > dark + 20
+    backend.release()
+
+
+def test_scene_lighting_never_goes_below_the_rooms_ambient(gl_ctx):
+    # The dark side falls to the room's fill light, not to black: an actor
+    # in shadow is still visible against the plate.
+    options = RenderOptions(scale=1, shading="smooth", lighting="scene")
+    backend = GLBackend(gl_ctx, options)
+    away = _lit_frame([_actor(0, _facing_tri(600.0, 1, (0.0, 1.0, 0.0)))], (0.0, -1.0, 0.0))
+    backend.draw(away)
+    assert backend.read_rgb().astype(int).max() > 0
+    backend.release()

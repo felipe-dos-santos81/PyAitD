@@ -24,6 +24,7 @@ import numpy as np
 
 from PyAitD.engine.cos_table import sin_cos
 from PyAitD.render.geometry import icosphere
+from PyAitD.render.lighting import shading_terms
 from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
 
 W, H = 320, 200
@@ -72,18 +73,34 @@ void main() { gl_Position = mvp * vec4(in_pos, 1.0); v_color = in_color; v_norma
 """
 _ACTOR_FSH = """
 #version 330
-uniform int shading; uniform vec3 light; uniform sampler2D mask_tex; uniform vec2 target_size;
+uniform int shading; uniform int lighting;
+uniform vec3 light; uniform vec3 key; uniform vec3 ambient;
+uniform sampler2D mask_tex; uniform vec2 target_size;
 in vec3 v_color; in vec3 v_normal; out vec4 f_color;
 void main() {
     if (texture(mask_tex, gl_FragCoord.xy / target_size).r > 0.5) discard;
-    float shade = 1.0;
-    if (shading == 1) {
-        vec3 n = normalize(cross(dFdx(gl_FragCoord.xyz), dFdy(gl_FragCoord.xyz)));
-        shade = 0.55 + 0.45 * abs(dot(n, normalize(light)));
-    } else if (shading == 2) {
-        shade = 0.55 + 0.45 * abs(dot(normalize(v_normal), normalize(light)));
+    if (shading == 0) {
+        // unshaded: flat palette colour, and the only path lines and points take
+        f_color = vec4(v_color, 1.0);
+        return;
     }
-    f_color = vec4(v_color * shade, 1.0);
+    vec3 n = (shading == 1)
+        ? normalize(cross(dFdx(gl_FragCoord.xyz), dFdy(gl_FragCoord.xyz)))
+        : normalize(v_normal);
+    vec3 l = normalize(light);
+    if (lighting == 0) {
+        // the pre-scene-light rig, kept byte-identical: abs() because FITD
+        // polygons have no consistent winding
+        f_color = vec4(v_color * (0.55 + 0.45 * abs(dot(n, l))), 1.0);
+        return;
+    }
+    // Orient rather than fold: -z is toward the camera, so a normal with a
+    // positive z faces away from the viewer and is pointing into the body.
+    if (n.z > 0.0) n = -n;
+    // Half-Lambert: the lit side reaches ambient + key, the shadow side
+    // falls to ambient rather than to black.
+    float wrapped = clamp(dot(n, l) * 0.5 + 0.5, 0.0, 1.0);
+    f_color = vec4(v_color * (ambient + key * wrapped * wrapped), 1.0);
 }
 """
 _SCREEN_VSH = """
@@ -210,6 +227,7 @@ class GLBackend:
             self._actor_prog = ctx.program(vertex_shader=_ACTOR_VSH, fragment_shader=_ACTOR_FSH)
             self._screen_prog = ctx.program(vertex_shader=_SCREEN_VSH, fragment_shader=_ACTOR_FSH)
             self._screen_prog["shading"].value = 0  # lines/points are never shaded
+            self._screen_prog["lighting"].value = 0
             self._stencil_prog = ctx.program(vertex_shader=_STENCIL_VSH, fragment_shader=_STENCIL_FSH)
 
             quad = np.array([
@@ -315,8 +333,19 @@ class GLBackend:
         rot = rotation_matrix(frame.camera.state).astype("f4")
         self._actor_prog["mvp"].write(mvp.T.tobytes())
         self._actor_prog["rot"].write(rot.T.tobytes())
+        scene_lit = self._options.lighting == "scene"
         self._actor_prog["shading"].value = _SHADING_INDEX[self._options.shading]
-        self._actor_prog["light"].value = LIGHT_DIR
+        if scene_lit:
+            key, ambient = shading_terms(frame.light)
+            self._actor_prog["lighting"].value = 1
+            self._actor_prog["light"].value = tuple(float(v) for v in frame.light.direction)
+            self._actor_prog["key"].value = tuple(float(v) for v in key)
+            self._actor_prog["ambient"].value = tuple(float(v) for v in ambient)
+        else:
+            self._actor_prog["lighting"].value = 0
+            self._actor_prog["light"].value = LIGHT_DIR
+            self._actor_prog["key"].value = (0.0, 0.0, 0.0)
+            self._actor_prog["ambient"].value = (0.0, 0.0, 0.0)
         self._actor_prog["target_size"].value = self.size
         self._screen_prog["target_size"].value = self.size
 
