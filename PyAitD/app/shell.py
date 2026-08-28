@@ -1290,8 +1290,10 @@ def run(game, trace_path=None, session=None, resolver=None):
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 logical = input_buffer.pointer_pos
                 if game.active_modal is None and game.mode is GameMode.PLAY:
-                    # keyboard mode swallows play clicks; the cursor is hidden
-                    # there too, so nothing advertises a click that does nothing
+                    # keyboard mode swallows play clicks (resolve_play_click
+                    # returns "blocked"); the cursor is hidden there too and
+                    # the HUD names the mode, so nothing advertises a click
+                    # that does nothing
                     route_play_click(
                         game, session, floor, logical, draw_list, input_buffer,
                     )
@@ -1401,18 +1403,29 @@ def run(game, trace_path=None, session=None, resolver=None):
             _hit_feedback_rects(game, draw_list, hit_feedback_deadlines),
         )
         available = inventory_hud_available(game) and not session.cutscene
-        render_play_hud(painter, inventory_available=available)
-        # the settings notice is mode-independent: after the HUD and before
-        # the software cursor, so its Dismiss target is visually topmost
-        render_settings_notice(painter, session.settings_error)
-        # Exactly one visible cursor: the software cursor draws only for
-        # PLAY + mouse + no modal, so the OS pointer owns every other state
-        # (modals with buttons, keyboard mode). Toggled per frame.
+        # At most one visible cursor, and none at all where the mouse does
+        # nothing. The software cursor draws only for PLAY + mouse + no modal.
+        # PLAY + keyboard has no mouse function whatsoever -- resolve_play_click
+        # returns "blocked" before it picks anything, and route_hover only runs
+        # for modals -- so the OS pointer is hidden there too rather than
+        # inviting clicks that cannot land. Every other state (modals with
+        # buttons, menus, cutscenes) keeps it. Toggled per frame.
         software_cursor = (game.mode is GameMode.PLAY
                            and game.active_modal is None
                            and game.input_mode is InputMode.MOUSE
                            and not session.cutscene)
-        pygame.mouse.set_visible(not software_cursor)
+        play_keyboard = (game.mode is GameMode.PLAY
+                         and game.active_modal is None
+                         and game.input_mode is InputMode.KEYBOARD
+                         and not session.cutscene)
+        render_play_hud(
+            painter, inventory_available=available,
+            keyboard_mode=play_keyboard,
+        )
+        # the settings notice is mode-independent: after the HUD and before
+        # the software cursor, so its Dismiss target is visually topmost
+        render_settings_notice(painter, session.settings_error)
+        pygame.mouse.set_visible(not software_cursor and not play_keyboard)
         if software_cursor:
             kind = _play_cursor_kind(
                 game, floor, hover, draw_list, input_buffer,

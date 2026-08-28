@@ -777,7 +777,7 @@ def test_depth_sort_y_bands():
 
 
 from PyAitD.app.shell import _is_interactable, resolve_play_click, route_play_click
-from PyAitD.engine.effects import GameMode
+from PyAitD.engine.effects import GameMode, InputMode
 from PyAitD.engine.game import AF_ANIMATED, AF_FOUNDABLE
 from PyAitD.engine.interaction import _finish_take, inventory_items
 from PyAitD.games.aitd1.scenario import enter_combat_venue
@@ -2415,3 +2415,71 @@ def test_a_held_push_never_runs(data_dir, profile, monkeypatch):
 
     apply_click_intent(game, 10, 20, 0, 4, requires_hold=True, run=True)
     assert game.nav_intent.run is False
+
+
+@pytest.mark.parametrize(
+    "input_mode, modal, visible",
+    (
+        (InputMode.KEYBOARD, None, False),
+        (InputMode.MOUSE, None, False),
+        (InputMode.KEYBOARD, "modal", True),
+        (InputMode.MOUSE, "modal", True),
+    ),
+    ids=("play-keyboard", "play-mouse", "modal-keyboard", "modal-mouse"),
+)
+def test_the_os_pointer_shows_only_where_the_mouse_still_does_something(
+        profile, monkeypatch, tmp_path, input_mode, modal, visible,
+):
+    # Exactly one cursor, and none at all where the mouse is inert. PLAY draws
+    # its own software cursor in mouse mode and has no mouse function at all in
+    # keyboard mode -- neither state wants the OS pointer. Modals keep it in
+    # both modes: their buttons stay clickable however the hero is driven.
+    import PyAitD.app.shell as main
+    from PyAitD.engine.effects import GameMode
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])
+    times = iter([0, 100, 100])
+    visibility = []
+
+    monkeypatch.setattr(
+        main, "Renderer",
+        lambda *_a, **_k: SimpleNamespace(
+            fallback_notice=None, present=lambda _image: None, close=lambda: None,
+        ),
+    )
+    monkeypatch.setattr(main, "play_tick", lambda *_args: True)
+    monkeypatch.setattr(main, "_scene_frame", lambda *_args: (frame, []))
+    monkeypatch.setattr(
+        main, "render_active_mode", lambda *_args: painter_from_frame(frame),
+    )
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", visibility.append)
+    # key_code() warns on a pygame this test never init()s, and the key map is
+    # irrelevant to cursor visibility
+    monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *_args: None),
+    )
+
+    game = SimpleNamespace(
+        _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,
+        num_camera=-1, new_num_camera=0, flag_init_view=0, current_room=0,
+        actors=[], active_modal=SimpleNamespace() if modal else None,
+        input_mode=input_mode,
+        restart_requested=False,
+        current_camera_target_actor=-1,
+        inventory_count=[0, 0], inventory_table=[[-1] * 30, [-1] * 30],
+        current_inventory=0, status_screen_allowed=1, assets=object(),
+        load_floor=lambda number: SimpleNamespace(
+            number=0, rooms=[SimpleNamespace(camera_indices=[0])],
+        ),
+        profile=profile,
+    )
+    assert main.run(game) == 0
+    # run() restores the pointer as it leaves, so the last call is teardown,
+    # not a frame's decision -- the per-frame values are everything before it
+    assert visibility[-1] is True, visibility
+    per_frame = visibility[:-1]
+    assert per_frame and all(seen is visible for seen in per_frame), visibility

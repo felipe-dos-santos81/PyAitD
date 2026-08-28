@@ -550,6 +550,9 @@ def effective_rects(
 class PlayLayout:
     INVENTORY = pygame.Rect(4, 4, 28, 20)
     INVENTORY_HIT = effective_rects((INVENTORY,))[0]
+    # anchor for the keyboard-mode label; not a mouse target, so it takes no
+    # effective rect and never partitions against INVENTORY_HIT
+    MODE_LABEL = (160, 4)
 
 
 class CharacterLayout:
@@ -1007,10 +1010,21 @@ def overlay_messages(painter, messages, assets):
         y -= 16
 
 
-def render_play_hud(painter, *, inventory_available):
-    if not inventory_available:
-        return
-    _button(painter, PlayLayout.INVENTORY, "INV", selected=True)
+def render_play_hud(painter, *, inventory_available, keyboard_mode=False):
+    """Draw the inventory button and, in keyboard mode, name the mode.
+
+    The two are independent: the inventory button follows
+    inventory_hud_available(), while the mode label follows the input mode
+    alone. In keyboard mode PLAY has no mouse function at all -- no click,
+    no hover -- and the shell hides the cursor to match, so this label is
+    the only thing on screen that explains why clicking stopped working.
+    """
+    if inventory_available:
+        _button(painter, PlayLayout.INVENTORY, "INV", selected=True)
+    if keyboard_mode:
+        # top centre: clear of the INV box in the top-left corner, so the
+        # label's position does not depend on whether that button is drawn
+        painter.text("KEYBOARD", 12, (245, 226, 178), midtop=PlayLayout.MODE_LABEL)
 
 
 def render_hit_feedback(painter, rects):

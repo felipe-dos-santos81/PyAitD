@@ -221,6 +221,36 @@ def test_play_hud_draws_only_when_available():
     assert not np.array_equal(available.to_frame(), unavailable.to_frame())
 
 
+def test_keyboard_mode_is_named_on_the_hud_and_mouse_mode_is_not():
+    # keyboard mode has no mouse function in PLAY, and the cursor vanishes
+    # with it (shell hides the OS pointer), so the HUD is the only thing
+    # left that can say why clicking stopped doing anything.
+    mouse_mode = UIPainter()
+    render_play_hud(mouse_mode, inventory_available=True, keyboard_mode=False)
+
+    keyboard = UIPainter()
+    render_play_hud(keyboard, inventory_available=True, keyboard_mode=True)
+
+    assert not np.array_equal(keyboard.to_frame(), mouse_mode.to_frame())
+    # the label sits at the top centre, clear of the INV box's top-left corner
+    assert int(keyboard.to_frame()[:16, 120:200].sum()) > 0
+    assert int(mouse_mode.to_frame()[:16, 120:200].sum()) == 0
+
+
+def test_keyboard_label_draws_even_with_no_inventory_button():
+    # the inventory button is hidden whenever the HUD is unavailable, but the
+    # mode still has to be legible -- these are independent reasons to draw
+    blank = UIPainter()
+    render_play_hud(blank, inventory_available=False, keyboard_mode=False)
+    assert int(blank.to_frame().sum()) == 0
+
+    labelled = UIPainter()
+    render_play_hud(labelled, inventory_available=False, keyboard_mode=True)
+    assert int(labelled.to_frame().sum()) > 0
+    # ...and without the INV button beside it
+    assert int(labelled.to_frame()[:32, :40].sum()) == 0
+
+
 def test_all_pointer_kinds_have_distinct_pixel_output():
     rendered = {}
     for kind in ("inventory", "attack", "target", "walk", "blocked"):
