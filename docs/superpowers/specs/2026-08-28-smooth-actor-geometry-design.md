@@ -257,7 +257,9 @@ including its per-fragment flip toward the viewer and every material term:
   `n_i + n_j` reflected across the edge's chord on a smooth edge and
   `n_i + n_j` on a straight one — normalised after interpolation, then
   `v_normal = rot * n`.
-- `v_color` and `v_index` from corner 0 (a triangle has one palette index),
+- `v_color` blended from the three corners' identical colours (so every
+  attribute stays referenced and no linker drops one) and `v_index` from
+  corner 0 (a triangle has one palette index),
   `v_rest` and `v_ao` barycentric, `v_world_y = pos.y` so the contact term
   sees the tessellated height.
 - `uniform int project; uniform vec3 travel; uniform float plane_y;` — when
@@ -390,7 +392,10 @@ until the last.
   collinear, two adjacent patches agree on every sample of their shared
   edge; `parse_crease` accepts an absent key, an int and a float, rejects a
   bool, a string and 181 naming the key. Data-gated: every body plans
-  without error, and body 12 has zero fallback corner normals.
+  without error, and body 12's corner normals agree with their own faces
+  on over 98% of corners, where the legacy per-vertex normals disagree on
+  over half (a genuine -z-facing normal is indistinguishable from the
+  placeholder, so "zero fallbacks" is not the testable claim).
 - Geometry: `corner_normals` defaults to `normals[tris]`, `straight` to
   zeros; a plan fills both; `normals` is unchanged by a plan.
 - Resolver: `refinement` plans once per body (counting stub); a `crease`
@@ -413,7 +418,8 @@ until the last.
   - `smoothing=0` reproduces `tests/golden/scene_lit_classic.npy`; the
     existing test names `smoothing=0` explicitly once the default flips.
   - A level-2 hexagonal prism's silhouette is wider at mid-edge than at
-    level 0.
+    level 0, measured at scale 4 (PN under-bulges a 60° facet: about
+    0.06 R past the chord, 12 px at scale 4).
   - A cube renders pixel-identically at levels 0 and 2 under
     `shading="flat"`.
   - A sphere's tessellated shadow covers more pixels than its faceted one
