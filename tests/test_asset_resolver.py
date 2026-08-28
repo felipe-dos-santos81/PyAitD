@@ -23,6 +23,44 @@ def test_paths_follow_the_convention(tmp_path):
     assert override_palette_path(tmp_path) == tmp_path / "palette.png"
 
 
+def test_override_alt_background_path(tmp_path):
+    from PyAitD.render.asset_resolver import override_alt_background_path
+    from PyAitD.render.background_export import alt_background_rel_path
+    assert tmp_path / alt_background_rel_path(7, 0) == override_alt_background_path(tmp_path, 7, 0)
+
+
+def test_background_prefers_alt_when_killed(tmp_path, monkeypatch):
+    from pathlib import Path
+    import numpy as np
+    from PyAitD.render.asset_resolver import AssetResolver
+    from tests.stub_floor import StubFloor
+    base = np.zeros((200, 320, 3), np.uint8); base[0, 0] = 1
+    alt = np.zeros((200, 320, 3), np.uint8); alt[0, 0] = 2
+    # stub Floor with one camera, viewed_rooms etc from StubFloor
+    floor = StubFloor(number=7)  # cam 0 exists, viewed_rooms=[0]
+    # monkeypatch save path to provide files via resolver's load_png override
+    def fake_load(path):
+        p = str(path)
+        if "alt_backgrounds" in p: return alt
+        if "backgrounds" in p: return base
+        raise FileNotFoundError
+    r = AssetResolver(None, tmp_path, load_png=fake_load)
+    # manually make both files appear to exist
+    monkeypatch.setattr(Path, "is_file", lambda self: True)
+    # without killed flag, base wins
+    assert r.background(floor, 0, killed_sorcerer=False).pixels[0, 0, 0] == 1
+    # with killed flag, alt wins
+    assert r.background(floor, 0, killed_sorcerer=True).pixels[0, 0, 0] == 2
+    # corrupt alt falls back to base
+    def bad_alt(path):
+        if "alt_backgrounds" in str(path): raise ValueError("bad")
+        if "backgrounds" in str(path): return base
+        raise FileNotFoundError
+    r2 = AssetResolver(None, tmp_path, load_png=bad_alt)
+    assert r2.background(floor, 0, killed_sorcerer=True).pixels[0, 0, 0] == 1
+    assert tmp_path / "alt_backgrounds/floor07/camera000.png" in r2.failures
+
+
 def test_no_override_dir_returns_original():
     resolver = AssetResolver(SimpleNamespace(body=lambda n: n), None)
     asset = resolver.background(_floor(), 0)

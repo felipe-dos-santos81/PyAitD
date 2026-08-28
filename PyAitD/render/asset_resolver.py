@@ -114,7 +114,14 @@ class AssetResolver:
         self._cache[path] = loaded
         return loaded
 
-    def background(self, floor, cam_idx):
+    def background(self, floor, cam_idx, *, killed_sorcerer=False):
+        if killed_sorcerer and self._override_dir is not None:
+            pixels = self._override(
+                override_alt_background_path(self._override_dir, floor.number, cam_idx),
+                _require_rgb,
+            )
+            if pixels is not None:
+                return ImageAsset(pixels.astype(np.uint8, copy=False), True)
         if self._override_dir is not None:
             pixels = self._override(
                 override_background_path(self._override_dir, floor.number, cam_idx),
@@ -131,23 +138,25 @@ class AssetResolver:
                 return np.ascontiguousarray(pixels[0, :256, :3]).astype(np.uint8)
         return floor.palette
 
-    def light(self, floor, cam_idx):
+    def light(self, floor, cam_idx, *, killed_sorcerer=False):
         """The SceneLight for a camera, estimated from whatever background
         that camera actually resolves to -- an override, including an
         AI-regenerated plate, is estimated from the override rather than
         from the original.
 
-        Memoised per (floor number, camera) on the resolver: a camera's
-        light is a property of a static image, so one estimate per camera
-        per session is all this can ever need. Note that this is not where
-        backgrounds are cached -- a raw plate's decode is memoised on the
-        Floor itself (Floor.camera_image), and only an override's decode
-        lives on the resolver (AssetResolver._override) -- so a new
-        resolver over the same Floor re-estimates every light while
+        Memoised per (floor number, camera, killed_sorcerer) on the resolver:
+        a camera's light is a property of a static image, so one estimate
+        per camera per variant per session is all this can ever need. Note
+        that this is not where backgrounds are cached -- a raw plate's decode
+        is memoised on the Floor itself (Floor.camera_image), and only an
+        override's decode lives on the resolver (AssetResolver._override) --
+        so a new resolver over the same Floor re-estimates every light while
         re-decoding nothing."""
-        key = (floor.number, cam_idx)
+        key = (floor.number, cam_idx, killed_sorcerer)
         if key not in self._lights:
-            self._lights[key] = estimate_light(self.background(floor, cam_idx).pixels)
+            self._lights[key] = estimate_light(
+                self.background(floor, cam_idx, killed_sorcerer=killed_sorcerer).pixels
+            )
         return self._lights[key]
 
     def resource_screen(self, entry):
