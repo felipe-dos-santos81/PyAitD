@@ -89,8 +89,9 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `render/geometry.py` | `pose_geometry(...) -> BodyGeometry`: float posed vertices, per-vertex normals, triangulated/line/point/sphere primitives, shared with `skel.pose_vertices` so pose can never disagree |
 | `engine/mask_geometry.py` | Mask polygons in 320x200 screen space plus their trigger rects, parsed once from the existing mask data |
 | `render/asset_resolver.py` | `AssetResolver(assets, override_dir=None)`: background/palette lookup, checking an optional override directory first and falling back to the original asset |
-| `render/render_options.py` | `RenderOptions(scale, shading, background_filter, override_dir)`: validation, clamping, menu-cycle helpers; pygame/GL-free |
-| `render/render_gl.py` | `GLBackend(ctx, options)`: ModernGL pipeline, per-actor depth, GPU mask-texture erasure, shading modes, background filtering |
+| `render/lighting.py` | `estimate_light(pixels) -> SceneLight`, `shading_terms`, `project_to_plane`: a per-camera light read off the background image, and the ground-plane projection the shadow pass uses; pygame/GL-free |
+| `render/render_options.py` | `RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa)`: validation, clamping, menu-cycle helpers; pygame/GL-free |
+| `render/render_gl.py` | `GLBackend(ctx, options)`: ModernGL pipeline, per-actor depth, GPU mask-texture erasure, shading modes, estimated scene lighting, projected ground shadows, multisampling, background filtering |
 | `render/render_soft.py` | `SoftwareBackend`: numpy/pygame compositor over the logical projection, used headless and as the GL-failure fallback |
 | `render/render.py` | `Renderer(options)`: window/context ownership, backend selection and fallback, UI composite, present, `window_to_logical` |
 | `engine/anim_action.py` | GereFrappe action runner: melee (1→10→2), hit-object, firearm volume sweep (4→5), throw setup/launch/flight (6→7→9). Publishes `hit`/`hit_by`/`hit_force` only — never actor `life` |

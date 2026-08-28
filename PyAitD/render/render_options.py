@@ -16,7 +16,7 @@ class RenderOptions:
     shading: str = "smooth"
     background_filter: str = "bilinear"
     override_dir: str | None = None
-    lighting: str = "fixed"
+    lighting: str = "scene"
     msaa: int = 4
 
     def to_payload(self):

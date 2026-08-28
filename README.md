@@ -66,11 +66,15 @@ click on any large button. Found objects open a Take/Leave prompt; inventory
 exposes the object's own actions; letters and books are readable; pictures
 play full-screen.
 
-The in-game Configuration screen's Graphics rows, and four CLI flags for a
+The in-game Configuration screen's Graphics rows, and six CLI flags for a
 single session, control the enhanced renderer: `--render-scale N` (1-8, the
 internal render resolution as a multiple of 320x200), `--shading
 {flat,lambert,smooth}` (per-actor lighting), `--background-filter
 {nearest,bilinear,xbr}` (how the original 320x200 backgrounds are upscaled),
+`--lighting {fixed,scene}` (`fixed` is the old hard-coded rig; `scene`
+estimates each camera's light direction and colour from its own background
+image and casts a ground shadow under every actor), `--msaa {0,2,4,8}`
+(multisampling on the internal render target),
 and `--overrides DIR` (a user-supplied replacement asset directory; this repo
 still ships no game data — `make run` passes `data/aitd1/overrides` unless you
 override or clear `overrides=`). An override directory holds
