@@ -32,7 +32,7 @@ from PyAitD.app.ui import (
     SystemMenuLayout, SystemMenuPage, SystemMenuPresenter, SystemMenuResult,
 )
 
-from tests.conftest import painter_from_frame
+from tests.conftest import painter_from_frame, stub_renderer
 
 pytestmark = pytest.mark.shell
 
@@ -78,7 +78,7 @@ def test_render_active_mode_resets_a_replaced_system_menu_preview(monkeypatch):
     # what's asserted below, not this stub's return value.
     monkeypatch.setattr("PyAitD.app.ui.render_system_menu", lambda *args: None)
 
-    renderer = SimpleNamespace(ui_scale=lambda: 1.0)
+    renderer = stub_renderer()
     frame = render_active_mode(game, session, renderer).to_frame()
     assert frame.shape == (200, 320, 4)
     assert session.last_effect is replacement
@@ -97,7 +97,7 @@ def test_render_active_mode_returns_a_transparent_rgba_canvas_with_no_modal():
     this test."""
     game = SimpleNamespace(active_modal=None, messages=(), assets=object())
     session = ModalSession()
-    renderer = SimpleNamespace(ui_scale=lambda: 1.0)
+    renderer = stub_renderer()
 
     result = render_active_mode(game, session, renderer).to_frame()
 
@@ -1446,9 +1446,7 @@ def test_title_click_survives_the_first_render_active_mode_reset(data_dir, profi
     game = init_game(data_dir, profile)
     game.open_modal(ShowTitle())
     session = ModalSession()
-    renderer = SimpleNamespace(
-        ui_scale=lambda: 1.0, scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8),
-    )
+    renderer = stub_renderer()
     assert session.title.phase is TitlePhase.TITLE
     route_mouse(game, session, (5, 5))
     assert session.title.phase is TitlePhase.CREDITS
@@ -1536,9 +1534,7 @@ def test_render_active_mode_draws_title_and_menu(data_dir, profile):
     pygame.font.init()
     game = init_game(data_dir, profile)
     session = ModalSession()
-    renderer = SimpleNamespace(
-        ui_scale=lambda: 1.0, scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8),
-    )
+    renderer = stub_renderer()
     game.open_modal(ShowTitle())
     assert render_active_mode(game, session, renderer).to_frame().shape == (200, 320, 4)
     open_startup_menu(game, session)

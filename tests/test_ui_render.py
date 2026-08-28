@@ -18,7 +18,7 @@ from PyAitD.app.ui import (
     overlay_messages, render_character_select, render_cursor, render_found,
     render_game_over, render_hit_feedback, render_picture, render_play_hud, render_reading,
     render_inventory, render_settings_notice, render_system_menu,
-    screen_surface, transparent_canvas,
+    screen_surface, text_size, transparent_canvas,
 )
 
 pytestmark = pytest.mark.shell
@@ -76,7 +76,6 @@ def test_book_layout_preserves_tab_prefix_and_center_flag():
     pygame.font.init()
     pages = layout_book(
         (BookToken("tab"), BookToken("center"), BookToken("text", "Entry")),
-        UIPainter(),
         16,
         190,
         8,
@@ -174,17 +173,17 @@ def test_painter_text_size_is_logical_at_every_scale():
     assert UIPainter(1).text_size("Hello", 16) == UIPainter(3.5).text_size("Hello", 16)
 
 
-def test_layout_book_breaks_lines_identically_at_every_scale():
+def test_layout_book_wrapping_cannot_depend_on_the_ui_scale():
+    # Wrapping must stay logical: a book that re-flowed on resize would change
+    # how many pages it has. layout_book takes no painter and no scale, so the
+    # only way a scale could reach it is through the measurement it uses --
+    # which every painter agrees on, whatever it was built at.
     pygame.font.init()
     tokens = (BookToken("text", "one two three four five six seven eight nine ten"),)
-    pages = [
-        layout_book(tokens, UIPainter(s), 15, 150, 12)
-        for s in (1, 2.5, 4)
-    ]
-    assert pages[0] == pages[1] == pages[2], (
-        "wrapping must stay logical: a book that re-flowed on resize would "
-        "change its page count"
-    )
+    line = "one two three four five"
+    assert text_size(line, 15) == UIPainter(1).text_size(line, 15)
+    assert text_size(line, 15) == UIPainter(3.5).text_size(line, 15)
+    assert layout_book(tokens, 15, 150, 12) == layout_book(tokens, 15, 150, 12)
 
 
 def test_cursor_marks_the_frame():

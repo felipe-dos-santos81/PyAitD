@@ -165,19 +165,27 @@ class Renderer:
             self._thumbnail_cache = self.backend.thumbnail()
         return self._thumbnail_cache
 
+    def _fit_scale(self):
+        """How many window pixels one logical pixel occupies right now.
+
+        The single definition of the letterbox fit: `ui_scale` paints at it
+        and `window_to_logical` inverts it, so what is drawn and what is
+        picked cannot drift apart -- they share the arithmetic rather than
+        repeating it and relying on a test to notice when one is edited.
+        """
+        win_w, win_h = pygame.display.get_window_size()
+        return min(win_w / IMG_W, win_h / IMG_H)
+
     def ui_scale(self):
         """The pixel scale the UI layer should paint at.
 
-        The same expression window_to_logical inverts, so what is drawn and
-        what is picked stay consistent by construction rather than by two
-        constants happening to agree. The software fallback stays at 1: that
-        path composites the UI against a 320x200 scene thumbnail, and a
-        larger canvas would have nothing sharper to sit on.
+        The software fallback stays at 1: that path composites the UI
+        against a 320x200 scene thumbnail, and a larger canvas would have
+        nothing sharper to sit on. Picking is unaffected -- window_to_logical
+        reads the true fit either way, so a software frame is still picked
+        where it is drawn.
         """
-        if not isinstance(self.backend, GLBackend):
-            return 1.0
-        win_w, win_h = pygame.display.get_window_size()
-        return min(win_w / IMG_W, win_h / IMG_H)
+        return self._fit_scale() if isinstance(self.backend, GLBackend) else 1.0
 
     def _ui_texture_for(self, size):
         """The UI texture, resized to `size` (a (width, height) pair) if the
@@ -222,9 +230,9 @@ class Renderer:
 
     def window_to_logical(self, pos):
         win_w, win_h = pygame.display.get_window_size()
-        scale = min(win_w / 320, win_h / 200)
-        view_w = 320 * scale
-        view_h = 200 * scale
+        scale = self._fit_scale()
+        view_w = IMG_W * scale
+        view_h = IMG_H * scale
         left = (win_w - view_w) / 2
         top = (win_h - view_h) / 2
         x, y = pos

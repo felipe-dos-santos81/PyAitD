@@ -1018,45 +1018,41 @@ def render_active_mode(game, session, renderer, resolver=None):
     # This is the modal lifecycle boundary.  It resets a replacement exactly
     # once before any presenter can render, including the system menu.
     session.reset_for(effect)
+    # Every branch paints on the one painter and none of them returns a
+    # value, so the dispatch ends in a single return: a new modal that forgot
+    # its own `return painter` would otherwise hand run() a None to present.
     if isinstance(effect, OpenSystemMenu):
         render_system_menu(painter, session.system_menu, session.settings, game.assets)
-        return painter
-    if isinstance(effect, ChooseCharacter):
+    elif isinstance(effect, ChooseCharacter):
         # the selector owns the whole frame; the staged PLAY scene is never shown
         render_character_select(painter, session.character, game.assets, resolver)
-        return painter
-    if isinstance(effect, ShowTitle):
+    elif isinstance(effect, ShowTitle):
         from PyAitD.app.startup import render_title
         render_title(painter, session.title, game.assets, resolver or AssetResolver(game.assets, None),
                       session.elapsed_ms, _credits_entry(game))
-        return painter
-    if isinstance(effect, OpenStartupMenu):
+    elif isinstance(effect, OpenStartupMenu):
         from PyAitD.app.startup import render_startup_menu
         render_startup_menu(painter, session.startup, game.assets, continue_enabled=continue_available(session))
-        return painter
-    if isinstance(effect, ShowFound):
+    elif isinstance(effect, ShowFound):
         world = game.world_objects[effect.object_idx]
         render_found(painter, effect, session.found, game.assets,
                      game.assets.system_text(world.found_name))
-        return painter
-    if isinstance(effect, OpenInventory):
+    elif isinstance(effect, OpenInventory):
         object_ids, action_ids = _inventory_view(game, session)
         render_inventory(
             painter, session.inventory, game.assets, renderer.scene_thumbnail(),
             tuple(game.assets.system_text(game.world_objects[i].found_name) for i in object_ids),
             tuple(game.assets.system_text(i) for i in action_ids),
         )
-        return painter
-    if isinstance(effect, ReadText):
+    elif isinstance(effect, ReadText):
         render_reading(painter, effect, session.reading, game.assets, resolver)
-        return painter
-    if isinstance(effect, ShowPicture):
+    elif isinstance(effect, ShowPicture):
         render_picture(painter, effect, game.assets, resolver)
-        return painter
-    if isinstance(effect, GameOver):
+    elif isinstance(effect, GameOver):
         render_game_over(painter, renderer.scene_thumbnail(), _game_over_ready(session, effect))
-        return painter
-    raise RuntimeError(f"unrenderable modal {type(effect).__name__}")
+    else:
+        raise RuntimeError(f"unrenderable modal {type(effect).__name__}")
+    return painter
 
 
 def restart_session(old_game):

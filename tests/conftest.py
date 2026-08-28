@@ -51,6 +51,19 @@ def held_pointer(pos=None):
     return InputBuffer(pointer_held=True, focused=True, pointer_pos=pos)
 
 
+def stub_renderer(scale=1.0):
+    """The least a stub needs to survive render_active_mode: the UI scale it
+    builds its painter from, and the scene thumbnail the two modals that sit
+    over the world ask for. One definition, so a branch that starts reading
+    another renderer attribute fails in one place rather than three."""
+    import numpy as np
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        ui_scale=lambda: scale,
+        scene_thumbnail=lambda: np.zeros((200, 320, 3), np.uint8),
+    )
+
+
 def painter_from_frame(frame):
     """A scale-1 UIPainter seeded with `frame`, the stand-in for a
     monkeypatched `render_active_mode` (task 9: it now returns a painter,

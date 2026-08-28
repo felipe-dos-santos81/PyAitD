@@ -612,6 +612,19 @@ def _font(size=16):
     return pygame.font.Font(None, size)
 
 
+def text_size(label, size):
+    """A label's logical width and height.
+
+    Measured at scale 1 rather than by dividing a scaled measurement, so line
+    breaking is bit-identical at every scale: a book that re-flowed when the
+    window resized would change how many pages it has. That independence is
+    why this is a module function and not a UIPainter method -- the callers
+    that only measure (page counts, wrapping) have no painter, and building
+    one to reach a measurement that ignores it only obscured that.
+    """
+    return _font(size).size(label)
+
+
 def transparent_canvas():
     """A fully clear 320x200 RGBA array: the golden "nothing was painted"
     frame the tests compare a scale-1 `UIPainter.to_frame()` against.
@@ -658,10 +671,15 @@ class UIPainter:
         right, bottom = self._pt(rect.bottomright)
         return pygame.Rect(left, top, right - left, bottom - top)
 
+    def _length(self, value):
+        """A scaled length that never rounds away to nothing: a hairline, a
+        radius or a font size that reached 0 would vanish rather than shrink."""
+        return max(1, round(value * self.scale))
+
     def _width(self, width):
-        # 0 means "filled" to pygame and must stay 0; anything else keeps at
-        # least one pixel, so a hairline never scales away to nothing
-        return 0 if width == 0 else max(1, round(width * self.scale))
+        # 0 means "filled" to pygame and must stay 0; every other width is an
+        # ordinary length and keeps at least its one pixel
+        return 0 if width == 0 else self._length(width)
 
     def rect(self, colour, rect, width=0, border_radius=0):
         pygame.draw.rect(
@@ -678,7 +696,7 @@ class UIPainter:
     def circle(self, colour, centre, radius, width=0):
         pygame.draw.circle(
             self.surface, colour, self._pt(centre),
-            max(1, round(radius * self.scale)), width=self._width(width),
+            self._length(radius), width=self._width(width),
         )
 
     def shade(self, colour):
@@ -708,7 +726,7 @@ class UIPainter:
         on the column's midpoint would round the other way and move the
         scale-1 pixels.
         """
-        glyph = _font(max(1, round(size * self.scale))).render(label, True, colour)
+        glyph = _font(self._length(size)).render(label, True, colour)
         if center is not None:
             rect = glyph.get_rect(center=self._pt(center))
         elif midtop is not None:
@@ -723,10 +741,9 @@ class UIPainter:
         self.surface.blit(glyph, rect)
 
     def text_size(self, label, size):
-        """Logical width and height. Measured at scale 1 rather than by
-        dividing a scaled measurement, so line breaking is bit-identical at
-        every scale -- see layout_book."""
-        return _font(size).size(label)
+        """Logical width and height, for a caller that already holds a
+        painter. Scale-independent -- see `text_size`."""
+        return text_size(label, size)
 
     def blit(self, surface, logical_dest, area=None):
         """Blit a surface that is ALREADY at canvas scale, positioning it by
@@ -906,7 +923,7 @@ def draw_big_cadre(painter, sprites, center, size):
     painter.sprite(canvas, (0, 0))
 
 
-def layout_book(tokens, painter, size, width, max_lines):
+def layout_book(tokens, size, width, max_lines):
     # `painter` and a logical font size rather than a Font: the measurement
     # must stay logical so a window resize cannot re-flow a book and change
     # how many pages it has.
@@ -923,7 +940,7 @@ def layout_book(tokens, painter, size, width, max_lines):
         for word in words:
             separator = "" if not current or current.endswith(" ") else " "
             candidate = f"{current}{separator}{word}"
-            if current.strip() and painter.text_size(candidate, size)[0] > width:
+            if current.strip() and text_size(candidate, size)[0] > width:
                 lines.append((current, centered))
                 current = word
                 if len(lines) == max_lines:
@@ -1006,7 +1023,7 @@ def render_settings_notice(painter, message):
         return
     painter.shade((0, 0, 0, 190))
     painter.text("Settings error", 20, (255, 220, 170), center=(160, 38))
-    lines = layout_book((BookToken("text", message),), painter, 15, 276, 5)[0]
+    lines = layout_book((BookToken("text", message),), 15, 276, 5)[0]
     for index, (text, _centered) in enumerate(lines):
         painter.text(text, 15, (255, 255, 255), center=(160, 65 + index * 16))
     _button(painter, SettingsNoticeLayout.DISMISS, "Dismiss", selected=True)
@@ -1015,14 +1032,7 @@ def render_settings_notice(painter, message):
 def reading_pages(effect, assets):
     pages = assets.book_pages.get(effect.text_index)
     if pages is None:
-        # scratch painter: reading_pages is called from shell.py's hit-test/
-        # command-routing paths (page counting) as well as from
-        # render_reading, so it keeps its own painter rather than taking one
-        # -- text_size measures at scale 1 regardless of which painter is
-        # passed, so the page count/wrapping this produces does not depend
-        # on it.
-        painter = UIPainter()
-        pages = layout_book(assets.book_tokens(effect.text_index), painter, 16, 190, 8)
+        pages = layout_book(assets.book_tokens(effect.text_index), 16, 190, 8)
         assets.book_pages[effect.text_index] = pages
     return pages
 
@@ -1091,7 +1101,7 @@ def render_character_select(painter, presenter, assets, resolver=None):
     else:
         painter.blit(intro, (0, 0), area=pygame.Rect(0, 0, 160, 200))
         entry, text_x = 20, 5
-    page = layout_book(assets.book_tokens(entry), painter, 15, 150, 12)[0]
+    page = layout_book(assets.book_tokens(entry), 15, 150, 12)[0]
     y = 5
     for text, centered in page:
         # `centered_in` is the STORY text column: it anchors the scaled
