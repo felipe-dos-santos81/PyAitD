@@ -113,4 +113,5 @@ AITD1 = GameProfile(
     }),
     intro_start=(7, 1),
     game_start=(0, 0),
+    alt_camera_sources=MappingProxyType({(7, 0): 15, (7, 1): 16, (6, 0): 17, (6, 5): 18, (6, 8): 19}),
 )

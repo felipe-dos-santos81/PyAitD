@@ -7,7 +7,7 @@ extracted so far; engine/ still encodes AITD1 opcode numbering (life.py's
 NUM_OPCODES and core_table() slots) and record layouts (formats.py), so a
 second game will need further seams."""
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,9 @@ class GameProfile:
     # put it), the playable start with allowSystemMenu=1.
     intro_start: tuple | None = None
     game_start: tuple = (0, 0)
+    alt_camera_sources: Mapping[tuple[int, int], int] = field(default_factory=dict)
+    # (floor, camera) -> ITD_RESS entry that overrides CAMERA{NN} when KILLED_SORCERER==1
+    # FitdLib/main.cpp:1253, AITD1.h:15-19. Empty means no alts.
 
     def cvar_index(self, name):
         return self.cvar_names.index(name)

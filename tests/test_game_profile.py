@@ -134,3 +134,19 @@ def test_aitd1_palette_entry_pins_the_resource_palette_slot():
     assert not hasattr(floor, "PALETTE_PAK")
     assert not hasattr(floor, "PALETTE_ENTRY")
     assert not hasattr(assets, "GAME_PALETTE_ENTRY")
+
+
+def test_aitd1_alt_camera_sources():
+    # FitdLib/AITD1.h:15-19 + main.cpp:1243-1282 (KILLED_SORCERER gate)
+    from PyAitD.games.aitd1.profile import AITD1
+    assert dict(AITD1.alt_camera_sources) == {(7, 0): 15, (7, 1): 16, (6, 0): 17, (6, 5): 18, (6, 8): 19}
+    assert AITD1.alt_camera_sources[(7, 0)] == 15  # AITD1_CAM07000
+
+
+def test_base_profile_alt_camera_sources_defaults_empty():
+    from PyAitD.games.base import GameProfile
+    assert dict(GameProfile(name="x", lifes_pak="L", tracks_pak="T", text_pak="E",
+                            resource_pak="R", palette_entry=3, heroes=(("a","b"),),
+                            cvar_names=(), defines_big_endian=True,
+                            opcode_table=tuple(), reduced_dispatch={}, reduced_allowed=frozenset(),
+                            debug_venues={}).alt_camera_sources) == {}
