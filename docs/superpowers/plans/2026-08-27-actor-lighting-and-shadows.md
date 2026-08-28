@@ -569,7 +569,7 @@ def project_to_plane(vertices, travel, plane_y):
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m pytest tests/test_lighting.py -q`
-Expected: PASS, 13 tests.
+Expected: PASS (13 test functions, 14 cases -- the degenerate-plate test is parametrised).
 
 - [ ] **Step 5: Run the layering and full suites**
 
