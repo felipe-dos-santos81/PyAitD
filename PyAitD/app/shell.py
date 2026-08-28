@@ -592,9 +592,8 @@ def _route_game_over_command(game, session, modal_command):
 
 
 # The only render.RenderOptions fields the CONFIG menu can actually change
-# (SystemMenuPage.CONFIG's Scale/Shading/Filter/Lighting/AA/Realism rows, via
-# cycle_scale / cycle_shading / cycle_filter / cycle_lighting / cycle_msaa /
-# cycle_realism in ui.reduce_system_menu). `override_dir` has no menu row at
+# (SystemMenuPage.GRAPHICS's Scale/Shading/Filter/Lighting/AA/Realism rows,
+# via GRAPHICS_CYCLES in ui.reduce_system_menu). `override_dir` has no menu row at
 # all, so it is never in this set and a save can never pick it up from the
 # in-memory, possibly CLI-set, session.settings.render.
 _MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism")
