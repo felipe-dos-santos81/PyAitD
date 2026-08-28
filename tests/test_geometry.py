@@ -133,3 +133,22 @@ def test_body_geometry_constructed_positionally_fills_rest_and_ao():
                        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
                        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
     assert geo.rest is v and np.array_equal(geo.ao, np.ones(3, np.float32))
+
+
+def test_corner_normals_default_to_the_vertex_normals_and_straight_to_zeros():
+    geo = pose_geometry(_cube_body(), [], None)
+    assert geo.corner_normals.shape == (12, 3, 3) and geo.corner_normals.dtype == np.float32
+    assert np.array_equal(geo.corner_normals, geo.normals[geo.tris])
+    assert geo.straight.shape == (12, 3) and not geo.straight.any()
+
+
+def test_a_refinement_fills_corner_normals_and_straight_but_leaves_normals_alone():
+    from PyAitD.render.refine import plan_refinement
+    body = _cube_body()
+    plain = pose_geometry(body, [], None)
+    plan = plan_refinement(body)
+    geo = pose_geometry(body, [], None, refinement=plan)
+    assert geo.straight is plan.straight
+    assert np.array_equal(geo.normals, plain.normals)
+    assert geo.corner_normals.shape == (12, 3, 3)
+    assert not np.array_equal(geo.corner_normals, plain.corner_normals)   # creased corners take their face normal

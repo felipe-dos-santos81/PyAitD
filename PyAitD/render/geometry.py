@@ -30,6 +30,8 @@ class BodyGeometry:
     point_colors: np.ndarray  # (P,) uint8
     rest: np.ndarray = None   # (N,3) float32, the body's raw vertices: stable per vertex across poses
     ao: np.ndarray = None     # (N,) float32 rest-pose occlusion, 1 = open
+    corner_normals: np.ndarray = None   # (M,3,3) float32, one per triangle corner: refine's crease-aware normals
+    straight: np.ndarray = None         # (M,3) float32, 1.0 where a triangle edge keeps a straight PN control polygon
 
     def __post_init__(self):
         # Both default from `vertices` so every positional constructor
@@ -40,6 +42,14 @@ class BodyGeometry:
             object.__setattr__(self, "rest", self.vertices)
         if self.ao is None:
             object.__setattr__(self, "ao", np.ones(len(self.vertices), dtype=np.float32))
+        # Without a plan a corner takes its vertex's normal and no edge is a
+        # crease -- the tessellator then rounds exactly what smooth shading
+        # already rounds.
+        if self.corner_normals is None:
+            object.__setattr__(self, "corner_normals",
+                               np.asarray(self.normals, dtype=np.float32)[self.tris].reshape(-1, 3, 3))
+        if self.straight is None:
+            object.__setattr__(self, "straight", np.zeros((len(self.tris), 3), dtype=np.float32))
 
 
 def vertex_groups(body):
@@ -106,7 +116,7 @@ def _vertex_normals(vertices, tris, groups):
     return normals.astype(np.float32)
 
 
-def pose_geometry(body, group_states, actor_angles=None, ao=None):
+def pose_geometry(body, group_states, actor_angles=None, ao=None, refinement=None):
     vertices = np.array(pose_vertices(body, group_states, actor_angles), dtype=np.float32).reshape(-1, 3)
     tris, tri_colors, lines, line_colors, spheres, points, point_sizes, point_colors = _triangulate(body)
     normals = _vertex_normals(vertices, tris, vertex_groups(body))
@@ -117,8 +127,14 @@ def pose_geometry(body, group_states, actor_angles=None, ao=None):
         ao = np.asarray(ao, dtype=np.float32).reshape(-1)
         if len(ao) != len(vertices):
             raise ValueError(f"ao has {len(ao)} entries for {len(vertices)} vertices")
+    corner_normals = straight = None
+    if refinement is not None:
+        # duck-typed on purpose: refine imports this module to build its plan,
+        # so geometry never imports refine
+        corner_normals = refinement.corner_normals(vertices, tris)
+        straight = refinement.straight
     return BodyGeometry(vertices, normals, tris, tri_colors, lines, line_colors,
-                        spheres, points, point_sizes, point_colors, rest, ao)
+                        spheres, points, point_sizes, point_colors, rest, ao, corner_normals, straight)
 
 
 @functools.lru_cache(maxsize=4)
