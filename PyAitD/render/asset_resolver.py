@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 
 from PyAitD.render.lighting import estimate_light
+from PyAitD.render.materials import default_table
+from PyAitD.render.occlusion import bake_vertex_ao
 
 log = logging.getLogger("PyAitD.engine.assets")
 
@@ -47,10 +49,25 @@ class AssetResolver:
         self._load_png = load_png
         self._cache = {}
         self._lights = {}
+        self._material_tables = {}
+        self._aos = {}
         self.failures = {}
 
     def body(self, num):
         return self._assets.body(num)
+
+    def material_table(self, num):
+        """The MaterialTable for body `num`: the committed default. (A
+        per-body override lands in a later task.) Memoised per body."""
+        if num not in self._material_tables:
+            self._material_tables[num] = default_table()
+        return self._material_tables[num]
+
+    def geometry_ao(self, num):
+        """Rest-pose vertex AO for body `num`, baked once per session."""
+        if num not in self._aos:
+            self._aos[num] = bake_vertex_ao(self.body(num))
+        return self._aos[num]
 
     def _override(self, path, validate):
         if self._override_dir is None or path in self.failures:

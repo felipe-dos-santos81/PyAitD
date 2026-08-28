@@ -107,3 +107,29 @@ def test_every_body_in_the_data_poses_without_nan(data_dir, profile):
         geo = pose_geometry(body, states, (0, 0, 0))
         assert not np.isnan(geo.normals).any()
         assert geo.tris.max(initial=-1) < len(geo.vertices)
+
+
+def test_rest_is_the_raw_body_vertices_whatever_the_pose():
+    body = _cube_body()
+    posed = pose_geometry(body, [], (100, 200, 300))
+    assert np.array_equal(posed.rest, np.array(body.vertices, np.float32))
+    assert not np.array_equal(posed.rest, posed.vertices)   # the actor rotation moved the pose, not the rest
+
+
+def test_ao_defaults_to_ones_and_takes_a_baked_array():
+    body = _cube_body()
+    geo = pose_geometry(body, [], None)
+    assert geo.ao.dtype == np.float32 and np.array_equal(geo.ao, np.ones(8, np.float32))
+    baked = np.linspace(0, 1, 8).astype(np.float32)
+    assert np.array_equal(pose_geometry(body, [], None, ao=baked).ao, baked)
+    with pytest.raises(ValueError, match="ao"):
+        pose_geometry(body, [], None, ao=np.ones(3, np.float32))
+
+
+def test_body_geometry_constructed_positionally_fills_rest_and_ao():
+    v = np.zeros((3, 3), np.float32)
+    n = np.zeros((3, 3), np.float32)
+    geo = BodyGeometry(v, n, np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+                       np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
+                       np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    assert geo.rest is v and np.array_equal(geo.ao, np.ones(3, np.float32))

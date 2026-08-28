@@ -28,6 +28,18 @@ class BodyGeometry:
     points: np.ndarray        # (P,) int32
     point_sizes: np.ndarray   # (P,) uint8: 1 (type 2/7) or 2 (others)
     point_colors: np.ndarray  # (P,) uint8
+    rest: np.ndarray = None   # (N,3) float32, the body's raw vertices: stable per vertex across poses
+    ao: np.ndarray = None     # (N,) float32 rest-pose occlusion, 1 = open
+
+    def __post_init__(self):
+        # Both default from `vertices` so every positional constructor
+        # (tests, tools) keeps working: rest = the posed vertices (only
+        # wrong for an animated body, and only for detail placement), ao =
+        # fully open.
+        if self.rest is None:
+            object.__setattr__(self, "rest", self.vertices)
+        if self.ao is None:
+            object.__setattr__(self, "ao", np.ones(len(self.vertices), dtype=np.float32))
 
 
 def vertex_groups(body):
@@ -94,12 +106,19 @@ def _vertex_normals(vertices, tris, groups):
     return normals.astype(np.float32)
 
 
-def pose_geometry(body, group_states, actor_angles=None):
+def pose_geometry(body, group_states, actor_angles=None, ao=None):
     vertices = np.array(pose_vertices(body, group_states, actor_angles), dtype=np.float32).reshape(-1, 3)
     tris, tri_colors, lines, line_colors, spheres, points, point_sizes, point_colors = _triangulate(body)
     normals = _vertex_normals(vertices, tris, vertex_groups(body))
+    rest = np.array(body.vertices, dtype=np.float32).reshape(-1, 3)
+    if ao is None:
+        ao = np.ones(len(vertices), dtype=np.float32)
+    else:
+        ao = np.asarray(ao, dtype=np.float32).reshape(-1)
+        if len(ao) != len(vertices):
+            raise ValueError(f"ao has {len(ao)} entries for {len(vertices)} vertices")
     return BodyGeometry(vertices, normals, tris, tri_colors, lines, line_colors,
-                         spheres, points, point_sizes, point_colors)
+                        spheres, points, point_sizes, point_colors, rest, ao)
 
 
 @functools.lru_cache(maxsize=4)

@@ -224,3 +224,26 @@ def test_light_follows_an_override_background(tmp_path):
     resolver = AssetResolver(None, tmp_path, load_png=lambda p: bright_left)
     light = resolver.light(_floor(), 0)
     assert light.direction[0] < 0           # estimated from the override, not the flat original
+
+
+def test_material_table_is_the_default_and_memoised():
+    from PyAitD.render.materials import default_table
+    resolver = AssetResolver(SimpleNamespace(body=lambda n: n), None)
+    assert resolver.material_table(3) is default_table()
+    assert resolver.material_table(3) is resolver.material_table(3)
+
+
+def test_geometry_ao_bakes_once_per_body():
+    from PyAitD.engine.formats import Body, Primitive
+    calls = []
+    body = Body(0, (0,) * 6, (), [(0, 0, 0), (100, 0, 0), (0, 100, 0)], [], [], [Primitive(1, 0, 1, [0, 1, 2])])
+
+    def counting_body(num):
+        calls.append(num)
+        return body
+
+    resolver = AssetResolver(SimpleNamespace(body=counting_body), None)
+    first = resolver.geometry_ao(7)
+    second = resolver.geometry_ao(7)
+    assert first is second and calls == [7]
+    assert np.array_equal(first, np.ones(3, np.float32))

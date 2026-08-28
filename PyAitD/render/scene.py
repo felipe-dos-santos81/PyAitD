@@ -5,7 +5,7 @@ Pure and pygame/GL free. The logical FITD projection (skel.skin) is kept for
 picking, masks and every simulation contract; float geometry is added beside
 it so the new backends can rasterise at an integer-scaled internal
 resolution with smooth shading."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -14,6 +14,7 @@ from PyAitD.render.asset_resolver import ImageAsset
 from PyAitD.engine.cos_table import sin_cos
 from PyAitD.render.geometry import BodyGeometry, pose_geometry
 from PyAitD.render.lighting import LEGACY_LIGHT, SceneLight
+from PyAitD.render.materials import MaterialTable, default_table
 from PyAitD.engine.mask_geometry import MaskDraw
 from PyAitD.engine.picking import actor_bbox
 from PyAitD.engine.skel import RenderResult, skin
@@ -96,6 +97,7 @@ class ActorDraw:
     zv: tuple
     logical: RenderResult
     mask_ids: tuple[int, ...]
+    materials: MaterialTable = field(default_factory=default_table)
 
 
 @dataclass(frozen=True)
@@ -159,12 +161,13 @@ def build_frame(game, floor, resolver):
         draw_list.append((index, actor_bbox(logical)))
         actors.append(ActorDraw(
             index,
-            pose_geometry(body, states, angles),
+            pose_geometry(body, states, angles, ao=resolver.geometry_ao(actor.body_num)),
             position,
             actor.room,
             tuple(actor.zv),
             logical,
             tuple(m.id for m in masks if mask_applies_to_actor(m, actor.room, actor.zv)),
+            resolver.material_table(actor.body_num),
         ))
     frame = FrameDescription(
         CameraView(state),

@@ -376,6 +376,13 @@ class _StubResolver:
         from PyAitD.render.lighting import LEGACY_LIGHT
         return LEGACY_LIGHT
 
+    def material_table(self, num):
+        from PyAitD.render.materials import default_table
+        return default_table()
+
+    def geometry_ao(self, num):
+        return np.full(len(self._bodies[num].vertices), 0.5, np.float32)
+
 
 def _legacy_stub_scene(game, floor, resolver):
     # Independent re-derivation of the pre-layer _scene_frame body, adapted
@@ -491,6 +498,12 @@ def test_build_frame_assembles_frame_description_from_stubs(monkeypatch):
     assert actor_a_draw.mask_ids == (0,)
     assert actor_b_draw.mask_ids == ()
     assert actor_c_draw.mask_ids == (0,)
+
+    # the resolver's bake and table ride on each ActorDraw
+    from PyAitD.render.materials import default_table
+    for actor in frame.actors:
+        assert actor.materials is default_table()
+        assert (actor.geometry.ao == 0.5).all()
 
     # the animated actor's logical points reflect the fake group_states,
     # not the anim==-1 default -- an independent skin() call with the same
