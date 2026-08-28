@@ -39,16 +39,19 @@ class Material:
                          self.detail, self.detail_scale, float(self.detail_kind), 0.0], dtype=np.float32)
 
 
-# Starting values; task 4 of the plan tunes them against the proof fixtures.
+# Tuned by eye against the docs/graphics-proof fixtures at scale 4: cloth's
+# weave stays faint enough to read as fabric rather than as a pattern, and
+# metal's highlight keeps enough of the key's own colour to show on a
+# saturated body instead of vanishing into it.
 CLASS_PRESETS = {
     "matte":    Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, DETAIL_NONE),
     "skin":     Material(0.7, 0.15, 0.0, 0.25, 0.15, 40.0, DETAIL_GRAIN),
-    "cloth":    Material(0.9, 0.05, 0.0, 0.35, 0.25, 12.0, DETAIL_WEAVE),
+    "cloth":    Material(0.9, 0.05, 0.0, 0.35, 0.08, 12.0, DETAIL_WEAVE),
     "leather":  Material(0.5, 0.35, 0.0, 0.3, 0.2, 30.0, DETAIL_GRAIN),
     "hair":     Material(0.6, 0.3, 0.0, 0.4, 0.3, 8.0, DETAIL_STREAK),
     "wood":     Material(0.6, 0.2, 0.0, 0.1, 0.35, 60.0, DETAIL_STREAK),
     "stone":    Material(0.85, 0.05, 0.0, 0.05, 0.3, 50.0, DETAIL_GRAIN),
-    "metal":    Material(0.25, 0.8, 0.9, 0.2, 0.15, 25.0, DETAIL_BRUSHED),
+    "metal":    Material(0.25, 0.8, 0.8, 0.2, 0.15, 25.0, DETAIL_BRUSHED),
     "glass":    Material(0.1, 0.9, 0.0, 0.6, 0.0, 1.0, DETAIL_NONE),
     # A label only: no emissive term exists in the shader, so it shades as matte.
     "emissive": Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, DETAIL_NONE),

@@ -25,6 +25,7 @@ import numpy as np
 from PyAitD.engine.cos_table import sin_cos
 from PyAitD.render.geometry import icosphere
 from PyAitD.render.lighting import project_to_plane, shading_terms, shadow_opacity
+from PyAitD.render.materials import PALETTE_SIZE, PRESETS
 from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
 
 W, H = 320, 200
@@ -37,6 +38,8 @@ _DEPTH_A = (FAR + NEAR) / (FAR - NEAR)
 _DEPTH_B = -2 * FAR * NEAR / (FAR - NEAR)
 
 _SHADING_INDEX = {"flat": 0, "lambert": 1, "smooth": 2}
+
+CONTACT_HEIGHT = 150.0   # FITD units over which the contact term fades, roughly shin height
 
 _BG_VSH = """
 #version 330
@@ -67,9 +70,14 @@ void main() {
 _ACTOR_VSH = """
 #version 330
 uniform mat4 mvp; uniform mat3 rot;
-in vec3 in_pos; in vec3 in_normal; in vec3 in_color;
-out vec3 v_color; out vec3 v_normal;
-void main() { gl_Position = mvp * vec4(in_pos, 1.0); v_color = in_color; v_normal = rot * in_normal; }
+in vec3 in_pos; in vec3 in_normal; in vec3 in_color; in vec3 in_rest; in float in_ao; in float in_index;
+out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
+void main() {
+    gl_Position = mvp * vec4(in_pos, 1.0);
+    v_color = in_color; v_normal = rot * in_normal;
+    v_rest = in_rest; v_ao = in_ao; v_index = in_index;
+    v_world_y = in_pos.y;   // in_pos is already world space: the actor position was added on the CPU
+}
 """
 _ACTOR_FSH = """
 #version 330
@@ -80,7 +88,39 @@ uniform int shading; uniform int lighting;
 // ambient, an absolute reflectance. Same room, two different quantities.
 uniform vec3 light; uniform vec3 key_tint; uniform vec3 fill_tint;
 uniform sampler2D mask_tex; uniform vec2 target_size;
-in vec3 v_color; in vec3 v_normal; out vec4 f_color;
+// Materials (scene lighting only). material_tex is 256x2 RGBA32F: row 0 is
+// (roughness, specular, metallic, rim), row 1 (detail, detail_scale,
+// detail_kind, 0) for the palette index in v_index. preset_a/preset_b are
+// the RealismPreset strengths (spec, rim, ao) and (contact, detail,
+// hemisphere); under realism=classic all six are 0 and every term below
+// is exactly 1.0 or 0.0, leaving `base` untouched.
+uniform sampler2D material_tex;
+uniform vec3 preset_a; uniform vec3 preset_b;
+uniform float plane_y; uniform float contact_height;
+in vec3 v_color; in vec3 v_normal; in vec3 v_rest; in float v_ao; flat in float v_index; in float v_world_y;
+out vec4 f_color;
+
+float hash3(vec3 p) {
+    p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float value_noise(vec3 p) {   // -1..1, C1 continuous
+    vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    float n = mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x),
+                      mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
+                  mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x),
+                      mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+    return n * 2.0 - 1.0;
+}
+float detail_noise(vec3 p, int kind) {
+    if (kind == 1) return value_noise(p);                                                        // grain
+    if (kind == 2) return sin(p.x * 6.2832) * sin(p.z * 6.2832) * (0.5 + 0.5 * value_noise(p));  // weave
+    if (kind == 3) return value_noise(vec3(p.x * 4.0, p.y * 0.25, p.z * 4.0));                   // streak along y, the limb axis
+    if (kind == 4) return value_noise(vec3(p.x * 0.25, p.y * 6.0, p.z * 0.25));                  // brushed across it
+    return 0.0;
+}
+
 void main() {
     if (texture(mask_tex, gl_FragCoord.xy / target_size).r > 0.5) discard;
     if (shading == 0) {
@@ -111,16 +151,39 @@ void main() {
     // provide. Deleting the flip inverts every lambert normal.
     if (n.z > 0.0) n = -n;
     // Half-Lambert: the lit side reaches fill_tint + key_tint, the shadow
-    // side falls to fill_tint rather than to black.
+    // side falls to fill_tint rather than to black. `base` is the whole of
+    // realism=classic's answer and must stay this exact expression.
     float wrapped = clamp(dot(n, l) * 0.5 + 0.5, 0.0, 1.0);
-    f_color = vec4(v_color * (fill_tint + key_tint * wrapped * wrapped), 1.0);
+    vec3 base = v_color * (fill_tint + key_tint * wrapped * wrapped);
+
+    int index = int(v_index + 0.5);
+    vec4 m0 = texelFetch(material_tex, ivec2(index, 0), 0);
+    vec4 m1 = texelFetch(material_tex, ivec2(index, 1), 0);
+    vec3 view = vec3(0.0, 0.0, -1.0);                 // from the surface toward the viewer
+    vec3 h = normalize(l + view);
+    // Camera-space y grows downward, so "up" (the sky half of the
+    // hemisphere ambient) is -n.y.
+    float hemi = mix(1.0 - 0.3 * preset_b.z, 1.0 + 0.3 * preset_b.z, clamp(-n.y * 0.5 + 0.5, 0.0, 1.0));
+    // World y grows downward too: the feet are at plane_y and everything
+    // above them has a smaller y. Darkens by up to half at the plane.
+    float height = clamp((plane_y - v_world_y) / contact_height, 0.0, 1.0);
+    float contact = 1.0 - preset_b.x * 0.5 * (1.0 - height);
+    float occl = mix(1.0, v_ao, preset_a.z) * contact;
+    float gloss = exp2(1.0 + 10.0 * (1.0 - m0.x));
+    vec3 spec = key_tint * mix(vec3(1.0), v_color, m0.z) * pow(max(dot(n, h), 0.0), gloss) * m0.y * preset_a.x;
+    vec3 rim = key_tint * pow(1.0 - max(dot(n, view), 0.0), 3.0) * m0.w * preset_a.y;
+    float grain = 1.0 + preset_b.y * m1.x * detail_noise(v_rest / m1.y, int(m1.z + 0.5));
+    f_color = vec4(base * (grain * hemi * occl) + spec + rim, 1.0);
 }
 """
 _SCREEN_VSH = """
 #version 330
 in vec3 in_ndc; in vec3 in_color;
-out vec3 v_color; out vec3 v_normal;
-void main() { gl_Position = vec4(in_ndc, 1.0); v_color = in_color; v_normal = vec3(0.0, 0.0, 1.0); }
+out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
+void main() {
+    gl_Position = vec4(in_ndc, 1.0); v_color = in_color; v_normal = vec3(0.0, 0.0, 1.0);
+    v_rest = vec3(0.0); v_ao = 1.0; v_index = 0.0; v_world_y = 0.0;
+}
 """
 _STENCIL_VSH = """
 #version 330
@@ -259,6 +322,8 @@ class GLBackend:
         self._bg_key = None
         self._bg_src = None
         self._sphere = None
+        self._material_tex = None
+        self._material_key = None
         self._released = False
         try:
             self.texture = ctx.texture(self.size, 4)
@@ -298,6 +363,11 @@ class GLBackend:
             self._screen_prog["shading"].value = 0  # lines/points are never shaded
             self._screen_prog["lighting"].value = 0
             self._stencil_prog = ctx.program(vertex_shader=_STENCIL_VSH, fragment_shader=_STENCIL_FSH)
+
+            # 256 palette indices x 2 rows of 4 float parameters; uploaded
+            # whenever an actor hands over a table object we have not seen.
+            self._material_tex = ctx.texture((PALETTE_SIZE, 2), 4, dtype="f4")
+            self._material_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
 
             quad = np.array([
                 -1, -1, 0, 1,
@@ -367,6 +437,7 @@ class GLBackend:
             self._quad_vao, self._quad,
             self._thumb_quad_vao, self._thumb_quad,
             self._stencil_prog, self._screen_prog, self._actor_prog, self._bg_prog,
+            self._material_tex,
             self._shadow_quad_vao, self._shadow_quad,
             self._shadow_prog, self._shadow_geom_prog,
             self._shadow_fbo, self._shadow_tex,
@@ -380,6 +451,7 @@ class GLBackend:
                 resource.release()
         self._bg_tex = None
         self._bg_key = None
+        self._material_key = None
         self._bg_src = None
         self._released = True
 
@@ -450,12 +522,20 @@ class GLBackend:
             self._actor_prog["light"].value = tuple(float(v) for v in frame.light.direction)
             self._actor_prog["key_tint"].value = tuple(float(v) for v in key_tint)
             self._actor_prog["fill_tint"].value = tuple(float(v) for v in fill_tint)
+            preset = PRESETS[self._options.realism]
+            self._actor_prog["preset_a"].value = (preset.spec, preset.rim, preset.ao)
+            self._actor_prog["preset_b"].value = (preset.contact, preset.detail, preset.hemisphere)
+            self._actor_prog["contact_height"].value = CONTACT_HEIGHT
+            self._material_tex.use(location=3)
+            self._actor_prog["material_tex"].value = 3
         else:
             travel = None
             self._actor_prog["lighting"].value = 0
             self._actor_prog["light"].value = LIGHT_DIR
             self._actor_prog["key_tint"].value = (0.0, 0.0, 0.0)
             self._actor_prog["fill_tint"].value = (0.0, 0.0, 0.0)
+            self._actor_prog["preset_a"].value = (0.0, 0.0, 0.0)
+            self._actor_prog["preset_b"].value = (0.0, 0.0, 0.0)
         self._actor_prog["target_size"].value = self.size
         self._screen_prog["target_size"].value = self.size
 
@@ -489,6 +569,9 @@ class GLBackend:
             self._actor_prog["mask_tex"].value = 1
             self._screen_prog["mask_tex"].value = 1
 
+            if scene_lit:
+                self._actor_prog["plane_y"].value = float(max(actor.zv[2], actor.zv[3]))
+                self._upload_materials(actor.materials)
             self._draw_actor(actor, frame, palette)
             self._ctx.disable(moderngl.DEPTH_TEST)
 
@@ -642,6 +725,17 @@ class GLBackend:
         self._shadow_quad_vao.render(moderngl.TRIANGLES)
         self._ctx.disable(moderngl.BLEND)
 
+    def _upload_materials(self, table):
+        """Write `table.parameters()` into the material texture unless it is
+        the table object uploaded last time (default_table() is cached, so
+        every actor on the default shares one object and one upload)."""
+        if table is self._material_key:
+            return
+        params = table.parameters()                      # (256, 8)
+        rows = np.stack([params[:, :4], params[:, 4:]], axis=0)   # (2, 256, 4): texture row 0, row 1
+        self._material_tex.write(np.ascontiguousarray(rows, dtype="f4").tobytes())
+        self._material_key = table
+
     # ---- per-actor primitives ----
 
     def _draw_actor(self, actor, frame, palette):
@@ -659,9 +753,14 @@ class GLBackend:
             idx = geometry.tris.reshape(-1)
             pos = geometry.vertices[idx].astype(np.float64) + position
             norm = geometry.normals[idx]
-            col = palette[geometry.tri_colors.repeat(3)]
+            colors = geometry.tri_colors.repeat(3)
+            col = palette[colors]
+            rest = geometry.rest[idx]
+            ao = geometry.ao[idx][:, None]
+            index = colors.astype("f4")[:, None]
             parts.append(np.concatenate(
-                [pos.astype("f4"), norm.astype("f4"), col.astype("f4")], axis=1))
+                [pos.astype("f4"), norm.astype("f4"), col.astype("f4"),
+                 rest.astype("f4"), ao.astype("f4"), index], axis=1))
         if geometry.spheres:
             sphere_verts, sphere_tris = self._sphere  # cached, lru_cache-shared: never mutated
             idx = sphere_tris.reshape(-1)
@@ -671,15 +770,22 @@ class GLBackend:
                 pos = (unit.astype(np.float64) * radius + centre).astype("f4")
                 norm = unit.astype("f4")
                 col = np.tile(palette[color], (len(pos), 1)).astype("f4")
-                parts.append(np.concatenate([pos, norm, col], axis=1))
+                # rest = the sphere's own surface about its rest centre, so
+                # grain is fixed to the ball; ao = open (nothing is baked for
+                # spheres, which FITD uses for heads and hands)
+                rest = (unit.astype(np.float64) * radius + geometry.rest[centre_idx]).astype("f4")
+                ao = np.ones((len(pos), 1), "f4")
+                index = np.full((len(pos), 1), float(color), "f4")
+                parts.append(np.concatenate([pos, norm, col, rest, ao, index], axis=1))
         if not parts:
-            return np.zeros((0, 9), dtype="f4")
+            return np.zeros((0, 14), dtype="f4")
         return np.concatenate(parts, axis=0)
 
     def _render_triangles(self, data):
         buf = self._ctx.buffer(np.ascontiguousarray(data, dtype="f4").tobytes())
         vao = self._ctx.vertex_array(
-            self._actor_prog, [(buf, "3f 3f 3f", "in_pos", "in_normal", "in_color")])
+            self._actor_prog,
+            [(buf, "3f 3f 3f 3f 1f 1f", "in_pos", "in_normal", "in_color", "in_rest", "in_ao", "in_index")])
         vao.render(moderngl.TRIANGLES)
         vao.release()
         buf.release()

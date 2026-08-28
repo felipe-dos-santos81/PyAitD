@@ -716,13 +716,13 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         "_ms_color", "_ms_depth", "_ms_fbo",
         "_bg_prog", "_actor_prog", "_screen_prog", "_stencil_prog",
         "_quad", "_quad_vao", "_thumb_tex", "_thumb_fbo",
-        "_thumb_quad", "_thumb_quad_vao",
+        "_thumb_quad", "_thumb_quad_vao", "_material_tex",
     ):
         resource = getattr(backend, attr)
         assert resource is not None, f"{attr} was never allocated before the failure"
         assert isinstance(resource.mglo, moderngl.InvalidObject), f"{attr} leaked (not released)"
         leak_checked += 1
-    assert leak_checked == 24  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 25  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
@@ -822,3 +822,111 @@ def test_scene_lighting_never_goes_below_the_rooms_ambient(gl_ctx):
     backend.draw(away)
     assert backend.read_rgb().astype(int).max() > 0
     backend.release()
+
+
+def _table_of(name):
+    from PyAitD.render.materials import parse_table
+    return parse_table({"ramps": [{"lo": 0, "hi": 255, "class": name}]})
+
+
+def _material_actor(index, geometry, table, feet_y=400.0):
+    zv = (0, 0, feet_y - 200, feet_y, 0, 0)
+    return ActorDraw(index, geometry, (0.0, 0.0, 0.0), 0, zv, RenderResult([], []), (), table)
+
+
+def _enhanced_backend(gl_ctx):
+    return GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0, realism="enhanced"))
+
+
+def _centre(rgb):
+    # _facing_tri projects to the upper-left half of the 80..240 x 20..180
+    # square (its hypotenuse is x + y = 260); (130, 80) is well inside it.
+    return rgb[80, 130].astype(int)
+
+
+def test_classic_ignores_the_material_table(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0, realism="classic"))
+    tri = _facing_tri(600.0, 1, (0.0, 0.0, -1.0))
+    backend.draw(_lit_frame([_material_actor(0, tri, _table_of("metal"))], (0.0, 0.0, -1.0)))
+    metal = backend.read_rgb().copy()
+    backend.draw(_lit_frame([_material_actor(0, tri, _table_of("matte"))], (0.0, 0.0, -1.0)))
+    assert np.array_equal(backend.read_rgb(), metal)
+    backend.release()
+
+
+def test_metal_is_brighter_than_matte_under_enhanced(gl_ctx):
+    # n = l = view = the half-vector: the highlight lands dead centre.
+    backend = _enhanced_backend(gl_ctx)
+    tri = _facing_tri(600.0, 1, (0.0, 0.0, -1.0))
+    backend.draw(_lit_frame([_material_actor(0, tri, _table_of("matte"))], (0.0, 0.0, -1.0)))
+    matte = _centre(backend.read_rgb())
+    backend.draw(_lit_frame([_material_actor(0, tri, _table_of("metal"))], (0.0, 0.0, -1.0)))
+    metal = _centre(backend.read_rgb())
+    assert metal.sum() > matte.sum() + 30
+    backend.release()
+
+
+def test_rim_brightens_the_silhouette_edge_not_the_centre(gl_ctx, monkeypatch):
+    from PyAitD.render import materials
+    monkeypatch.setitem(materials.CLASS_PRESETS, "glass", materials.Material(1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0))
+    sphere = BodyGeometry(
+        np.array([[0.0, 0.0, 600.0]], np.float32), np.array([[0.0, 0.0, -1.0]], np.float32),
+        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, 300.0, 1),),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    backend = _enhanced_backend(gl_ctx)
+    backend.draw(_lit_frame([_material_actor(0, sphere, _table_of("matte"))], (0.0, 0.0, -1.0)))
+    plain = backend.read_rgb().astype(int)
+    backend.draw(_lit_frame([_material_actor(0, sphere, _table_of("glass"))], (0.0, 0.0, -1.0)))
+    rimmed = backend.read_rgb().astype(int)
+    backend.release()
+    # sphere radius 300 at depth 1600 with focal 320 -> ~60 px on screen
+    edge = (100, 160 + 55)
+    assert rimmed[edge].sum() > plain[edge].sum() + 30
+    assert abs(rimmed[100, 160].sum() - plain[100, 160].sum()) <= 6
+
+
+def test_detail_varies_across_a_flat_face_only_under_enhanced(gl_ctx, monkeypatch):
+    from PyAitD.render import materials
+    monkeypatch.setitem(materials.CLASS_PRESETS, "wood", materials.Material(1.0, 0.0, 0.0, 0.0, 1.0, 50.0, 1))
+    tri = _facing_tri(600.0, 1, (0.0, 0.0, -1.0))
+    frame = _lit_frame([_material_actor(0, tri, _table_of("wood"))], (0.0, 0.0, -1.0))
+    backend = _enhanced_backend(gl_ctx)
+    backend.draw(frame)
+    grained = backend.read_rgb()[60:100, 100:150, 0].astype(int)   # inside the triangle
+    backend.release()
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0, realism="classic"))
+    backend.draw(frame)
+    flat = backend.read_rgb()[60:100, 100:150, 0].astype(int)
+    backend.release()
+    assert grained.std() > 2.0
+    assert flat.std() == 0.0
+
+
+def test_occluded_vertices_are_darker_under_enhanced(gl_ctx):
+    base = _facing_tri(600.0, 1, (0.0, 0.0, -1.0))
+    shut = BodyGeometry(base.vertices, base.normals, base.tris, base.tri_colors, base.lines, base.line_colors,
+                        base.spheres, base.points, base.point_sizes, base.point_colors,
+                        base.rest, np.zeros(3, np.float32))
+    backend = _enhanced_backend(gl_ctx)
+    backend.draw(_lit_frame([_material_actor(0, base, _table_of("matte"))], (0.0, 0.0, -1.0)))
+    open_ = _centre(backend.read_rgb())
+    backend.draw(_lit_frame([_material_actor(0, shut, _table_of("matte"))], (0.0, 0.0, -1.0)))
+    closed = _centre(backend.read_rgb())
+    backend.release()
+    assert closed.sum() < open_.sum() - 30
+
+
+def test_contact_darkens_toward_the_feet_under_enhanced(gl_ctx):
+    # feet at y=400 (the zv lower bound); the triangle spans y in -400..400,
+    # so its bottom rows sit at the plane and its top rows are far above it.
+    tri = _facing_tri(600.0, 1, (0.0, 0.0, -1.0))
+    backend = _enhanced_backend(gl_ctx)
+    backend.draw(_lit_frame([_material_actor(0, tri, _table_of("matte"), feet_y=400.0)], (0.0, 0.0, -1.0)))
+    rgb = backend.read_rgb().astype(int)
+    backend.release()
+    # (120, 60) is high on the face (world y = -200, above contact_height:
+    # no darkening); (85, 170) is 50 world units above the feet (world y =
+    # 350), inside the hypotenuse x + y < 260, and inside the contact fade.
+    top, bottom = rgb[60, 120], rgb[170, 85]
+    assert bottom.sum() < top.sum() - 20
