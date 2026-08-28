@@ -152,8 +152,12 @@ a rule — add the test with the rule.
   author in logical 320x200 and never build their own surface; `s` comes from
   `Renderer.ui_scale()`, the same expression `window_to_logical` inverts.
   Pixel art (cadre tiles, sprites, scene thumbnails) goes through
-  `painter.sprite`, which upscales by an integer; text and shapes are drawn
-  at scale. Hit-testing stays logical — never scale a `hit_test_*` input.
+  `painter.sprite`, which nearest-scales the art to its exact scaled
+  destination; text and shapes are drawn at scale. Never measure with
+  `painter.text_size` (a deliberately scale-1 measurement, for line
+  breaking) and then place by `topleft`: anchor the scaled glyph with
+  `center`/`midtop`/`centered_in`. Hit-testing stays logical — never scale a
+  `hit_test_*` input.
 - `app/ui.py` never mutates world/actor/inventory/LIFE state; `app/config.py`
   is pygame-free settings schema/persistence; `app/shell.py` owns the single
   event pump, the settings lifecycle, game/floor replacement, and one present

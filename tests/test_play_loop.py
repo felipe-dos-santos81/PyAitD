@@ -148,7 +148,7 @@ def test_run_latches_a_hit_erased_by_a_later_catch_up_tick(data_dir, profile, mo
     )
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
         fallback_notice=None, ui_scale=lambda: 1.0,
-        present=lambda image: presented.append(image.copy()), close=lambda: None,
+        present=lambda ui: presented.append(ui.to_frame()), close=lambda: None,
     ))
     monkeypatch.setattr(main, "play_tick", publish_then_clear)
     monkeypatch.setattr(
@@ -206,7 +206,7 @@ def test_run_expires_hit_feedback_instead_of_latching_forever(data_dir, profile,
     )
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
         fallback_notice=None, ui_scale=lambda: 1.0,
-        present=lambda image: presented.append(image.copy()), close=lambda: None,
+        present=lambda ui: presented.append(ui.to_frame()), close=lambda: None,
     ))
     monkeypatch.setattr(main, "play_tick", publish_once)
     monkeypatch.setattr(
@@ -315,7 +315,8 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(profile, mon
     monkeypatch.setattr(
         main, "Renderer",
         lambda *_a, **_k: SimpleNamespace(
-            fallback_notice=None, present=presented.append, close=lambda: None,
+            fallback_notice=None, present=lambda ui: presented.append(ui.to_frame()),
+            close=lambda: None,
         ),
     )
     monkeypatch.setattr(main, "play_tick", tick)
@@ -1902,7 +1903,7 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, profile
     )
     monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
         fallback_notice=None, ui_scale=lambda: 1.0,
-        present=presented.append, close=lambda: None,
+        present=lambda ui: presented.append(ui.to_frame()), close=lambda: None,
     ))
     monkeypatch.setattr(
         main, "play_tick", lambda *args: calls.append("tick") or True,

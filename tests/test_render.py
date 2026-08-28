@@ -7,7 +7,7 @@ import pygame
 
 import PyAitD.render.render as render
 from PyAitD.render.asset_resolver import ImageAsset
-from PyAitD.render.render import Renderer, _rgba, composite_ui, fit_quad
+from PyAitD.render.render import Renderer, composite_ui, fit_quad
 from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import RenderOptions
 from PyAitD.render.render_soft import SoftwareBackend
@@ -56,17 +56,6 @@ def test_composite_ui_blends_alpha_and_replaces_rgb():
     assert 40 <= out[20, 20][0] <= 60
     opaque = np.full((200, 320, 3), 7, np.uint8)
     assert np.array_equal(composite_ui(scene, opaque), opaque)
-
-
-def test_rgba_pads_opaque_alpha_and_passes_through_rgba():
-    rgb = np.full((200, 320, 3), 9, np.uint8)
-    padded = _rgba(rgb)
-    assert padded.shape == (200, 320, 4)
-    assert tuple(padded[0, 0]) == (9, 9, 9, 255)
-
-    rgba = np.zeros((200, 320, 4), np.uint8)
-    rgba[0, 0] = (1, 2, 3, 4)
-    assert _rgba(rgba) is rgba or tuple(_rgba(rgba)[0, 0]) == (1, 2, 3, 4)
 
 
 def test_renderer_falls_back_to_software_when_gl_fails(monkeypatch):
@@ -356,12 +345,12 @@ def test_ui_texture_follows_the_canvas_and_releases_the_old_one(gl_ctx):
     try:
         # Existing behaviour is unchanged for the universal 320x200 case:
         # same size in, same texture object out, no release.
-        same = renderer._ui_texture_for(np.zeros((200, 320, 4), np.uint8))
+        same = renderer._ui_texture_for((320, 200))
         assert same is original
         assert same.size == (320, 200)
         assert released == []
 
-        resized = renderer._ui_texture_for(np.zeros((800, 1280, 4), np.uint8))
+        resized = renderer._ui_texture_for((1280, 800))
         assert released == [True]
         assert resized is not original
         assert resized.size == (1280, 800)
@@ -369,7 +358,7 @@ def test_ui_texture_follows_the_canvas_and_releases_the_old_one(gl_ctx):
 
         # And it must not raise when handed a further different size in
         # succession.
-        again = renderer._ui_texture_for(np.zeros((200, 320, 4), np.uint8))
+        again = renderer._ui_texture_for((320, 200))
         assert again.size == (320, 200)
     finally:
         renderer._ui_tex.release()
@@ -413,7 +402,7 @@ def test_present_gl_path_blends_ui_canvas_alpha_over_the_scene(gl_ctx):
         ctx.clear(0.0, 0.0, 0.0, 1.0)
         backend.texture.use(location=0)
         vao_scene.render()
-        ui_tex.write(render._rgba(ui_canvas).tobytes())
+        ui_tex.write(np.ascontiguousarray(ui_canvas).tobytes())
         ctx.enable(moderngl.BLEND)
         ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
         ui_tex.use(location=0)

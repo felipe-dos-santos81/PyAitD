@@ -6,7 +6,6 @@ never mutates world/actor/inventory/LIFE state."""
 from dataclasses import dataclass
 from enum import Enum, auto
 
-import numpy as np
 import pygame
 
 from PyAitD.app.ui import (
@@ -159,9 +158,16 @@ def render_title(painter, presenter, assets, resolver, elapsed_ms, credits_entry
     page = pages[min(presenter.page, len(pages) - 1)]
     y = 2
     for text, centered in page:
-        width = painter.text_size(text, 15)[0]
-        x = 48 + (212 - width) // 2 if centered else 48
-        painter.text(text, 15, (43, 31, 22), topleft=(x, y))
+        # `centered_in` is the credits column (AITD1.cpp:159's Lire box):
+        # it anchors the SCALED glyph instead of offsetting a topleft by a
+        # scale-1 text_size, which put a centred line 4.5 logical pixels
+        # left of centre at scale 4. See UIPainter.text -- at scale 1 it is
+        # exactly the old `48 + (212 - width) // 2`.
+        if centered:
+            painter.text(text, 15, (43, 31, 22),
+                         centered_in=pygame.Rect(48, y, 212, 15))
+        else:
+            painter.text(text, 15, (43, 31, 22), topleft=(48, y))
         y += 15
 
 

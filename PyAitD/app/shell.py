@@ -1401,7 +1401,7 @@ def run(game, trace_path=None, session=None, resolver=None):
                 game, floor, hover, draw_list, input_buffer,
             )
             render_cursor(painter, hover, kind)
-        renderer.present(painter.to_frame())
+        renderer.present(painter)
         if game.num_camera != -1:
             # M3a draw_ready gate: transition frames (change_salle/floor
             # pending, num_camera == -1, current_room stale) reuse the

@@ -275,7 +275,10 @@ action runner.
 - `app.ui.UIPainter` is the UI canvas: a surface at `(320*s, 200*s)` plus the
   scale, and the only object that knows `s`. `shell.render_active_mode`
   builds one per frame from `Renderer.ui_scale()` and every presenter and
-  overlay paints on it; the loop calls `to_frame()` once, at `present()`.
+  overlay paints on it; the loop hands the painter itself to `present()`,
+  whose GL path uploads `to_bytes()` (0.7 ms at 1280x800) rather than the
+  `to_frame()` numpy round trip (18.6 ms, against a 16.7 ms budget) that
+  only the software compositor still needs.
   `screen_surface(resolver, entry, size)` fetches ITD_RESS screens at the
   canvas size, so an override keeps the resolution it came with.
 - `app/shell.py` owns the application session (`ModalSession` settings fields),

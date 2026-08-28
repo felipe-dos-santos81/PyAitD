@@ -87,13 +87,14 @@ def test_render_active_mode_resets_a_replaced_system_menu_preview(monkeypatch):
 
 
 def test_render_active_mode_returns_a_transparent_rgba_canvas_with_no_modal():
-    """render_active_mode's no-modal contract (task 9): the return value is
-    the RGBA UI canvas (overlay_messages(transparent_canvas(), ...)), not
-    the opaque scene_frame it used to paint messages onto directly. Asserted
-    on the actual returned array's shape/dtype/content, not a stubbed
-    presenter's return string, so a regression back to the old
-    overlay_messages(scene_frame, ...) call -- which would return a
-    3-channel opaque frame instead -- fails this test."""
+    """render_active_mode's no-modal contract (task 9): it returns a
+    UIPainter whose canvas is the RGBA UI layer -- overlay_messages painted
+    on an otherwise untouched painter -- not the opaque scene_frame it used
+    to paint messages onto directly. Asserted on the painter's actual
+    to_frame() shape/dtype/content, not on a stubbed presenter's return
+    string, so a regression back to the old overlay_messages(scene_frame,
+    ...) call -- which would carry a 3-channel opaque frame instead -- fails
+    this test."""
     game = SimpleNamespace(active_modal=None, messages=(), assets=object())
     session = ModalSession()
     renderer = SimpleNamespace(ui_scale=lambda: 1.0)
@@ -1355,7 +1356,7 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
         calls.append("play_tick")
         return True
 
-    def spy_present(image):
+    def spy_present(ui):
         calls.append("present")
 
     event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])

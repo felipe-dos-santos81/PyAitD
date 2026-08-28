@@ -63,16 +63,6 @@ def _quad_verts(x0, y0, x1, y1, flip_v):
     )
 
 
-def _rgba(canvas):
-    canvas = np.ascontiguousarray(canvas)
-    if canvas.shape[2] == 4:
-        return canvas
-    out = np.empty((canvas.shape[0], canvas.shape[1], 4), np.uint8)
-    out[:, :, :3] = canvas
-    out[:, :, 3] = 255
-    return out
-
-
 def composite_ui(scene_rgb, ui_canvas):
     if ui_canvas.shape[2] == 3:
         return np.ascontiguousarray(ui_canvas)
@@ -189,29 +179,42 @@ class Renderer:
         win_w, win_h = pygame.display.get_window_size()
         return min(win_w / IMG_W, win_h / IMG_H)
 
-    def _ui_texture_for(self, canvas):
-        size = (canvas.shape[1], canvas.shape[0])
+    def _ui_texture_for(self, size):
+        """The UI texture, resized to `size` (a (width, height) pair) if the
+        canvas being presented is no longer the size the last one was."""
+        size = tuple(size)
         if self._ui_tex.size != size:
             self._ui_tex.release()
             self._ui_tex = self._ctx.texture(size, 4)
             self._ui_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
         return self._ui_tex
 
-    def present(self, ui_canvas):
+    def present(self, ui):
+        """Draw the scene and `ui` on top of it, then flip.
+
+        `ui` is the UI layer -- an app.ui.UIPainter -- rather than an array:
+        the GL path only ever needed packed RGBA bytes for a texture upload,
+        and `to_frame()`'s numpy round trip costs 18.6 ms at 1280x800
+        against a 16.7 ms frame budget, where `to_bytes()` costs 0.7 ms. The
+        software path still asks for the array, since composite_ui blends in
+        numpy. Duck-typed on `size`/`to_bytes`/`to_frame`, so render/ still
+        imports nothing from app/.
+        """
         self._ctx.screen.use()
         self._ctx.viewport = (0, 0, *pygame.display.get_window_size())
         self._ctx.clear(0.0, 0.0, 0.0, 1.0)
         if isinstance(self.backend, GLBackend):
             self.backend.texture.use(location=0)
             self._vao_scene.render()  # scene at internal resolution, linear
-            self._ui_texture_for(ui_canvas).write(_rgba(ui_canvas).tobytes())
+            ui_tex = self._ui_texture_for(ui.size)
+            ui_tex.write(ui.to_bytes())
             self._ctx.enable(moderngl.BLEND)
             self._ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
-            self._ui_tex.use(location=0)
-            self._vao_ui.render()  # UI at 320x200, nearest, alpha
+            ui_tex.use(location=0)
+            self._vao_ui.render()  # UI at canvas size, nearest, alpha
             self._ctx.disable(moderngl.BLEND)
         else:
-            composed = composite_ui(self.scene_thumbnail(), ui_canvas)
+            composed = composite_ui(self.scene_thumbnail(), ui.to_frame())
             self._scene_tex.write(np.ascontiguousarray(composed).tobytes())
             self._scene_tex.use(location=0)
             self._vao_ui.render()

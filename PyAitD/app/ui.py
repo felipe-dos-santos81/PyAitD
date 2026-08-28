@@ -613,9 +613,14 @@ def _font(size=16):
 
 
 def transparent_canvas():
-    """The 320x200 RGBA canvas presenters paint on: fully clear until drawn,
-    so the renderer's UI/scene compositor only replaces the pixels a
-    presenter actually touched."""
+    """A fully clear 320x200 RGBA array: the golden "nothing was painted"
+    frame the tests compare a scale-1 `UIPainter.to_frame()` against.
+
+    Presenters paint on a `UIPainter`, not on this; it survives only as that
+    comparison value (test_ui_render, test_play_loop, test_render,
+    test_runtime_modes, test_modal_results), and as the shape/dtype the UI
+    canvas the compositor blends is defined to have.
+    """
     return np.zeros((200, 320, 4), dtype=np.uint8)
 
 
@@ -667,7 +672,7 @@ class UIPainter:
     def line(self, colour, start, end, width=1):
         pygame.draw.line(
             self.surface, colour, self._pt(start), self._pt(end),
-            width=max(1, round(width * self.scale)),
+            width=self._width(width),
         )
 
     def circle(self, colour, centre, radius, width=0):
@@ -683,12 +688,36 @@ class UIPainter:
         wash.fill(colour)
         self.surface.blit(wash, (0, 0))
 
-    def text(self, label, size, colour, *, center=None, topleft=None, midtop=None):
+    def text(self, label, size, colour, *, center=None, topleft=None, midtop=None,
+             centered_in=None):
+        """Draw `label`, anchoring the SCALED glyph.
+
+        Every anchor but `topleft` positions the glyph by measuring the
+        surface actually rendered at this scale. Callers must not measure
+        with `text_size` (a scale-1 measurement, see there) and then anchor
+        by `topleft`: pygame's font metrics are not linear in size, so the
+        width measured is not the width drawn and the line lands off centre
+        at every scale above 1 -- a centred book line missed by 4.5 logical
+        pixels at scale 4.
+
+        `centered_in` is a logical rectangle the glyph is centred inside
+        horizontally, its top on the rectangle's top. It exists for the two
+        book columns whose own arithmetic was `left + (width - measured) //
+        2`: centring inside the scaled column reproduces that expression
+        exactly at scale 1 while staying correct above it, where anchoring
+        on the column's midpoint would round the other way and move the
+        scale-1 pixels.
+        """
         glyph = _font(max(1, round(size * self.scale))).render(label, True, colour)
         if center is not None:
             rect = glyph.get_rect(center=self._pt(center))
         elif midtop is not None:
             rect = glyph.get_rect(midtop=self._pt(midtop))
+        elif centered_in is not None:
+            column = self._rect(centered_in)
+            rect = glyph.get_rect(topleft=(
+                column.left + (column.width - glyph.get_width()) // 2, column.top,
+            ))
         else:
             rect = glyph.get_rect(topleft=self._pt(topleft))
         self.surface.blit(glyph, rect)
@@ -707,30 +736,48 @@ class UIPainter:
             None if area is None else self._rect(area),
         )
 
-    def sprite(self, source, logical_dest, area=None):
-        """Blit logical-size art, nearest-upscaled by an integer factor.
+    def sprite(self, source, logical_dest):
+        """Blit logical-size art at the logical rectangle it occupies.
 
-        Game pixel art does not survive fractional resampling, so the factor
-        is rounded and the art stays exact and blocky; the fractional
-        remainder shows as at most a pixel of placement, never as filtering.
+        The destination is `_rect` of that logical rectangle -- the same
+        conversion every other primitive uses -- so the art lands exactly
+        where the geometry says. Scaling to it is `pygame.transform.scale`,
+        which is nearest-neighbour, so pixel art stays blocky: at an integer
+        scale each source pixel is an exact NxN block (bit-identical to
+        scaling by a rounded factor, which is what scale 1 and scale 4 pin),
+        and at a fractional one the blocks are merely uneven.
+
+        Scaling the art by `round(scale)` instead used to shrink it against
+        its own destination: at scale 2.5 a full-frame sprite covered 640x400
+        of an 800x500 canvas, leaving the last fifth of the screen showing
+        whatever was underneath.
         """
         surface = source if isinstance(source, pygame.Surface) else _to_surface(source)
-        factor = max(1, round(self.scale))
-        if factor != 1:
-            width, height = surface.get_size()
-            surface = pygame.transform.scale(surface, (width * factor, height * factor))
-        dest = self._pt(logical_dest)
-        if area is None:
-            self.surface.blit(surface, dest)
-        else:
-            area = pygame.Rect(area)
-            self.surface.blit(surface, dest, pygame.Rect(
-                area.left * factor, area.top * factor,
-                area.width * factor, area.height * factor,
-            ))
+        dest = self._rect(pygame.Rect(logical_dest, surface.get_size()))
+        if dest.size != surface.get_size():
+            surface = pygame.transform.scale(surface, dest.size)
+        self.surface.blit(surface, dest.topleft)
 
     def to_frame(self):
+        """The canvas as a (h, w, 4) uint8 array.
+
+        The numpy contract the software compositor (render.composite_ui) and
+        the render tests are written against. `to_bytes` is the same pixels
+        for a caller that only needs to upload them; prefer it on the hot
+        path -- this round trip costs 18.6 ms at 1280x800 against a 16.7 ms
+        frame budget, and tobytes costs 0.7 ms.
+        """
         return _to_frame(self.surface)
+
+    def to_bytes(self):
+        """The canvas as packed RGBA bytes, row-major top-down.
+
+        Byte-for-byte `to_frame().tobytes()` (pinned by
+        test_to_bytes_matches_the_numpy_round_trip), without building the
+        intermediate arrays: `Renderer.present`'s GL path only ever wanted
+        these bytes to hand to a texture.
+        """
+        return pygame.image.tobytes(self.surface, "RGBA")
 
 
 def _to_surface(frame):
@@ -988,9 +1035,13 @@ def render_reading(painter, effect, presenter, assets, resolver=None):
     pages = reading_pages(effect, assets)
     y = 20
     for text, centered in pages[presenter.page]:
-        width = painter.text_size(text, 16)[0]
-        x = 160 - width // 2 if centered else 60
-        painter.text(text, 16, (43, 31, 22), topleft=(x, y))
+        # the SCALED glyph is anchored, never a scale-1 text_size offset --
+        # see UIPainter.text. `midtop` is exactly the old `160 - width // 2`
+        # at scale 1, and centred on the same point above it.
+        if centered:
+            painter.text(text, 16, (43, 31, 22), midtop=(160, y))
+        else:
+            painter.text(text, 16, (43, 31, 22), topleft=(60, y))
         y += 16
     hover = presenter.hover
     _button(painter, ModalLayout.READING_PREV, "Previous",
@@ -1043,9 +1094,14 @@ def render_character_select(painter, presenter, assets, resolver=None):
     page = layout_book(assets.book_tokens(entry), painter, 15, 150, 12)[0]
     y = 5
     for text, centered in page:
-        width = painter.text_size(text, 15)[0]
-        x = text_x + (150 - width) // 2 if centered else text_x
-        painter.text(text, 15, (43, 31, 22), topleft=(x, y))
+        # `centered_in` is the STORY text column: it anchors the scaled
+        # glyph and reproduces the old `text_x + (150 - width) // 2` exactly
+        # at scale 1 -- see UIPainter.text.
+        if centered:
+            painter.text(text, 15, (43, 31, 22),
+                         centered_in=pygame.Rect(text_x, y, 150, 15))
+        else:
+            painter.text(text, 15, (43, 31, 22), topleft=(text_x, y))
         y += 15
 
 

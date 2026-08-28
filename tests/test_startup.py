@@ -181,3 +181,38 @@ def test_menu_text_ids_resolve_to_the_games_own_strings(data_dir, profile):
     assert [game.assets.system_text(text_id) for text_id in MENU_TEXT_IDS] == [
         "Begin a new game", "Resume a saved game", "Return to DOS",
     ]
+
+
+@pytest.mark.parametrize("scale", (1, 4))
+def test_credits_centred_line_lands_on_the_credits_columns_centre(
+    data_dir, profile, monkeypatch, scale,
+):
+    """render_title measured a centred credits line with the scale-1
+    text_size and placed it by topleft; pygame's font metrics are not linear
+    in size, so at scale 4 the widest real credit ("Realized & Directed by")
+    landed 3.5 logical pixels (14 window pixels) left of the column's
+    centre. Isolates the glyph by diffing against the same page with the
+    line blank, so the AITD1_LIVRE background cancels out."""
+    import numpy as np
+    import pygame
+
+    import PyAitD.app.startup as startup
+
+    pygame.font.init()
+    game = init_game(data_dir, profile)
+    resolver = AssetResolver(game.assets, None)
+    credits = game.cvars[profile.cvar_index("TEXTE_CREDITS")] + 1
+
+    def render(line):
+        monkeypatch.setattr(startup, "_credits_pages", lambda *_a: (((line, True),),))
+        painter = UIPainter(scale)
+        render_title(painter, TitlePresenter(TitlePhase.CREDITS), game.assets, resolver, 0, credits)
+        return painter.to_frame()
+
+    ink = np.argwhere(np.any(render("") != render("Realized & Directed by"), axis=2))
+    assert ink.size, "the centred line drew nothing"
+    centre = (int(ink[:, 1].min()) + int(ink[:, 1].max()) + 1) / 2
+    # AITD1.cpp:159's Lire box is x=48 wide 212, so its centre is logical 154
+    assert abs(centre / scale - 154) <= 1.0, (
+        f"the centred credit spans a box centred on logical x={centre / scale:.2f}, not 154"
+    )

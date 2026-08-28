@@ -24,7 +24,10 @@ from PyAitD.app.ui import (
 pytestmark = pytest.mark.shell
 
 
-def test_modal_renderers_return_logical_rgb_frames(data_dir, profile):
+def test_modal_presenters_paint_rgba_canvases_of_the_painters_size(data_dir, profile):
+    # The presenters return nothing: they paint on the painter they are
+    # handed, and it is the painter's canvas -- RGBA, not RGB -- that is
+    # 320x200 at scale 1.
     pygame.font.init()
     game = init_game(data_dir, profile)
     reading_painter = UIPainter()
@@ -582,3 +585,171 @@ def test_render_character_select_story_phase_does_not_leak_across_calls(data_dir
     second_painter = UIPainter()
     render_character_select(second_painter, presenter, game.assets, resolver)
     assert (first_painter.to_frame() == second_painter.to_frame()).all()
+
+
+# --- scale > 1 end to end ---------------------------------------------------
+# Until this block only three of the thirteen presenters were ever rendered
+# above scale 1, so a whole class of scale bug -- art sized by round(scale)
+# while its destination is sized by the exact scale -- could only be seen by
+# running the game in a window.
+
+_FULL_FRAME_SCALES = (1, 2.5, 4)
+_FULL_FRAME_PRESENTERS = (
+    "system_menu", "system_menu_config", "startup_menu", "inventory",
+    "game_over", "title", "credits",
+)
+
+
+def _full_frame_presenters(game, resolver, credits_entry):
+    """The presenters that paint their own ground and therefore must cover
+    every pixel of the canvas, whatever its size."""
+    from PyAitD.app.startup import (
+        StartupMenuPresenter, TitlePhase, TitlePresenter, render_startup_menu, render_title,
+    )
+    assets = game.assets
+    scene = np.full((200, 320, 3), 90, np.uint8)
+    return {
+        "system_menu": lambda p: render_system_menu(
+            p, SystemMenuPresenter(), default_settings(), assets),
+        "system_menu_config": lambda p: render_system_menu(
+            p, SystemMenuPresenter(page=SystemMenuPage.CONFIG), default_settings(), assets),
+        "startup_menu": lambda p: render_startup_menu(
+            p, StartupMenuPresenter(), assets, continue_enabled=True),
+        "inventory": lambda p: render_inventory(
+            p, InventoryPresenter(), assets, scene, ("Lamp", "Key"), ("Use",)),
+        "game_over": lambda p: render_game_over(p, scene, True),
+        "title": lambda p: render_title(
+            p, TitlePresenter(), assets, resolver, 10_000, credits_entry),
+        "credits": lambda p: render_title(
+            p, TitlePresenter(TitlePhase.CREDITS), assets, resolver, 0, credits_entry),
+    }
+
+
+@pytest.mark.parametrize("scale", _FULL_FRAME_SCALES)
+@pytest.mark.parametrize("name", _FULL_FRAME_PRESENTERS)
+def test_full_frame_presenters_own_every_pixel_at_every_scale(
+    data_dir, profile, name, scale,
+):
+    """A modal that paints its own background must be opaque edge to edge on
+    a canvas of any size. Scaling the art by round(scale) instead of to the
+    scaled destination left the last fifth of a 2.5x canvas showing the live
+    scene through the modal."""
+    pygame.font.init()
+    game = init_game(data_dir, profile)
+    resolver = AssetResolver(game.assets, None)
+    credits_entry = game.cvars[profile.cvar_index("TEXTE_CREDITS")] + 1
+    painter = UIPainter(scale)
+    _full_frame_presenters(game, resolver, credits_entry)[name](painter)
+    frame = painter.to_frame()
+    assert frame.shape[:2] == (painter.size[1], painter.size[0])
+    assert frame[:, :, 3].min() == 255, (
+        f"{name} left a transparent pixel at scale {scale}: it does not cover "
+        f"its own {painter.size} canvas"
+    )
+
+
+@pytest.mark.parametrize("scale", _FULL_FRAME_SCALES)
+def test_settings_notice_washes_the_whole_frame_at_every_scale(scale):
+    # The notice is a translucent overlay, not an opaque modal: what must
+    # reach every pixel is its wash, not full alpha.
+    pygame.font.init()
+    painter = UIPainter(scale)
+    render_settings_notice(painter, "Could not load settings from /x: corrupt")
+    alpha = painter.to_frame()[:, :, 3]
+    assert alpha.min() >= 190, "the dimming wash must reach every pixel of the canvas"
+
+
+def test_sprite_lands_on_its_exact_scaled_destination_at_a_fractional_scale():
+    """The regression test for art scaled by round(scale) but positioned by
+    the exact scale. At 2.5 those disagree by 20%: a full-frame sprite used
+    to cover 640x400 of the 800x500 canvas, anchored top-left."""
+    scale = 2.5
+    painter = UIPainter(scale)
+    assert painter.size == (800, 500)
+    art = np.zeros((10, 20, 4), np.uint8)
+    art[:, :] = (255, 0, 0, 255)
+    painter.sprite(art, (30, 40))
+    frame = painter.to_frame()
+    # exactly what UIPainter._rect makes of the logical rect (30, 40, 20, 10)
+    dest = pygame.Rect(75, 100, 50, 25)
+    inside = frame[dest.top:dest.bottom, dest.left:dest.right]
+    assert (inside[:, :, :3] == (255, 0, 0)).all() and (inside[:, :, 3] == 255).all()
+    assert frame[dest.top, dest.left - 1, 3] == 0, "painted left of the destination"
+    assert frame[dest.top, dest.right, 3] == 0, "painted right of the destination"
+    assert frame[dest.top - 1, dest.left, 3] == 0, "painted above the destination"
+    assert frame[dest.bottom, dest.left, 3] == 0, "painted below the destination"
+
+    full = UIPainter(scale)
+    full.sprite(np.full((200, 320, 4), 255, np.uint8), (0, 0))
+    assert full.to_frame()[:, :, 3].min() == 255, (
+        "logical-full-frame art must fill the whole fractional canvas"
+    )
+
+
+@pytest.mark.parametrize("scale", (1, 4))
+def test_centred_book_line_lands_on_the_logical_centre(data_dir, profile, scale):
+    """Measuring with the scale-1 text_size and placing by topleft put a
+    centred reading line 4.5 logical pixels left of centre at scale 4,
+    because pygame's font metrics are not linear in size. Isolates the
+    glyph by diffing against the same page with the line blank, so the
+    background art and the buttons cancel out."""
+    pygame.font.init()
+    game = init_game(data_dir, profile)
+    resolver = AssetResolver(game.assets, None)
+    effect = ReadText(1, 0)
+
+    def render(page):
+        game.assets.book_pages[effect.text_index] = (page,)
+        painter = UIPainter(scale)
+        render_reading(painter, effect, ReadingPresenter(), game.assets, resolver)
+        return painter.to_frame()
+
+    blank = render((("", True),))
+    painted = render((("Realized & Directed by", True),))
+    ink = np.argwhere(np.any(blank != painted, axis=2))
+    assert ink.size, "the centred line drew nothing"
+    centre = (int(ink[:, 1].min()) + int(ink[:, 1].max()) + 1) / 2
+    assert abs(centre / scale - 160) <= 1.0, (
+        f"the centred line's ink spans a box centred on logical x="
+        f"{centre / scale:.2f}, not 160"
+    )
+
+
+def test_to_bytes_matches_the_numpy_round_trip():
+    """present()'s GL path uploads to_bytes() instead of to_frame().tobytes()
+    -- 0.7 ms rather than 18.6 ms at 1280x800 -- so the two must be the same
+    bytes, not merely the same picture."""
+    pygame.font.init()
+    for scale in (1, 2.5, 4):
+        painter = UIPainter(scale)
+        render_play_hud(painter, inventory_available=True)
+        render_cursor(painter, (100, 50), "attack")
+        painter.text("Wg", 16, (255, 255, 255), center=(160, 100))
+        assert painter.to_bytes() == painter.to_frame().tobytes()
+
+
+def test_zero_width_line_paints_nothing_like_pygame_draw():
+    """`width=0` means "filled" to pygame's shape calls and "no line" to
+    pygame.draw.line; UIPainter._width preserves the 0, so a caller passing
+    it cannot get a 41-pixel-thick line out of the scale multiplication."""
+    painter = UIPainter(4)
+    painter.line((255, 255, 255), (10, 10), (100, 10), width=0)
+    assert painter.to_frame()[:, :, 3].max() == 0
+    painter.line((255, 255, 255), (10, 10), (100, 10), width=1)
+    assert painter.to_frame()[:, :, 3].max() == 255, "a hairline still draws"
+
+
+@pytest.mark.parametrize(("scale", "top", "bottom", "right"),
+                         ((1, 60, 139, 319), (2.5, 150, 349, 799), (4, 240, 559, 1279)))
+def test_big_cadre_spans_its_exact_scaled_box(data_dir, profile, scale, top, bottom, right):
+    """draw_big_cadre assembles the FITD tiling on a logical surface and
+    hands it to painter.sprite; the assembled frame must land on the exact
+    scaled box, not on a round(scale) one. At 2.5 the rounded factor put the
+    startup cadre 20% undersized and anchored top-left, framing nothing --
+    the buttons it surrounds are placed at exact-scale positions."""
+    cadre_bank = Assets(data_dir, profile).cadre_bank()
+    painter = UIPainter(scale)
+    draw_big_cadre(painter, cadre_bank, (160, 100), (320, 80))  # StartupLayout.CADRE
+    ink = np.argwhere(painter.to_frame()[:, :, 3] > 0)
+    assert (int(ink[:, 0].min()), int(ink[:, 0].max())) == (top, bottom)
+    assert (int(ink[:, 1].min()), int(ink[:, 1].max())) == (0, right)
