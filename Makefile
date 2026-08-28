@@ -16,7 +16,7 @@ overrides ?= data/aitd1/overrides
 # the mixer from opening a device on machines that have one.
 HEADLESS = SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy
 
-.PHONY: help install run run-combat run-mouse-combat test test-engine test-render test-shell test-tools test-meta test-journey proof-mouse proof-combat proof-graphics proof-intro prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro export-backgrounds check-overrides regenerate-backgrounds clean
+.PHONY: help install run run-combat run-mouse-combat test test-engine test-render test-shell test-tools test-meta test-journey proof-mouse proof-combat proof-graphics proof-intro prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro export-backgrounds check-overrides regenerate-backgrounds bootstrap-materials clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -120,3 +120,8 @@ check-overrides: install ## Check an override dir the way the game loads it (ove
 
 regenerate-backgrounds: install ## Regenerate data/aitd1/overrides backgrounds with Gemini into data/aitd1/overrides-ai (in=, out_ai=, floors=0-7, style=, force=1, dry=1, text_model=, attempts=3, gate_scale=1.0, screens=0 to skip screens); rejects plates whose layout drifts; needs the `agy` CLI on PATH
 	$(PYTHON) tools/regenerate_backgrounds.py "$(or $(in),data/aitd1/overrides)" --out "$(or $(out_ai),data/aitd1/overrides-ai)" --floors "$(or $(floors),0-7)" $(if $(style),--style "$(style)") $(if $(force),--force) $(if $(dry),--dry-run) $(if $(text_model),--text-model "$(text_model)") $(if $(attempts),--attempts "$(attempts)") $(if $(gate_scale),--gate-scale "$(gate_scale)") $(if $(filter 0,$(screens)),--no-screens)
+
+bootstrap-materials: install ## Survey palette ramps + body usage into data/aitd1/materials-survey, then emit PyAitD/render/materials.json (out=, vision=1 runs the agy labelling stage in between, model=, threshold=0.8)
+	$(PYTHON) tools/bootstrap_materials.py "$(data)" survey --out "$(or $(survey_out),data/aitd1/materials-survey)"
+	$(if $(vision),$(PYTHON) tools/bootstrap_materials.py "$(data)" label --out "$(or $(survey_out),data/aitd1/materials-survey)" $(if $(model),--model "$(model)") $(if $(threshold),--threshold "$(threshold)"))
+	$(PYTHON) tools/bootstrap_materials.py "$(data)" emit --out "$(or $(survey_out),data/aitd1/materials-survey)"
