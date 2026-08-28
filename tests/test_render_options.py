@@ -9,7 +9,7 @@ pytestmark = pytest.mark.render
 
 
 def test_defaults():
-    assert RenderOptions() == RenderOptions(4, "smooth", "bilinear", None)
+    assert RenderOptions() == RenderOptions(4, "smooth", "bilinear", None, "fixed", 4)
     assert SHADING_MODES == ("flat", "lambert", "smooth")
     assert BACKGROUND_FILTERS == ("nearest", "bilinear", "xbr")
 
@@ -23,12 +23,12 @@ def test_each_invalid_field_falls_back_alone():
     options, error = validate_render_options(
         {"scale": 99, "shading": "smooth", "background_filter": "bilinear", "override_dir": None,
          "lighting": "fixed", "msaa": 0})
-    assert options == RenderOptions(8, "smooth", "bilinear", None)  # clamped, not rejected
+    assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0)  # clamped, not rejected
     assert error is None
     options, error = validate_render_options(
         {"scale": "x", "shading": "neon", "background_filter": "bilinear", "override_dir": 3,
          "lighting": "fixed", "msaa": 0})
-    assert options == RenderOptions(4, "smooth", "bilinear", None)
+    assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0)
     assert "scale" in error and "shading" in error and "override_dir" in error
 
 
@@ -50,10 +50,10 @@ def test_lighting_and_msaa_default_off_and_cycle():
     assert LIGHTING_MODES == ("fixed", "scene")
     assert MSAA_LEVELS == (0, 2, 4, 8)
     options = RenderOptions()
-    assert options.lighting == "fixed" and options.msaa == 0
+    assert options.lighting == "fixed" and options.msaa == 4
     assert cycle_lighting(options).lighting == "scene"
     assert cycle_lighting(cycle_lighting(options)).lighting == "fixed"
-    assert cycle_msaa(options).msaa == 2
+    assert cycle_msaa(options).msaa == 8
     assert cycle_msaa(RenderOptions(msaa=8)).msaa == 0
 
 

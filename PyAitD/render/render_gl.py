@@ -219,6 +219,10 @@ class GLBackend:
         self.texture = None
         self._depth = None
         self._fbo = None
+        self.samples = 0
+        self._ms_color = None
+        self._ms_depth = None
+        self._ms_fbo = None
         self._target = None
         self._mask_tex = None
         self._mask_fbo = None
@@ -318,25 +322,34 @@ class GLBackend:
             self._thumb_quad_vao = ctx.vertex_array(
                 self._bg_prog, [(self._thumb_quad, "2f 2f", "in_pos", "in_uv")])
 
-            self._sphere = icosphere(1)
             # `_draw_frame` renders exclusively through `self._target`, never
-            # `self._fbo`, directly; today the two are the same object, so
-            # Task 6 can swap this one line for a real multisample
-            # framebuffer without touching any call site below. `self._fbo`
-            # itself is still named directly only where it is genuinely the
-            # single-sampled result -- allocation above, `release()`, and
-            # (once Task 6 lands) the resolve target.
-            self._target = self._fbo
+            # `self._fbo`, directly. `self._fbo` itself is still named
+            # directly only where it is genuinely the single-sampled result
+            # -- allocation above, `release()`, and the resolve target below.
+
+            # A driver that supports fewer samples than asked gets what it
+            # has rather than an exception: msaa is a quality knob, not a
+            # requirement, and _select_backend would otherwise drop the
+            # whole GL path to software over it.
+            self.samples = min(options.msaa, ctx.max_samples) if options.msaa else 0
+            if self.samples:
+                self._ms_color = ctx.renderbuffer(self.size, 4, samples=self.samples)
+                self._ms_depth = ctx.depth_renderbuffer(self.size, samples=self.samples)
+                self._ms_fbo = ctx.framebuffer(
+                    color_attachments=[self._ms_color], depth_attachment=self._ms_depth)
+            self._target = self._ms_fbo or self._fbo
+
+            self._sphere = icosphere(1)
         except Exception:
             self.release()
             raise
 
     def release(self):
-        # `self._target` is intentionally absent: today it aliases `self._fbo`
-        # (Task 6 gives it its own multisample framebuffer, resolved into
-        # `self._fbo`), and `self._fbo` is released below under its own
-        # name. Releasing it a second time through `self._target` would be
-        # a double-release of the same GL object.
+        # `self._target` is intentionally absent: it aliases either
+        # `self._ms_fbo` (when msaa is on) or `self._fbo` (when it's off),
+        # and each of those is released below under its own name. Releasing
+        # it a second time through `self._target` would be a double-release
+        # of the same GL object.
         for resource in (
             self._quad_vao, self._quad,
             self._thumb_quad_vao, self._thumb_quad,
@@ -346,6 +359,7 @@ class GLBackend:
             self._shadow_fbo, self._shadow_tex,
             self._mask_fbo, self._mask_tex,
             self._thumb_fbo, self._thumb_tex,
+            self._ms_fbo, self._ms_color, self._ms_depth,
             self._fbo, self._depth, self.texture,
             self._bg_tex,
         ):
@@ -398,6 +412,7 @@ class GLBackend:
         self._target.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
+        self._ctx.disable(moderngl.BLEND)
         self._target.color_mask = (True, True, True, True)
         self._ctx.clear(0.0, 0.0, 0.0, 1.0)
 
@@ -459,6 +474,11 @@ class GLBackend:
 
             self._draw_actor(actor, frame, palette)
             self._ctx.disable(moderngl.DEPTH_TEST)
+
+        if self._ms_fbo is not None:
+            # Resolves the multisample buffer down into `.texture`, which is
+            # what read_rgb, thumbnail and Renderer all read.
+            self._ctx.copy_framebuffer(self._fbo, self._ms_fbo)
 
     def _draw_background(self, asset):
         pixels = asset.pixels

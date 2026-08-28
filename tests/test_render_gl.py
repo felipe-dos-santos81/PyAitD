@@ -586,7 +586,7 @@ def test_shading_modes_differ(gl_ctx):
 
 
 def test_sphere_and_line_and_point_render(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", msaa=0))
     # y=2.0 (not 0.0) on both endpoints: a perfectly horizontal line at
     # world y=0 projects to exactly sy=100, so the line's half-width-0.5
     # quad spans logical y [99.5, 100.5] -- both of those are themselves
@@ -629,6 +629,50 @@ def test_thumbnail_is_a_true_box_average(gl_ctx):
     backend.release()
 
 
+def test_msaa_resolves_into_the_same_texture(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", msaa=4))
+    assert backend.size == (320, 200)
+    plate = np.full((200, 320, 3), 40, np.uint8)
+    backend.draw(_frame([_actor(0, _tri_geometry(600.0, 1))], background=plate))
+    rendered = backend.read_rgb()
+    assert rendered.shape == (200, 320, 3)
+    assert rendered.max() > 0                      # something actually landed
+    assert backend.thumbnail().shape == (200, 320, 3)
+    backend.release()
+
+
+def test_msaa_softens_a_diagonal_edge(gl_ctx):
+    # The whole point: with multisampling the silhouette gains intermediate
+    # values along its diagonal that a single-sampled render cannot produce.
+    plate = np.zeros((200, 320, 3), np.uint8)
+    frame = _frame([_actor(0, _tri_geometry(600.0, 1))], background=plate)
+
+    def edge_values(msaa):
+        backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", msaa=msaa))
+        backend.draw(frame)
+        red = backend.read_rgb()[:, :, 0].astype(int)
+        backend.release()
+        return red
+
+    aliased, smoothed = edge_values(0), edge_values(4)
+    partial = ((smoothed > 0) & (smoothed < 255)).sum()
+    assert partial > ((aliased > 0) & (aliased < 255)).sum()
+
+
+def test_msaa_is_clamped_to_what_the_context_supports(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", msaa=8))
+    assert backend.samples <= gl_ctx.max_samples
+    backend.release()
+
+
+def test_msaa_zero_keeps_the_single_sampled_path(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", msaa=0))
+    assert backend.samples == 0
+    assert backend._target is backend._fbo
+    assert backend._ms_fbo is None
+    backend.release()
+
+
 def test_release_is_safe_to_call_repeatedly(gl_ctx):
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
     backend.release()
@@ -651,13 +695,14 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
 
     backend = object.__new__(GLBackend)
     with pytest.raises(RuntimeError, match="icosphere blew up"):
-        backend.__init__(gl_ctx, RenderOptions(scale=8, shading="flat"))
+        backend.__init__(gl_ctx, RenderOptions(scale=8, shading="flat", msaa=4))
 
     leak_checked = 0
     for attr in (
         "texture", "_depth", "_fbo", "_mask_tex", "_mask_fbo",
         "_shadow_tex", "_shadow_fbo", "_shadow_prog", "_shadow_geom_prog",
         "_shadow_quad", "_shadow_quad_vao",
+        "_ms_color", "_ms_depth", "_ms_fbo",
         "_bg_prog", "_actor_prog", "_screen_prog", "_stencil_prog",
         "_quad", "_quad_vao", "_thumb_tex", "_thumb_fbo",
         "_thumb_quad", "_thumb_quad_vao",
@@ -666,7 +711,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         assert resource is not None, f"{attr} was never allocated before the failure"
         assert isinstance(resource.mglo, moderngl.InvalidObject), f"{attr} leaked (not released)"
         leak_checked += 1
-    assert leak_checked == 21  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 24  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 

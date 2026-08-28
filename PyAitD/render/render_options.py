@@ -17,7 +17,7 @@ class RenderOptions:
     background_filter: str = "bilinear"
     override_dir: str | None = None
     lighting: str = "fixed"
-    msaa: int = 0
+    msaa: int = 4
 
     def to_payload(self):
         return {
