@@ -24,7 +24,7 @@ import numpy as np
 
 from PyAitD.engine.cos_table import sin_cos
 from PyAitD.render.geometry import icosphere
-from PyAitD.render.lighting import shading_terms
+from PyAitD.render.lighting import project_to_plane, shading_terms
 from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
 
 W, H = 320, 200
@@ -119,6 +119,26 @@ _STENCIL_FSH = """
 out vec4 f_color;
 void main() { f_color = vec4(1.0); }
 """
+_SHADOW_GEOM_VSH = """
+#version 330
+uniform mat4 mvp;
+in vec3 in_pos;
+void main() { gl_Position = mvp * vec4(in_pos, 1.0); }
+"""
+_SHADOW_FSH = """
+#version 330
+uniform sampler2D shadow_tex; uniform sampler2D mask_tex;
+uniform vec2 target_size; uniform vec3 shadow_color; uniform float opacity;
+out vec4 f_color;
+void main() {
+    vec2 uv = gl_FragCoord.xy / target_size;
+    // A foreground mask hides the shadow exactly as it hides the actor.
+    if (texture(mask_tex, uv).r > 0.5) discard;
+    // Coverage is binary, so overlapping limbs darken a pixel once.
+    if (texture(shadow_tex, uv).r < 0.5) discard;
+    f_color = vec4(shadow_color, opacity);
+}
+"""
 
 
 def rotation_matrix(state):
@@ -196,6 +216,12 @@ class GLBackend:
         self._fbo = None
         self._mask_tex = None
         self._mask_fbo = None
+        self._shadow_tex = None
+        self._shadow_fbo = None
+        self._shadow_prog = None
+        self._shadow_geom_prog = None
+        self._shadow_quad = None
+        self._shadow_quad_vao = None
         self._bg_prog = None
         self._actor_prog = None
         self._screen_prog = None
@@ -222,6 +248,26 @@ class GLBackend:
             self._mask_tex.repeat_x = False
             self._mask_tex.repeat_y = False
             self._mask_fbo = ctx.framebuffer(color_attachments=[self._mask_tex])
+
+            self._shadow_tex = ctx.texture(self.size, 1)
+            self._shadow_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+            self._shadow_tex.repeat_x = False
+            self._shadow_tex.repeat_y = False
+            self._shadow_fbo = ctx.framebuffer(color_attachments=[self._shadow_tex])
+            self._shadow_geom_prog = ctx.program(
+                vertex_shader=_SHADOW_GEOM_VSH, fragment_shader=_STENCIL_FSH)
+            self._shadow_prog = ctx.program(
+                vertex_shader=_STENCIL_VSH, fragment_shader=_SHADOW_FSH)
+            # A full-target triangle pair in NDC. `_quad` cannot be reused:
+            # it carries interleaved UVs the shadow composite has no
+            # attribute for.
+            shadow_quad = np.array([
+                -1, -1,  1, -1,  1, 1,
+                -1, -1,  1,  1, -1, 1,
+            ], dtype="f4")
+            self._shadow_quad = ctx.buffer(shadow_quad.tobytes())
+            self._shadow_quad_vao = ctx.vertex_array(
+                self._shadow_prog, [(self._shadow_quad, "2f", "in_pos")])
 
             self._bg_prog = ctx.program(vertex_shader=_BG_VSH, fragment_shader=_BG_FSH)
             self._actor_prog = ctx.program(vertex_shader=_ACTOR_VSH, fragment_shader=_ACTOR_FSH)
@@ -267,6 +313,10 @@ class GLBackend:
                 self._bg_prog, [(self._thumb_quad, "2f 2f", "in_pos", "in_uv")])
 
             self._sphere = icosphere(1)
+            # Task 6 replaces this with a multisample framebuffer; every
+            # draw call below already targets `self._target` so that swap
+            # is a one-line change instead of touching every call site.
+            self._target = self._fbo
         except Exception:
             self.release()
             raise
@@ -276,6 +326,9 @@ class GLBackend:
             self._quad_vao, self._quad,
             self._thumb_quad_vao, self._thumb_quad,
             self._stencil_prog, self._screen_prog, self._actor_prog, self._bg_prog,
+            self._shadow_quad_vao, self._shadow_quad,
+            self._shadow_prog, self._shadow_geom_prog,
+            self._shadow_fbo, self._shadow_tex,
             self._mask_fbo, self._mask_tex,
             self._thumb_fbo, self._thumb_tex,
             self._fbo, self._depth, self.texture,
@@ -334,6 +387,10 @@ class GLBackend:
         self._actor_prog["mvp"].write(mvp.T.tobytes())
         self._actor_prog["rot"].write(rot.T.tobytes())
         scene_lit = self._options.lighting == "scene"
+        # rotation_matrix maps world -> camera and is orthonormal, so its
+        # transpose maps back. `direction` points toward the light; light
+        # travels the other way.
+        travel = -(rot.astype(np.float64).T @ np.asarray(frame.light.direction, np.float64))
         self._actor_prog["shading"].value = _SHADING_INDEX[self._options.shading]
         if scene_lit:
             key, ambient = shading_terms(frame.light)
@@ -356,7 +413,11 @@ class GLBackend:
             masks = [mask_by_id[i] for i in actor.mask_ids if i in mask_by_id]
             self._rasterize_masks(masks)  # switches to the mask FBO and disables depth test
 
-            self._fbo.use()
+            if scene_lit:
+                self._rasterize_shadow(actor, travel, mvp)
+                self._composite_shadow(frame.light)
+
+            self._target.use()
             self._ctx.viewport = (0, 0, *self.size)
             self._ctx.enable(moderngl.DEPTH_TEST)
             self._ctx.depth_func = "<="
@@ -441,6 +502,50 @@ class GLBackend:
                 vao.render(moderngl.TRIANGLES)
                 vao.release()
                 buf.release()
+
+    def _rasterize_shadow(self, actor, travel, mvp):
+        """This actor's triangles, flattened onto the ground plane beneath it,
+        into the single-channel coverage texture.
+
+        The plane is the actor's own zv lower bound -- world y grows
+        downward, so the feet are the larger of the two y bounds. It travels
+        with the actor, which is why a shadow never detaches in mid-air; see
+        the spec's Limitations."""
+        self._shadow_fbo.use()
+        self._ctx.viewport = (0, 0, *self.size)
+        self._ctx.disable(moderngl.DEPTH_TEST)
+        self._shadow_fbo.clear(0.0, 0.0, 0.0, 0.0)
+        geometry = actor.geometry
+        if not len(geometry.tris):
+            return
+        plane_y = float(max(actor.zv[2], actor.zv[3]))
+        world = geometry.vertices.astype(np.float64) + np.asarray(actor.position, np.float64)
+        flat = project_to_plane(world, travel, plane_y)
+        verts = flat[geometry.tris.reshape(-1)].astype("f4")
+        self._shadow_geom_prog["mvp"].write(mvp.T.astype("f4").tobytes())
+        buf = self._ctx.buffer(np.ascontiguousarray(verts).tobytes())
+        vao = self._ctx.vertex_array(self._shadow_geom_prog, [(buf, "3f", "in_pos")])
+        vao.render(moderngl.TRIANGLES)
+        vao.release()
+        buf.release()
+
+    def _composite_shadow(self, light):
+        """Blend the coverage texture over the background as the room's own
+        ambient colour: a shadowed floor still shows the fill light, so the
+        result can never go darker than the room's own shadows do."""
+        self._target.use()
+        self._ctx.viewport = (0, 0, *self.size)
+        self._ctx.disable(moderngl.DEPTH_TEST)
+        self._shadow_tex.use(location=2)
+        self._mask_tex.use(location=1)
+        self._shadow_prog["shadow_tex"].value = 2
+        self._shadow_prog["mask_tex"].value = 1
+        self._shadow_prog["target_size"].value = self.size
+        self._shadow_prog["shadow_color"].value = tuple(float(c) for c in light.ambient)
+        self._shadow_prog["opacity"].value = float(0.25 + 0.45 * light.contrast)
+        self._ctx.enable(moderngl.BLEND)
+        self._shadow_quad_vao.render(moderngl.TRIANGLES)
+        self._ctx.disable(moderngl.BLEND)
 
     # ---- per-actor primitives ----
 

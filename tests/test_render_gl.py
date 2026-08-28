@@ -42,6 +42,100 @@ def _frame(actors, masks=(), background=None):
     return FrameDescription(_view(), ImageAsset(background, False), _palette(), tuple(actors), tuple(masks))
 
 
+def _scene_light(direction):
+    from PyAitD.render.lighting import SceneLight
+    return SceneLight(direction, (1.0, 1.0, 1.0), (0.1, 0.1, 0.1), 1.0)
+
+
+def _doubled_tri_geometry(z, color, span):
+    """One triangle drawn twice: identical coverage, two overlapping draws."""
+    base = _tri_geometry(z, color, span)
+    return BodyGeometry(
+        base.vertices, base.normals,
+        np.array([[0, 1, 2], [0, 1, 2]], np.int32), np.array([color, color], np.uint8),
+        base.lines, base.line_colors, base.spheres,
+        base.points, base.point_sizes, base.point_colors)
+
+
+def _plain_background(gl_ctx, plate):
+    """The same plate with no actors at all: the baseline a shadow darkens."""
+    empty = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene"))
+    empty.draw(FrameDescription(_view(), ImageAsset(plate, False), _palette(), (), ()))
+    out = empty.read_rgb().astype(int)
+    empty.release()
+    return out
+
+
+def _standing_actor(index, geometry, feet_y):
+    zv = (0, 0, feet_y - 200, feet_y, 0, 0)
+    return ActorDraw(index, geometry, (0.0, 0.0, 0.0), 0, zv, RenderResult([], []), ())
+
+
+def _lit_scene_backend(gl_ctx):
+    return GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene"))
+
+
+def test_a_shadow_darkens_the_ground_below_the_actor_only(gl_ctx):
+    backend = _lit_scene_backend(gl_ctx)
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    geometry = _tri_geometry(600.0, 1, span=100.0)
+    actor = _standing_actor(0, geometry, feet_y=150)
+    light = _scene_light((0.0, -1.0, -0.2))
+    frame = FrameDescription(_view(), ImageAsset(plate, False), _palette(), (actor,), (), light)
+    backend.draw(frame)
+    rendered = backend.read_rgb().astype(int)
+    plain = _plain_background(gl_ctx, plate)
+    # somewhere below the actor's feet the plate got darker...
+    assert (rendered[120:, :] < plain[120:, :] - 5).any()
+    # ...and nothing above the top of the frame did
+    assert (rendered[:5, :] >= plain[:5, :] - 1).all()
+    backend.release()
+
+
+def test_overlapping_shadow_triangles_darken_a_pixel_once(gl_ctx):
+    # Coverage is binary: two limbs crossing must not stack into a black
+    # blob. This is the whole reason the pass goes through a texture.
+    backend = _lit_scene_backend(gl_ctx)
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    single = _standing_actor(0, _tri_geometry(600.0, 1, span=100.0), feet_y=150)
+    doubled = _standing_actor(0, _doubled_tri_geometry(600.0, 1, span=100.0), feet_y=150)
+    light = _scene_light((0.0, -1.0, -0.2))
+    backend.draw(FrameDescription(_view(), ImageAsset(plate, False), _palette(), (single,), (), light))
+    once = backend.read_rgb().astype(int)
+    backend.draw(FrameDescription(_view(), ImageAsset(plate, False), _palette(), (doubled,), (), light))
+    twice = backend.read_rgb().astype(int)
+    assert np.array_equal(once, twice)
+    backend.release()
+
+
+def test_a_foreground_mask_erases_the_shadow_under_it(gl_ctx):
+    backend = _lit_scene_backend(gl_ctx)
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    actor = _standing_actor(0, _tri_geometry(600.0, 1, span=100.0), feet_y=150)
+    masked = ActorDraw(actor.index, actor.geometry, actor.position, actor.room, actor.zv,
+                       actor.logical, (0,))
+    full = MaskDraw(0, (np.array([[0, 0], [320, 0], [320, 200], [0, 200]], np.int16),),
+                    (0, 0, 320, 200), 0, ())
+    light = _scene_light((0.0, -1.0, -0.2))
+    frame = FrameDescription(_view(), ImageAsset(plate, False), _palette(), (masked,), (full,), light)
+    backend.draw(frame)
+    assert np.array_equal(backend.read_rgb(), _plain_background(gl_ctx, plate))
+    backend.release()
+
+
+def test_fixed_lighting_casts_no_shadow(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="fixed"))
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    actor = _standing_actor(0, _tri_geometry(600.0, 1, span=100.0), feet_y=150)
+    light = _scene_light((0.0, -1.0, -0.2))
+    with_light = FrameDescription(_view(), ImageAsset(plate, False), _palette(), (actor,), (), light)
+    backend.draw(with_light)
+    lit = backend.read_rgb().copy()
+    backend.draw(_frame([actor], background=plate))
+    assert np.array_equal(backend.read_rgb(), lit)
+    backend.release()
+
+
 def test_target_size_follows_scale(gl_ctx):
     backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="flat"))
     assert backend.size == (640, 400)
@@ -415,6 +509,8 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
     leak_checked = 0
     for attr in (
         "texture", "_depth", "_fbo", "_mask_tex", "_mask_fbo",
+        "_shadow_tex", "_shadow_fbo", "_shadow_prog", "_shadow_geom_prog",
+        "_shadow_quad", "_shadow_quad_vao",
         "_bg_prog", "_actor_prog", "_screen_prog", "_stencil_prog",
         "_quad", "_quad_vao", "_thumb_tex", "_thumb_fbo",
         "_thumb_quad", "_thumb_quad_vao",
@@ -423,7 +519,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         assert resource is not None, f"{attr} was never allocated before the failure"
         assert isinstance(resource.mglo, moderngl.InvalidObject), f"{attr} leaked (not released)"
         leak_checked += 1
-    assert leak_checked == 15  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 21  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
