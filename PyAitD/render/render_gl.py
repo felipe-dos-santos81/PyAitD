@@ -540,10 +540,15 @@ class GLBackend:
         self._shadow_fbo.clear(0.0, 0.0, 0.0, 0.0)
         geometry = actor.geometry
         if not len(geometry.tris):
-            # The clear above must stay above this guard, not move below
-            # it: it is the only thing that stops a triangle-less actor
-            # from inheriting the previous actor's leftover coverage in
-            # this one shared texture.
+            # This guard's own return value is what keeps a triangle-less
+            # actor from compositing at all (see the call site's `if
+            # scene_lit and self._rasterize_shadow(...)`), so a stale
+            # texture reaching this actor's own composite is not the risk
+            # here. The clear above still has a real job: it resets the one
+            # shared texture between any two *casting* actors -- without
+            # it, a later actor with a smaller silhouette would inherit
+            # coverage left over from an earlier, larger one at the pixels
+            # its own triangles don't reach.
             return False
         plane_y = float(max(actor.zv[2], actor.zv[3]))
         world = geometry.vertices.astype(np.float64) + np.asarray(actor.position, np.float64)

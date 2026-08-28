@@ -196,16 +196,18 @@ def test_shadow_lands_where_the_light_direction_says_under_a_rotated_camera(gl_c
 
 
 def test_a_triangle_less_actor_leaves_no_shadow_and_does_not_disturb_another_actors(gl_ctx):
-    """The shadow texture is a single scratch resource shared across actors
-    and reset per actor. A frame with a triangle-less actor alongside a
-    real shadow caster -- in either draw order -- must render byte-
-    identical to the caster alone: the triangle-less actor must not
-    inherit the caster's leftover coverage (which would show up as a
-    phantom shadow at its own, different, position), and the caster's own
-    shadow must be unaffected by whichever actor drew immediately before
-    it. This is also what exercises the `if not len(geometry.tris): return`
-    guard in `_rasterize_shadow` at all -- every other scene-lit test in
-    this file uses a single actor."""
+    """Smoke case only -- see test_two_different_casters_do_not_share_leftover_shadow_coverage
+    below for the test that actually pins the per-actor coverage reset.
+    Because a triangle-less actor never composites at all (`if scene_lit
+    and self._rasterize_shadow(...)`  short-circuits for it), pairing one
+    with a real caster is a no-op by construction: it cannot fail whether
+    or not the shadow texture is reset between actors, so it does NOT pin
+    the reset, the guard's position relative to the clear, or painter
+    order. What it does verify is narrower: a triangle-less actor renders
+    nothing of its own and does not change the caster's own output,
+    regardless of draw order. It's kept because it's the only test in this
+    file that exercises the `if not len(geometry.tris): return False`
+    guard's return path at all."""
     backend = _lit_scene_backend(gl_ctx)
     plate = np.full((200, 320, 3), 200, np.uint8)
     light = _scene_light((0.0, -1.0, -0.2))
@@ -227,6 +229,58 @@ def test_a_triangle_less_actor_leaves_no_shadow_and_does_not_disturb_another_act
         assert np.array_equal(backend.read_rgb(), solo_result)
 
     backend.release()
+
+
+def test_two_different_casters_do_not_share_leftover_shadow_coverage(gl_ctx):
+    """This is the test that actually pins the per-actor coverage reset.
+    Both actors here have real triangles, so neither one's composite is
+    ever skipped -- unlike the triangle-less smoke case above, this cannot
+    pass by construction; it has to actually reset the shared shadow
+    texture between actors to come out right.
+
+    Two actors share one position: `large` (span=300) draws first, then
+    `small` (span=60) draws on top of it. `small`'s own shadow/body can
+    only affect pixels within its own (smaller) footprint. So consider the
+    annulus -- pixels `large` alone darkens that `small` alone never
+    touches: under a correct per-actor reset, only `large`'s own composite
+    ever reaches those pixels, so a frame with both actors must match a
+    frame with `large` alone there, exactly. Without the reset, `small`'s
+    rasterize call would draw its own (small) triangle over `large`'s
+    still-resident (large) coverage rather than a cleared texture, so
+    `small`'s composite would incorrectly darken that whole annulus a
+    second time.
+
+    Measured on this implementation: removing the `_shadow_fbo.clear()` in
+    `_rasterize_shadow` turns 0 differing pixels in the annulus into 160."""
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    light = _scene_light((0.0, -1.0, -0.2))
+    large = _standing_actor(0, _tri_geometry(600.0, 1, span=300.0), feet_y=150)
+    small = _standing_actor(1, _tri_geometry(600.0, 1, span=60.0), feet_y=150)
+
+    def render(actors):
+        # A fresh backend per frame: the shadow texture is a scratch
+        # resource that persists across draw() calls on the same backend,
+        # and reusing one backend for the reference renders below would
+        # let an earlier frame's leftover coverage contaminate them --
+        # exactly the bug this test exists to catch, just relocated to the
+        # test's own reference images instead of the thing under test.
+        backend = _lit_scene_backend(gl_ctx)
+        backend.draw(FrameDescription(_view(), ImageAsset(plate, False), _palette(), actors, (), light))
+        image = backend.read_rgb().astype(int)
+        backend.release()
+        return image
+
+    solo_large = render((large,))
+    solo_small = render((small,))
+    paired = render((large, small))
+    plain = render(())
+
+    dark_large = np.any(solo_large < plain - 5, axis=2)
+    affected_by_small = np.any(solo_small != plain, axis=2)
+    annulus = dark_large & ~affected_by_small
+    assert annulus.sum() > 1000, "the annulus is too small to be a meaningful check"
+
+    assert np.array_equal(paired[annulus], solo_large[annulus])
 
 
 def test_target_size_follows_scale(gl_ctx):
