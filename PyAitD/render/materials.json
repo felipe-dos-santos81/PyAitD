@@ -3,14 +3,14 @@
   {
    "lo": 0,
    "hi": 1,
-   "class": "stone",
-   "note": "bodies 0:13, 0:14, 0:189, 0:190, 0:195, 1:13 ...; groups -1; heuristic: stone (0.4)"
+   "class": "matte",
+   "note": "bodies 0:13, 0:14, 0:189, 0:190, 0:195, 1:13 ...; groups -1; heuristic: stone (0.4); vision: matte"
   },
   {
    "lo": 2,
    "hi": 3,
-   "class": "cloth",
-   "note": "bodies 0:150, 0:50, 0:51, 0:95, 0:96, 1:150 ...; groups -1, 3; heuristic: cloth (0.5)"
+   "class": "metal",
+   "note": "bodies 0:150, 0:50, 0:51, 0:95, 0:96, 1:150 ...; groups -1, 3; heuristic: cloth (0.5); vision: metal"
   },
   {
    "lo": 4,
@@ -75,128 +75,128 @@
   {
    "lo": 14,
    "hi": 14,
-   "class": "matte",
-   "note": "bodies 0:270, 1:270; groups 0; heuristic: matte (0.3)"
+   "class": "emissive",
+   "note": "bodies 0:270, 1:270; groups 0; heuristic: matte (0.3); vision: emissive"
   },
   {
    "lo": 15,
    "hi": 31,
-   "class": "skin",
-   "note": "bodies 0:106, 0:11, 0:113, 0:114, 0:118, 0:12 ...; groups -1, 0, 1, 3, 4, 6, 7, 9; heuristic: skin (0.7)"
+   "class": "hair",
+   "note": "bodies 0:106, 0:11, 0:113, 0:114, 0:118, 0:12 ...; groups -1, 0, 1, 3, 4, 6, 7, 9; heuristic: skin (0.7); vision: hair"
   },
   {
    "lo": 32,
    "hi": 47,
    "class": "skin",
-   "note": "bodies 0:0, 0:1, 0:108, 0:11, 0:118, 0:12 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: skin (0.7)"
+   "note": "bodies 0:0, 0:1, 0:108, 0:11, 0:118, 0:12 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: skin (0.7); vision: skin"
   },
   {
    "lo": 48,
    "hi": 63,
-   "class": "matte",
-   "note": "bodies 0:0, 0:1, 0:104, 0:105, 0:106, 0:107 ...; groups -1, 0, 1, 2, 3, 10, 16; heuristic: matte (0.3)"
+   "class": "wood",
+   "note": "bodies 0:0, 0:1, 0:104, 0:105, 0:106, 0:107 ...; groups -1, 0, 1, 2, 3, 10, 16; heuristic: matte (0.3); vision: wood"
   },
   {
    "lo": 64,
    "hi": 68,
-   "class": "stone",
-   "note": "bodies 0:1, 0:108, 0:11, 0:118, 0:12, 0:15 ...; groups -1, 0, 1, 4, 5, 6, 7, 8; heuristic: stone (0.4)"
+   "class": "leather",
+   "note": "bodies 0:1, 0:108, 0:11, 0:118, 0:12, 0:15 ...; groups -1, 0, 1, 4, 5, 6, 7, 8; heuristic: stone (0.4); vision: leather"
   },
   {
    "lo": 69,
    "hi": 74,
-   "class": "cloth",
-   "note": "bodies 0:0, 0:1, 0:107, 0:11, 0:118, 0:12 ...; groups -1, 0, 1, 2, 4, 5, 6, 7; heuristic: cloth (0.5)"
+   "class": "skin",
+   "note": "bodies 0:0, 0:1, 0:107, 0:11, 0:118, 0:12 ...; groups -1, 0, 1, 2, 4, 5, 6, 7; heuristic: cloth (0.5); vision: skin"
   },
   {
    "lo": 75,
    "hi": 79,
-   "class": "cloth",
-   "note": "bodies 0:0, 0:1, 0:11, 0:118, 0:12, 0:13 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: cloth (0.5)"
+   "class": "matte",
+   "note": "bodies 0:0, 0:1, 0:11, 0:118, 0:12, 0:13 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: cloth (0.5); vision: matte"
   },
   {
    "lo": 80,
    "hi": 95,
    "class": "matte",
-   "note": "bodies 0:1, 0:101, 0:106, 0:107, 0:11, 0:115 ...; groups -1, 0, 1, 2, 6, 7, 9, 10; heuristic: matte (0.3)"
+   "note": "bodies 0:1, 0:101, 0:106, 0:107, 0:11, 0:115 ...; groups -1, 0, 1, 2, 6, 7, 9, 10; heuristic: matte (0.3); vision: matte"
   },
   {
    "lo": 96,
    "hi": 107,
-   "class": "cloth",
-   "note": "bodies 0:10, 0:109, 0:11, 0:110, 0:111, 0:112 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: cloth (0.5)"
+   "class": "metal",
+   "note": "bodies 0:10, 0:109, 0:11, 0:110, 0:111, 0:112 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: cloth (0.5); vision: metal"
   },
   {
    "lo": 108,
    "hi": 111,
-   "class": "cloth",
-   "note": "bodies 0:111, 0:112, 0:115, 0:123, 0:124, 0:13 ...; groups -1, 0, 1, 2, 3, 4, 6, 7; heuristic: cloth (0.5)"
+   "class": "metal",
+   "note": "bodies 0:111, 0:112, 0:115, 0:123, 0:124, 0:13 ...; groups -1, 0, 1, 2, 3, 4, 6, 7; heuristic: cloth (0.5); vision: metal"
   },
   {
    "lo": 112,
    "hi": 127,
-   "class": "skin",
-   "note": "bodies 0:0, 0:1, 0:10, 0:100, 0:101, 0:102 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: skin (0.7)"
+   "class": "metal",
+   "note": "bodies 0:0, 0:1, 0:10, 0:100, 0:101, 0:102 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: skin (0.7); vision: metal"
   },
   {
    "lo": 128,
    "hi": 143,
-   "class": "leather",
-   "note": "bodies 0:11, 0:118, 0:12, 0:13, 0:131, 0:132 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: leather (0.5)"
+   "class": "wood",
+   "note": "bodies 0:11, 0:118, 0:12, 0:13, 0:131, 0:132 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: leather (0.5); vision: wood"
   },
   {
    "lo": 144,
    "hi": 159,
-   "class": "matte",
-   "note": "bodies 0:141, 0:150, 0:155, 0:157, 0:159, 0:171 ...; groups -1, 1, 2, 3, 4, 5, 6, 7; heuristic: matte (0.3)"
+   "class": "cloth",
+   "note": "bodies 0:141, 0:150, 0:155, 0:157, 0:159, 0:171 ...; groups -1, 1, 2, 3, 4, 5, 6, 7; heuristic: matte (0.3); vision: cloth"
   },
   {
    "lo": 160,
    "hi": 175,
    "class": "cloth",
-   "note": "bodies 0:106, 0:107, 0:125, 0:126, 0:139, 0:140 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: cloth (0.5)"
+   "note": "bodies 0:106, 0:107, 0:125, 0:126, 0:139, 0:140 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: cloth (0.5); vision: cloth"
   },
   {
    "lo": 176,
    "hi": 191,
-   "class": "metal",
-   "note": "bodies 0:102, 0:103, 0:11, 0:118, 0:119, 0:12 ...; groups -1, 1, 2, 3, 4, 5, 6, 7; heuristic: metal (0.5)"
+   "class": "hair",
+   "note": "bodies 0:102, 0:103, 0:11, 0:118, 0:119, 0:12 ...; groups -1, 1, 2, 3, 4, 5, 6, 7; heuristic: metal (0.5); vision: hair"
   },
   {
    "lo": 192,
    "hi": 197,
-   "class": "matte",
-   "note": "bodies 0:161, 0:162, 0:163, 0:164, 0:231, 0:238 ...; groups -1, 0, 2, 3, 4, 6, 7, 9; heuristic: matte (0.3)"
+   "class": "cloth",
+   "note": "bodies 0:161, 0:162, 0:163, 0:164, 0:231, 0:238 ...; groups -1, 0, 2, 3, 4, 6, 7, 9; heuristic: matte (0.3); vision: cloth"
   },
   {
    "lo": 198,
    "hi": 201,
-   "class": "matte",
-   "note": "bodies 0:101, 0:150, 0:153, 0:154, 0:238, 0:243 ...; groups -1, 0, 2, 3, 4, 7, 8, 9; heuristic: matte (0.3)"
+   "class": "skin",
+   "note": "bodies 0:101, 0:150, 0:153, 0:154, 0:238, 0:243 ...; groups -1, 0, 2, 3, 4, 7, 8, 9; heuristic: matte (0.3); vision: skin"
   },
   {
    "lo": 202,
    "hi": 204,
-   "class": "matte",
-   "note": "bodies 0:101, 0:150, 0:165, 0:166, 0:167, 0:168 ...; groups 0, 2, 3, 4, 5, 6, 7, 8; heuristic: matte (0.3)"
+   "class": "metal",
+   "note": "bodies 0:101, 0:150, 0:165, 0:166, 0:167, 0:168 ...; groups 0, 2, 3, 4, 5, 6, 7, 8; heuristic: matte (0.3); vision: metal"
   },
   {
    "lo": 205,
    "hi": 207,
-   "class": "matte",
-   "note": "bodies 0:101, 0:74, 0:75, 1:101, 1:74, 1:75; groups 2, 3, 4, 5, 6, 7, 8, 9; heuristic: matte (0.3)"
+   "class": "cloth",
+   "note": "bodies 0:101, 0:74, 0:75, 1:101, 1:74, 1:75; groups 2, 3, 4, 5, 6, 7, 8, 9; heuristic: matte (0.3); vision: cloth"
   },
   {
    "lo": 208,
    "hi": 217,
-   "class": "matte",
-   "note": "bodies 0:111, 0:112, 0:150, 0:197, 0:198, 0:201 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: matte (0.3)"
+   "class": "skin",
+   "note": "bodies 0:111, 0:112, 0:150, 0:197, 0:198, 0:201 ...; groups -1, 0, 1, 2, 3, 4, 5, 6; heuristic: matte (0.3); vision: skin"
   },
   {
    "lo": 218,
    "hi": 223,
-   "class": "cloth",
-   "note": "bodies 0:111, 0:112, 0:145, 0:150, 0:181, 0:182 ...; groups -1, 0, 1, 2, 3, 4, 6; heuristic: cloth (0.5)"
+   "class": "matte",
+   "note": "bodies 0:111, 0:112, 0:145, 0:150, 0:181, 0:182 ...; groups -1, 0, 1, 2, 3, 4, 6; heuristic: cloth (0.5); vision: matte"
   },
   {
    "lo": 224,

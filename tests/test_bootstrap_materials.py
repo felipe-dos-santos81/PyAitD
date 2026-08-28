@@ -136,3 +136,92 @@ def test_emit_stage_writes_the_table_from_the_survey(tmp_path):
 def test_main_exits_2_without_data_for_survey(tmp_path, capsys):
     assert bm.main([str(tmp_path / "missing"), "survey", "--out", str(tmp_path)]) == 2
     assert "missing" in capsys.readouterr().err
+
+
+def _survey_for_labelling():
+    return {"ramps": [
+        {"lo": 0, "hi": 15, "class": "metal", "confidence": 0.5, "reason": "grey",
+         "usage": {"bodies": ["0:1"], "triangles": 2, "groups": [0]},
+         "sheet": "sheets/body0-001.png", "highlight": "sheets/ramp000-015.png"},
+        {"lo": 16, "hi": 21, "class": "skin", "confidence": 0.8, "reason": "peach",
+         "usage": {"bodies": ["0:0"], "triangles": 4, "groups": [1]},
+         "sheet": "sheets/body0-000.png", "highlight": "sheets/ramp016-021.png"},
+        {"lo": 22, "hi": 22, "class": "matte", "confidence": 0.9, "reason": "unused",
+         "usage": {"bodies": [], "triangles": 0, "groups": []}},
+        {"lo": 23, "hi": 30, "class": "cloth", "confidence": 0.3, "reason": "blue", "label": "leather",
+         "usage": {"bodies": ["0:2"], "triangles": 6, "groups": [2]},
+         "sheet": "sheets/body0-002.png", "highlight": "sheets/ramp023-030.png"},
+    ]}
+
+
+def test_label_ramps_asks_only_about_uncertain_unlabelled_ramps_with_sheets():
+    data = _survey_for_labelling()
+    asked = []
+
+    def ask(sheet, highlight):
+        asked.append((sheet, highlight))
+        return {"class": "stone", "reason": "it looks like carved stone"}
+
+    assert bm.label_ramps(data, ask, threshold=0.8) == 1
+    assert asked == [("sheets/body0-001.png", "sheets/ramp000-015.png")]
+    assert data["ramps"][0]["vision_class"] == "stone" and data["ramps"][0]["vision_reason"].startswith("it looks")
+    assert "vision_class" not in data["ramps"][1]           # confident enough
+    assert "vision_class" not in data["ramps"][2]           # no sheet: nothing to show
+    assert data["ramps"][3]["label"] == "leather" and "vision_class" not in data["ramps"][3]   # hand label wins
+
+
+def test_label_ramps_rejects_a_class_outside_the_vocabulary():
+    data = _survey_for_labelling()
+    with pytest.raises(ValueError, match="velvet"):
+        bm.label_ramps(data, lambda s, h: {"class": "velvet", "reason": ""}, threshold=0.8)
+
+
+def test_label_instructions_name_both_images_and_every_class():
+    text = bm.label_instructions("/a/sheet.png", "/a/high.png")
+    assert "/a/sheet.png" in text and "/a/high.png" in text and "magenta" in text
+    for name in bm.MATERIAL_CLASSES:
+        assert name in text
+    assert bm.LABEL_SCHEMA["properties"]["class"]["enum"] == list(bm.MATERIAL_CLASSES)
+
+
+def test_ask_vision_dictates_the_agy_call(tmp_path, monkeypatch):
+    import json as _json
+    import subprocess
+    import types
+    calls = []
+
+    def fake_run(cmd, capture_output=True, text=True, check=True):
+        calls.append(cmd)
+        return types.SimpleNamespace(
+            stdout=_json.dumps({"status": "SUCCESS", "structured_output": {"class": "wood", "reason": "grain"}}),
+            stderr="", returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ask = bm.ask_vision("gemini-3.1-pro", tmp_path)
+    assert ask("sheets/body0-001.png", "sheets/ramp000-015.png") == {"class": "wood", "reason": "grain"}
+    cmd = calls[0]
+    assert cmd[0] == "agy" and "gemini-3.1-pro" in cmd
+    assert _json.loads(cmd[cmd.index("--json-schema") + 1]) == bm.LABEL_SCHEMA
+    assert str((tmp_path / "sheets/body0-001.png").resolve()) in cmd[2]
+
+
+def test_label_stage_without_agy_exits_2_and_leaves_the_survey(tmp_path, monkeypatch, capsys):
+    import shutil
+    data = _survey_for_labelling()
+    survey = tmp_path / "survey.json"
+    survey.write_text(json.dumps(data))
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    assert bm.main(["unused", "label", "--out", str(tmp_path)]) == 2
+    assert "agy" in capsys.readouterr().err
+    assert json.loads(survey.read_text()) == data
+
+
+def test_label_stage_writes_vision_classes_back(tmp_path, monkeypatch):
+    import shutil
+    data = _survey_for_labelling()
+    (tmp_path / "survey.json").write_text(json.dumps(data))
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/agy")
+    monkeypatch.setattr(bm, "ask_vision", lambda model, out: (lambda s, h: {"class": "stone", "reason": "r"}))
+    assert bm.main(["unused", "label", "--out", str(tmp_path)]) == 0
+    out = json.loads((tmp_path / "survey.json").read_text())
+    assert out["ramps"][0]["vision_class"] == "stone"

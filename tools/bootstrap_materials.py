@@ -311,9 +311,64 @@ def main(argv=None):
     return 0
 
 
+LABEL_SCHEMA = {
+    "type": "object",
+    "required": ["class", "reason"],
+    "properties": {"class": {"type": "string", "enum": list(MATERIAL_CLASSES)},
+                   "reason": {"type": "string"}},
+    "additionalProperties": False,
+}
+
+
+def label_instructions(sheet, highlight):
+    return (f"Look at the image at {sheet}. It is a flat-shaded render of a low-polygon character or "
+            f"object from the 1992 game Alone in the Dark, on a black background. Then look at {highlight}: "
+            "the same render with one of its colour ramps painted magenta. Name the real-world material the "
+            "magenta surfaces most plausibly represent on this model. Choose exactly one of: "
+            + ", ".join(MATERIAL_CLASSES) + ". Use 'matte' when nothing fits. Give a one-sentence reason.")
+
+
+def ask_vision(model, out_dir):
+    """An `ask(sheet, highlight)` over agy, resolving the survey's relative
+    sheet paths against `out_dir`."""
+    from tools.regenerate_backgrounds import agy_structured
+    out_dir = pathlib.Path(out_dir)
+
+    def ask(sheet, highlight):
+        return agy_structured(model, label_instructions(
+            (out_dir / sheet).resolve(), (out_dir / highlight).resolve()), LABEL_SCHEMA)
+    return ask
+
+
+def label_ramps(data, ask, threshold):
+    """Fill `vision_class`/`vision_reason` on every ramp below `threshold`
+    that has sheets and no hand `label`. Returns how many were asked."""
+    count = 0
+    for ramp in data["ramps"]:
+        if ramp.get("label") or ramp.get("confidence", 0.0) >= threshold:
+            continue
+        if not ramp.get("sheet") or not ramp.get("highlight"):
+            continue
+        answer = ask(ramp["sheet"], ramp["highlight"])
+        name = answer.get("class")
+        if name not in MATERIAL_CLASSES:
+            raise ValueError(f"ramp {ramp['lo']}..{ramp['hi']}: vision model answered {name!r}, "
+                             f"not one of {', '.join(MATERIAL_CLASSES)}")
+        ramp["vision_class"] = name
+        ramp["vision_reason"] = str(answer.get("reason", ""))
+        count += 1
+    return count
+
+
 def label_stage(data, args, survey_path):
-    print("the label stage lands in a later task", file=sys.stderr)
-    return 2
+    if shutil.which("agy") is None:
+        print("error: the `agy` CLI is not on PATH; the label stage needs it (survey.json untouched)",
+              file=sys.stderr)
+        return 2
+    asked = label_ramps(data, ask_vision(args.model, args.out), args.threshold)
+    _write_json(survey_path, data)
+    print(f"{survey_path}: {asked} ramps labelled by {args.model}")
+    return 0
 
 
 if __name__ == "__main__":
