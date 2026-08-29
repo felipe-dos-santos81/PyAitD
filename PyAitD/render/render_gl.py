@@ -38,7 +38,8 @@ from PyAitD.render.glsl import (
     SHADOW_CAST_FSH as _SHADOW_CAST_FSH,
     SHADOW_BLUR_FSH as _SHADOW_BLUR_FSH,
 )
-from PyAitD.render.lighting import _clamp_downward, project_to_plane, shading_terms, shadow_opacity
+from PyAitD.render.lighting import (_clamp_downward, light_view_matrix, project_to_plane,
+                                    shading_terms, shadow_opacity, SHADOW_MAP_SIZE)
 from PyAitD.render.materials import PALETTE_SIZE, PRESETS
 from PyAitD.render.refine import subpatch
 from PyAitD.render.render_options import SMOOTHING_LEVELS
@@ -66,6 +67,53 @@ CONTACT_HEIGHT = 150.0   # FITD units over which the contact term fades, roughly
 SOURCE_ANGLE = 6.0
 TAN_SOURCE = math.tan(math.radians(SOURCE_ANGLE))
 R_MAX_PER_SCALE = 6
+
+# The shadow-map receiver: a vertex is pushed NORMAL_OFFSET world units
+# along its normal before it is looked up, and the comparison is biased
+# by SHADOW_BIAS_UNITS (scaled by slope) so a surface never shadows itself
+# at its own depth. Bodies are 100-400 units across; both are well under a
+# limb's thickness.
+NORMAL_OFFSET = 6.0
+SHADOW_BIAS_UNITS = 4.0
+# Clip [-1, 1] -> texture [0, 1] on every axis, folded into light_vp so the
+# fragment shader's textureProj reads the map directly.
+_SHADOW_BIAS = np.array([[0.5, 0.0, 0.0, 0.5],
+                         [0.0, 0.5, 0.0, 0.5],
+                         [0.0, 0.0, 0.5, 0.5],
+                         [0.0, 0.0, 0.0, 1.0]])
+
+
+def _set_uniform(prog, name, value):
+    """Set `name` if the linker kept it. A program whose fragment stage never
+    reads a varying loses the uniforms that only fed it -- the cast program
+    drops light_vp, the shadow-map program drops right/tan_source/r_max --
+    and ModernGL raises KeyError for a name the program lacks."""
+    try:
+        uniform = prog[name]
+    except KeyError:
+        return
+    if isinstance(value, np.ndarray):
+        uniform.write(value.tobytes())
+    else:
+        uniform.value = value
+
+
+def _world_box(actor):
+    """The eight corners of the box around everything this actor draws --
+    posed vertices and sphere extents, in world space. Not the collision
+    `zv`: FITD's box stops short of outstretched limbs, and a fragment
+    outside the shadow map's box would compare against its edge texel."""
+    geometry = actor.geometry
+    position = np.asarray(actor.position, np.float64)
+    points = [geometry.vertices.astype(np.float64) + position]
+    for centre_idx, radius, _color in geometry.spheres:
+        centre = geometry.vertices[centre_idx].astype(np.float64) + position
+        points.append(centre[None, :] - radius)
+        points.append(centre[None, :] + radius)
+    pts = np.concatenate(points, axis=0)
+    lo, hi = pts.min(axis=0), pts.max(axis=0)
+    return [(float(x), float(y), float(z)) for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
+
 
 # One instance per source triangle for the tessellating programs: per
 # corner k, (pos.xyz, ao), (normal.xyz, straight of edge k -> k+1),
@@ -214,6 +262,8 @@ class GLBackend:
         self._sphere = None
         self._material_tex = None
         self._material_key = None
+        self._shadow_map = None
+        self._shadow_map_fbo = None
         self._tess_prog = None
         self._tess_shadow_prog = None
         self._subpatch_bufs = {}
@@ -275,6 +325,20 @@ class GLBackend:
             self._material_tex = ctx.texture((PALETTE_SIZE, 2), 4, dtype="f4")
             self._material_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
 
+            # The light-view depth map every actor is rendered into under
+            # shadows=soft. compare_func turns sampling into a depth test the
+            # hardware bilinearly filters (2x2 PCF); LINEAR is what makes
+            # that filtering happen. Depth-only: no colour attachment.
+            self._shadow_map = ctx.depth_texture((SHADOW_MAP_SIZE, SHADOW_MAP_SIZE))
+            self._shadow_map.compare_func = "<="
+            self._shadow_map.filter = (moderngl.LINEAR, moderngl.LINEAR)
+            self._shadow_map.repeat_x = False
+            self._shadow_map.repeat_y = False
+            self._shadow_map_fbo = ctx.framebuffer(depth_attachment=self._shadow_map)
+            for prog in (self._actor_prog, self._screen_prog):
+                _set_uniform(prog, "shadow_map", 4)
+                _set_uniform(prog, "self_shadow", 0)
+
             quad = np.array([
                 -1, -1, 0, 1,
                  1, -1, 1, 1,
@@ -334,6 +398,8 @@ class GLBackend:
             # compiling at construction is how every other program fails
             # over to the software backend when a driver rejects it.
             self._tess_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_ACTOR_FSH)
+            _set_uniform(self._tess_prog, "shadow_map", 4)
+            _set_uniform(self._tess_prog, "self_shadow", 0)
             self._tess_shadow_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_STENCIL_FSH)
             # Seeded on the shadow program, not _tess_prog: _tess_prog always
             # writes project=0 itself (_draw_actor_tessellated), so travel is
@@ -381,6 +447,7 @@ class GLBackend:
             self._thumb_quad_vao, self._thumb_quad,
             self._stencil_prog, self._screen_prog, self._actor_prog, self._bg_prog,
             self._material_tex,
+            self._shadow_map_fbo, self._shadow_map,
             self._tess_prog, self._tess_shadow_prog, *self._subpatch_bufs.values(),
             self._shadow_quad_vao, self._shadow_quad,
             self._blur_quad_vao, self._blur_prog, self._cast_prog,
@@ -464,10 +531,10 @@ class GLBackend:
             travel = -(rot.astype(np.float64).T
                        @ np.asarray(frame.light.direction, np.float64))
             self._material_tex.use(location=3)
-        self._set_frame_uniforms(self._actor_prog, frame, mvp, rot, scene_lit)
-        if level:
-            self._set_frame_uniforms(self._tess_prog, frame, mvp, rot, scene_lit)
-        self._screen_prog["target_size"].value = self.size
+        # Bound whatever `shadows` says: every actor program declares the
+        # sampler, and a sampler bound to no texture is undefined even on
+        # the branch that never reads it.
+        self._shadow_map.use(location=4)
 
         palette = frame.palette.astype("f4") / 255.0
         mask_by_id = {mask.id: mask for mask in frame.masks}
@@ -484,6 +551,14 @@ class GLBackend:
                     data = self._instance_data(actor.geometry, np.asarray(actor.position, np.float64), palette)
                     if len(data):
                         instances[i] = (self._ctx.buffer(data.tobytes()), len(data))
+
+            shadow = None
+            if soft:
+                shadow = self._render_shadow_map(frame, instances, travel, level)
+            self._set_frame_uniforms(self._actor_prog, frame, mvp, rot, scene_lit, shadow)
+            if level:
+                self._set_frame_uniforms(self._tess_prog, frame, mvp, rot, scene_lit, shadow)
+            self._screen_prog["target_size"].value = self.size
 
             if soft:
                 self._gather_shadows(frame, instances, mask_by_id, travel, mvp, rot, level)
@@ -542,10 +617,13 @@ class GLBackend:
             # what read_rgb, thumbnail and Renderer all read.
             self._ctx.copy_framebuffer(self._fbo, self._ms_fbo)
 
-    def _set_frame_uniforms(self, prog, frame, mvp, rot, scene_lit):
+    def _set_frame_uniforms(self, prog, frame, mvp, rot, scene_lit, shadow=None):
         """Everything an actor program needs once per frame. Shared by
         _actor_prog and _tess_prog so the two can never disagree about the
-        light; the values are exactly what _draw_frame set inline before."""
+        light; the values are exactly what _draw_frame set inline before.
+        `shadow` is _render_shadow_map's (light_vp, depth_bias) under
+        shadows=soft, else None -- which leaves self_shadow at 0 and the
+        classic expression untouched."""
         prog["mvp"].write(mvp.T.tobytes())
         prog["rot"].write(rot.T.tobytes())
         prog["shading"].value = _SHADING_INDEX[self._options.shading]
@@ -567,6 +645,14 @@ class GLBackend:
             prog["fill_tint"].value = (0.0, 0.0, 0.0)
             prog["preset_a"].value = (0.0, 0.0, 0.0)
             prog["preset_b"].value = (0.0, 0.0, 0.0)
+        if shadow is not None:
+            light_vp, depth_bias = shadow
+            _set_uniform(prog, "self_shadow", 1)
+            _set_uniform(prog, "light_vp", light_vp)
+            _set_uniform(prog, "depth_bias", depth_bias)
+            _set_uniform(prog, "normal_offset", NORMAL_OFFSET)
+        else:
+            _set_uniform(prog, "self_shadow", 0)
         prog["target_size"].value = self.size
 
     def _instance_data(self, geometry, position, palette):
@@ -804,6 +890,36 @@ class GLBackend:
             src.use(location=2)
             self._blur_prog["axis"].value = axis
             self._blur_quad_vao.render(moderngl.TRIANGLES)
+
+    def _render_shadow_map(self, frame, instances, travel, level):
+        """One orthographic depth map from the light over every actor's
+        instances, spheres included, lines and points excluded as in every
+        shadow pass. Returns the (light_vp, depth_bias) the receivers need
+        -- light_vp already carrying the clip-to-texture bias, transposed
+        for GLSL -- or None when no actor has anything to cast, in which
+        case the receivers keep self_shadow = 0. No face culling: FITD
+        winding is not consistent, so both faces write depth."""
+        corners = []
+        for actor, inst in zip(frame.actors, instances):
+            if inst is not None:
+                corners.extend(_world_box(actor))
+        if not corners:
+            return None
+        matrix, extent = light_view_matrix(travel, corners, pad=NORMAL_OFFSET)
+        self._shadow_map_fbo.use()
+        self._ctx.viewport = (0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE)
+        self._ctx.enable(moderngl.DEPTH_TEST)
+        self._ctx.depth_func = "<="
+        self._shadow_map_fbo.clear(depth=1.0)
+        prog = self._tess_shadow_prog
+        prog["mvp"].write(matrix.T.astype("f4").tobytes())
+        prog["project"].value = 0
+        for inst in instances:
+            if inst is not None:
+                self._render_instanced(prog, self._tess_shadow_layout, inst[0], inst[1], level)
+        self._ctx.disable(moderngl.DEPTH_TEST)
+        biased = (_SHADOW_BIAS @ matrix.astype(np.float64)).astype("f4")
+        return np.ascontiguousarray(biased.T), float(SHADOW_BIAS_UNITS / extent[2])
 
     def _composite_shadow(self, light, soft=False):
         """Multiply the background toward the room's ambient hue through the

@@ -33,13 +33,19 @@ void main() {
 ACTOR_VSH = """
 #version 330
 uniform mat4 mvp; uniform mat3 rot;
+// The receiver's place in the light-view depth map: its world position
+// pushed along its world normal, so a surface never shadows itself at
+// its own depth. Unread under shadows=hard (light_vp stays zero).
+uniform mat4 light_vp; uniform float normal_offset;
 in vec3 in_pos; in vec3 in_normal; in vec3 in_color; in vec3 in_rest; in float in_ao; in float in_index;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
+out vec4 v_shadow;
 void main() {
     gl_Position = mvp * vec4(in_pos, 1.0);
     v_color = in_color; v_normal = rot * in_normal;
     v_rest = in_rest; v_ao = in_ao; v_index = in_index;
     v_world_y = in_pos.y;   // in_pos is already world space: the actor position was added on the CPU
+    v_shadow = light_vp * vec4(in_pos + in_normal * normal_offset, 1.0);
 }
 """
 ACTOR_FSH = """
@@ -60,7 +66,12 @@ uniform sampler2D mask_tex; uniform vec2 target_size;
 uniform sampler2D material_tex;
 uniform vec3 preset_a; uniform vec3 preset_b;
 uniform float plane_y; uniform float contact_height;
+// The light-view depth map (shadows=soft): hardware-compared, bilinear.
+// self_shadow gates the lookup; depth_bias is in map depth units, from
+// SHADOW_BIAS_UNITS over the map's extent along the light.
+uniform sampler2DShadow shadow_map; uniform int self_shadow; uniform float depth_bias;
 in vec3 v_color; in vec3 v_normal; in vec3 v_rest; in float v_ao; flat in float v_index; in float v_world_y;
+in vec4 v_shadow;
 out vec4 f_color;
 
 float hash3(vec3 p) {
@@ -113,11 +124,28 @@ void main() {
     // which is what removes the winding dependence FITD geometry cannot
     // provide. Deleting the flip inverts every lambert normal.
     if (n.z > 0.0) n = -n;
+    float vis = 1.0;
+    if (self_shadow == 1) {
+        // How much of the key reaches this fragment: a slope-scaled bias in
+        // map depth on top of the vertex shader's normal offset, four
+        // hardware-compared taps averaged into a soft edge. Under
+        // shadows=hard the branch is skipped and vis stays exactly 1.0, so
+        // `* vis` below is the identity and `base` is the classic
+        // expression bit for bit.
+        vec4 s = v_shadow;
+        s.z -= depth_bias * (1.0 + 2.0 * (1.0 - abs(dot(n, l)))) * s.w;
+        vis = 0.25 * (textureProj(shadow_map, s)
+                    + textureProjOffset(shadow_map, s, ivec2(1, 0))
+                    + textureProjOffset(shadow_map, s, ivec2(0, 1))
+                    + textureProjOffset(shadow_map, s, ivec2(1, 1)));
+    }
     // Half-Lambert: the lit side reaches fill_tint + key_tint, the shadow
     // side falls to fill_tint rather than to black. `base` is the whole of
     // realism=classic's answer and must stay this exact expression.
     float wrapped = clamp(dot(n, l) * 0.5 + 0.5, 0.0, 1.0);
-    vec3 base = v_color * (fill_tint + key_tint * wrapped * wrapped);
+    // The key's share is what a shadow removes; the fill's share stays, so
+    // a shadowed limb falls to the room's fill colour and never to black.
+    vec3 base = v_color * (fill_tint + key_tint * wrapped * wrapped * vis);
 
     int index = int(v_index + 0.5);
     vec4 m0 = texelFetch(material_tex, ivec2(index, 0), 0);
@@ -139,7 +167,7 @@ void main() {
     float contact = 1.0 - preset_b.x * 0.5 * (1.0 - height);
     float occl = mix(1.0, v_ao, preset_a.z) * contact;
     float gloss = exp2(1.0 + 10.0 * (1.0 - m0.x));
-    vec3 spec = key_tint * mix(vec3(1.0), v_color, m0.z) * pow(max(dot(n, h), 0.0), gloss) * m0.y * preset_a.x;
+    vec3 spec = key_tint * mix(vec3(1.0), v_color, m0.z) * pow(max(dot(n, h), 0.0), gloss) * m0.y * preset_a.x * vis;
     vec3 rim = key_tint * pow(1.0 - max(dot(n, view), 0.0), 3.0) * m0.w * preset_a.y;
     float grain = 1.0 + preset_b.y * m1.x * detail_noise(v_rest / m1.y, int(m1.z + 0.5));
     f_color = vec4(base * (grain * hemi * occl) + spec + rim, 1.0);
@@ -152,6 +180,7 @@ TESS_VSH = """
 // Emits exactly _ACTOR_VSH's varyings so _ACTOR_FSH is reused unchanged;
 // refine.evaluate is the numpy twin the parity test pins this against.
 uniform mat4 mvp; uniform mat3 rot;
+uniform mat4 light_vp; uniform float normal_offset;
 // project == 1 is the shadow mode: the evaluated point slides along
 // `travel` onto the plane y == plane_y before mvp -- lighting.project_to_plane's
 // math for an ALREADY-CLAMPED travel. This shader does no clamping itself:
@@ -173,6 +202,7 @@ in vec4 in_p2; in vec4 in_n2; in vec4 in_c2; in vec3 in_r2;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
 out vec3 v_world;   // the evaluated world position: read back by transform feedback in tests, unused by the fragment shader
 out float v_penumbra;
+out vec4 v_shadow;
 
 vec3 edge_point(vec3 pi, vec3 pj, vec3 ni, float straight) {
     // a third of the way from pi toward pj, projected onto pi's tangent
@@ -204,6 +234,7 @@ void main() {
     vec3 n011 = edge_normal(p1, p2, n1, n2, s12);
     vec3 n101 = edge_normal(p2, p0, n2, n0, s20);
     vec3 n = normalize(n0 * u*u + n1 * v*v + n2 * w*w + n110 * u*v + n011 * v*w + n101 * w*u);
+    v_shadow = light_vp * vec4(pos + n * normal_offset, 1.0);
     v_penumbra = 0.0;
     if (project == 1) {
         float drop = plane_y - pos.y;                   // height above the plane: world y grows downward
@@ -230,9 +261,11 @@ SCREEN_VSH = """
 #version 330
 in vec3 in_ndc; in vec3 in_color;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
+out vec4 v_shadow;
 void main() {
     gl_Position = vec4(in_ndc, 1.0); v_color = in_color; v_normal = vec3(0.0, 0.0, 1.0);
     v_rest = vec3(0.0); v_ao = 1.0; v_index = 0.0; v_world_y = 0.0;
+    v_shadow = vec4(0.0);   // lines and points never reach the term
 }
 """
 STENCIL_VSH = """

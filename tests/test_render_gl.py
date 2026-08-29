@@ -721,6 +721,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         "_thumb_quad", "_thumb_quad_vao", "_material_tex",
         "_tess_prog", "_tess_shadow_prog",
         "_shadow_blur_tex", "_shadow_blur_fbo", "_cast_prog", "_blur_prog", "_blur_quad_vao",
+        "_shadow_map", "_shadow_map_fbo",
     ):
         resource = getattr(backend, attr)
         assert resource is not None, f"{attr} was never allocated before the failure"
@@ -730,7 +731,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
     for level, buf in backend._subpatch_bufs.items():
         assert isinstance(buf.mglo, moderngl.InvalidObject), f"subpatch buffer {level} leaked"
         leak_checked += 1
-    assert leak_checked == 36  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 38  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
@@ -1547,3 +1548,54 @@ def test_a_sphere_casts_a_soft_shadow_even_on_the_flat_mesh(gl_ctx):
     soft = _soft_frame_render(gl_ctx, "soft", [actor], plate, (0.0, -0.5, 0.85))
     assert int((hard[137:] < plain[137:] - 5).any(axis=2).sum()) == 0
     assert int((soft[137:] < plain[137:] - 5).any(axis=2).sum()) > 50
+
+
+def test_world_box_encloses_vertices_and_spheres():
+    from PyAitD.render.render_gl import _world_box
+    actor = ActorDraw(0, _sphere_at(10.0, 20.0, 30.0, radius=5.0), (100.0, 0.0, 0.0), 0, (0,) * 6,
+                      RenderResult([], []), ())
+    corners = np.array(_world_box(actor))
+    assert corners.shape == (8, 3)
+    assert corners.min(axis=0).tolist() == [105.0, 15.0, 25.0]
+    assert corners.max(axis=0).tolist() == [115.0, 25.0, 35.0]
+
+
+def test_an_occluder_shadows_the_key_share_of_a_receiver_only_under_soft(gl_ctx):
+    # A small triangle held between the light and a big facing one, off to
+    # the side so its shadow (measured: screen x 129-145, y 91-115) lands
+    # on the receiver away from its own footprint (x 175-194, y 36-66).
+    receiver = _standing_actor(0, _facing_tri(600.0, 1, (0.0, 0.0, -1.0)), 400.0)
+    occluder_geometry = BodyGeometry(
+        np.array([[60.0, -260.0, 300.0], [140.0, -260.0, 300.0], [60.0, -140.0, 300.0]], np.float32),
+        np.tile([0.0, 0.0, -1.0], (3, 1)).astype(np.float32),
+        np.array([[0, 1, 2]], np.int32), np.array([1], np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    occluder = _standing_actor(1, occluder_geometry, 400.0)
+    direction = (0.5, -0.5, -0.7)
+
+    def window(shadows, actors):
+        backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
+                                                  realism="classic", smoothing=0, shadows=shadows))
+        backend.draw(_lit_frame(actors, direction))
+        out = backend.read_rgb().astype(int)[98:106, 132:142]     # inside the occluder's shadow on the receiver
+        backend.release()
+        return out
+
+    lit_red = int(window("soft", [receiver])[..., 0].mean())
+    dark_red = int(window("soft", [receiver, occluder])[..., 0].mean())
+    assert dark_red < lit_red - 40                    # the key's share is gone...
+    assert dark_red > 30                              # ...and the fill's is not: never black
+    assert np.array_equal(window("hard", [receiver, occluder]), window("hard", [receiver]))   # hard never self-shadows
+
+
+def test_hard_shadows_never_touch_the_shadow_map(gl_ctx, monkeypatch):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
+                                              smoothing=2, shadows="hard"))
+
+    def boom(*_a, **_k):
+        raise AssertionError("shadow map rendered under shadows=hard")
+
+    monkeypatch.setattr(backend, "_render_shadow_map", boom)
+    backend.draw(_overlap_frame(True))
+    backend.release()
