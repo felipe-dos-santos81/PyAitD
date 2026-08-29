@@ -129,6 +129,52 @@ void main() {
     // which is what removes the winding dependence FITD geometry cannot
     // provide. Deleting the flip inverts every lambert normal.
     if (n.z > 0.0) n = -n;
+
+    int index = int(v_index + 0.5);
+    vec4 m0 = texelFetch(material_tex, ivec2(index, 0), 0);
+    vec4 m1 = texelFetch(material_tex, ivec2(index, 1), 0);
+    // Mikkelsen's unparametrized bump: perturb the normal by the screen-space
+    // gradient of a height field, using derivatives of the camera-space
+    // position instead of a tangent frame. FITD bodies carry no UVs and no
+    // tangents, so this is the only bump that is available at all.
+    //
+    // Every derivative is taken here, at top level. dFdx/dFdy/fwidth are
+    // undefined inside non-uniform control flow, and both `relief` and
+    // `m2.x` come from texture-dependent values -- so the *branch* below
+    // tests preset_c.x, a uniform, and only the assignment to `n` sits
+    // inside it. That branch is also what keeps realism=classic
+    // byte-exact: the unguarded form still evaluates
+    // normalize(abs(det) * n), which is n mathematically but not
+    // bit-for-bit. (`relief` is the height field; the half vector below is
+    // already called `h`.)
+    vec4 m2 = texelFetch(material_tex, ivec2(index, 2), 0);
+    // The height is a *length*, in the same units as v_view -- Mikkelsen's
+    // formula divides the height gradient by the position gradient, so a
+    // height that did not scale with the geometry would give a slope of
+    // detail/1_unit and vanish on FITD's hundreds-of-units bodies. One
+    // detail_scale is one noise cell, so `detail * detail_scale` makes a
+    // material's relief slope simply `detail` times the noise's own
+    // gradient, at whatever size the body is modelled.
+    float relief = m1.x * m1.y * detail_noise(v_rest / m1.y, int(m1.z + 0.5));
+    vec3 sx = dFdx(v_view), sy = dFdy(v_view);
+    vec3 r1 = cross(sy, n), r2 = cross(n, sx);
+    float det = dot(sx, r1);
+    vec2 dh = vec2(dFdx(relief), dFdy(relief));
+    vec3 grad = sign(det) * (dh.x * r1 + dh.y * r2);
+    // One noise cell shrinking toward half a pixel is relief the frame
+    // cannot resolve; fading it out there is what stops a hero shimmering
+    // as he walks away.
+    vec3 fw = fwidth(v_rest / m1.y);
+    float fade = 1.0 - smoothstep(0.25, 0.5, max(fw.x, max(fw.y, fw.z)));
+    // det == 0 means the shading normal lies in the screen-space tangent
+    // plane -- which FITD geometry reaches whenever a body's authored
+    // normal disagrees with its facet, and which would leave
+    // normalize(0 * n - 0) undefined. There is no frame to bump against
+    // there, so the normal is left alone.
+    if (preset_c.x > 0.0 && det != 0.0) {
+        n = normalize(abs(det) * n - preset_c.x * m2.x * fade * grad);
+    }
+
     float vis = 1.0;
     if (self_shadow == 1) {
         // How much of the key reaches this fragment: a slope-scaled bias in
@@ -152,9 +198,6 @@ void main() {
     // a shadowed limb falls to the room's fill colour and never to black.
     vec3 base = v_color * (fill_tint + key_tint * wrapped * wrapped * vis);
 
-    int index = int(v_index + 0.5);
-    vec4 m0 = texelFetch(material_tex, ivec2(index, 0), 0);
-    vec4 m1 = texelFetch(material_tex, ivec2(index, 1), 0);
     vec3 view = vec3(0.0, 0.0, -1.0);                 // from the surface toward the viewer
     vec3 h = normalize(l + view);
     // Camera-space y grows downward, so "up" (the sky half of the

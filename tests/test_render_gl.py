@@ -1828,14 +1828,88 @@ def test_hard_shadows_never_touch_the_shadow_map(gl_ctx, monkeypatch):
     backend.release()
 
 
-# Transitional, and deliberately so: Task 1 of the materials-v2 plan adds
-# fields, a texture row and three uniforms, all at zero strength, so the
-# enhanced render must not move. Task 2 lands bump and retires this test --
-# it is scaffolding for one task's blast radius, not a golden.
-def test_enhanced_is_unmoved_by_the_material_plumbing(gl_ctx):
+# ---- derivative bump (materials v2, task 2) ----
+
+
+def _material_square(gl_ctx, table, z=600.0, realism="enhanced", shading="smooth"):
+    """A camera-facing square lit by the scene light, with `table` as its
+    material table. Returns the rendered frame.
+
+    The key comes from above and in front, not from the shadow tests'
+    (0.0, -0.5, 0.85): that direction points *away* from the camera, so it
+    backlights a camera-facing square and leaves it standing in its own
+    shade. Measured there, the fill supplies 98.6% of the square's
+    brightness and `wrapped` is 0.069 -- a surface whose colour barely
+    depends on its normal at all, which is the one thing a normal
+    perturbation cannot be measured on."""
     plate = np.full((200, 320, 3), 200, np.uint8)
-    actor = _standing_actor(0, _planned_geometry(_hex_prism_body()), feet_y=150)
-    rendered = _soft_frame_render(gl_ctx, "soft", [actor], plate, (0.0, -0.5, 0.85),
-                                  shading="smooth", realism="enhanced", level=2)
-    expected = np.load(pathlib.Path(__file__).parent / "golden" / "enhanced_plumbing.npy")
-    assert np.array_equal(rendered, expected)
+    geometry = _facing_square(z, 1, (0.0, 0.0, -1.0), span=300.0)
+    actor = ActorDraw(0, geometry, (0.0, 0.0, 0.0), 0, (0, 0, 0, 200, 0, 0),
+                      RenderResult([], []), (), materials=table)
+    return _soft_frame_render(gl_ctx, "hard", [actor], plate, (0.0, -0.85, -0.5),
+                              shading=shading, realism=realism)
+
+
+def _one_class_table(name):
+    from PyAitD.render.materials import MaterialTable
+    return MaterialTable((name,) * 256)
+
+
+def _bump_pair(gl_ctx, name, monkeypatch, **kwargs):
+    """The same material class rendered twice, with its bump off and at its
+    tabled strength. Everything else -- the grain colour multiply, the
+    specular, the rim, the roughness -- is identical between the two
+    frames, so the only thing that can separate them is the relief.
+
+    A fresh MaterialTable for each render: _upload_materials caches on the
+    table object's identity and reads CLASS_PRESETS at upload time, so
+    reusing one table would hand the second frame the first one's
+    parameters."""
+    import dataclasses
+
+    from PyAitD.render import materials
+
+    tabled = materials.CLASS_PRESETS[name]
+
+    def render(bump):
+        monkeypatch.setitem(materials.CLASS_PRESETS, name,
+                            dataclasses.replace(tabled, bump=bump))
+        return _material_square(gl_ctx, _one_class_table(name), **kwargs)
+
+    return render(0.0), render(tabled.bump)
+
+
+def test_bump_is_relief_not_tint(gl_ctx, monkeypatch):
+    # The grain multiplies the colour, so it changes a surface's mean
+    # brightness. Relief moves light around instead: pixel to pixel it must
+    # differ, but the patch's mean luminance must stay put. Both frames
+    # carry the same grain, so a mean that moved here would be the bump
+    # itself tinting rather than shading.
+    body = (slice(70, 130), slice(120, 200))
+    flat, relief = _bump_pair(gl_ctx, "stone", monkeypatch)
+    flat_patch = flat[body].astype(float)
+    relief_patch = relief[body].astype(float)
+    assert relief_patch.std() > flat_patch.std() + 1.0          # relief varies
+    assert abs(relief_patch.mean() - flat_patch.mean()) < 0.01 * flat_patch.mean()
+
+
+def test_bump_fades_out_with_distance(gl_ctx, monkeypatch):
+    # fwidth of the noise coordinate crosses half a cell as the surface
+    # recedes, and `fade` takes the perturbation to zero before the relief
+    # can alias into shimmer. What has to fade is the bump's own
+    # contribution: a lit red square keeps a patch standard deviation near
+    # 79 whatever its normals do, so the measurement is the difference the
+    # bump makes, near and far.
+    near_flat, near = _bump_pair(gl_ctx, "stone", monkeypatch, z=600.0)
+    far_flat, far = _bump_pair(gl_ctx, "stone", monkeypatch, z=6000.0)
+    near_body = (slice(70, 130), slice(120, 200))
+    far_body = (slice(95, 105), slice(155, 165))
+    assert near[near_body].std() - near_flat[near_body].std() > 1.0
+    assert far[far_body].std() - far_flat[far_body].std() < 0.5
+
+
+def test_lambert_shading_gets_the_bump_too(gl_ctx, monkeypatch):
+    # lambert derives n from gl_FragCoord derivatives; the perturbation is
+    # applied after that choice, so it must reach both paths.
+    flat, relief = _bump_pair(gl_ctx, "stone", monkeypatch, shading="lambert")
+    assert not np.array_equal(flat, relief)

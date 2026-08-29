@@ -68,13 +68,18 @@ class Material:
 # saturated body instead of vanishing into it.
 CLASS_PRESETS = {
     "matte":    Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, DETAIL_NONE),
-    "skin":     Material(0.7, 0.15, 0.0, 0.25, 0.15, 40.0, DETAIL_GRAIN),
-    "cloth":    Material(0.9, 0.05, 0.0, 0.35, 0.08, 12.0, DETAIL_WEAVE),
-    "leather":  Material(0.5, 0.35, 0.0, 0.3, 0.2, 30.0, DETAIL_GRAIN),
-    "hair":     Material(0.6, 0.3, 0.0, 0.4, 0.3, 8.0, DETAIL_STREAK),
-    "wood":     Material(0.6, 0.2, 0.0, 0.1, 0.35, 60.0, DETAIL_STREAK),
-    "stone":    Material(0.85, 0.05, 0.0, 0.05, 0.3, 50.0, DETAIL_GRAIN),
-    "metal":    Material(0.25, 0.8, 0.8, 0.2, 0.15, 25.0, DETAIL_BRUSHED),
+    "skin":     Material(0.7, 0.15, 0.0, 0.25, 0.15, 40.0, DETAIL_GRAIN, bump=0.3),
+    "cloth":    Material(0.9, 0.05, 0.0, 0.35, 0.08, 12.0, DETAIL_WEAVE, bump=0.8),
+    "leather":  Material(0.5, 0.35, 0.0, 0.3, 0.2, 30.0, DETAIL_GRAIN, bump=0.7),
+    "hair":     Material(0.6, 0.3, 0.0, 0.4, 0.3, 8.0, DETAIL_STREAK, bump=0.8),
+    "wood":     Material(0.6, 0.2, 0.0, 0.1, 0.35, 60.0, DETAIL_STREAK, bump=0.6),
+    "stone":    Material(0.85, 0.05, 0.0, 0.05, 0.3, 50.0, DETAIL_GRAIN, bump=0.9),
+    # 0.5, the plan's first pass, costs metal 52 of the 62 points its
+    # highlight has over matte at the measured centre pixel: at gloss
+    # exp2(8.5) the lobe is a couple of degrees wide, so relief that
+    # deep scatters the highlight away instead of texturing it. Task 5
+    # retunes this against the shipped bodies.
+    "metal":    Material(0.25, 0.8, 0.8, 0.2, 0.15, 25.0, DETAIL_BRUSHED, bump=0.2),
     "glass":    Material(0.1, 0.9, 0.0, 0.6, 0.0, 1.0, DETAIL_NONE),
     # A label only: no emissive term exists in the shader, so it shades as matte.
     "emissive": Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, DETAIL_NONE),
@@ -178,7 +183,8 @@ class RealismPreset:
 
 PRESETS = {
     "classic": RealismPreset(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-    # bump/sss/emissive stay 0.0 here until Task 5's retune: Tasks 2 and 3
-    # land the terms, and a term at zero strength cannot move a pixel.
-    "enhanced": RealismPreset(spec=1.0, rim=0.6, ao=0.7, contact=1.0, detail=1.0, hemisphere=1.0),
+    # sss/emissive stay 0.0 here until Task 3 lands them: a term at zero
+    # strength cannot move a pixel.
+    "enhanced": RealismPreset(spec=1.0, rim=0.6, ao=0.7, contact=1.0, detail=1.0,
+                              hemisphere=1.0, bump=1.0),
 }
