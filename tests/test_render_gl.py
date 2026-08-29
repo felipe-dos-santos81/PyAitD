@@ -1394,6 +1394,26 @@ def test_the_tessellated_shadow_is_as_round_as_the_actor(gl_ctx):
     assert rounded > flat + 40            # ~11 px wider on every row
 
 
+def test_the_soft_cast_follows_the_tessellated_silhouette_too(gl_ctx):
+    # The roundness above is measured on the hard rasteriser. The soft cast
+    # projects from the instance buffers instead, so it needs its own
+    # witness that smoothing reaches it: the same prism, gathered rather
+    # than rasterised, covers more ground rounded than flat (measured 2264
+    # against 2028). The margin is smaller than the hard path's because the
+    # penumbra blurs both silhouettes outward by the same radius.
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    actor = _standing_actor(0, _planned_geometry(_hex_prism_body()), feet_y=150)
+    plain = _plain_background(gl_ctx, plate)
+    below = slice(137, None)
+    darkened = []
+    for level in (0, 2):
+        soft = _soft_frame_render(gl_ctx, "soft", [actor], plate, (0.0, -0.5, 0.85), level=level)
+        darkened.append(int((soft[below] < plain[below] - 5).any(axis=2).sum()))
+    flat, rounded = darkened
+    assert flat > 1000                    # a real gathered shadow band
+    assert rounded > flat + 100           # the rounded silhouette casts wider
+
+
 def test_a_tessellated_shadow_is_still_erased_under_a_mask(gl_ctx):
     # A full-screen mask would erase the actor draw itself (mask_tex is
     # shared by _actor_prog and _tess_prog), so rendered == plain_background
@@ -1510,10 +1530,10 @@ def test_the_penumbra_hardens_toward_the_feet(gl_ctx):
     # counts are this geometry's (measured 5.2 near the feet, 20.3 far, at
     # R_MAX_PER_SCALE=4; see docs/soft-shadows-proof.md).
     #
-    # A solid caster cannot show this in screen space, which is why this
-    # test does not use the prism the others do: its contact region lies
-    # under its own body, and MAX blending hands every row of its shadow
-    # the largest radius among the many drops that project onto that row.
+    # The flat quad isolates one drop per row, which is what makes the
+    # numbers above readable as a single height's penumbra. A solid caster
+    # mixes many drops into every row and is the harder case; it has its
+    # own test in test_a_solid_caster_hardens_under_its_own_feet.
     plate = np.full((200, 320, 3), 200, np.uint8)
     actor = _standing_actor(0, _facing_square(600.0, 1, (0.0, 0.0, -1.0), span=200.0), feet_y=200)
     soft = _soft_frame_render(gl_ctx, "soft", [actor], plate, (0.0, -0.5, 0.85))
@@ -1522,7 +1542,37 @@ def test_the_penumbra_hardens_toward_the_feet(gl_ctx):
     far_from_them = sum(_penumbra_width(soft, row) for row in range(156, 162)) / 6.0
     assert near_feet > 0                                    # a penumbra even at the feet, just a narrow one
     assert far_from_them > 2.0 * near_feet
+    # A row with no shadow at all has no edge either, so the hard arm needs
+    # a witness that there is something to be sharp: 3300 of those pixels
+    # sit at the full-shadow floor of 74.
+    assert (hard[140:170, :, 1] < 100).sum() > 1000
     assert max(_penumbra_width(hard, row) for row in range(140, 170)) == 0   # hard: every edge sharp
+
+
+def test_a_solid_caster_hardens_under_its_own_feet(gl_ctx):
+    # The property the feature is named for, on the caster shape that
+    # actually exposes it: a body with depth. Many of the prism's heights
+    # project onto the same ground row -- a low point on its far side and a
+    # high one on its near side land together -- so the row's radius is
+    # whichever of them the cast pass keeps. Keeping the largest leaves the
+    # whole shadow uniformly soft; keeping the smallest lets the blocker
+    # nearest the ground decide, which is both the physical rule and the
+    # contact hardening the option promises.
+    #
+    # Rows come from the geometry, not from the result: the prism stands at
+    # feet_y=150 and its body ends at row 133, so 134 is the first row of
+    # ground shadow and 153 is its last. Measured 42.8 at the feet against
+    # 109.2 far from them; keeping the largest radius instead gave 74.8
+    # against the same 109.2, a ratio of 1.46 that fails the claim below.
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    actor = _standing_actor(0, _planned_geometry(_hex_prism_body()), feet_y=150)
+    soft = _soft_frame_render(gl_ctx, "soft", [actor], plate, (0.0, -0.5, 0.85))
+    hard = _soft_frame_render(gl_ctx, "hard", [actor], plate, (0.0, -0.5, 0.85))
+    at_the_feet = sum(_penumbra_width(soft, row) for row in range(134, 139)) / 5.0
+    far_from_them = sum(_penumbra_width(soft, row) for row in range(149, 154)) / 5.0
+    assert at_the_feet > 0                                  # still a penumbra, just a narrow one
+    assert far_from_them > 2.0 * at_the_feet
+    assert max(_penumbra_width(hard, row) for row in range(134, 154)) == 0   # hard: every edge sharp
 
 
 def _overlap_frame(with_caster):
@@ -1602,6 +1652,54 @@ def test_a_mask_erases_a_soft_cast_beyond_its_penumbra(gl_ctx):
     assert unmasked > 300                           # still cast where the mask does not reach
 
 
+def test_a_mask_erases_only_its_own_actors_cast(gl_ctx):
+    # One coverage texture holds every actor's cast, so the mask discard
+    # has to remove the fragments of the actor it belongs to and nothing
+    # else. Two actors stand in the same place, casting the same shadow;
+    # only the second carries the mask, and it is cast second, so a mask
+    # that cleared the shared texture rather than discarding its own
+    # fragments would wipe the first actor's coverage along with its own.
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    geometry = _planned_geometry(_hex_prism_body())
+    zv = (0, 0, -50, 150, 0, 0)
+    poly = np.array([[160, 137], [320, 137], [320, 200], [160, 200]], np.int16)
+    right_half = MaskDraw(0, (poly,), (160, 137, 320, 200), 0, ())
+    masked = ActorDraw(1, geometry, (0.0, 0.0, 0.0), 0, zv, RenderResult([], []), (0,))
+    plain_actor = ActorDraw(0, geometry, (0.0, 0.0, 0.0), 0, zv, RenderResult([], []), ())
+    plain = _plain_background(gl_ctx, plate)
+    r_max = 4                                       # R_MAX_PER_SCALE at scale 1
+    beyond = (slice(137 + r_max, None), slice(160 + r_max, None))
+
+    alone = _soft_frame_render(gl_ctx, "soft", [masked], plate, (0.0, -0.5, 0.85),
+                               masks=[right_half], level=2)
+    assert np.array_equal(alone[beyond], plain[beyond])          # its own cast: erased
+    together = _soft_frame_render(gl_ctx, "soft", [plain_actor, masked], plate, (0.0, -0.5, 0.85),
+                                  masks=[right_half], level=2)
+    survives = int((together[beyond] < plain[beyond] - 5).any(axis=2).sum())
+    assert survives > 300                                        # the other actor's: untouched
+
+
+def test_soft_with_only_a_geometry_less_actor_renders_the_plain_plate(gl_ctx):
+    # The triangle-less pairing test always has a real caster beside it, so
+    # a frame whose only actor has no geometry is unreached: this is that
+    # frame, and it must come out as the untouched plate at every level.
+    #
+    # It pins the output, not the short-circuit. `_gather_shadows` leaves
+    # `cast` False here and skips the blur and the composite, but running
+    # them anyway is invisible -- an empty coverage texture composites to
+    # no change -- so replacing `if cast:` with `if True:` keeps this green.
+    # The guard is a cost saving; what must never change is the plate.
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    empty = BodyGeometry(np.zeros((0, 3), np.float32), np.zeros((0, 3), np.float32),
+                         np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+                         np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
+                         np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    for level in (0, 2):
+        rendered = _soft_frame_render(gl_ctx, "soft", [_standing_actor(0, empty, feet_y=150)],
+                                      plate, (0.0, -0.5, 0.85), level=level)
+        assert np.array_equal(rendered, _plain_background(gl_ctx, plate))
+
+
 def test_the_soft_blur_matches_the_numpy_twin(gl_ctx):
     from PyAitD.render.lighting import soften
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene", msaa=0, shadows="soft"))
@@ -1612,7 +1710,11 @@ def test_the_soft_blur_matches_the_numpy_twin(gl_ctx):
     radius = np.where(cover > 0, rng.integers(0, r_max + 1, (200, 320)), 0).astype(np.float64)
     rg = np.zeros((200, 320, 2), np.uint8)
     rg[..., 0] = (cover * 255).astype(np.uint8)
-    rg[..., 1] = np.round(radius / r_max * 255).astype(np.uint8)
+    # G holds 1 - r / r_max, the encoding the cast pass writes so that MAX
+    # blending keeps the smallest radius; the blur decodes it on the way in
+    # and re-encodes on the way out. `soften` takes the plain radius, so
+    # only this upload and the shader share the complement.
+    rg[..., 1] = np.round((1.0 - radius / r_max) * 255).astype(np.uint8)
     backend._shadow_tex.write(np.ascontiguousarray(rg).tobytes())
     backend._soften_shadows()
     out = np.frombuffer(backend._shadow_tex.read(), np.uint8).reshape(200, 320, 2)[..., 0] / 255.0
@@ -1668,12 +1770,21 @@ def test_a_sphere_casts_a_soft_shadow_even_on_the_flat_mesh(gl_ctx):
 
 def test_world_box_encloses_vertices_and_spheres():
     from PyAitD.render.render_gl import _world_box
-    actor = ActorDraw(0, _sphere_at(10.0, 20.0, 30.0, radius=5.0), (100.0, 0.0, 0.0), 0, (0,) * 6,
-                      RenderResult([], []), ())
+    # Both contributors have to show in the answer, so the fixture puts a
+    # vertex outside the sphere's extent on every axis: with the sphere
+    # alone the box would be 105..115 / 15..25 / 25..35, and with the
+    # vertices alone 110..140 / 20..60 / 30..80. Each bound below comes
+    # from one or the other, so dropping either contributor moves one.
+    geometry = BodyGeometry(np.array([[10.0, 20.0, 30.0], [40.0, 60.0, 80.0]], np.float32),
+                            np.tile((0.0, 0.0, -1.0), (2, 1)).astype(np.float32),
+                            np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+                            np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, 5.0, 2),),
+                            np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    actor = ActorDraw(0, geometry, (100.0, 0.0, 0.0), 0, (0,) * 6, RenderResult([], []), ())
     corners = np.array(_world_box(actor))
     assert corners.shape == (8, 3)
-    assert corners.min(axis=0).tolist() == [105.0, 15.0, 25.0]
-    assert corners.max(axis=0).tolist() == [115.0, 25.0, 35.0]
+    assert corners.min(axis=0).tolist() == [105.0, 15.0, 25.0]      # the sphere's low side
+    assert corners.max(axis=0).tolist() == [140.0, 60.0, 80.0]      # the far vertex
 
 
 def test_an_occluder_shadows_the_key_share_of_a_receiver_only_under_soft(gl_ctx):

@@ -353,7 +353,13 @@ def soften(coverage, radius, r_max):
     which the GL test pins the shader against.
 
     `coverage` and `radius` are (H, W): coverage 0..1 and a per-pixel
-    penumbra radius in pixels, 0..r_max. Each covered pixel is spread over
+    penumbra radius in pixels. A radius above `r_max` is outside the
+    contract -- the loop only reaches that far, so the 1 / (2r + 1) weights
+    would no longer sum to one -- and callers keep it in range rather than
+    this clamping it, which would hide the mistake. The shader stores the
+    radius as its complement, 1 - r / r_max, so that MAX blending keeps the
+    smallest; that encoding is the texture's, not this function's, and the
+    radius arrives here plain. Each covered pixel is spread over
     a box of *its own* radius -- (2r + 1) pixels per axis, weight
     1 / (2r + 1) each -- horizontally, then vertically, carrying the
     largest radius that reached a pixel into the second pass. Written as a

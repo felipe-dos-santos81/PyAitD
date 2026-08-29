@@ -153,7 +153,11 @@ a rule — add the test with the rule.
   in both or neither. `glsl` is strings only — every GLSL source the backend
   compiles, no imports (`test_layering` pins it). `lighting.soften` is the numpy
   twin of the penumbra blur (`SHADOW_BLUR_FSH`), pinned like
-  `refine.evaluate` — change the formula in both or neither.
+  `refine.evaluate` — change the formula in both or neither. The twin
+  takes the radius plain; the coverage texture stores it as `1 - r/R_MAX`
+  so that MAX blending keeps the smallest, and the shader alone decodes
+  and re-encodes. That encoding is the texture's, not the formula's, so
+  the parity test complements its own upload rather than `soften`.
   `lighting.light_view_matrix` is *not* a twin: it is the shadow-map
   projection itself, called straight from `render_gl._render_shadow_map`
   with no GL copy to keep in step, so editing it moves shipped pixels

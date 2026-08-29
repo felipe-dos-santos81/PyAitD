@@ -315,16 +315,25 @@ void main() {
 """
 SHADOW_CAST_FSH = """
 #version 330
-// The gathered ground-shadow cast: coverage in R, the penumbra radius
-// (a fraction of r_max) in G. This actor's own foreground masks erase
-// its cast here, once, so the gathered coverage needs no mask at
-// composite time. Overlapping casts blend with MAX on both channels.
+// The gathered ground-shadow cast: coverage in R, and in G the
+// *complement* of the penumbra radius, 1 - r / r_max. This actor's own
+// foreground masks erase its cast here, once, so the gathered coverage
+// needs no mask at composite time.
+//
+// Both channels blend with MAX, which is the union of coverage in R and,
+// because G holds the complement, the *smallest* radius in G. That is the
+// rule this pass needs: a ground pixel lit through two blockers is as
+// sharp as the nearer one, and a solid body's own heights all project
+// across each other, so keeping the largest radius would leave its whole
+// shadow as soft as its highest point and never harden at the feet. GL
+// gives one blend equation to both colour channels, so the complement is
+// what buys MIN on G without a second target or a second pass.
 uniform sampler2D mask_tex; uniform vec2 target_size;
 in float v_penumbra;
 out vec4 f_color;
 void main() {
     if (texture(mask_tex, gl_FragCoord.xy / target_size).r > 0.5) discard;
-    f_color = vec4(1.0, v_penumbra, 0.0, 0.0);
+    f_color = vec4(1.0, 1.0 - v_penumbra, 0.0, 0.0);
 }
 """
 SHADOW_BLUR_FSH = """
@@ -335,6 +344,13 @@ SHADOW_BLUR_FSH = """
 // and takes cover / (2 r + 1) from each that does, carrying the largest
 // radius that reached it into G for the second axis. lighting.soften is
 // the numpy twin the parity test pins this against.
+//
+// G is the radius's complement, 1 - r / r_max, in this pass's input and
+// its output alike: the cast writes it that way so MAX blending keeps the
+// smallest radius (see SHADOW_CAST_FSH), and both axes run this same
+// shader, so the second one reads back what the first one wrote. Only the
+// decode and the store are complemented -- the carry is still the largest
+// radius that reached the pixel, taken on the decoded value.
 uniform sampler2D src; uniform ivec2 axis; uniform int r_max;
 out vec4 f_color;
 void main() {
@@ -346,12 +362,12 @@ void main() {
         ivec2 q = p + axis * d;
         if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y) continue;
         vec2 s = texelFetch(src, q, 0).rg;
-        float r = floor(s.g * float(r_max) + 0.5);
+        float r = floor((1.0 - s.g) * float(r_max) + 0.5);
         if (s.r > 0.0 && float(abs(d)) <= r) {
             cover += s.r / (2.0 * r + 1.0);
             reach = max(reach, r);
         }
     }
-    f_color = vec4(min(cover, 1.0), reach / float(r_max), 0.0, 0.0);
+    f_color = vec4(min(cover, 1.0), 1.0 - reach / float(r_max), 0.0, 0.0);
 }
 """

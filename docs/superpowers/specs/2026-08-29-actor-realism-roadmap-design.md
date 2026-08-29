@@ -194,7 +194,15 @@ is one tunable, initially 6° — an indoor lamp a few metres away; the sun
 would be 0.25°. `R_MAX = 6 · scale` pixels.
 
 Where two casters overlap the blend equation is `MAX` on both channels, so
-overlapping shadows darken a pixel once and take the softer radius.
+overlapping shadows darken a pixel once. G stores the radius as its
+complement, `1 − r / R_MAX`, so that same `MAX` keeps the *smallest*
+radius: a ground pixel lit past two blockers is as sharp as the nearer
+one, and a solid body's own heights project across each other, so keeping
+the largest would leave its whole shadow as soft as its highest point and
+never harden at the feet. GL gives one blend equation to both colour
+channels, and the complement is what buys `MIN` on G without a second
+target or a second pass. The blur decodes on read and re-encodes on write;
+`soften` takes the plain radius, the encoding being the texture's alone.
 
 The blur is two passes of one program (`_SHADOW_BLUR_FSH`, horizontal then
 vertical through a ping-pong RG texture): each output pixel gathers over
@@ -575,7 +583,9 @@ asserts it unchanged after, and task 2 retires that check when bump lands.
 - `soften`: radius 0 is the identity; one pixel of radius `r` spreads to a
   `(2r + 1)²` box whose sum is the original coverage; two casters combine
   by `MAX`, never additively; the carried radius is the max of the
-  contributors.
+  contributors that reach the pixel (the *smallest* radius wins at the
+  cast, through the complement encoding, but the blur's carry is a max
+  over what actually reached).
 - GL: `hard` reproduces the golden; under `soft` a caster lying on its
   plane produces a one-pixel edge and a caster held 1000 units above it a
   wider one; a sphere placed so its shadow lands on an earlier-drawn

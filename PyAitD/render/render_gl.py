@@ -89,12 +89,16 @@ def _set_uniform(prog, name, value):
     lacks -- so every caller that writes one name across programs built
     from different shader pairs goes through here.
 
-    Measured on this driver: `_screen_prog` (_SCREEN_VSH + _ACTOR_FSH)
-    drops `light_vp` and `normal_offset`, because its vertex stage writes
-    v_shadow as a constant and never reads either. `_tess_shadow_prog`
-    (_TESS_VSH + _STENCIL_FSH) happens to keep `r_max` here, but its
-    fragment stage reads no varying at all, so a linker is free to drop the
-    whole penumbra chain and that write has to survive it either way."""
+    The guard is insurance, not a description of today: measured on this
+    driver, no live call site loses a name. `_tess_shadow_prog` (_TESS_VSH
+    + _STENCIL_FSH) is the one that could -- its fragment stage reads no
+    varying at all, so a linker is free to drop the whole penumbra chain
+    and with it `r_max` -- and it happens to keep it here. (`_screen_prog`
+    does drop `light_vp` and `normal_offset`, its vertex stage writing
+    v_shadow as a constant, but those two names reach it through no path:
+    `_set_frame_uniforms` is called only with `_actor_prog` and
+    `_tess_prog`.) Write through here whenever the same name is set across
+    programs built from different shader pairs."""
     try:
         uniform = prog[name]
     except KeyError:
@@ -454,8 +458,12 @@ class GLBackend:
             self._material_tex,
             self._shadow_map_fbo, self._shadow_map,
             self._tess_prog, self._tess_shadow_prog, *self._subpatch_bufs.values(),
-            self._shadow_quad_vao, self._shadow_quad,
-            self._blur_quad_vao, self._blur_prog, self._cast_prog,
+            # Both VAOs are built on `_shadow_quad`, so both come before it:
+            # every other pair in this tuple frees the VAO ahead of its
+            # buffer, and deleting a buffer does not unbind it from a VAO
+            # that is not current.
+            self._shadow_quad_vao, self._blur_quad_vao, self._shadow_quad,
+            self._blur_prog, self._cast_prog,
             self._shadow_prog, self._shadow_geom_prog,
             self._shadow_fbo, self._shadow_tex,
             self._shadow_blur_fbo, self._shadow_blur_tex,
@@ -893,7 +901,13 @@ class GLBackend:
 
     def _soften_shadows(self):
         """Two passes of the radius-driven blur over the coverage texture:
-        horizontal into _shadow_blur_tex, vertical back into _shadow_tex."""
+        horizontal into _shadow_blur_tex, vertical back into _shadow_tex.
+
+        Blending is disabled here rather than assumed: the pass overwrites
+        what it reads, and the gather that runs before it leaves MAX on the
+        blend equation. Leaving that live would MAX each pass onto its own
+        destination instead of replacing it."""
+        self._ctx.disable(moderngl.BLEND)
         self._blur_prog["src"].value = 2
         self._blur_prog["r_max"].value = self._r_max()
         passes = (((1, 0), self._shadow_tex, self._shadow_blur_fbo),
