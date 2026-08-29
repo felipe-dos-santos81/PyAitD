@@ -24,7 +24,22 @@ import numpy as np
 
 from PyAitD.engine.cos_table import sin_cos
 from PyAitD.render.geometry import icosphere
-from PyAitD.render.lighting import _clamp_downward, project_to_plane, shading_terms, shadow_opacity
+from PyAitD.render.glsl import (
+    BG_VSH as _BG_VSH,
+    BG_FSH as _BG_FSH,
+    ACTOR_VSH as _ACTOR_VSH,
+    ACTOR_FSH as _ACTOR_FSH,
+    TESS_VSH as _TESS_VSH,
+    SCREEN_VSH as _SCREEN_VSH,
+    STENCIL_VSH as _STENCIL_VSH,
+    STENCIL_FSH as _STENCIL_FSH,
+    SHADOW_GEOM_VSH as _SHADOW_GEOM_VSH,
+    SHADOW_FSH as _SHADOW_FSH,
+    SHADOW_CAST_FSH as _SHADOW_CAST_FSH,
+    SHADOW_BLUR_FSH as _SHADOW_BLUR_FSH,
+)
+from PyAitD.render.lighting import (_clamp_downward, light_view_matrix, project_to_plane,
+                                    shading_terms, shadow_opacity, SHADOW_MAP_SIZE)
 from PyAitD.render.materials import PALETTE_SIZE, PRESETS
 from PyAitD.render.refine import subpatch
 from PyAitD.render.render_options import SMOOTHING_LEVELS
@@ -42,6 +57,70 @@ _DEPTH_B = -2 * FAR * NEAR / (FAR - NEAR)
 _SHADING_INDEX = {"flat": 0, "lambert": 1, "smooth": 2}
 
 CONTACT_HEIGHT = 150.0   # FITD units over which the contact term fades, roughly shin height
+
+# The ground shadow's penumbra. A light source of angular radius
+# SOURCE_ANGLE throws a penumbra `drop * tan(SOURCE_ANGLE)` wide at a point
+# whose caster is `drop` units above the plane -- 6 degrees is an indoor
+# lamp a few metres off; the sun would be a quarter of one. R_MAX_PER_SCALE
+# is the widest radius the blur honours, in pixels per unit of render
+# scale, and what the cast shader normalises its radius by.
+SOURCE_ANGLE = 6.0
+TAN_SOURCE = math.tan(math.radians(SOURCE_ANGLE))
+R_MAX_PER_SCALE = 4
+
+# The shadow-map receiver: a vertex is pushed NORMAL_OFFSET world units
+# along its normal before it is looked up, and the comparison is biased
+# by SHADOW_BIAS_UNITS (scaled by slope) so a surface never shadows itself
+# at its own depth. Bodies are 100-400 units across; both are well under a
+# limb's thickness.
+NORMAL_OFFSET = 6.0
+SHADOW_BIAS_UNITS = 4.0
+# Clip [-1, 1] -> texture [0, 1] on every axis, folded into light_vp so the
+# fragment shader's textureProj reads the map directly.
+_SHADOW_BIAS = np.array([[0.5, 0.0, 0.0, 0.5],
+                         [0.0, 0.5, 0.0, 0.5],
+                         [0.0, 0.0, 0.5, 0.5],
+                         [0.0, 0.0, 0.0, 1.0]])
+
+
+def _set_uniform(prog, name, value):
+    """Set `name` if the linker kept it. A program whose stages never read a
+    uniform loses it, and ModernGL raises KeyError for a name the program
+    lacks -- so every caller that writes one name across programs built
+    from different shader pairs goes through here.
+
+    Measured on this driver: `_screen_prog` (_SCREEN_VSH + _ACTOR_FSH)
+    drops `light_vp` and `normal_offset`, because its vertex stage writes
+    v_shadow as a constant and never reads either. `_tess_shadow_prog`
+    (_TESS_VSH + _STENCIL_FSH) happens to keep `r_max` here, but its
+    fragment stage reads no varying at all, so a linker is free to drop the
+    whole penumbra chain and that write has to survive it either way."""
+    try:
+        uniform = prog[name]
+    except KeyError:
+        return
+    if isinstance(value, np.ndarray):
+        uniform.write(value.tobytes())
+    else:
+        uniform.value = value
+
+
+def _world_box(actor):
+    """The eight corners of the box around everything this actor draws --
+    posed vertices and sphere extents, in world space. Not the collision
+    `zv`: FITD's box stops short of outstretched limbs, and a fragment
+    outside the shadow map's box would compare against its edge texel."""
+    geometry = actor.geometry
+    position = np.asarray(actor.position, np.float64)
+    points = [geometry.vertices.astype(np.float64) + position]
+    for centre_idx, radius, _color in geometry.spheres:
+        centre = geometry.vertices[centre_idx].astype(np.float64) + position
+        points.append(centre[None, :] - radius)
+        points.append(centre[None, :] + radius)
+    pts = np.concatenate(points, axis=0)
+    lo, hi = pts.min(axis=0), pts.max(axis=0)
+    return [(float(x), float(y), float(z)) for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
+
 
 # One instance per source triangle for the tessellating programs: per
 # corner k, (pos.xyz, ao), (normal.xyz, straight of edge k -> k+1),
@@ -71,257 +150,6 @@ def instance_layout(prog):
         else:
             tokens.append(f"{fmt[0]}x4")
     return " ".join(tokens) + "/i", tuple(names)
-
-
-_BG_VSH = """
-#version 330
-in vec2 in_pos; in vec2 in_uv; out vec2 v_uv;
-void main() { gl_Position = vec4(in_pos, 0.0, 1.0); v_uv = in_uv; }
-"""
-_BG_FSH = """
-#version 330
-uniform sampler2D tex; uniform int mode; uniform vec2 src_size;
-in vec2 v_uv; out vec4 f_color;
-vec4 xbr(vec2 uv) {
-    // 2-tap edge-aware blend: sample the 4 neighbours, keep the pixel
-    // unless two diagonal neighbours agree, then blend toward them.
-    vec2 px = 1.0 / src_size;
-    vec4 c = texture(tex, uv);
-    vec4 n = texture(tex, uv + vec2(0.0, -px.y)); vec4 s = texture(tex, uv + vec2(0.0, px.y));
-    vec4 w = texture(tex, uv + vec2(-px.x, 0.0)); vec4 e = texture(tex, uv + vec2(px.x, 0.0));
-    vec2 f = fract(uv * src_size) - 0.5;
-    vec4 h = f.x < 0.0 ? w : e; vec4 v = f.y < 0.0 ? n : s;
-    if (distance(h.rgb, v.rgb) < 0.05 && distance(h.rgb, c.rgb) > 0.1 && abs(f.x) + abs(f.y) > 0.5)
-        return h;
-    return c;
-}
-void main() {
-    if (mode == 2) f_color = xbr(v_uv); else f_color = texture(tex, v_uv);
-}
-"""
-_ACTOR_VSH = """
-#version 330
-uniform mat4 mvp; uniform mat3 rot;
-in vec3 in_pos; in vec3 in_normal; in vec3 in_color; in vec3 in_rest; in float in_ao; in float in_index;
-out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
-void main() {
-    gl_Position = mvp * vec4(in_pos, 1.0);
-    v_color = in_color; v_normal = rot * in_normal;
-    v_rest = in_rest; v_ao = in_ao; v_index = in_index;
-    v_world_y = in_pos.y;   // in_pos is already world space: the actor position was added on the CPU
-}
-"""
-_ACTOR_FSH = """
-#version 330
-uniform int shading; uniform int lighting;
-// key_tint/fill_tint are shading_terms()'s *normalised tints*, not
-// reflectances: they carry the room's hue and sum to a peak of 1.0. The
-// shadow composite's `shadow_color` is the other thing -- SceneLight's raw
-// ambient, an absolute reflectance. Same room, two different quantities.
-uniform vec3 light; uniform vec3 key_tint; uniform vec3 fill_tint;
-uniform sampler2D mask_tex; uniform vec2 target_size;
-// Materials (scene lighting only). material_tex is 256x2 RGBA32F: row 0 is
-// (roughness, specular, metallic, rim), row 1 (detail, detail_scale,
-// detail_kind, 0) for the palette index in v_index. preset_a/preset_b are
-// the RealismPreset strengths (spec, rim, ao) and (contact, detail,
-// hemisphere); under realism=classic all six are 0 and every term below
-// is exactly 1.0 or 0.0, leaving `base` untouched.
-uniform sampler2D material_tex;
-uniform vec3 preset_a; uniform vec3 preset_b;
-uniform float plane_y; uniform float contact_height;
-in vec3 v_color; in vec3 v_normal; in vec3 v_rest; in float v_ao; flat in float v_index; in float v_world_y;
-out vec4 f_color;
-
-float hash3(vec3 p) {
-    p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
-    p *= 17.0;
-    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
-}
-float value_noise(vec3 p) {   // -1..1, C1 continuous
-    vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f);
-    float n = mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x),
-                      mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
-                  mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x),
-                      mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
-    return n * 2.0 - 1.0;
-}
-float detail_noise(vec3 p, int kind) {
-    if (kind == 1) return value_noise(p);                                                        // grain
-    if (kind == 2) return sin(p.x * 6.2832) * sin(p.z * 6.2832) * (0.5 + 0.5 * value_noise(p));  // weave
-    if (kind == 3) return value_noise(vec3(p.x * 4.0, p.y * 0.25, p.z * 4.0));                   // streak along y, the limb axis
-    if (kind == 4) return value_noise(vec3(p.x * 0.25, p.y * 6.0, p.z * 0.25));                  // brushed across it
-    return 0.0;
-}
-
-void main() {
-    if (texture(mask_tex, gl_FragCoord.xy / target_size).r > 0.5) discard;
-    if (shading == 0) {
-        // unshaded: flat palette colour, and the only path lines and points take
-        f_color = vec4(v_color, 1.0);
-        return;
-    }
-    vec3 n = (shading == 1)
-        ? normalize(cross(dFdx(gl_FragCoord.xyz), dFdy(gl_FragCoord.xyz)))
-        : normalize(v_normal);
-    vec3 l = normalize(light);
-    if (lighting == 0) {
-        // the pre-scene-light rig, kept byte-identical: abs() because FITD
-        // polygons have no consistent winding
-        f_color = vec4(v_color * (0.55 + 0.45 * abs(dot(n, l))), 1.0);
-        return;
-    }
-    // Orient rather than fold: -z is toward the camera, so a normal with a
-    // positive z faces away from the viewer and is pointing into the body.
-    //
-    // NOT dead code under shading == 1. There the normal is
-    // normalize(cross(dFdx(gl_FragCoord.xyz), dFdy(gl_FragCoord.xyz))),
-    // whose z is algebraically a constant +1 before normalisation
-    // (dFdx(gl_FragCoord.xy) == (1,0) and dFdy == (0,1) at every
-    // fragment), so this branch fires for *every* lambert fragment. That
-    // is the point: it makes the derivative normal a camera-facing one,
-    // which is what removes the winding dependence FITD geometry cannot
-    // provide. Deleting the flip inverts every lambert normal.
-    if (n.z > 0.0) n = -n;
-    // Half-Lambert: the lit side reaches fill_tint + key_tint, the shadow
-    // side falls to fill_tint rather than to black. `base` is the whole of
-    // realism=classic's answer and must stay this exact expression.
-    float wrapped = clamp(dot(n, l) * 0.5 + 0.5, 0.0, 1.0);
-    vec3 base = v_color * (fill_tint + key_tint * wrapped * wrapped);
-
-    int index = int(v_index + 0.5);
-    vec4 m0 = texelFetch(material_tex, ivec2(index, 0), 0);
-    vec4 m1 = texelFetch(material_tex, ivec2(index, 1), 0);
-    vec3 view = vec3(0.0, 0.0, -1.0);                 // from the surface toward the viewer
-    vec3 h = normalize(l + view);
-    // Camera-space y grows downward, so "up" (the sky half of the
-    // hemisphere ambient) is -n.y.
-    // Written as `1.0 + strength * ...`, like every other new term, so that
-    // realism=classic (preset_b.z == 0) collapses to exactly 1.0 by
-    // construction. The equivalent mix(1.0 - k, 1.0 + k, t) is only
-    // *probably* exact at k == 0: GLSL defines mix as x*(1-a) + y*a, which
-    // Sterbenz guarantees for a >= 0.5 but not below, leaving the branch's
-    // byte-for-byte classic identity to the driver's discretion.
-    float hemi = 1.0 + preset_b.z * 0.3 * (clamp(-n.y * 0.5 + 0.5, 0.0, 1.0) * 2.0 - 1.0);
-    // World y grows downward too: the feet are at plane_y and everything
-    // above them has a smaller y. Darkens by up to half at the plane.
-    float height = clamp((plane_y - v_world_y) / contact_height, 0.0, 1.0);
-    float contact = 1.0 - preset_b.x * 0.5 * (1.0 - height);
-    float occl = mix(1.0, v_ao, preset_a.z) * contact;
-    float gloss = exp2(1.0 + 10.0 * (1.0 - m0.x));
-    vec3 spec = key_tint * mix(vec3(1.0), v_color, m0.z) * pow(max(dot(n, h), 0.0), gloss) * m0.y * preset_a.x;
-    vec3 rim = key_tint * pow(1.0 - max(dot(n, view), 0.0), 3.0) * m0.w * preset_a.y;
-    float grain = 1.0 + preset_b.y * m1.x * detail_noise(v_rest / m1.y, int(m1.z + 0.5));
-    f_color = vec4(base * (grain * hemi * occl) + spec + rim, 1.0);
-}
-"""
-_TESS_VSH = """
-#version 330
-// PN-triangle tessellation, one instance per source triangle (see
-// _INSTANCE_ATTRIBUTES), evaluated at the sub-patch barycentric in in_bary.
-// Emits exactly _ACTOR_VSH's varyings so _ACTOR_FSH is reused unchanged;
-// refine.evaluate is the numpy twin the parity test pins this against.
-uniform mat4 mvp; uniform mat3 rot;
-// project == 1 is the shadow mode: the evaluated point slides along
-// `travel` onto the plane y == plane_y before mvp -- lighting.project_to_plane's
-// math for an ALREADY-CLAMPED travel. This shader does no clamping itself:
-// the caller must tip `travel` onto the MIN_UP cone (lighting._clamp_downward)
-// before writing this uniform, exactly as project_to_plane does on the CPU
-// side, or an unclamped near-horizontal travel divides by a near-zero
-// travel.y here.
-uniform int project; uniform vec3 travel; uniform float plane_y;
-in vec3 in_bary;
-in vec4 in_p0; in vec4 in_n0; in vec4 in_c0; in vec3 in_r0;
-in vec4 in_p1; in vec4 in_n1; in vec4 in_c1; in vec3 in_r1;
-in vec4 in_p2; in vec4 in_n2; in vec4 in_c2; in vec3 in_r2;
-out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
-out vec3 v_world;   // the evaluated world position: read back by transform feedback in tests, unused by the fragment shader
-
-vec3 edge_point(vec3 pi, vec3 pj, vec3 ni, float straight) {
-    // a third of the way from pi toward pj, projected onto pi's tangent
-    // plane -- or left on the chord when the edge is a crease
-    return (2.0 * pi + pj) / 3.0 - (1.0 - straight) * dot(pj - pi, ni) * ni / 3.0;
-}
-vec3 edge_normal(vec3 pi, vec3 pj, vec3 ni, vec3 nj, float straight) {
-    vec3 d = pj - pi;
-    vec3 h = ni + nj;
-    float dd = dot(d, d);
-    float v = dd > 1e-12 ? 2.0 * dot(d, h) / dd : 0.0;
-    return normalize(h - (1.0 - straight) * v * d);
-}
-void main() {
-    vec3 p0 = in_p0.xyz, p1 = in_p1.xyz, p2 = in_p2.xyz;
-    vec3 n0 = in_n0.xyz, n1 = in_n1.xyz, n2 = in_n2.xyz;
-    float s01 = in_n0.w, s12 = in_n1.w, s20 = in_n2.w;
-    vec3 b210 = edge_point(p0, p1, n0, s01), b120 = edge_point(p1, p0, n1, s01);
-    vec3 b021 = edge_point(p1, p2, n1, s12), b012 = edge_point(p2, p1, n2, s12);
-    vec3 b102 = edge_point(p2, p0, n2, s20), b201 = edge_point(p0, p2, n0, s20);
-    vec3 e = (b210 + b120 + b021 + b012 + b102 + b201) / 6.0;
-    vec3 b111 = e + (e - (p0 + p1 + p2) / 3.0) / 2.0;
-    float u = in_bary.x, v = in_bary.y, w = in_bary.z;
-    vec3 pos = p0 * u*u*u + p1 * v*v*v + p2 * w*w*w
-             + b210 * 3.0*u*u*v + b120 * 3.0*u*v*v + b201 * 3.0*u*u*w
-             + b021 * 3.0*v*v*w + b102 * 3.0*u*w*w + b012 * 3.0*v*w*w
-             + b111 * 6.0*u*v*w;
-    vec3 n110 = edge_normal(p0, p1, n0, n1, s01);
-    vec3 n011 = edge_normal(p1, p2, n1, n2, s12);
-    vec3 n101 = edge_normal(p2, p0, n2, n0, s20);
-    vec3 n = normalize(n0 * u*u + n1 * v*v + n2 * w*w + n110 * u*v + n011 * v*w + n101 * w*u);
-    if (project == 1) pos += (plane_y - pos.y) / travel.y * travel;
-    gl_Position = mvp * vec4(pos, 1.0);
-    v_world = pos;
-    // the three corners carry the triangle's one colour; blending them keeps
-    // every instance attribute referenced, so no driver's linker drops one
-    v_color = in_c0.xyz * u + in_c1.xyz * v + in_c2.xyz * w; v_index = in_c0.w;
-    v_normal = rot * n;
-    v_rest = in_r0 * u + in_r1 * v + in_r2 * w;
-    v_ao = in_p0.w * u + in_p1.w * v + in_p2.w * w;
-    v_world_y = pos.y;
-}
-"""
-_SCREEN_VSH = """
-#version 330
-in vec3 in_ndc; in vec3 in_color;
-out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
-void main() {
-    gl_Position = vec4(in_ndc, 1.0); v_color = in_color; v_normal = vec3(0.0, 0.0, 1.0);
-    v_rest = vec3(0.0); v_ao = 1.0; v_index = 0.0; v_world_y = 0.0;
-}
-"""
-_STENCIL_VSH = """
-#version 330
-in vec2 in_pos;
-void main() { gl_Position = vec4(in_pos, 0.0, 1.0); }
-"""
-_STENCIL_FSH = """
-#version 330
-out vec4 f_color;
-void main() { f_color = vec4(1.0); }
-"""
-_SHADOW_GEOM_VSH = """
-#version 330
-uniform mat4 mvp;
-in vec3 in_pos;
-void main() { gl_Position = mvp * vec4(in_pos, 1.0); }
-"""
-_SHADOW_FSH = """
-#version 330
-uniform sampler2D shadow_tex; uniform sampler2D mask_tex;
-uniform vec2 target_size; uniform vec3 shadow_color; uniform float opacity;
-out vec4 f_color;
-void main() {
-    vec2 uv = gl_FragCoord.xy / target_size;
-    // A foreground mask hides the shadow exactly as it hides the actor.
-    if (texture(mask_tex, uv).r > 0.5) discard;
-    // Coverage is binary, so overlapping limbs darken a pixel once.
-    if (texture(shadow_tex, uv).r < 0.5) discard;
-    // A per-channel factor <= 1.0 (shadow_color is 0..1), multiplied
-    // (not alpha-blended) into the destination below: this can only ever
-    // scale the background down toward the room's ambient hue, never
-    // brighten it, unlike a src-alpha blend which pulls the destination
-    // toward ambient from either side.
-    f_color = vec4(mix(vec3(1.0), shadow_color, opacity), 1.0);
-}
-"""
 
 
 def rotation_matrix(state):
@@ -415,6 +243,12 @@ class GLBackend:
         self._mask_fbo = None
         self._shadow_tex = None
         self._shadow_fbo = None
+        self._shadow_blur_tex = None
+        self._shadow_blur_fbo = None
+        self._cast_prog = None
+        self._cast_layout = None
+        self._blur_prog = None
+        self._blur_quad_vao = None
         self._shadow_prog = None
         self._shadow_geom_prog = None
         self._shadow_quad = None
@@ -435,6 +269,8 @@ class GLBackend:
         self._sphere = None
         self._material_tex = None
         self._material_key = None
+        self._shadow_map = None
+        self._shadow_map_fbo = None
         self._tess_prog = None
         self._tess_shadow_prog = None
         self._subpatch_bufs = {}
@@ -452,11 +288,20 @@ class GLBackend:
             self._mask_tex.repeat_y = False
             self._mask_fbo = ctx.framebuffer(color_attachments=[self._mask_tex])
 
-            self._shadow_tex = ctx.texture(self.size, 1)
+            # Two channels: R is coverage, G the penumbra radius the gathered
+            # cast writes (a fraction of R_MAX); the hard path writes 1.0 to
+            # both and reads only R. The blur ping-pongs between this and
+            # _shadow_blur_tex, horizontal then vertical, ending back here.
+            self._shadow_tex = ctx.texture(self.size, 2)
             self._shadow_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
             self._shadow_tex.repeat_x = False
             self._shadow_tex.repeat_y = False
             self._shadow_fbo = ctx.framebuffer(color_attachments=[self._shadow_tex])
+            self._shadow_blur_tex = ctx.texture(self.size, 2)
+            self._shadow_blur_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+            self._shadow_blur_tex.repeat_x = False
+            self._shadow_blur_tex.repeat_y = False
+            self._shadow_blur_fbo = ctx.framebuffer(color_attachments=[self._shadow_blur_tex])
             self._shadow_geom_prog = ctx.program(
                 vertex_shader=_SHADOW_GEOM_VSH, fragment_shader=_STENCIL_FSH)
             self._shadow_prog = ctx.program(
@@ -471,6 +316,9 @@ class GLBackend:
             self._shadow_quad = ctx.buffer(shadow_quad.tobytes())
             self._shadow_quad_vao = ctx.vertex_array(
                 self._shadow_prog, [(self._shadow_quad, "2f", "in_pos")])
+            self._blur_prog = ctx.program(vertex_shader=_STENCIL_VSH, fragment_shader=_SHADOW_BLUR_FSH)
+            self._blur_quad_vao = ctx.vertex_array(
+                self._blur_prog, [(self._shadow_quad, "2f", "in_pos")])
 
             self._bg_prog = ctx.program(vertex_shader=_BG_VSH, fragment_shader=_BG_FSH)
             self._actor_prog = ctx.program(vertex_shader=_ACTOR_VSH, fragment_shader=_ACTOR_FSH)
@@ -483,6 +331,20 @@ class GLBackend:
             # whenever an actor hands over a table object we have not seen.
             self._material_tex = ctx.texture((PALETTE_SIZE, 2), 4, dtype="f4")
             self._material_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+
+            # The light-view depth map every actor is rendered into under
+            # shadows=soft. compare_func turns sampling into a depth test the
+            # hardware bilinearly filters (2x2 PCF); LINEAR is what makes
+            # that filtering happen. Depth-only: no colour attachment.
+            self._shadow_map = ctx.depth_texture((SHADOW_MAP_SIZE, SHADOW_MAP_SIZE))
+            self._shadow_map.compare_func = "<="
+            self._shadow_map.filter = (moderngl.LINEAR, moderngl.LINEAR)
+            self._shadow_map.repeat_x = False
+            self._shadow_map.repeat_y = False
+            self._shadow_map_fbo = ctx.framebuffer(depth_attachment=self._shadow_map)
+            for prog in (self._actor_prog, self._screen_prog):
+                _set_uniform(prog, "shadow_map", 4)
+                _set_uniform(prog, "self_shadow", 0)
 
             quad = np.array([
                 -1, -1, 0, 1,
@@ -543,6 +405,8 @@ class GLBackend:
             # compiling at construction is how every other program fails
             # over to the software backend when a driver rejects it.
             self._tess_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_ACTOR_FSH)
+            _set_uniform(self._tess_prog, "shadow_map", 4)
+            _set_uniform(self._tess_prog, "self_shadow", 0)
             self._tess_shadow_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_STENCIL_FSH)
             # Seeded on the shadow program, not _tess_prog: _tess_prog always
             # writes project=0 itself (_draw_actor_tessellated), so travel is
@@ -550,9 +414,26 @@ class GLBackend:
             # project=1 (task 6); an unseeded uniform defaults to (0,0,0) and
             # divides by zero (travel.y) if that write is ever missed.
             self._tess_shadow_prog["travel"].value = (0.0, 1.0, 0.0)
+            # And the penumbra divisor the cast branch added to that same
+            # branch: _tess_shadow_prog runs it with project=1 as well, and
+            # an unseeded r_max is 0, so v_penumbra would evaluate 0.0 / 0.0
+            # -- unspecified per the GLSL spec -- on every vertex. Nothing
+            # reads it there today (_STENCIL_FSH declares no v_penumbra), so
+            # a linker is free to drop the uniform outright -- which is
+            # exactly what _set_uniform exists to absorb.
+            _set_uniform(self._tess_shadow_prog, "r_max", 1.0)
             self._tess_layout = instance_layout(self._tess_prog)
             self._tess_shadow_layout = instance_layout(self._tess_shadow_prog)
-            for level in SMOOTHING_LEVELS[1:]:
+            # The gathered cast: _TESS_VSH in project mode, writing coverage
+            # and penumbra radius. Seeded like _tess_shadow_prog so an unset
+            # travel can never divide by zero.
+            self._cast_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_SHADOW_CAST_FSH)
+            self._cast_prog["travel"].value = (0.0, 1.0, 0.0)
+            self._cast_layout = instance_layout(self._cast_prog)
+            # Every level, 0 included: subpatch(0) is the flat triangle with
+            # exact corners, so the soft-shadow passes can draw every actor
+            # through the instanced programs whatever `smoothing` says.
+            for level in SMOOTHING_LEVELS:
                 self._subpatch_bufs[level] = ctx.buffer(np.ascontiguousarray(subpatch(level), dtype="f4").tobytes())
 
             self._sphere = icosphere(1)
@@ -571,10 +452,13 @@ class GLBackend:
             self._thumb_quad_vao, self._thumb_quad,
             self._stencil_prog, self._screen_prog, self._actor_prog, self._bg_prog,
             self._material_tex,
+            self._shadow_map_fbo, self._shadow_map,
             self._tess_prog, self._tess_shadow_prog, *self._subpatch_bufs.values(),
             self._shadow_quad_vao, self._shadow_quad,
+            self._blur_quad_vao, self._blur_prog, self._cast_prog,
             self._shadow_prog, self._shadow_geom_prog,
             self._shadow_fbo, self._shadow_tex,
+            self._shadow_blur_fbo, self._shadow_blur_tex,
             self._mask_fbo, self._mask_tex,
             self._thumb_fbo, self._thumb_tex,
             self._ms_fbo, self._ms_color, self._ms_depth,
@@ -620,6 +504,7 @@ class GLBackend:
             self._ctx.depth_func = "<"  # ModernGL's own default
             self._ctx.disable(moderngl.BLEND)
             self._ctx.blend_func = moderngl.DEFAULT_BLENDING  # ModernGL's own default
+            self._ctx.blend_equation = moderngl.FUNC_ADD  # the gathered cast blends with MAX
             # Best-effort: prev_fbo can have been release()'d by another
             # backend sharing this ctx between when we captured it and now
             # (moderngl.InvalidObject`d, not cleared) -- restoring a dead
@@ -640,6 +525,7 @@ class GLBackend:
         mvp = camera_matrix(frame.camera, self._options.scale)
         rot = rotation_matrix(frame.camera.state).astype("f4")
         scene_lit = self._options.lighting == "scene"
+        soft = scene_lit and self._options.shadows == "soft"
         level = self._options.smoothing
         travel = None
         if scene_lit:
@@ -650,29 +536,52 @@ class GLBackend:
             travel = -(rot.astype(np.float64).T
                        @ np.asarray(frame.light.direction, np.float64))
             self._material_tex.use(location=3)
-        self._set_frame_uniforms(self._actor_prog, frame, mvp, rot, scene_lit)
-        if level:
-            self._set_frame_uniforms(self._tess_prog, frame, mvp, rot, scene_lit)
-        self._screen_prog["target_size"].value = self.size
 
         palette = frame.palette.astype("f4") / 255.0
         mask_by_id = {mask.id: mask for mask in frame.masks}
 
-        for actor in frame.actors:
-            masks = [mask_by_id[i] for i in actor.mask_ids if i in mask_by_id]
-            self._rasterize_masks(masks)  # switches to the mask FBO and disables depth test
+        # One instance buffer per actor for the whole frame, built before
+        # the loop: the soft-shadow passes read every actor's before any
+        # body is drawn, so they cannot be built per actor. Under hard
+        # shadows at level 0 nothing is built, as before. Released in the
+        # `finally` so a raise anywhere below cannot leak one.
+        instances = [None] * len(frame.actors)
+        try:
+            if level or soft:
+                for i, actor in enumerate(frame.actors):
+                    data = self._instance_data(actor.geometry, np.asarray(actor.position, np.float64), palette)
+                    if len(data):
+                        instances[i] = (self._ctx.buffer(data.tobytes()), len(data))
 
-            instances = None
+            shadow = None
+            if soft:
+                shadow = self._render_shadow_map(frame, instances, travel, level)
+            # After _render_shadow_map, never before: for the length of that
+            # pass _shadow_map is _shadow_map_fbo's depth attachment, and
+            # binding a texture to a unit while it is the current
+            # framebuffer's attachment is the shape of a feedback loop.
+            # Harmless as written -- the program that pass runs declares no
+            # sampler, so nothing ever reads it -- but it is the kind of
+            # binding a GL debug layer flags, and there is no reason to make
+            # it. Bound whatever `shadows` says: every actor program declares
+            # the sampler, and a sampler bound to no texture is undefined
+            # even on the branch that never reads it.
+            self._shadow_map.use(location=4)
+            self._set_frame_uniforms(self._actor_prog, frame, mvp, rot, scene_lit, shadow)
             if level:
-                data = self._instance_data(actor.geometry, np.asarray(actor.position, np.float64), palette)
-                instances = (self._ctx.buffer(data.tobytes()), len(data)) if len(data) else None
-            # The buffer feeds both the shadow pass and the actor draw, so
-            # it outlives several fallible calls: release it from `finally`
-            # so a raise anywhere in between cannot leak it.
-            try:
-                if scene_lit:
+                self._set_frame_uniforms(self._tess_prog, frame, mvp, rot, scene_lit, shadow)
+            self._screen_prog["target_size"].value = self.size
+
+            if soft:
+                self._gather_shadows(frame, instances, mask_by_id, travel, mvp, rot, level)
+
+            for actor, inst in zip(frame.actors, instances):
+                masks = [mask_by_id[i] for i in actor.mask_ids if i in mask_by_id]
+                self._rasterize_masks(masks)  # switches to the mask FBO and disables depth test
+
+                if scene_lit and not soft:
                     if level:
-                        cast = self._rasterize_shadow_tessellated(instances, travel, mvp, _plane_y(actor), level)
+                        cast = self._rasterize_shadow_tessellated(inst, travel, mvp, _plane_y(actor), level)
                     else:
                         cast = self._rasterize_shadow(actor, travel, mvp)
                     if cast:
@@ -706,23 +615,27 @@ class GLBackend:
                         self._tess_prog["plane_y"].value = _plane_y(actor)
                     self._upload_materials(actor.materials)
                 if level:
-                    self._draw_actor_tessellated(actor, frame, palette, instances, level)
+                    self._draw_actor_tessellated(actor, frame, palette, inst, level)
                 else:
                     self._draw_actor(actor, frame, palette)
                 self._ctx.disable(moderngl.DEPTH_TEST)
-            finally:
-                if instances is not None:
-                    instances[0].release()
+        finally:
+            for inst in instances:
+                if inst is not None:
+                    inst[0].release()
 
         if self._ms_fbo is not None:
             # Resolves the multisample buffer down into `.texture`, which is
             # what read_rgb, thumbnail and Renderer all read.
             self._ctx.copy_framebuffer(self._fbo, self._ms_fbo)
 
-    def _set_frame_uniforms(self, prog, frame, mvp, rot, scene_lit):
+    def _set_frame_uniforms(self, prog, frame, mvp, rot, scene_lit, shadow=None):
         """Everything an actor program needs once per frame. Shared by
         _actor_prog and _tess_prog so the two can never disagree about the
-        light; the values are exactly what _draw_frame set inline before."""
+        light; the values are exactly what _draw_frame set inline before.
+        `shadow` is _render_shadow_map's (light_vp, depth_bias) under
+        shadows=soft, else None -- which leaves self_shadow at 0 and the
+        classic expression untouched."""
         prog["mvp"].write(mvp.T.tobytes())
         prog["rot"].write(rot.T.tobytes())
         prog["shading"].value = _SHADING_INDEX[self._options.shading]
@@ -744,6 +657,14 @@ class GLBackend:
             prog["fill_tint"].value = (0.0, 0.0, 0.0)
             prog["preset_a"].value = (0.0, 0.0, 0.0)
             prog["preset_b"].value = (0.0, 0.0, 0.0)
+        if shadow is not None:
+            light_vp, depth_bias = shadow
+            _set_uniform(prog, "self_shadow", 1)
+            _set_uniform(prog, "light_vp", light_vp)
+            _set_uniform(prog, "depth_bias", depth_bias)
+            _set_uniform(prog, "normal_offset", NORMAL_OFFSET)
+        else:
+            _set_uniform(prog, "self_shadow", 0)
         prog["target_size"].value = self.size
 
     def _instance_data(self, geometry, position, palette):
@@ -864,9 +785,12 @@ class GLBackend:
 
     def _rasterize_shadow(self, actor, travel, mvp):
         """This actor's triangles, flattened onto the ground plane beneath it,
-        into the single-channel coverage texture. Returns whether anything
-        was actually rasterised, so the caller can skip compositing an
-        empty coverage texture entirely.
+        into the coverage texture. Coverage is all this path writes: the
+        texture has been RG since the gathered cast arrived, but _SHADOW_FSH
+        reads only .r unless `soft`, and the G channel (the soft path's
+        penumbra radius) is left at whatever the clear put there. Returns
+        whether anything was actually rasterised, so the caller can skip
+        compositing an empty coverage texture entirely.
 
         The plane is the actor's own zv lower bound -- world y grows
         downward, so the feet are the larger of the two y bounds. It travels
@@ -922,7 +846,97 @@ class GLBackend:
         self._render_instanced(prog, self._tess_shadow_layout, instances[0], instances[1], level)
         return True
 
-    def _composite_shadow(self, light):
+    def _r_max(self):
+        """The widest penumbra radius the blur honours, in target pixels."""
+        return R_MAX_PER_SCALE * self._options.scale
+
+    def _gather_shadows(self, frame, instances, mask_by_id, travel, mvp, rot, level):
+        """Every actor's ground shadow into one coverage texture -- each cast
+        erased by that actor's own masks -- softened by the per-pixel
+        penumbra radius and multiplied onto the plate once, before any body
+        is drawn. A nearer actor's shadow can no longer paint over a farther
+        body, and overlapping casts take the MAX, so they darken once."""
+        self._shadow_fbo.use()
+        self._ctx.viewport = (0, 0, *self.size)
+        self._ctx.disable(moderngl.DEPTH_TEST)
+        self._shadow_fbo.clear(0.0, 0.0, 0.0, 0.0)
+        prog = self._cast_prog
+        prog["mvp"].write(mvp.T.astype("f4").tobytes())
+        prog["project"].value = 1
+        prog["travel"].value = tuple(float(v) for v in _clamp_downward(travel))
+        # rot maps world -> camera, so its first row is the world vector
+        # that lands on camera +x: the axis the penumbra width is measured along
+        prog["right"].value = tuple(float(v) for v in rot[0])
+        prog["tan_source"].value = TAN_SOURCE
+        prog["r_max"].value = float(self._r_max())
+        prog["target_size"].value = self.size
+        prog["mask_tex"].value = 1
+        cast = False
+        for actor, inst in zip(frame.actors, instances):
+            if inst is None:
+                continue
+            self._rasterize_masks([mask_by_id[i] for i in actor.mask_ids if i in mask_by_id])
+            self._shadow_fbo.use()
+            self._ctx.viewport = (0, 0, *self.size)
+            self._mask_tex.use(location=1)
+            prog["plane_y"].value = _plane_y(actor)
+            self._ctx.enable(moderngl.BLEND)
+            self._ctx.blend_func = moderngl.ONE, moderngl.ONE
+            self._ctx.blend_equation = moderngl.MAX
+            self._render_instanced(prog, self._cast_layout, inst[0], inst[1], level)
+            self._ctx.blend_equation = moderngl.FUNC_ADD
+            self._ctx.disable(moderngl.BLEND)
+            cast = True
+        if cast:
+            self._soften_shadows()
+            self._composite_shadow(frame.light, soft=True)
+
+    def _soften_shadows(self):
+        """Two passes of the radius-driven blur over the coverage texture:
+        horizontal into _shadow_blur_tex, vertical back into _shadow_tex."""
+        self._blur_prog["src"].value = 2
+        self._blur_prog["r_max"].value = self._r_max()
+        passes = (((1, 0), self._shadow_tex, self._shadow_blur_fbo),
+                  ((0, 1), self._shadow_blur_tex, self._shadow_fbo))
+        for axis, src, dst in passes:
+            dst.use()
+            self._ctx.viewport = (0, 0, *self.size)
+            self._ctx.disable(moderngl.DEPTH_TEST)
+            src.use(location=2)
+            self._blur_prog["axis"].value = axis
+            self._blur_quad_vao.render(moderngl.TRIANGLES)
+
+    def _render_shadow_map(self, frame, instances, travel, level):
+        """One orthographic depth map from the light over every actor's
+        instances, spheres included, lines and points excluded as in every
+        shadow pass. Returns the (light_vp, depth_bias) the receivers need
+        -- light_vp already carrying the clip-to-texture bias, transposed
+        for GLSL -- or None when no actor has anything to cast, in which
+        case the receivers keep self_shadow = 0. No face culling: FITD
+        winding is not consistent, so both faces write depth."""
+        corners = []
+        for actor, inst in zip(frame.actors, instances):
+            if inst is not None:
+                corners.extend(_world_box(actor))
+        if not corners:
+            return None
+        matrix, extent = light_view_matrix(travel, corners, pad=NORMAL_OFFSET)
+        self._shadow_map_fbo.use()
+        self._ctx.viewport = (0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE)
+        self._ctx.enable(moderngl.DEPTH_TEST)
+        self._ctx.depth_func = "<="
+        self._shadow_map_fbo.clear(depth=1.0)
+        prog = self._tess_shadow_prog
+        prog["mvp"].write(matrix.T.astype("f4").tobytes())
+        prog["project"].value = 0
+        for inst in instances:
+            if inst is not None:
+                self._render_instanced(prog, self._tess_shadow_layout, inst[0], inst[1], level)
+        self._ctx.disable(moderngl.DEPTH_TEST)
+        biased = (_SHADOW_BIAS @ matrix.astype(np.float64)).astype("f4")
+        return np.ascontiguousarray(biased.T), float(SHADOW_BIAS_UNITS / extent[2])
+
+    def _composite_shadow(self, light, soft=False):
         """Multiply the background toward the room's ambient hue through the
         coverage texture: `mix(1, ambient, opacity)` is a per-channel
         factor <= 1.0 (ambient is 0..1), and it is multiplied into the
@@ -949,7 +963,11 @@ class GLBackend:
         (measured at 0 overlapping pixels across 50 live frames), and the
         mask discard keeps foreground geometry safe, but the mechanism is
         real: a true fix would need the shadows gathered into one coverage
-        pass before any actor is drawn."""
+        pass before any actor is drawn.
+
+        Under `soft` the coverage is the gathered, mask-erased, softened
+        texture and is consumed fractionally; the ordering caveat above
+        no longer applies, since this runs once before any body is drawn."""
         self._target.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
@@ -960,6 +978,7 @@ class GLBackend:
         self._shadow_prog["target_size"].value = self.size
         self._shadow_prog["shadow_color"].value = tuple(float(c) for c in light.ambient)
         self._shadow_prog["opacity"].value = shadow_opacity(light.contrast)
+        self._shadow_prog["soft"].value = 1 if soft else 0
         self._ctx.enable(moderngl.BLEND)
         self._ctx.blend_func = moderngl.DST_COLOR, moderngl.ZERO
         self._shadow_quad_vao.render(moderngl.TRIANGLES)

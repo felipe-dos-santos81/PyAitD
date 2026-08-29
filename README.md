@@ -66,7 +66,7 @@ click on any large button. Found objects open a Take/Leave prompt; inventory
 exposes the object's own actions; letters and books are readable; pictures
 play full-screen.
 
-The in-game Configuration screen's Graphics page, and eight CLI flags for a
+The in-game Configuration screen's Graphics page, and nine CLI flags for a
 single session, control the enhanced renderer: `--render-scale N` (1-8, the
 internal render resolution as a multiple of 320x200), `--shading
 {flat,lambert,smooth}` (the per-actor shading model: where surface normals
@@ -85,6 +85,10 @@ per body under `DIR/bodies/body<NNN>.json`),
 `1`–`3` round every body with 4/16/64 curved sub-triangles per face, keeping
 edges sharper than 80° — overridable per body with a `"crease"` degrees key
 in `DIR/bodies/body<NNN>.json`),
+`--shadows {hard,soft}` (`hard` is the flat projected silhouette; `soft`
+gives every shadow a penumbra that hardens where the actor meets the ground,
+composites every actor's shadow once before any body is drawn, and lets
+limbs and actors shadow each other through a light-view depth map),
 and `--overrides DIR` (a user-supplied replacement asset directory; this repo
 still ships no game data — `make run` passes `data/aitd1/overrides` unless you
 override or clear `overrides=`). An override directory holds
@@ -127,7 +131,7 @@ make test-meta                     # the repo's own rules (package layering, tes
 make test-journey                  # real run() event pump and long real-data simulations
 make proof-mouse                   # navmesh coverage for every camera-visible room, every floor (needs game data)
 make proof-combat                  # combat venue proof: real enemy damage, player arms, game over (needs game data)
-make proof-graphics                # render attic + combat fixtures at every shading mode to docs/graphics-proof/ (needs GL + game data)
+make proof-graphics                # render attic + combat fixtures at every shading mode, plus flat-mesh and hard-shadow pairs, to docs/graphics-proof/ (needs GL + game data)
 make proof-intro                   # opening cutscene: headless gate + one GL render per visited camera
 make check-overrides proof=1       # validate data/aitd1/overrides (or overrides=DIR); side-by-sides to docs/graphics-proof/overrides/
 make regenerate-backgrounds dry=1  # list cameras the Gemini regeneration would process; no API calls

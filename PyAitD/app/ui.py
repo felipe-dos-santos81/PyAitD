@@ -18,12 +18,12 @@ from PyAitD.render.background_export import (
 )
 from PyAitD.render.render_options import (
     RenderOptions, cycle_filter, cycle_lighting, cycle_msaa, cycle_realism, cycle_scale, cycle_shading,
-    cycle_smoothing,
+    cycle_shadows, cycle_smoothing,
 )
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.text import BookToken
 
-GRAPHICS_ROWS = 7          # rows on the Graphics page above Back, in GRAPHICS_CYCLES order
+GRAPHICS_ROWS = 8          # rows on the Graphics page above Back, in GRAPHICS_CYCLES order
 
 
 def config_row_count():
@@ -396,7 +396,8 @@ def reduce_character_select(state, command):
 # One cycle per Graphics-page row above Back; graphics_labels draws them in
 # the same order, and tests pin that the two never drift apart.
 GRAPHICS_CYCLES = (
-    cycle_scale, cycle_shading, cycle_filter, cycle_lighting, cycle_msaa, cycle_realism, cycle_smoothing,
+    cycle_scale, cycle_shading, cycle_filter, cycle_lighting, cycle_shadows,
+    cycle_msaa, cycle_realism, cycle_smoothing,
 )
 
 
@@ -606,10 +607,14 @@ class SystemMenuLayout:
         pygame.Rect(16, 2 + i * 13, 288, 13)
         for i in range(config_row_count())
     )
-    # graphics_row_count() rows at a 22 px pitch, 20 px tall: the page is
-    # not squeezed the way CONFIG's 13 px rows are, and ends at y=186.
+    # graphics_row_count() rows at an 18 px pitch, 18 px tall. The roadmap's
+    # rows need the room: eight plus Back end at y=174, nine plus Back at
+    # y=192, both inside the 200-row screen. Touching rows are fine --
+    # effective_rects splits their 2 px hit padding at the midpoint, which
+    # CONFIG's 13 px rows already rely on -- and 18 >= 13 keeps the 12x12
+    # target contract.
     GRAPHICS_PAGE_ROWS = tuple(
-        pygame.Rect(16, 12 + i * 22, 288, 20)
+        pygame.Rect(16, 12 + i * 18, 288, 18)
         for i in range(graphics_row_count())
     )
     # 8 columns x 7 rows of key cells under a one-line header, then a wide
@@ -1188,6 +1193,7 @@ def graphics_labels(render):
         f"Shading: {render.shading.title()}",
         f"Filter: {render.background_filter.title()}",
         f"Lighting: {render.lighting.title()}",
+        f"Shadows: {render.shadows.title()}",
         # "up to", because this row shows the *option*, and GLBackend clamps
         # it to ctx.max_samples at construction (many drivers cap at 4). The
         # menu has no handle on the live backend to read the real count off,

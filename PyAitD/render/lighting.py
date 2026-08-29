@@ -281,3 +281,96 @@ def project_to_plane(vertices, travel, plane_y):
     travel = _clamp_downward(travel)
     steps = (plane_y - verts[:, 1]) / travel[1]
     return verts + steps[:, None] * travel
+
+
+# The light-view depth map every actor is rendered into under
+# shadows="soft": one square map per frame, fitted to the frame's actors.
+SHADOW_MAP_SIZE = 2048
+
+
+def light_view_matrix(travel, corners, pad=0.0):
+    """(matrix, extent): an orthographic light-view matrix over `corners`.
+
+    `travel` is the direction light travels, in world space; it is tipped
+    onto the MIN_UP cone exactly as project_to_plane does, so the map and
+    the ground shadow always agree about where the light goes. `corners`
+    is (K, 3) world points -- every actor's bounding-box corners; `pad`
+    widens the box by that many world units on every side before the
+    one-texel margin, so a receiver the shader pushes along its normal
+    still lands inside the map.
+
+    The matrix is column-vector, like camera_matrix: `matrix @ (x, y, z,
+    1)` is clip space, x and y across the map and z growing along
+    `travel`, so the depth test keeps what is nearest the light. Every
+    corner lands strictly inside [-1, 1] on all three axes. `extent` is
+    the (3,) light-space size of the box mapped onto [-1, 1]; its z is
+    what turns a bias in world units into map depth. A single point still
+    gives a finite, invertible matrix: every axis is at least one unit
+    wide."""
+    forward = _clamp_downward(travel)
+    corners = np.asarray(corners, dtype=np.float64).reshape(-1, 3)
+    # World y grows downward, so "up" is -y. When the light travels almost
+    # straight down the vertical is no use as a hint: fall back to world x.
+    up_hint = np.array([0.0, -1.0, 0.0])
+    if abs(float(np.dot(forward, up_hint))) > 0.99:
+        up_hint = np.array([1.0, 0.0, 0.0])
+    right = np.cross(up_hint, forward)
+    right /= np.linalg.norm(right)
+    up = np.cross(forward, right)
+    basis = np.stack([right, up, forward])              # rows: the light-space axes
+    local = corners @ basis.T
+    lo, hi = local.min(axis=0) - pad, local.max(axis=0) + pad
+    centre = (lo + hi) / 2.0
+    half = np.maximum((hi - lo) / 2.0, 0.5)             # at least one unit wide
+    half += 2.0 * half / SHADOW_MAP_SIZE                 # one texel of margin per side
+    extent = 2.0 * half
+    view = np.eye(4)
+    view[:3, :3] = basis
+    ortho = np.eye(4)
+    ortho[0, 0], ortho[1, 1], ortho[2, 2] = 1.0 / half
+    ortho[:3, 3] = -centre / half
+    return (ortho @ view).astype(np.float32), extent
+
+
+def _shift(array, d, axis):
+    """`out[p] = array[p + d]` along `axis`, zero beyond the edge."""
+    out = np.zeros_like(array)
+    n = array.shape[axis]
+    if abs(d) >= n:
+        return out
+    src = [slice(None)] * array.ndim
+    dst = [slice(None)] * array.ndim
+    if d >= 0:
+        src[axis], dst[axis] = slice(d, n), slice(0, n - d)
+    else:
+        src[axis], dst[axis] = slice(0, n + d), slice(-d, n)
+    out[tuple(dst)] = array[tuple(src)]
+    return out
+
+
+def soften(coverage, radius, r_max):
+    """The numpy twin of render_gl's two-pass penumbra blur (SHADOW_BLUR_FSH),
+    which the GL test pins the shader against.
+
+    `coverage` and `radius` are (H, W): coverage 0..1 and a per-pixel
+    penumbra radius in pixels, 0..r_max. Each covered pixel is spread over
+    a box of *its own* radius -- (2r + 1) pixels per axis, weight
+    1 / (2r + 1) each -- horizontally, then vertically, carrying the
+    largest radius that reached a pixel into the second pass. Written as a
+    gather (each output pixel asks which neighbours reach it), which is
+    the form a fragment shader can take. A radius-0 pixel spreads nowhere:
+    a foot on the plane stays sharp while the head's shadow goes soft.
+    Coverage is clamped to 1.0 after each pass."""
+    cover = np.asarray(coverage, dtype=np.float64)
+    reach = np.floor(np.asarray(radius, dtype=np.float64) + 0.5)
+    for axis in (1, 0):
+        out = np.zeros_like(cover)
+        carried = np.zeros_like(cover)
+        for d in range(-r_max, r_max + 1):
+            shifted_cover = _shift(cover, d, axis)
+            shifted_reach = _shift(reach, d, axis)
+            hits = (shifted_cover > 0.0) & (abs(d) <= shifted_reach)
+            out += np.where(hits, shifted_cover / (2.0 * shifted_reach + 1.0), 0.0)
+            carried = np.where(hits, np.maximum(carried, shifted_reach), carried)
+        cover, reach = np.minimum(out, 1.0), carried
+    return cover.astype(np.float32)

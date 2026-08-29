@@ -16,7 +16,7 @@ make test-meta     # the repo's own rules (package layering, test grouping)
 make test-journey  # real run() event pump and long real-data simulations
 make proof-mouse   # navmesh for every camera-visible room, every floor (needs game data)
 make proof-combat  # venue, real enemy damage, player arms, game over (needs game data)
-make proof-graphics # attic + combat fixtures per shading mode x realism preset x smoothing default, plus a flat-mesh pair (needs GL + game data)
+make proof-graphics # attic + combat fixtures per shading mode x realism preset x smoothing default, plus a flat-mesh pair and a hard-shadow pair (needs GL + game data)
 make proof-intro   # opening cutscene: headless gate + one GL render per visited camera
 make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
 make export-backgrounds # originals + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + manifest schema 3 to data/aitd1/overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1, screens=0 to skip)
@@ -150,7 +150,14 @@ a rule — add the test with the rule.
   shared decode caches — read them, never write. `refine` is pure numpy: the
   tessellation plan, the per-corner normals and the numpy twin of `_TESS_VSH`
   that the transform-feedback test pins the GPU against — change the formula
-  in both or neither.
+  in both or neither. `glsl` is strings only — every GLSL source the backend
+  compiles, no imports (`test_layering` pins it). `lighting.soften` is the numpy
+  twin of the penumbra blur (`SHADOW_BLUR_FSH`), pinned like
+  `refine.evaluate` — change the formula in both or neither.
+  `lighting.light_view_matrix` is *not* a twin: it is the shadow-map
+  projection itself, called straight from `render_gl._render_shadow_map`
+  with no GL copy to keep in step, so editing it moves shipped pixels
+  rather than a test oracle.
 - The UI layer is painted through `app.ui.UIPainter`, which owns a surface at
   `(320*s, 200*s)` and scales logical coordinates on every call. Presenters
   author in logical 320x200 and never build their own surface; `s` comes from

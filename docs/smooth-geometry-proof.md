@@ -3,12 +3,14 @@
 Date: 2026-08-28
 Spec: `docs/superpowers/specs/2026-08-28-smooth-actor-geometry-design.md`
 
-**This document's "Manual attestation" table is a checklist for a human with
-real game data and a real window; every row starts `pending` and no claim
-about the rendered PNGs should be inferred from this file until a human
-fills them in.** Everything under "Automated gates" was actually run, in this
-environment, on this branch, and the output shown is the real output of that
-run.
+**This document's "Manual attestation" table is a checklist for a human
+with real game data and a real window; every row started `pending` and no
+claim about the rendered PNGs should be inferred from this file until a
+human fills them in.** (One row is no longer satisfiable at all -- a later
+branch moved a render default out from under it -- and now says so in
+place of its status; see `docs/soft-shadows-proof.md`.) Everything under
+"Automated gates" was actually run, in this environment, on this branch,
+and the output shown is the real output of that run.
 
 ## What changed
 
@@ -180,7 +182,7 @@ shadow.
 
 | Check | Status |
 |---|---|
-| `attic-smooth-enhanced-flatmesh.png` is identical to the pre-change `attic-smooth-enhanced.png` | pending |
+| `attic-smooth-enhanced-flatmesh.png` is identical to the pre-change `attic-smooth-enhanced.png` | unsatisfiable as written; superseded by `docs/soft-shadows-proof.md`. `tools/prove_graphics` renders the `-flatmesh` twin at the *current* `shadows` default, and the `feat/soft-shadows` branch changed that default from `hard` to `soft`. The twin therefore now differs from the pre-change image by its shadows as well as by its smoothing, and no human can make this comparison come out identical. To attest the smoothing half as intended, render the proof with `python tools/prove_graphics.py <data> --shadows hard`, which puts the `-flatmesh` twin back on the pre-change pipeline. The automated `tests/golden/scene_lit_classic.npy` golden covers the narrower version of the same claim -- `classic` + `smoothing 0` + `shadows hard` reproduces the pre-change render byte for byte -- without a human in the loop. |
 | Under smoothing 2, Carnby's arms, legs and head read round; the wardrobe, chair and stool keep their edges | pending |
 | The rocking horse's body rounds while its rockers and flat head stay slab-like | pending |
 | The ground shadow's outline is round where the actor is round | pending |

@@ -39,12 +39,12 @@ def test_valid_payload_round_trips():
 def test_each_invalid_field_falls_back_alone():
     options, error = validate_render_options(
         {"scale": 99, "shading": "smooth", "background_filter": "bilinear", "override_dir": None,
-         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0})
+         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft"})
     assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0)  # clamped, not rejected
     assert error is None
     options, error = validate_render_options(
         {"scale": "x", "shading": "neon", "background_filter": "bilinear", "override_dir": 3,
-         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0})
+         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft"})
     assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0)
     assert "scale" in error and "shading" in error and "override_dir" in error
 
@@ -105,3 +105,21 @@ def test_invalid_smoothing_falls_back_alone():
         payload["smoothing"] = bad
         options, error = validate_render_options(payload)
         assert options == RenderOptions() and "smoothing" in error, bad
+
+
+def test_shadows_defaults_to_soft_and_cycles():
+    from PyAitD.render.render_options import SHADOW_MODES, cycle_shadows
+    assert SHADOW_MODES == ("hard", "soft")
+    options = RenderOptions()
+    assert options.shadows == "soft"
+    assert cycle_shadows(options).shadows == "hard"
+    assert cycle_shadows(RenderOptions(shadows="hard")).shadows == "soft"
+    assert RenderOptions(shadows="hard").to_payload()["shadows"] == "hard"
+
+
+def test_invalid_shadows_falls_back_alone():
+    for bad in ("penumbra", 1, None, True):
+        payload = RenderOptions().to_payload()
+        payload["shadows"] = bad
+        options, error = validate_render_options(payload)
+        assert options == RenderOptions() and "shadows" in error, bad

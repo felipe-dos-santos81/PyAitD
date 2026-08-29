@@ -548,3 +548,16 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(profil
     assert renderer_options and renderer_options[0].scale == 2
     assert renderer_options[0].shading == "flat"
     assert resolver_calls == [overrides_dir]
+
+
+def test_shadows_flag_overrides_only_its_own_field():
+    from dataclasses import replace
+
+    from PyAitD.app.shell import apply_render_overrides, parse_args
+    from PyAitD.app.config import default_settings
+
+    base = default_settings()
+    only = apply_render_overrides(base, parse_args(["--shadows", "hard"]))
+    assert only == replace(base, render=replace(base.render, shadows="hard"))
+    with pytest.raises(SystemExit):
+        parse_args(["--shadows", "blurry"])   # argparse choices reject it

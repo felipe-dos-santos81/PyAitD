@@ -82,7 +82,7 @@ proof-mouse: install ## Navmesh proof: build it for every camera-visible room, e
 proof-combat: install ## Combat proof: venue, real enemy damage, player arms, game over
 	$(PYTHON) tools/prove_combat.py "$(data)"
 
-proof-graphics: install ## Graphics proof: attic + combat fixtures at scale 4 per shading mode x realism preset, plus a flat-mesh pair, to docs/graphics-proof/
+proof-graphics: install ## Graphics proof: attic + combat fixtures at scale 4 per shading mode x realism preset, plus a flat-mesh pair and a hard-shadow pair, to docs/graphics-proof/
 	$(PYTHON) tools/prove_graphics.py "$(data)"
 
 proof-intro: install ## Opening cutscene proof: headless run to CutsceneFinished + one GL render per visited camera to docs/intro-proof/
