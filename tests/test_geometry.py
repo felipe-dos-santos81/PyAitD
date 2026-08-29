@@ -152,3 +152,29 @@ def test_a_refinement_fills_corner_normals_and_straight_but_leaves_normals_alone
     assert np.array_equal(geo.normals, plain.normals)
     assert geo.corner_normals.shape == (12, 3, 3)
     assert not np.array_equal(geo.corner_normals, plain.corner_normals)   # creased corners take their face normal
+
+
+class _CountingRefinement:
+    """A plan that records how often its corner normals are asked for."""
+
+    def __init__(self, tris):
+        self.straight = np.zeros((len(tris), 3), np.float32)
+        self.calls = 0
+
+    def corner_normals(self, vertices, tris):
+        self.calls += 1
+        return np.zeros((len(tris), 3, 3), np.float32)
+
+
+def test_a_plans_corner_normals_are_computed_on_first_read_and_only_once():
+    # build_frame poses every actor every frame and passes the plan
+    # whatever the smoothing level is; only render_gl's tessellated path
+    # ever reads the corner normals, so posing must not compute them.
+    body = _cube_body()
+    plan = _CountingRefinement(pose_geometry(body, [], None).tris)
+    geo = pose_geometry(body, [], None, refinement=plan)
+    assert plan.calls == 0                      # constructing pays nothing
+    first = geo.corner_normals
+    assert plan.calls == 1 and first.shape == (12, 3, 3)
+    assert geo.corner_normals is first          # cached: reading twice computes once
+    assert plan.calls == 1

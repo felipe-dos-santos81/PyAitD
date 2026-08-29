@@ -47,15 +47,103 @@ smoothing 2, plus `<attic|combat>-smooth-enhanced-flatmesh.png` at smoothing
 0.
 
 Comparing `attic-smooth-enhanced.png` against its `-flatmesh` twin pixel by
-pixel: 63,031 of 1,024,000 pixels (6.16%) differ, concentrated around
-Carnby's head and body (bounding box x 37-1279, y 120-736 of the 1280x800
-frame). Cropped to just the head, the jaw and cheeks read as a continuous
-curve at smoothing 2 versus the flat mesh's faceted, pointed chin -- a clear
-visible difference, not just a pixel-count one. The wardrobe, chair, stool
-and window frame in the same frame are pixel-identical in shape between the
-two renders (only actor-adjacent shading/AA pixels move); their edges stay
-sharp because those bodies' dominant angles fall under the 80° crease
-threshold.
+pixel: 63,031 of 1,024,000 pixels (6.16%) differ, in a bounding box (x
+37-1279, y 120-736 of the 1280x800 frame) that spans almost the whole
+frame -- not a neighbourhood of the actor. Cropped to just the head, the
+jaw and cheeks read as a continuous curve at smoothing 2 versus the flat
+mesh's faceted, pointed chin -- a clear visible difference, not just a
+pixel-count one.
+
+The document originally claimed the wardrobe, chair, stool and window frame
+were "pixel-identical in shape" with "only actor-adjacent shading/AA
+pixels" moving. Isolating each as its own crop and diffing it against the
+same crop of the `-flatmesh` render shows that claim does not hold:
+
+| Body (crop) | Differing pixels (any magnitude) |
+|---|---|
+| Wardrobe | 12,732 / 18,760 (67.9%) |
+| Window frame (top corners only, clear of Carnby's head) | 1,095 / 1,360 (80.5%) |
+| Lantern (foreground prop) | 12,841 / 35,685 (36.0%) |
+| Rocking horse | 7,807 / 35,000 (22.3%) |
+| Stool | 1,906 / 5,208 (36.6%) |
+| Barrels | 713 / 16,150 (4.4%) |
+| Chair | 39 / 32,250 (0.1%) |
+
+Every one of those bodies except the chair differs substantially, and none
+of them is adjacent to the actor -- the wardrobe and window frame in
+particular sit well away from Carnby and his shadow.
+
+Tracing why: two candidate mechanisms fire under tessellation and neither
+depends on the actor's proximity.
+
+1. `_ACTOR_FSH`'s `grain` term (`PyAitD/render/render_gl.py`) multiplies
+   each fragment's colour by `detail_noise(v_rest / m1.y, ...)`, a
+   deterministic noise function of the *interpolated* rest-pose position
+   `v_rest`. `_TESS_VSH` interpolates `v_rest` across each PN sub-triangle
+   (`in_r0*u + in_r1*v + in_r2*w`) differently from how the flat mesh's
+   `_ACTOR_VSH` passes it straight through (`v_rest = in_rest`), so any
+   body whose material carries a nonzero "detail" strength (`m1.x`) samples
+   a different noise-field point at `smoothing=2` than at `smoothing=0`,
+   at the same screen pixel. This term is gated by `preset_b.y`, which is
+   zero under `realism=classic` and nonzero under `realism=enhanced`.
+2. The two render paths shade with different normals entirely, independent
+   of realism. The legacy path's `_triangle_data` shades with
+   `geometry.normals[idx]` -- plain per-vertex normals from
+   `geometry._vertex_normals`, which average every adjacent face with no
+   crease awareness, so a 90°-cornered body like the wardrobe gets its
+   corners Gouraud-smoothed. The tessellated path's `_instance_data` shades
+   with `geometry.corner_normals`, the crease-aware plan `refine.py`
+   builds (`scene.py`'s `pose_geometry` call passes `refinement=`
+   unconditionally, so this plan exists whatever `smoothing` is set to);
+   `refine.py` breaks smoothing groups at edges sharper than 80°, so the
+   tessellated path keeps those same corners flat. That is a real per-pixel
+   lighting difference on any faceted body, with nothing to do with grain
+   noise, and it fires under any realism.
+
+Grain is gated by realism, normals are not -- so re-rendering the same
+`attic` fixture at `realism="classic"` (`preset_b.y == 0`, `grain` collapses
+to exactly `1.0`) isolates the two. If the classic pair's furniture diffs
+collapsed to near zero, grain would be the driver; if they stayed close to
+the enhanced numbers, the normals difference would be. Measured (same
+crops, same two smoothing levels, `realism="classic"` this time):
+
+| Body (crop) | Enhanced diff | Classic diff |
+|---|---|---|
+| Wardrobe | 12,732 / 18,760 (67.9%) | 12,105 / 18,760 (64.5%) |
+| Window frame (top-left corner) | 566 / 714 (79.3%) | 540 / 714 (75.6%) |
+| Window frame (top-right corner) | 529 / 646 (81.9%) | 525 / 646 (81.3%) |
+| Lantern | 12,841 / 35,685 (36.0%) | 12,306 / 35,685 (34.5%) |
+| Rocking horse | 7,807 / 35,000 (22.3%) | 7,757 / 35,000 (22.2%) |
+| Stool | 1,906 / 5,208 (36.6%) | 1,850 / 5,208 (35.5%) |
+| Barrels | 713 / 16,150 (4.4%) | 712 / 16,150 (4.4%) |
+| Chair | 39 / 32,250 (0.1%) | 39 / 32,250 (0.1%) |
+| Whole frame | 63,031 / 1,024,000 (6.16%) | 60,991 / 1,024,000 (5.96%) |
+
+Every crop's classic-realism diff is within a few percentage points of its
+enhanced-realism diff, and the whole-frame count drops by only 2,040 pixels
+(3.2% of the enhanced total) with grain turned off. Grain is not the
+driver: disabling it barely moves the numbers. The crease-aware
+`corner_normals` versus plain `geometry.normals` difference -- which is
+active at every realism level, because `scene.py` always builds the
+crease-aware plan -- is the better-supported explanation for the bulk of
+this diff, on the wardrobe, stool, lantern, rocking horse and window frame.
+Grain is a real, secondary contributor (the enhanced-minus-classic gap),
+not the primary one. The chair and barrels differ far less under both
+realisms, consistent with those bodies not having a sharp-to-smooth normals
+transition (or a "detail" material) that lands where the diff was
+measured -- not independently confirmed from the body JSON.
+
+Isolating actual *shape* (not colour) for the wardrobe -- for each row of
+its crop, the x position where the pixel first diverges from the wall
+colour behind it, scanned from both the left and the right -- lands on the
+identical column on 134/140 rows from the left and 116/140 rows from the
+right; the remaining rows shift by a few pixels (max 43, one outlier row).
+So the wardrobe's outer silhouette is, practically, unchanged: its claimed
+sharp corners do survive. What does not survive is "pixel-identical" as a
+description of the rendered pixels, or "only actor-adjacent... pixels move"
+as a description of where the differences land -- the differences are real,
+frame-wide, and mostly a tessellation-dependent shading artifact rather
+than a geometry one.
 
 The `combat` fixture's camera does not frame an actor body in view, but its
 pair still differs (16,234 / 1,024,000 pixels, 1.59%): a shadow blob in the
@@ -74,6 +162,19 @@ shadow.
 - Silhouettes grow a few units past the `skel.skin` bbox picking uses;
   masks are unchanged.
 - `lambert` shading shows the sub-facets. The software backend is unchanged.
+- Under `smoothing > 0`, any body renders with different per-pixel lighting
+  than under `smoothing == 0`, even where its silhouette does not move:
+  the tessellated path always shades with `refine.py`'s crease-aware
+  `corner_normals`, while the legacy path shades with plain, face-averaging
+  `geometry.normals` -- so a faceted body's corners go from Gouraud-smoothed
+  to flat the moment `smoothing` turns on, independent of realism. Under
+  `realism=enhanced` a second, smaller effect stacks on top: the `grain`
+  material term samples the interpolated rest-pose position, which PN
+  sub-triangles interpolate differently from the flat parent triangle.
+  Measured on the attic fixture's wardrobe, stool, lantern, rocking horse
+  and window frame (see "`make proof-graphics`" above, including the
+  classic-vs-enhanced measurement that separates the two); neither is a
+  shape change.
 
 ## Manual attestation
 

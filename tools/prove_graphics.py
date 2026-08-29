@@ -11,8 +11,9 @@ beside the smooth-enhanced render:
 
 This repo never ships game data, so the PNGs are never committed --
 `docs/graphics-proof/` keeps only a `.gitkeep`. See
-`docs/graphics-realism-proof.md` for the manual attestation these renders
-feed.
+`docs/graphics-realism-proof.md` for the manual attestation the twelve
+per-mode renders feed, and `docs/smooth-geometry-proof.md` for the one the
+two `-flatmesh` files feed.
 """
 import argparse
 import pathlib

@@ -1152,6 +1152,33 @@ def test_instance_data_packs_each_corners_own_columns(gl_ctx):
         assert np.allclose(block[12:15], rest[k]), f"corner {k} rest"
 
 
+def test_instance_data_and_triangle_data_agree_column_for_column(gl_ctx):
+    # The two carry the same numbers in two shapes -- one row per triangle
+    # vs one row per vertex -- and each is pinned on its own, but nothing
+    # pinned that they still agree, so either could drift alone. With no
+    # refinement corner_normals is exactly normals[tris], which makes the
+    # two comparable value for value; the sphere covers the second branch.
+    from PyAitD.render.geometry import pose_geometry
+    body = _closed_cube_body()
+    body.primitives.append(Primitive(3, 0, 5, [0], size=40))
+    geometry = pose_geometry(body, [], (0, 0, 0))
+    palette = _palette().astype("f4") / 255.0
+    position = np.array([3.0, -4.0, 5.0])
+    backend = _flat_backend(gl_ctx, 0)
+    inst = backend._instance_data(geometry, position, palette)
+    tri = backend._triangle_data(geometry, position, palette)
+    backend.release()
+    assert len(inst) and len(tri) == 3 * len(inst)
+    corner = inst.reshape(len(inst), 3, 15)          # pos.xyz, ao, normal.xyz, straight, rgb, index, rest.xyz
+    vertex = tri.reshape(len(inst), 3, 14)           # pos.xyz, normal.xyz, rgb, rest.xyz, ao, index
+    assert np.allclose(corner[:, :, 0:3], vertex[:, :, 0:3]), "position"
+    assert np.allclose(corner[:, :, 3], vertex[:, :, 12]), "ao"
+    assert np.allclose(corner[:, :, 4:7], vertex[:, :, 3:6]), "normal"
+    assert np.allclose(corner[:, :, 8:11], vertex[:, :, 6:9]), "colour"
+    assert np.allclose(corner[:, :, 11], vertex[:, :, 13]), "palette index"
+    assert np.allclose(corner[:, :, 12:15], vertex[:, :, 9:12]), "rest"
+
+
 def _enhanced_tessellated_backend(gl_ctx, level=2):
     return GLBackend(gl_ctx, RenderOptions(
         scale=2, shading="smooth", lighting="scene", msaa=0, realism="enhanced", smoothing=level))

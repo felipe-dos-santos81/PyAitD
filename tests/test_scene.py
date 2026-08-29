@@ -362,6 +362,7 @@ class _StubResolver:
         self._bodies = bodies_by_num
         self._background = background
         self._palette = palette
+        self._plans = {}
 
     def body(self, num):
         return self._bodies[num]
@@ -384,8 +385,12 @@ class _StubResolver:
         return np.full(len(self._bodies[num].vertices), 0.5, np.float32)
 
     def refinement(self, num):
+        # memoised, like the real AssetResolver.refinement: one plan per
+        # body, so a caller can assert on plan identity
         from PyAitD.render.refine import plan_refinement
-        return plan_refinement(self._bodies[num])
+        if num not in self._plans:
+            self._plans[num] = plan_refinement(self._bodies[num])
+        return self._plans[num]
 
 
 def _legacy_stub_scene(game, floor, resolver):
@@ -508,9 +513,10 @@ def test_build_frame_assembles_frame_description_from_stubs(monkeypatch):
     for actor in frame.actors:
         assert actor.materials is default_table()
         assert (actor.geometry.ao == 0.5).all()
+        plan = resolver.refinement(game.actors[actor.index].body_num)
+        assert actor.geometry.refinement is plan       # the plan rides along; nothing recomputes it
+        assert actor.geometry.straight is plan.straight
         assert actor.geometry.corner_normals.shape == (len(actor.geometry.tris), 3, 3)
-        assert actor.geometry.straight is resolver.refinement(game.actors[actor.index].body_num).straight or (
-            actor.geometry.straight.shape == (len(actor.geometry.tris), 3))
 
     # the animated actor's logical points reflect the fake group_states,
     # not the anim==-1 default -- an independent skin() call with the same

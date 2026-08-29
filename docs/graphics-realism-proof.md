@@ -65,8 +65,18 @@ is the binding one: it asserts `np.array_equal` against
 
 ## `make prove-graphics`
 
-Twelve PNGs under `docs/graphics-proof/` (git-ignored):
-`<attic|combat>-<flat|lambert|smooth>-<classic|enhanced>.png`.
+Fourteen PNGs under `docs/graphics-proof/` (git-ignored): the twelve
+`<attic|combat>-<flat|lambert|smooth>-<classic|enhanced>.png`, plus the
+`<attic|combat>-smooth-enhanced-flatmesh.png` pair the later smooth actor
+geometry branch added.
+
+Those twelve now render tessellated, at that branch's `smoothing=2`
+default, so they are not the pixels this document was written against; the
+rows below are still the right checks for the material response, but a
+human filling them in is looking at a rounded mesh — and the first row's
+byte-identity check now needs `--smoothing 0` to mean what it meant when it
+was written. The tessellation itself is attested separately, in
+`docs/smooth-geometry-proof.md`.
 
 ## Known limitations
 
@@ -89,12 +99,13 @@ Twelve PNGs under `docs/graphics-proof/` (git-ignored):
   uses are not emitted at all — `parse_table`'s implicit `matte` default
   already covers them.
 - **Escape hatches, if the classification is wrong for you.** `enhanced` is
-  user-toggleable at runtime from the CONFIG menu's Realism row and at
-  launch with `--realism classic`; `classic` reproduces the pre-change
-  output byte for byte. For a single asset rather than the whole look, a
-  per-body override under `overrides/bodies/body<NNN>.json` remaps palette
-  indices for that body only, on top of the committed default table, and is
-  checked by `make check-overrides` the way the game loads it.
+  user-toggleable at runtime from the Graphics page's Realism row (moved
+  there from CONFIG by the smooth actor geometry branch) and at launch with
+  `--realism classic`; `classic` reproduces the pre-change output byte for
+  byte. For a single asset rather than the whole look, a per-body override
+  under `overrides/bodies/body<NNN>.json` remaps palette indices for that
+  body only, on top of the committed default table, and is checked by
+  `make check-overrides` the way the game loads it.
 
 ## Manual attestation
 
@@ -105,5 +116,5 @@ Twelve PNGs under `docs/graphics-proof/` (git-ignored):
 | Floor objects (wood, metal) carry a highlight that sits on the lit side | pending |
 | A faint darkening at the feet and in rest-pose creases; no black blotches | pending |
 | Grain is visible at scale 4 on cloth/wood, invisible at scale 1 | pending |
-| Configuration screen: 15 rows, Realism between AA and Back, nothing clipped | pending |
+| Graphics page (`Configuration` -> `Graphics...`): Realism sits between AA and Smoothing, 7 rows plus Back, nothing clipped | pending |
 | Toggling Realism in the menu changes the look live; Classic looks as before | pending |

@@ -796,9 +796,14 @@ def test_graphics_page_rows_fit_the_screen_and_do_not_overlap():
 
 
 def test_graphics_labels_match_the_cycles_one_per_row():
-    from PyAitD.app.ui import GRAPHICS_CYCLES, GRAPHICS_ROWS, graphics_labels
+    from PyAitD.app.ui import GRAPHICS_CYCLES, GRAPHICS_ROWS, SMOOTHING_LABELS, graphics_labels
+    from PyAitD.render.render_options import SMOOTHING_LEVELS
     labels = graphics_labels(default_settings().render)
     assert len(labels) == GRAPHICS_ROWS == len(GRAPHICS_CYCLES)
+    # every other row's label is total over its option; the Smoothing row
+    # indexes a tuple, so a level with no label would IndexError (or, below
+    # zero, silently wrap) instead of drawing
+    assert len(SMOOTHING_LABELS) == len(SMOOTHING_LEVELS)
     assert labels[0] == "Scale: 4x" and labels[5] == "Realism: Enhanced"
     assert labels[6] == "Smoothing: Medium"
 
