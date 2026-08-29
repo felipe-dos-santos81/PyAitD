@@ -804,7 +804,7 @@ def test_graphics_labels_match_the_cycles_one_per_row():
     # indexes a tuple, so a level with no label would IndexError (or, below
     # zero, silently wrap) instead of drawing
     assert len(SMOOTHING_LABELS) == len(SMOOTHING_LEVELS)
-    assert labels[0] == "Scale: 4x" and labels[4] == "Shadows: Hard"
+    assert labels[0] == "Scale: 4x" and labels[4] == "Shadows: Soft"
     assert labels[6] == "Realism: Enhanced" and labels[7] == "Smoothing: Medium"
 
 

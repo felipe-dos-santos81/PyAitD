@@ -66,7 +66,7 @@ CONTACT_HEIGHT = 150.0   # FITD units over which the contact term fades, roughly
 # scale, and what the cast shader normalises its radius by.
 SOURCE_ANGLE = 6.0
 TAN_SOURCE = math.tan(math.radians(SOURCE_ANGLE))
-R_MAX_PER_SCALE = 6
+R_MAX_PER_SCALE = 4
 
 # The shadow-map receiver: a vertex is pushed NORMAL_OFFSET world units
 # along its normal before it is looked up, and the comparison is biased

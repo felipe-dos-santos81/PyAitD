@@ -29,7 +29,7 @@ class RenderOptions:
     msaa: int = 4
     realism: str = "enhanced"
     smoothing: int = 2
-    shadows: str = "hard"
+    shadows: str = "soft"
 
     def to_payload(self):
         return {

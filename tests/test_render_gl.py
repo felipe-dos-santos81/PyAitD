@@ -170,7 +170,9 @@ def test_shadow_lands_where_the_light_direction_says_under_a_rotated_camera(gl_c
 
     state = CameraState(0, 90, 0, 0, 0, 0, 1000, 320, 320).angles()
     view = CameraView(state)
-    backend = _lit_scene_backend(gl_ctx)
+    # pinned under shadows="hard": the centroid tolerance below is tight
+    # enough that soft's penumbra shifts it past the bound on its own.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", shadows="hard"))
     plate = np.full((200, 320, 3), 200, np.uint8)
     span = 100.0
     geometry = _tri_geometry(600.0, 1, span=span)
@@ -1262,7 +1264,11 @@ def _shadow_frame(actor, plate, masks=()):
 
 
 def _darkened_below_the_feet(gl_ctx, level, actor, plate):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene", msaa=0, smoothing=level))
+    # Pinned under shadows="hard": this helper's callers test the CPU
+    # projected-shadow path's tessellation mechanics specifically, and
+    # soft's penumbra would blur the exact pixel counts they pin.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene", msaa=0,
+                                               smoothing=level, shadows="hard"))
     backend.draw(_shadow_frame(actor, plate))
     rendered = backend.read_rgb().astype(int)
     backend.release()
@@ -1294,7 +1300,8 @@ def test_a_tessellated_shadow_is_still_erased_under_a_mask(gl_ctx):
     actor = ActorDraw(0, geometry, (0.0, 0.0, 0.0), 0, (0, 0, -50, 150, 0, 0), RenderResult([], []), (0,))
     poly = np.array([[160, 137], [320, 137], [320, 200], [160, 200]], np.int16)
     right_half = MaskDraw(0, (poly,), (160, 137, 320, 200), 0, ())
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene", msaa=0, smoothing=2))
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene", msaa=0,
+                                               smoothing=2, shadows="hard"))
     backend.draw(_shadow_frame(actor, plate, [right_half]))
     rendered = backend.read_rgb().astype(int)
     backend.release()
@@ -1479,7 +1486,7 @@ def test_a_mask_erases_a_soft_cast_beyond_its_penumbra(gl_ctx):
     right_half = MaskDraw(0, (poly,), (160, 137, 320, 200), 0, ())
     rendered = _soft_frame_render(gl_ctx, "soft", [actor], plate, (0.0, -0.5, 0.85), masks=[right_half], level=2)
     plain = _plain_background(gl_ctx, plate)
-    r_max = 6                                       # R_MAX_PER_SCALE at scale 1
+    r_max = 4                                       # R_MAX_PER_SCALE at scale 1
     inside = (slice(137 + r_max, None), slice(160 + r_max, None))
     assert np.array_equal(rendered[inside], plain[inside])
     unmasked = int((rendered[137:, :160] < plain[137:, :160] - 5).any(axis=2).sum())
@@ -1489,11 +1496,11 @@ def test_a_mask_erases_a_soft_cast_beyond_its_penumbra(gl_ctx):
 def test_the_soft_blur_matches_the_numpy_twin(gl_ctx):
     from PyAitD.render.lighting import soften
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene", msaa=0, shadows="soft"))
+    r_max = backend._r_max()
+    assert r_max == 4                               # R_MAX_PER_SCALE at scale 1
     rng = np.random.default_rng(11)
     cover = (rng.random((200, 320)) < 0.02).astype(np.float64)
-    radius = np.where(cover > 0, rng.integers(0, 7, (200, 320)), 0).astype(np.float64)
-    r_max = backend._r_max()
-    assert r_max == 6
+    radius = np.where(cover > 0, rng.integers(0, r_max + 1, (200, 320)), 0).astype(np.float64)
     rg = np.zeros((200, 320, 2), np.uint8)
     rg[..., 0] = (cover * 255).astype(np.uint8)
     rg[..., 1] = np.round(radius / r_max * 255).astype(np.uint8)

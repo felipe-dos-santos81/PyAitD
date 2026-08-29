@@ -129,7 +129,7 @@ def test_graphics_rows_cycle_render_options():
     state.cursor = 3
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(lighting="fixed")
     state.cursor = 4
-    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(shadows="soft")
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(shadows="hard")
     state.cursor = 5
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(msaa=8)
     state.cursor = 6
