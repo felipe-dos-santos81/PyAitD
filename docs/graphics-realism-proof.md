@@ -19,8 +19,9 @@ bootstrapped by `make bootstrap-materials`, hand-correctable, overridable per
 body under `overrides/bodies/body<NNN>.json`) drives specular, a fresnel
 rim, a sky/ground hemisphere ambient, rest-pose vertex occlusion, a contact
 darkening at the feet and procedural grain glued to each limb.
-`realism=classic` reproduces the pre-change output byte for byte
-(`tests/golden/scene_lit_classic.npy`).
+`realism=classic` at `smoothing=0` reproduces the pre-change output byte for
+byte (`tests/golden/scene_lit_classic.npy`, which the test now renders at
+that level explicitly -- the golden predates tessellation).
 
 ## Automated gates
 
@@ -101,8 +102,10 @@ was written. The tessellation itself is attested separately, in
 - **Escape hatches, if the classification is wrong for you.** `enhanced` is
   user-toggleable at runtime from the Graphics page's Realism row (moved
   there from CONFIG by the smooth actor geometry branch) and at launch with
-  `--realism classic`; `classic` reproduces the pre-change output byte for
-  byte. For a single asset rather than the whole look, a per-body override
+  `--realism classic`; `classic` with `--smoothing 0` reproduces the
+  pre-change output byte for byte, and `classic` on its own reproduces its
+  shading while the bodies stay tessellated at the default level.
+  For a single asset rather than the whole look, a per-body override
   under `overrides/bodies/body<NNN>.json` remaps palette indices for that
   body only, on top of the committed default table, and is checked by
   `make check-overrides` the way the game loads it.
