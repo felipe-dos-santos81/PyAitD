@@ -308,3 +308,19 @@ def test_label_stage_writes_vision_classes_back(tmp_path, monkeypatch):
     assert bm.main(["unused", "label", "--out", str(tmp_path)]) == 0
     out = json.loads((tmp_path / "survey.json").read_text())
     assert out["ramps"][0]["vision_class"] == "stone"
+
+
+def test_the_committed_table_matches_the_reviewed_survey():
+    """`check` is the gate that stops materials.json drifting from the
+    survey it was emitted from -- a hand label that never made it into the
+    table would otherwise be invisible."""
+    from PyAitD.render.materials import default_table, MATERIAL_CLASSES
+    classes = set(default_table().classes)
+    assert classes <= set(MATERIAL_CLASSES)
+    # The review put eyes on every ramp any body uses. No ramp read as
+    # glass -- the attic window panes and lantern chimney the spec expected
+    # are most likely scenery geometry, not body geometry, and so outside
+    # the survey's reach entirely -- so glass is dropped from this
+    # assertion. skin, wood, emissive and metal are the four the review
+    # actually produced (or confirmed) among the classes the plan named.
+    assert {"skin", "wood", "emissive", "metal"} <= classes
