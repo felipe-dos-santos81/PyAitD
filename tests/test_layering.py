@@ -206,3 +206,17 @@ def test_no_module_locks_grabs_or_warps_the_pointer():
         if name in path.read_text()
     )
     assert hits == []
+
+
+def test_glsl_is_strings_only():
+    """render/glsl.py holds GLSL sources and nothing else -- no imports, no
+    functions, no logic -- so it can never become a second graphics owner
+    and a shader edit never hides a Python change."""
+    tree = ast.parse((ROOT / "render" / "glsl.py").read_text())
+    for node in tree.body:
+        if isinstance(node, ast.Expr):        # the module docstring
+            assert isinstance(node.value, ast.Constant) and isinstance(node.value.value, str), node.lineno
+            continue
+        assert isinstance(node, ast.Assign), f"line {node.lineno}: {type(node).__name__}"
+        assert isinstance(node.value, ast.Constant) and isinstance(node.value.value, str), f"line {node.lineno}: not a string"
+        assert all(isinstance(t, ast.Name) and t.id == t.id.upper() for t in node.targets), f"line {node.lineno}"
