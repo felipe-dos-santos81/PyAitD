@@ -725,11 +725,11 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         assert resource is not None, f"{attr} was never allocated before the failure"
         assert isinstance(resource.mglo, moderngl.InvalidObject), f"{attr} leaked (not released)"
         leak_checked += 1
-    assert sorted(backend._subpatch_bufs) == [1, 2, 3]
+    assert sorted(backend._subpatch_bufs) == [0, 1, 2, 3]
     for level, buf in backend._subpatch_bufs.items():
         assert isinstance(buf.mglo, moderngl.InvalidObject), f"subpatch buffer {level} leaked"
         leak_checked += 1
-    assert leak_checked == 30  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 31  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 

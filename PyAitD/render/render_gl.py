@@ -313,7 +313,10 @@ class GLBackend:
             self._tess_shadow_prog["travel"].value = (0.0, 1.0, 0.0)
             self._tess_layout = instance_layout(self._tess_prog)
             self._tess_shadow_layout = instance_layout(self._tess_shadow_prog)
-            for level in SMOOTHING_LEVELS[1:]:
+            # Every level, 0 included: subpatch(0) is the flat triangle with
+            # exact corners, so the soft-shadow passes can draw every actor
+            # through the instanced programs whatever `smoothing` says.
+            for level in SMOOTHING_LEVELS:
                 self._subpatch_bufs[level] = ctx.buffer(np.ascontiguousarray(subpatch(level), dtype="f4").tobytes())
 
             self._sphere = icosphere(1)
@@ -401,6 +404,7 @@ class GLBackend:
         mvp = camera_matrix(frame.camera, self._options.scale)
         rot = rotation_matrix(frame.camera.state).astype("f4")
         scene_lit = self._options.lighting == "scene"
+        soft = scene_lit and self._options.shadows == "soft"
         level = self._options.smoothing
         travel = None
         if scene_lit:
@@ -419,21 +423,26 @@ class GLBackend:
         palette = frame.palette.astype("f4") / 255.0
         mask_by_id = {mask.id: mask for mask in frame.masks}
 
-        for actor in frame.actors:
-            masks = [mask_by_id[i] for i in actor.mask_ids if i in mask_by_id]
-            self._rasterize_masks(masks)  # switches to the mask FBO and disables depth test
+        # One instance buffer per actor for the whole frame, built before
+        # the loop: the soft-shadow passes read every actor's before any
+        # body is drawn, so they cannot be built per actor. Under hard
+        # shadows at level 0 nothing is built, as before. Released in the
+        # `finally` so a raise anywhere below cannot leak one.
+        instances = [None] * len(frame.actors)
+        try:
+            if level or soft:
+                for i, actor in enumerate(frame.actors):
+                    data = self._instance_data(actor.geometry, np.asarray(actor.position, np.float64), palette)
+                    if len(data):
+                        instances[i] = (self._ctx.buffer(data.tobytes()), len(data))
 
-            instances = None
-            if level:
-                data = self._instance_data(actor.geometry, np.asarray(actor.position, np.float64), palette)
-                instances = (self._ctx.buffer(data.tobytes()), len(data)) if len(data) else None
-            # The buffer feeds both the shadow pass and the actor draw, so
-            # it outlives several fallible calls: release it from `finally`
-            # so a raise anywhere in between cannot leak it.
-            try:
+            for actor, inst in zip(frame.actors, instances):
+                masks = [mask_by_id[i] for i in actor.mask_ids if i in mask_by_id]
+                self._rasterize_masks(masks)  # switches to the mask FBO and disables depth test
+
                 if scene_lit:
                     if level:
-                        cast = self._rasterize_shadow_tessellated(instances, travel, mvp, _plane_y(actor), level)
+                        cast = self._rasterize_shadow_tessellated(inst, travel, mvp, _plane_y(actor), level)
                     else:
                         cast = self._rasterize_shadow(actor, travel, mvp)
                     if cast:
@@ -467,13 +476,14 @@ class GLBackend:
                         self._tess_prog["plane_y"].value = _plane_y(actor)
                     self._upload_materials(actor.materials)
                 if level:
-                    self._draw_actor_tessellated(actor, frame, palette, instances, level)
+                    self._draw_actor_tessellated(actor, frame, palette, inst, level)
                 else:
                     self._draw_actor(actor, frame, palette)
                 self._ctx.disable(moderngl.DEPTH_TEST)
-            finally:
-                if instances is not None:
-                    instances[0].release()
+        finally:
+            for inst in instances:
+                if inst is not None:
+                    inst[0].release()
 
         if self._ms_fbo is not None:
             # Resolves the multisample buffer down into `.texture`, which is

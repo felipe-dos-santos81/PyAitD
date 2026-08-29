@@ -5,7 +5,8 @@ import pytest
 from PyAitD.engine.world import CameraState
 from PyAitD.render.lighting import (
     FORWARD, LEGACY_LIGHT, MAX_TINT_RATIO, MIN_UP, SceneLight, estimate_light,
-    key_weight, project_to_plane, shading_terms, shadow_opacity,
+    key_weight, light_view_matrix, project_to_plane, shading_terms,
+    shadow_opacity, soften,
 )
 
 pytestmark = pytest.mark.render
@@ -257,3 +258,73 @@ def test_legacy_light_is_the_old_hard_coded_rig():
     assert np.isclose(np.linalg.norm(LEGACY_LIGHT.direction), 1.0)
     assert LEGACY_LIGHT.key == (0.45, 0.45, 0.45)
     assert LEGACY_LIGHT.ambient == (0.55, 0.55, 0.55)
+
+
+def test_light_view_matrix_frames_every_corner_strictly_inside_ndc():
+    rng = np.random.default_rng(3)
+    corners = rng.uniform(-2000.0, 2000.0, (24, 3))
+    matrix, extent = light_view_matrix((0.3, 0.8, 0.5), corners)
+    clip = np.c_[corners, np.ones(len(corners))] @ matrix.T.astype(np.float64)
+    assert np.all(np.abs(clip[:, :3]) < 1.0) and np.allclose(clip[:, 3], 1.0)
+    assert np.all(extent > 0.0)
+
+
+def test_light_view_matrix_depth_grows_along_the_travel():
+    travel = np.array([0.2, 0.9, 0.4]) / np.linalg.norm([0.2, 0.9, 0.4])   # inside the MIN_UP cone: unclamped
+    near = np.array([100.0, 100.0, 100.0])
+    far = near + travel * 500.0
+    matrix, _ = light_view_matrix(travel, [near, far, near + (300.0, 0.0, 0.0)])
+    depth = lambda p: float((matrix.astype(np.float64) @ np.r_[p, 1.0])[2])
+    assert depth(far) > depth(near)      # so the depth test keeps what is nearest the light
+
+
+def test_light_view_matrix_survives_a_single_point_and_a_vertical_light():
+    for travel in ((0.0, 1.0, 0.0), (0.3, 0.8, 0.5)):
+        matrix, extent = light_view_matrix(travel, [(5.0, 5.0, 5.0)])
+        assert np.all(np.isfinite(matrix)) and np.all(extent >= 1.0)
+        assert abs(np.linalg.det(matrix.astype(np.float64))) > 0.0
+
+
+def test_light_view_matrix_pad_widens_every_axis():
+    corners = [(0.0, 0.0, 0.0), (100.0, 100.0, 100.0)]
+    _, tight = light_view_matrix((0.0, 1.0, 0.0), corners)
+    _, padded = light_view_matrix((0.0, 1.0, 0.0), corners, pad=50.0)
+    assert np.all(padded > tight + 99.0)      # 50 on each side, plus the margin's share of it
+
+
+def test_soften_with_zero_radius_is_the_identity():
+    cover = np.zeros((9, 9))
+    cover[4, 4], cover[2, 6] = 1.0, 0.5
+    out = soften(cover, np.zeros((9, 9)), r_max=4)
+    assert np.array_equal(out, cover.astype(np.float32))
+
+
+def test_soften_spreads_one_pixel_over_its_own_box_and_conserves_it():
+    cover = np.zeros((21, 21))
+    cover[10, 10] = 1.0
+    radius = np.zeros((21, 21))
+    radius[10, 10] = 3.0
+    out = soften(cover, radius, r_max=6)
+    assert np.allclose(out[7:14, 7:14], 1.0 / 49.0) and np.isclose(out.sum(), 1.0)
+    assert out[6, :].max() == 0.0 and out[:, 14].max() == 0.0
+
+
+def test_soften_keeps_a_contact_pixel_sharp_beside_a_soft_one():
+    # the whole point of a per-pixel radius: a foot on the plane stays crisp
+    # while the head's shadow spreads
+    cover = np.zeros((21, 21))
+    cover[10, 5], cover[10, 15] = 1.0, 1.0
+    radius = np.zeros((21, 21))
+    radius[10, 15] = 4.0
+    out = soften(cover, radius, r_max=6)
+    assert out[10, 5] == 1.0 and out[9, 5] == 0.0 and out[10, 4] == 0.0
+    assert 0.0 < out[10, 15] < 1.0
+
+
+def test_soften_never_exceeds_full_coverage():
+    cover = np.ones((15, 15))
+    radius = np.full((15, 15), 2.0)
+    out = soften(cover, radius, r_max=6)
+    assert np.allclose(out[2:-2, 2:-2], 1.0)          # a uniform field is unchanged inside
+    radius[7, 7] = 5.0
+    assert soften(cover, radius, r_max=6).max() <= 1.0
