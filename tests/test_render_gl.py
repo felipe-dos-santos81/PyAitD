@@ -734,6 +734,45 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
     backend.release()  # must still be safe to call again
 
 
+def test_a_mid_loop_raise_releases_every_already_built_instance_buffer(gl_ctx, monkeypatch):
+    # Task 3 moved every actor's instance buffer to be built up front, all
+    # before the per-actor loop runs, so they can outlive the whole frame
+    # (a later soft-shadow pass will read every actor's before any body is
+    # drawn). That means a raise partway through the per-actor loop must
+    # release *every* already-built buffer -- including a later actor's,
+    # which was already built even though its own turn in the loop never
+    # came -- not just the one actor whose own call raised. This guards
+    # against a future edit that narrows the `finally` back to "this
+    # actor's buffer only" or moves construction back inside the loop.
+    backend = _flat_backend(gl_ctx, level=1)
+    geometry = _planned_geometry(_closed_cube_body())
+    actors = [_actor(0, geometry), _actor(1, geometry)]
+    frame = _frame(actors)
+
+    built = []
+    real_buffer = backend._ctx.buffer
+
+    def tracking_buffer(*a, **k):
+        buf = real_buffer(*a, **k)
+        built.append(buf)
+        return buf
+
+    monkeypatch.setattr(backend._ctx, "buffer", tracking_buffer)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("mid-loop failure")
+
+    monkeypatch.setattr(backend, "_draw_actor_tessellated", boom)
+
+    with pytest.raises(RuntimeError, match="mid-loop failure"):
+        backend.draw(frame)
+
+    assert len(built) == 2, "both actors' instance buffers should be built before the loop, not one"
+    for buf in built:
+        assert isinstance(buf.mglo, moderngl.InvalidObject), "an already-built instance buffer leaked"
+    backend.release()
+
+
 def test_draw_after_release_raises_a_clear_error(gl_ctx):
     # Finding 3's compose_scene fallback releases a GLBackend and swaps in a
     # SoftwareBackend out from under any caller still holding the old
