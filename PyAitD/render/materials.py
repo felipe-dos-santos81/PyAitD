@@ -68,7 +68,7 @@ class Material:
 # saturated body instead of vanishing into it.
 CLASS_PRESETS = {
     "matte":    Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, DETAIL_NONE),
-    "skin":     Material(0.7, 0.15, 0.0, 0.25, 0.15, 40.0, DETAIL_GRAIN, bump=0.3),
+    "skin":     Material(0.7, 0.15, 0.0, 0.25, 0.15, 40.0, DETAIL_GRAIN, bump=0.3, sss=1.0),
     "cloth":    Material(0.9, 0.05, 0.0, 0.35, 0.08, 12.0, DETAIL_WEAVE, bump=0.8),
     "leather":  Material(0.5, 0.35, 0.0, 0.3, 0.2, 30.0, DETAIL_GRAIN, bump=0.7),
     "hair":     Material(0.6, 0.3, 0.0, 0.4, 0.3, 8.0, DETAIL_STREAK, bump=0.8),
@@ -81,8 +81,9 @@ CLASS_PRESETS = {
     # anything at all.
     "metal":    Material(0.25, 0.8, 0.8, 0.2, 0.15, 25.0, DETAIL_BRUSHED, bump=0.5),
     "glass":    Material(0.1, 0.9, 0.0, 0.6, 0.0, 1.0, DETAIL_NONE),
-    # A label only: no emissive term exists in the shader, so it shades as matte.
-    "emissive": Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, DETAIL_NONE),
+    # No longer a label only: emissive renders its palette colour whatever
+    # the light does, which is what ramp 14's flames need.
+    "emissive": Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, DETAIL_NONE, emissive=1.0),
 }
 
 
@@ -183,8 +184,6 @@ class RealismPreset:
 
 PRESETS = {
     "classic": RealismPreset(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-    # sss/emissive stay 0.0 here until Task 3 lands them: a term at zero
-    # strength cannot move a pixel.
     "enhanced": RealismPreset(spec=1.0, rim=0.6, ao=0.7, contact=1.0, detail=1.0,
-                              hemisphere=1.0, bump=1.0),
+                              hemisphere=1.0, bump=1.0, sss=1.0, emissive=1.0),
 }

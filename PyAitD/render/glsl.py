@@ -79,6 +79,11 @@ in vec3 v_color; in vec3 v_normal; in vec3 v_rest; in float v_ao; flat in float 
 in vec4 v_shadow; in vec3 v_view;
 out vec4 f_color;
 
+// Warm blood under thin skin: the tint the terminator picks up. One
+// constant, not a material field -- the hue is a property of people, not
+// of this palette index.
+const vec3 SSS_TINT = vec3(1.0, 0.82, 0.74);
+
 float hash3(vec3 p) {
     p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
     p *= 17.0;
@@ -225,6 +230,11 @@ void main() {
     // The key's share is what a shadow removes; the fill's share stays, so
     // a shadowed limb falls to the room's fill colour and never to black.
     vec3 base = v_color * (fill_tint + key_tint * wrapped * wrapped * vis);
+    // Peaks at the light/shade boundary (wrapped 0.5, where 4x(1-x) is 1)
+    // and vanishes on both the fully lit and the fully unlit side. Under
+    // classic preset_c.y is 0, mix(a, b, 0) is exactly a, and base is
+    // untouched.
+    base *= mix(vec3(1.0), SSS_TINT, preset_c.y * m2.y * 4.0 * wrapped * (1.0 - wrapped));
 
     vec3 view = vec3(0.0, 0.0, -1.0);                 // from the surface toward the viewer
     vec3 h = normalize(l + view);
@@ -243,10 +253,19 @@ void main() {
     float contact = 1.0 - preset_b.x * 0.5 * (1.0 - height);
     float occl = mix(1.0, v_ao, preset_a.z) * contact;
     float gloss = exp2(1.0 + 10.0 * (1.0 - m0.x));
-    vec3 spec = key_tint * mix(vec3(1.0), v_color, m0.z) * pow(max(dot(n, h), 0.0), gloss) * m0.y * preset_a.x * vis;
+    // Blinn-Phong's lobe integrates to less as it tightens, so without
+    // (gloss + 8) / 8pi a polished metal reads *dimmer* than a rough one.
+    // preset_a.x already zeroes the whole term under classic.
+    vec3 spec = key_tint * mix(vec3(1.0), v_color, m0.z) * pow(max(dot(n, h), 0.0), gloss)
+              * ((gloss + 8.0) / (8.0 * 3.14159265)) * m0.y * preset_a.x * vis;
     vec3 rim = key_tint * pow(1.0 - max(dot(n, view), 0.0), 3.0) * m0.w * preset_a.y;
     float grain = 1.0 + preset_b.y * m1.x * dn;
-    f_color = vec4(base * (grain * hemi * occl) + spec + rim, 1.0);
+    vec3 shaded = base * (grain * hemi * occl) + spec + rim;
+    // mix(x, y, 0) is x*(1-0) + y*0 -- exactly x -- so classic is untouched
+    // by construction. That is `a` on the nose 0.0, not the general mix
+    // the hemisphere comment above warns about; it is the same identity
+    // `occl`'s mix(1.0, v_ao, preset_a.z) has always rested on.
+    f_color = vec4(mix(shaded, v_color, preset_c.z * m2.z), 1.0);
 }
 """
 TESS_VSH = """
