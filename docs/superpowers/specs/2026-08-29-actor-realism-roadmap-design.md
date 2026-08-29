@@ -57,8 +57,11 @@ current defaults (`smooth`, `scene`, `enhanced`, smoothing 2, msaa 4):
   thresholded at 0.5, multiplied onto the target before that actor is
   drawn. The composite is a full-target quad with no depth, so a nearer
   actor's shadow darkens any farther actor already drawn.
-  `tests/golden/scene_lit_classic.npy` is a two-actor scene whose sphere
-  shadow lands on its triangle: the golden bakes that ordering in.
+  `tests/golden/scene_lit_classic.npy` is a two-actor scene, but measured,
+  its sphere's shadow lands beside the triangle, not on it (0 body pixels
+  differ with the sphere present or absent), so the golden does not
+  exercise the bug. A sphere at (-200, -150, 500) in the same frame does:
+  1,951 of the triangle's body pixels darken.
 - Nothing shadows a surface. The key term `key_tint · wrapped²` is applied
   to every fragment the light faces, whatever lies between it and the
   light.
@@ -101,8 +104,10 @@ current defaults (`smooth`, `scene`, `enhanced`, smoothing 2, msaa 4):
    `integration ∈ ("off", "on")`. H has no knob: it redefines what
    `realism=enhanced` means and `classic` stays all-zero.
 4. **The gathered shadow pass is gated behind `soft`**, although it is a
-   bug fix, because the golden encodes the bug. `hard` is today's
-   per-actor composite, ordering artefact included.
+   bug fix: `hard` is today's per-actor composite verbatim, ordering
+   artefact included, because a byte-identical escape hatch is the
+   convention every knob in this renderer follows and is cheaper to
+   guarantee than to argue about.
 5. **All three sub-projects live under `lighting="scene"`.** `fixed` is
    the whole legacy renderer, byte for byte, at every other setting.
 6. **Self-shadowing through one light-view depth map per frame** over
@@ -571,8 +576,9 @@ asserts it unchanged after, and task 2 retires that check when bump lands.
   contributors.
 - GL: `hard` reproduces the golden; under `soft` a caster lying on its
   plane produces a one-pixel edge and a caster held 1000 units above it a
-  wider one; the golden's own sphere-over-triangle scene *no longer*
-  darkens the triangle under `soft`; two overlapping casters darken a
+  wider one; a sphere placed so its shadow lands on an earlier-drawn
+  triangle darkens that triangle's body under `hard` and *not* under
+  `soft`; two overlapping casters darken a
   pixel once; a foreground mask erases a cast; an occluding triangle held
   between the light and a facing triangle darkens the second's key share
   and leaves its fill share alone, and removing the occluder restores the
