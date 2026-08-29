@@ -60,8 +60,10 @@ current defaults (`smooth`, `scene`, `enhanced`, smoothing 2, msaa 4):
   `tests/golden/scene_lit_classic.npy` is a two-actor scene, but measured,
   its sphere's shadow lands beside the triangle, not on it (0 body pixels
   differ with the sphere present or absent), so the golden does not
-  exercise the bug. A sphere at (-200, -150, 500) in the same frame does:
-  1,951 of the triangle's body pixels darken.
+  exercise the bug. A tessellated sphere at (-200, -150, 500) casting onto
+  a facing square in the same light does: 213 of the square's body pixels
+  darken at smoothing 2 (at smoothing 0 the CPU path projects triangles
+  only, so a sphere casts nothing there).
 - Nothing shadows a surface. The key term `key_tint · wrapped²` is applied
   to every fragment the light faces, whatever lies between it and the
   light.
