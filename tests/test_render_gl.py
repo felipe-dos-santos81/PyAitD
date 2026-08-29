@@ -1399,7 +1399,8 @@ def test_the_penumbra_hardens_toward_the_feet(gl_ctx):
     # pixel) and the furthest row by the top edge, 400 units up, whose
     # radius saturates at R_MAX. So a row's edge width *is* that height's
     # penumbra, and it must grow with the drop. The ratio is the claim; the
-    # counts are this geometry's (measured 8.0 near the feet, 31.3 far).
+    # counts are this geometry's (measured 5.2 near the feet, 20.3 far, at
+    # R_MAX_PER_SCALE=4; see docs/soft-shadows-proof.md).
     #
     # A solid caster cannot show this in screen space, which is why this
     # test does not use the prism the others do: its contact region lies
