@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Rest-pose mesh refinement for the GPU tessellation of a FITD body.
 
-A body is a soup of polygons over a shared vertex list, wound consistently
-(measured: every shared edge of every shipped body is walked in opposite
-directions by its two faces) but with an unknown inward/outward sign, open
+A body is a soup of polygons over a shared vertex list, wound almost but not
+quite consistently (measured: of the 272 shipped bodies, 3 -- 59, 60 and 195
+-- have between them 6 shared edges that both their faces walk in the same
+direction, so the flip in `_orient` is exercised, not theoretical; neutering
+it changes the plan on all three), with an unknown inward/outward sign, open
 at limb rings, and non-manifold where panels meet. This module plans, once
 per body from its rest pose, everything the tessellating vertex shader in
 render_gl needs that depends on mesh topology rather than on the pose:
@@ -43,6 +45,15 @@ class Refinement:
     pairs: np.ndarray         # (K,2) int32 (corner = 3*face + k, contributing face)
     straight: np.ndarray      # (M,3) float32: 1.0 where edge k (v_k -> v_k+1) is a crease
     crease_deg: float
+
+    def __post_init__(self):
+        # One plan is memoised per body and shared by every actor drawing
+        # that body, every frame -- and geometry.BodyGeometry aliases
+        # `straight` in by identity rather than copying it. A single stray
+        # write would corrupt the body for the rest of the session, so make
+        # the write fail loudly instead, as subpatch and icosphere do.
+        for array in (self.orientation, self.pairs, self.straight):
+            array.setflags(write=False)
 
     def corner_normals(self, vertices, tris):
         return corner_normals(vertices, tris, self)

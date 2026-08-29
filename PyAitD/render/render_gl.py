@@ -666,49 +666,53 @@ class GLBackend:
             if level:
                 data = self._instance_data(actor.geometry, np.asarray(actor.position, np.float64), palette)
                 instances = (self._ctx.buffer(data.tobytes()), len(data)) if len(data) else None
+            # The buffer feeds both the shadow pass and the actor draw, so
+            # it outlives several fallible calls: release it from `finally`
+            # so a raise anywhere in between cannot leak it.
+            try:
+                if scene_lit:
+                    if level:
+                        cast = self._rasterize_shadow_tessellated(instances, travel, mvp, _plane_y(actor), level)
+                    else:
+                        cast = self._rasterize_shadow(actor, travel, mvp)
+                    if cast:
+                        self._composite_shadow(frame.light)
 
-            if scene_lit:
+                self._target.use()
+                self._ctx.viewport = (0, 0, *self.size)
+                self._ctx.enable(moderngl.DEPTH_TEST)
+                self._ctx.depth_func = "<="
+                # A fresh depth buffer per actor: within one actor's own
+                # primitives, depth decides what's in front; across actors,
+                # later draws simply paint over earlier ones (painter's order).
+                self._target.color_mask = (False, False, False, False)
+                self._target.clear(depth=1.0)
+                self._target.color_mask = (True, True, True, True)
+                # Framebuffer.clear() leaves moderngl's colour-mask state
+                # desynced from the GL binding point: re-`use()` the target so
+                # the restored mask actually takes effect before the next
+                # render.
+                self._target.use()
+
+                self._mask_tex.use(location=1)
+                self._actor_prog["mask_tex"].value = 1
+                self._screen_prog["mask_tex"].value = 1
                 if level:
-                    cast = self._rasterize_shadow_tessellated(instances, travel, mvp, _plane_y(actor), level)
+                    self._tess_prog["mask_tex"].value = 1
+
+                if scene_lit:
+                    self._actor_prog["plane_y"].value = _plane_y(actor)
+                    if level:
+                        self._tess_prog["plane_y"].value = _plane_y(actor)
+                    self._upload_materials(actor.materials)
+                if level:
+                    self._draw_actor_tessellated(actor, frame, palette, instances, level)
                 else:
-                    cast = self._rasterize_shadow(actor, travel, mvp)
-                if cast:
-                    self._composite_shadow(frame.light)
-
-            self._target.use()
-            self._ctx.viewport = (0, 0, *self.size)
-            self._ctx.enable(moderngl.DEPTH_TEST)
-            self._ctx.depth_func = "<="
-            # A fresh depth buffer per actor: within one actor's own
-            # primitives, depth decides what's in front; across actors,
-            # later draws simply paint over earlier ones (painter's order).
-            self._target.color_mask = (False, False, False, False)
-            self._target.clear(depth=1.0)
-            self._target.color_mask = (True, True, True, True)
-            # Framebuffer.clear() leaves moderngl's colour-mask state
-            # desynced from the GL binding point: re-`use()` the target so
-            # the restored mask actually takes effect before the next
-            # render.
-            self._target.use()
-
-            self._mask_tex.use(location=1)
-            self._actor_prog["mask_tex"].value = 1
-            self._screen_prog["mask_tex"].value = 1
-            if level:
-                self._tess_prog["mask_tex"].value = 1
-
-            if scene_lit:
-                self._actor_prog["plane_y"].value = _plane_y(actor)
-                if level:
-                    self._tess_prog["plane_y"].value = _plane_y(actor)
-                self._upload_materials(actor.materials)
-            if level:
-                self._draw_actor_tessellated(actor, frame, palette, instances, level)
+                    self._draw_actor(actor, frame, palette)
+                self._ctx.disable(moderngl.DEPTH_TEST)
+            finally:
                 if instances is not None:
                     instances[0].release()
-            else:
-                self._draw_actor(actor, frame, palette)
-            self._ctx.disable(moderngl.DEPTH_TEST)
 
         if self._ms_fbo is not None:
             # Resolves the multisample buffer down into `.texture`, which is

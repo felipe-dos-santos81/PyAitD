@@ -55,9 +55,11 @@ def test_a_flipped_face_is_oriented_against_its_neighbour():
 
 def test_a_three_face_edge_is_a_crease_and_stops_orientation():
     # a flat sheet of two faces plus a fin standing on their shared edge
-    # 1-2: three faces on one edge. The edge is straight from all three,
-    # and the fin's sign is decided by its own centroid rule, not inherited
-    # across the fold.
+    # 1-2: three faces on one edge. It is the only shared edge and _orient
+    # only walks two-face edges, so the edge is straight from all three and
+    # every face is its own single-face component. The centroid rule
+    # decides nothing there -- one centroid is its own component's centre,
+    # so `outward` is exactly 0.0 and each seed keeps its +1.
     body = _body([(0, 0, 0), (100, 0, 0), (0, 100, 0), (100, 100, 0), (50, 50, 100)],
                  [(0, 1, 2), (2, 1, 3), (1, 2, 4)])
     plan = plan_refinement(body)
@@ -113,6 +115,16 @@ def test_a_lone_degenerate_triangle_falls_back_to_camera_facing():
     geo = _rest(body)
     normals = corner_normals(geo.vertices, geo.tris, plan_refinement(body))
     assert np.array_equal(normals[0], np.tile(_CAMERA_FACING, (3, 1)))
+
+
+def test_a_plans_arrays_are_read_only():
+    # one plan is memoised per body and shared by every actor and frame,
+    # and geometry.BodyGeometry aliases `straight` in by identity: a stray
+    # write anywhere would corrupt that body for the whole session
+    plan = plan_refinement(_cube_body())
+    for array in (plan.orientation, plan.pairs, plan.straight):
+        with pytest.raises(ValueError):
+            array[0] = 0
 
 
 def test_subpatch_levels():
