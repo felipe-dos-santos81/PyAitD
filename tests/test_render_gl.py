@@ -720,6 +720,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         "_quad", "_quad_vao", "_thumb_tex", "_thumb_fbo",
         "_thumb_quad", "_thumb_quad_vao", "_material_tex",
         "_tess_prog", "_tess_shadow_prog",
+        "_shadow_blur_tex", "_shadow_blur_fbo", "_cast_prog", "_blur_prog", "_blur_quad_vao",
     ):
         resource = getattr(backend, attr)
         assert resource is not None, f"{attr} was never allocated before the failure"
@@ -729,7 +730,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
     for level, buf in backend._subpatch_bufs.items():
         assert isinstance(buf.mglo, moderngl.InvalidObject), f"subpatch buffer {level} leaked"
         leak_checked += 1
-    assert leak_checked == 31  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 36  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
@@ -1316,3 +1317,233 @@ def test_a_sphere_casts_a_shadow_only_once_tessellated(gl_ctx):
     actor = _standing_actor(0, sphere, feet_y=150)
     assert _darkened_below_the_feet(gl_ctx, 0, actor, plate) == 0
     assert _darkened_below_the_feet(gl_ctx, 2, actor, plate) > 50
+
+
+# ---- soft shadows (roadmap F) ----
+
+# A 200-grey plate under _scene_light (ambient 0.1, contrast 1.0) inside a
+# shadow: mix(1, 0.1, shadow_opacity(1.0) = 0.7) * 200 -- measured 74.
+FULL_SHADOW_ON_200 = 74
+
+
+def _soft_frame_render(gl_ctx, shadows, actors, plate, direction, masks=(), level=0, shading="flat", realism="enhanced"):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading=shading, lighting="scene", msaa=0,
+                                              realism=realism, smoothing=level, shadows=shadows))
+    backend.draw(FrameDescription(_view(), ImageAsset(plate, False), _palette(), tuple(actors), tuple(masks),
+                                  _scene_light(direction)))
+    out = backend.read_rgb().astype(int)
+    backend.release()
+    return out
+
+
+def _partial_shadow_pixels(rendered, rows):
+    """Pixels in `rows` that are darker than the plate but lighter than a full
+    shadow: a hard shadow has none (binary coverage), a penumbra has many."""
+    green = rendered[rows, :, 1]
+    return int(((green > FULL_SHADOW_ON_200 + 2) & (green < 200 - 2)).sum())
+
+
+def _sphere_at(x, y, z, radius=120.0, color=2):
+    return BodyGeometry(np.array([[x, y, z]], np.float32), np.array([[0.0, 0.0, -1.0]], np.float32),
+                        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+                        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, radius, color),),
+                        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+
+
+def _facing_square(z, color, normal, span=400.0):
+    v = np.array([[-span, -span, z], [span, -span, z], [-span, span, z], [span, span, z]], np.float32)
+    n = np.tile(normal, (4, 1)).astype(np.float32)
+    return BodyGeometry(v, n, np.array([[0, 1, 2], [1, 3, 2]], np.int32), np.array([color, color], np.uint8),
+                        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
+                        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+
+
+def test_soft_shadows_have_a_penumbra_and_hard_ones_do_not(gl_ctx):
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    actor = _standing_actor(0, _planned_geometry(_hex_prism_body()), feet_y=150)
+    light = (0.0, -0.5, 0.85)     # _shadow_frame's light: the shadow falls toward the camera, rows 137+
+    below = slice(137, 200)
+    hard = _soft_frame_render(gl_ctx, "hard", [actor], plate, light)
+    soft = _soft_frame_render(gl_ctx, "soft", [actor], plate, light)
+    assert _partial_shadow_pixels(hard, below) == 0            # thresholded coverage: all or nothing
+    assert _partial_shadow_pixels(soft, below) > 100           # a real penumbra
+
+
+def _penumbra_width(rendered, row):
+    """How many pixels of `row` sit inside a shadow edge: darker than the
+    plate, lighter than that same row's darkest pixel. A row's shadow is a
+    plateau with a soft edge on each side, so this is the penumbra's width.
+
+    Measured against the row's own floor rather than FULL_SHADOW_ON_200
+    deliberately: the blur weights a neighbour by 1 / (2r + 1) and rounds r
+    to whole pixels, so at a row where the rounded radius steps the weights
+    sum to a little under one and the whole plateau sits a step short of
+    full. That is the twin's arithmetic, not an edge, and counting it as
+    one would drown the signal this test is after."""
+    green = rendered[row, :, 1]
+    return int(((green > int(green.min()) + 2) & (green < 198)).sum())
+
+
+def test_the_penumbra_hardens_toward_the_feet(gl_ctx):
+    # An upright flat quad standing on its own plane. Because it has no
+    # depth, each row of its ground shadow is cast by exactly one height:
+    # the row at its feet by the bottom edge (drop 0, a radius well under a
+    # pixel) and the furthest row by the top edge, 400 units up, whose
+    # radius saturates at R_MAX. So a row's edge width *is* that height's
+    # penumbra, and it must grow with the drop. The ratio is the claim; the
+    # counts are this geometry's (measured 8.0 near the feet, 31.3 far).
+    #
+    # A solid caster cannot show this in screen space, which is why this
+    # test does not use the prism the others do: its contact region lies
+    # under its own body, and MAX blending hands every row of its shadow
+    # the largest radius among the many drops that project onto that row.
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    actor = _standing_actor(0, _facing_square(600.0, 1, (0.0, 0.0, -1.0), span=200.0), feet_y=200)
+    soft = _soft_frame_render(gl_ctx, "soft", [actor], plate, (0.0, -0.5, 0.85))
+    hard = _soft_frame_render(gl_ctx, "hard", [actor], plate, (0.0, -0.5, 0.85))
+    near_feet = sum(_penumbra_width(soft, row) for row in range(140, 145)) / 5.0
+    far_from_them = sum(_penumbra_width(soft, row) for row in range(156, 162)) / 6.0
+    assert near_feet > 0                                    # a penumbra even at the feet, just a narrow one
+    assert far_from_them > 2.0 * near_feet
+    assert max(_penumbra_width(hard, row) for row in range(140, 170)) == 0   # hard: every edge sharp
+
+
+def _overlap_frame(with_caster):
+    """The golden frame's light over a facing square, with a sphere placed
+    so its ground shadow lands on the square's body (measured: 213 pixels
+    at smoothing 2). At smoothing 0 the CPU path projects triangles only,
+    so this scene is drawn tessellated."""
+    from PyAitD.render.lighting import SceneLight
+    light = SceneLight((0.3, -0.5, -0.8), (0.9, 0.8, 0.7), (0.2, 0.2, 0.3), 0.7)
+    square = _standing_actor(0, _facing_square(600.0, 1, (0.0, -0.6, -0.8)), 400.0)
+    caster = _standing_actor(1, _sphere_at(-200.0, -150.0, 500.0), 400.0)
+    actors = (square, caster) if with_caster else (square,)
+    return FrameDescription(_view(), ImageAsset(np.full((200, 320, 3), 40, np.uint8), False),
+                            _palette(), actors, (), light)
+
+
+def _render_overlap(gl_ctx, shadows, frame):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
+                                              realism="classic", smoothing=2, shadows=shadows))
+    backend.draw(frame)
+    out = backend.read_rgb().astype(int)
+    backend.release()
+    return out
+
+
+def test_a_gathered_shadow_never_darkens_an_earlier_actor(gl_ctx):
+    # The per-actor composite is a full-target multiply with no depth: a
+    # nearer actor's shadow, composited after a farther body was drawn,
+    # paints over that body. Gathering every cast before any body is drawn
+    # is what `soft` fixes; `hard` keeps the artefact verbatim.
+    square_only = _overlap_frame(False)
+    caster_only = FrameDescription(square_only.camera, square_only.background, square_only.palette,
+                                   (_overlap_frame(True).actors[1],), (), square_only.light)
+    solo_hard, paired_hard = _render_overlap(gl_ctx, "hard", square_only), _render_overlap(gl_ctx, "hard", _overlap_frame(True))
+    solo_soft, paired_soft = _render_overlap(gl_ctx, "soft", square_only), _render_overlap(gl_ctx, "soft", _overlap_frame(True))
+    sphere = _render_overlap(gl_ctx, "hard", caster_only)
+    body = (solo_hard[..., 1] == 0) & (solo_hard[..., 0] > 0)          # the red square's own pixels...
+    body &= ~((sphere[..., 0] == 0) & (sphere[..., 1] > 0))            # ...minus where the green sphere is drawn over it
+    # ...and only below row 130: the sphere sits between the light and the
+    # square, so from Task 5 on it *legitimately* shadows the square through
+    # the depth map around screen (113, 83), rows 57-109. The composite
+    # artefact this test is about lands at rows 149-158.
+    body[:130] = False
+    assert body.sum() > 5000
+    wrong = np.any(paired_hard != solo_hard, axis=2) & body
+    assert wrong.sum() > 100                                           # hard: the sphere's shadow lands on the square
+    assert np.array_equal(paired_soft[body], solo_soft[body])          # soft: the body is untouched
+
+
+def test_two_soft_casters_darken_a_pixel_once(gl_ctx):
+    # Overlapping casts blend with MAX, so two shadows on one pixel are one.
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    geometry = _tri_geometry(600.0, 1, span=100.0)
+    one = [_standing_actor(0, geometry, feet_y=150)]
+    two = one + [_standing_actor(1, geometry, feet_y=150)]
+    assert np.array_equal(_soft_frame_render(gl_ctx, "soft", one, plate, (0.0, -1.0, -0.2)),
+                          _soft_frame_render(gl_ctx, "soft", two, plate, (0.0, -1.0, -0.2)))
+
+
+def test_a_mask_erases_a_soft_cast_beyond_its_penumbra(gl_ctx):
+    # The mask discard moved from the composite into the cast, so the
+    # coverage texture is already erased where the pillar stands -- and the
+    # blur runs afterwards, so a penumbra can bleed up to R_MAX pixels past
+    # the mask's edge (the spec's first limitation). Beyond that band the
+    # masked half must be the untouched plate.
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    geometry = _planned_geometry(_hex_prism_body())
+    actor = ActorDraw(0, geometry, (0.0, 0.0, 0.0), 0, (0, 0, -50, 150, 0, 0), RenderResult([], []), (0,))
+    poly = np.array([[160, 137], [320, 137], [320, 200], [160, 200]], np.int16)
+    right_half = MaskDraw(0, (poly,), (160, 137, 320, 200), 0, ())
+    rendered = _soft_frame_render(gl_ctx, "soft", [actor], plate, (0.0, -0.5, 0.85), masks=[right_half], level=2)
+    plain = _plain_background(gl_ctx, plate)
+    r_max = 6                                       # R_MAX_PER_SCALE at scale 1
+    inside = (slice(137 + r_max, None), slice(160 + r_max, None))
+    assert np.array_equal(rendered[inside], plain[inside])
+    unmasked = int((rendered[137:, :160] < plain[137:, :160] - 5).any(axis=2).sum())
+    assert unmasked > 300                           # still cast where the mask does not reach
+
+
+def test_the_soft_blur_matches_the_numpy_twin(gl_ctx):
+    from PyAitD.render.lighting import soften
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene", msaa=0, shadows="soft"))
+    rng = np.random.default_rng(11)
+    cover = (rng.random((200, 320)) < 0.02).astype(np.float64)
+    radius = np.where(cover > 0, rng.integers(0, 7, (200, 320)), 0).astype(np.float64)
+    r_max = backend._r_max()
+    assert r_max == 6
+    rg = np.zeros((200, 320, 2), np.uint8)
+    rg[..., 0] = (cover * 255).astype(np.uint8)
+    rg[..., 1] = np.round(radius / r_max * 255).astype(np.uint8)
+    backend._shadow_tex.write(np.ascontiguousarray(rg).tobytes())
+    backend._soften_shadows()
+    out = np.frombuffer(backend._shadow_tex.read(), np.uint8).reshape(200, 320, 2)[..., 0] / 255.0
+    backend.release()
+    expected = soften(cover, radius, r_max)
+    # the intermediate pass is stored in 8 bits and so is the result: half a
+    # step each, plus the twin's own rounding
+    assert np.abs(out - expected).max() <= 2.5 / 255
+
+
+def test_soft_with_nothing_to_shadow_is_byte_identical_to_hard(gl_ctx):
+    # The spec's second identity: soft's plumbing -- the up-front instance
+    # buffers, the gathered pass, the blur, the fractional composite (and,
+    # from Task 5, the shadow-map lookup at visibility 1.0) -- changes no
+    # pixel when there is nothing to shadow. A mask starting below the body
+    # (rows 80-120) erases the ground shadow (rows 143-150) at the cast,
+    # and nothing occludes the body.
+    plate = np.full((200, 320, 3), 40, np.uint8)
+    actor = ActorDraw(0, _tri_geometry(600.0, 1, span=100.0), (0.0, 0.0, 0.0), 0, (0, 0, 100, 300, 0, 0),
+                      RenderResult([], []), (0,))
+    poly = np.array([[0, 125], [320, 125], [320, 200], [0, 200]], np.int16)
+    ground = MaskDraw(0, (poly,), (0, 125, 320, 200), 0, ())
+    for level in (0, 2):
+        hard = _soft_frame_render(gl_ctx, "hard", [actor], plate, (0.3, -0.5, -0.8), masks=[ground], level=level, shading="smooth")
+        soft = _soft_frame_render(gl_ctx, "soft", [actor], plate, (0.3, -0.5, -0.8), masks=[ground], level=level, shading="smooth")
+        assert np.any(hard != 40), level          # the body is really drawn
+        assert np.array_equal(hard, soft), level
+
+
+def test_fixed_lighting_ignores_the_shadows_option(gl_ctx):
+    frame = _overlap_frame(True)
+    outs = []
+    for shadows in ("hard", "soft"):
+        backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="fixed", msaa=0,
+                                                  smoothing=0, shadows=shadows))
+        backend.draw(frame)
+        outs.append(backend.read_rgb().copy())
+        backend.release()
+    assert np.array_equal(*outs)
+
+
+def test_a_sphere_casts_a_soft_shadow_even_on_the_flat_mesh(gl_ctx):
+    # Under hard, level 0 projects geometry.tris on the CPU and a sphere has
+    # none; soft always casts from the instance stream, spheres included.
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    actor = _standing_actor(0, _sphere_at(0.0, 0.0, 600.0, radius=150.0, color=1), feet_y=150)
+    plain = _plain_background(gl_ctx, plate)
+    hard = _soft_frame_render(gl_ctx, "hard", [actor], plate, (0.0, -0.5, 0.85))
+    soft = _soft_frame_render(gl_ctx, "soft", [actor], plate, (0.0, -0.5, 0.85))
+    assert int((hard[137:] < plain[137:] - 5).any(axis=2).sum()) == 0
+    assert int((soft[137:] < plain[137:] - 5).any(axis=2).sum()) > 50

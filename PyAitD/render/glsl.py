@@ -160,12 +160,19 @@ uniform mat4 mvp; uniform mat3 rot;
 // side, or an unclamped near-horizontal travel divides by a near-zero
 // travel.y here.
 uniform int project; uniform vec3 travel; uniform float plane_y;
+// Cast mode only: the camera's world x axis, tan of the light source's
+// angular radius, the penumbra radius the blur can honour, and the target
+// size in pixels -- a caster's height above its plane becomes a penumbra
+// width in world units and then a radius in pixels, written to v_penumbra
+// as a fraction of r_max. Under project == 0 v_penumbra is 0 and unread.
+uniform vec3 right; uniform float tan_source; uniform float r_max; uniform vec2 target_size;
 in vec3 in_bary;
 in vec4 in_p0; in vec4 in_n0; in vec4 in_c0; in vec3 in_r0;
 in vec4 in_p1; in vec4 in_n1; in vec4 in_c1; in vec3 in_r1;
 in vec4 in_p2; in vec4 in_n2; in vec4 in_c2; in vec3 in_r2;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
 out vec3 v_world;   // the evaluated world position: read back by transform feedback in tests, unused by the fragment shader
+out float v_penumbra;
 
 vec3 edge_point(vec3 pi, vec3 pj, vec3 ni, float straight) {
     // a third of the way from pi toward pj, projected onto pi's tangent
@@ -197,7 +204,17 @@ void main() {
     vec3 n011 = edge_normal(p1, p2, n1, n2, s12);
     vec3 n101 = edge_normal(p2, p0, n2, n0, s20);
     vec3 n = normalize(n0 * u*u + n1 * v*v + n2 * w*w + n110 * u*v + n011 * v*w + n101 * w*u);
-    if (project == 1) pos += (plane_y - pos.y) / travel.y * travel;
+    v_penumbra = 0.0;
+    if (project == 1) {
+        float drop = plane_y - pos.y;                   // height above the plane: world y grows downward
+        pos += (plane_y - pos.y) / travel.y * travel;
+        // penumbra width = drop * tan(source angle), projected to pixels
+        // along the camera's x axis at the shadow point's own depth
+        vec4 a = mvp * vec4(pos, 1.0);
+        vec4 b = mvp * vec4(pos + right * drop * tan_source, 1.0);
+        vec2 px = (b.xy / max(b.w, 1.0) - a.xy / max(a.w, 1.0)) * 0.5 * target_size;
+        v_penumbra = clamp(length(px) / r_max, 0.0, 1.0);
+    }
     gl_Position = mvp * vec4(pos, 1.0);
     v_world = pos;
     // the three corners carry the triangle's one colour; blending them keeps
@@ -238,18 +255,70 @@ SHADOW_FSH = """
 #version 330
 uniform sampler2D shadow_tex; uniform sampler2D mask_tex;
 uniform vec2 target_size; uniform vec3 shadow_color; uniform float opacity;
+uniform int soft;
 out vec4 f_color;
 void main() {
     vec2 uv = gl_FragCoord.xy / target_size;
-    // A foreground mask hides the shadow exactly as it hides the actor.
-    if (texture(mask_tex, uv).r > 0.5) discard;
-    // Coverage is binary, so overlapping limbs darken a pixel once.
-    if (texture(shadow_tex, uv).r < 0.5) discard;
+    float cover = texture(shadow_tex, uv).r;
+    if (soft == 0) {
+        // The per-actor path, verbatim: this actor's foreground masks hide
+        // its shadow exactly as they hide the actor, and coverage is
+        // binary, so overlapping limbs darken a pixel once.
+        if (texture(mask_tex, uv).r > 0.5) discard;
+        if (cover < 0.5) discard;
+        cover = 1.0;
+    } else if (cover <= 0.0) {
+        // The gathered path: every cast was erased by its own actor's
+        // masks and softened before this runs; coverage is fractional.
+        discard;
+    }
     // A per-channel factor <= 1.0 (shadow_color is 0..1), multiplied
     // (not alpha-blended) into the destination below: this can only ever
     // scale the background down toward the room's ambient hue, never
     // brighten it, unlike a src-alpha blend which pulls the destination
     // toward ambient from either side.
-    f_color = vec4(mix(vec3(1.0), shadow_color, opacity), 1.0);
+    f_color = vec4(mix(vec3(1.0), shadow_color, opacity * cover), 1.0);
+}
+"""
+SHADOW_CAST_FSH = """
+#version 330
+// The gathered ground-shadow cast: coverage in R, the penumbra radius
+// (a fraction of r_max) in G. This actor's own foreground masks erase
+// its cast here, once, so the gathered coverage needs no mask at
+// composite time. Overlapping casts blend with MAX on both channels.
+uniform sampler2D mask_tex; uniform vec2 target_size;
+in float v_penumbra;
+out vec4 f_color;
+void main() {
+    if (texture(mask_tex, gl_FragCoord.xy / target_size).r > 0.5) discard;
+    f_color = vec4(1.0, v_penumbra, 0.0, 0.0);
+}
+"""
+SHADOW_BLUR_FSH = """
+#version 330
+// One axis of the penumbra blur: each covered source pixel is spread over
+// a box of its own radius, written as a gather -- this output pixel asks
+// every neighbour within r_max whether that neighbour's radius reaches it,
+// and takes cover / (2 r + 1) from each that does, carrying the largest
+// radius that reached it into G for the second axis. lighting.soften is
+// the numpy twin the parity test pins this against.
+uniform sampler2D src; uniform ivec2 axis; uniform int r_max;
+out vec4 f_color;
+void main() {
+    ivec2 p = ivec2(gl_FragCoord.xy);
+    ivec2 size = textureSize(src, 0);
+    float cover = 0.0;
+    float reach = 0.0;
+    for (int d = -r_max; d <= r_max; d++) {
+        ivec2 q = p + axis * d;
+        if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y) continue;
+        vec2 s = texelFetch(src, q, 0).rg;
+        float r = floor(s.g * float(r_max) + 0.5);
+        if (s.r > 0.0 && float(abs(d)) <= r) {
+            cover += s.r / (2.0 * r + 1.0);
+            reach = max(reach, r);
+        }
+    }
+    f_color = vec4(min(cover, 1.0), reach / float(r_max), 0.0, 0.0);
 }
 """

@@ -35,6 +35,8 @@ from PyAitD.render.glsl import (
     STENCIL_FSH as _STENCIL_FSH,
     SHADOW_GEOM_VSH as _SHADOW_GEOM_VSH,
     SHADOW_FSH as _SHADOW_FSH,
+    SHADOW_CAST_FSH as _SHADOW_CAST_FSH,
+    SHADOW_BLUR_FSH as _SHADOW_BLUR_FSH,
 )
 from PyAitD.render.lighting import _clamp_downward, project_to_plane, shading_terms, shadow_opacity
 from PyAitD.render.materials import PALETTE_SIZE, PRESETS
@@ -54,6 +56,16 @@ _DEPTH_B = -2 * FAR * NEAR / (FAR - NEAR)
 _SHADING_INDEX = {"flat": 0, "lambert": 1, "smooth": 2}
 
 CONTACT_HEIGHT = 150.0   # FITD units over which the contact term fades, roughly shin height
+
+# The ground shadow's penumbra. A light source of angular radius
+# SOURCE_ANGLE throws a penumbra `drop * tan(SOURCE_ANGLE)` wide at a point
+# whose caster is `drop` units above the plane -- 6 degrees is an indoor
+# lamp a few metres off; the sun would be a quarter of one. R_MAX_PER_SCALE
+# is the widest radius the blur honours, in pixels per unit of render
+# scale, and what the cast shader normalises its radius by.
+SOURCE_ANGLE = 6.0
+TAN_SOURCE = math.tan(math.radians(SOURCE_ANGLE))
+R_MAX_PER_SCALE = 6
 
 # One instance per source triangle for the tessellating programs: per
 # corner k, (pos.xyz, ao), (normal.xyz, straight of edge k -> k+1),
@@ -176,6 +188,12 @@ class GLBackend:
         self._mask_fbo = None
         self._shadow_tex = None
         self._shadow_fbo = None
+        self._shadow_blur_tex = None
+        self._shadow_blur_fbo = None
+        self._cast_prog = None
+        self._cast_layout = None
+        self._blur_prog = None
+        self._blur_quad_vao = None
         self._shadow_prog = None
         self._shadow_geom_prog = None
         self._shadow_quad = None
@@ -213,11 +231,20 @@ class GLBackend:
             self._mask_tex.repeat_y = False
             self._mask_fbo = ctx.framebuffer(color_attachments=[self._mask_tex])
 
-            self._shadow_tex = ctx.texture(self.size, 1)
+            # Two channels: R is coverage, G the penumbra radius the gathered
+            # cast writes (a fraction of R_MAX); the hard path writes 1.0 to
+            # both and reads only R. The blur ping-pongs between this and
+            # _shadow_blur_tex, horizontal then vertical, ending back here.
+            self._shadow_tex = ctx.texture(self.size, 2)
             self._shadow_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
             self._shadow_tex.repeat_x = False
             self._shadow_tex.repeat_y = False
             self._shadow_fbo = ctx.framebuffer(color_attachments=[self._shadow_tex])
+            self._shadow_blur_tex = ctx.texture(self.size, 2)
+            self._shadow_blur_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+            self._shadow_blur_tex.repeat_x = False
+            self._shadow_blur_tex.repeat_y = False
+            self._shadow_blur_fbo = ctx.framebuffer(color_attachments=[self._shadow_blur_tex])
             self._shadow_geom_prog = ctx.program(
                 vertex_shader=_SHADOW_GEOM_VSH, fragment_shader=_STENCIL_FSH)
             self._shadow_prog = ctx.program(
@@ -232,6 +259,9 @@ class GLBackend:
             self._shadow_quad = ctx.buffer(shadow_quad.tobytes())
             self._shadow_quad_vao = ctx.vertex_array(
                 self._shadow_prog, [(self._shadow_quad, "2f", "in_pos")])
+            self._blur_prog = ctx.program(vertex_shader=_STENCIL_VSH, fragment_shader=_SHADOW_BLUR_FSH)
+            self._blur_quad_vao = ctx.vertex_array(
+                self._blur_prog, [(self._shadow_quad, "2f", "in_pos")])
 
             self._bg_prog = ctx.program(vertex_shader=_BG_VSH, fragment_shader=_BG_FSH)
             self._actor_prog = ctx.program(vertex_shader=_ACTOR_VSH, fragment_shader=_ACTOR_FSH)
@@ -313,6 +343,12 @@ class GLBackend:
             self._tess_shadow_prog["travel"].value = (0.0, 1.0, 0.0)
             self._tess_layout = instance_layout(self._tess_prog)
             self._tess_shadow_layout = instance_layout(self._tess_shadow_prog)
+            # The gathered cast: _TESS_VSH in project mode, writing coverage
+            # and penumbra radius. Seeded like _tess_shadow_prog so an unset
+            # travel can never divide by zero.
+            self._cast_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_SHADOW_CAST_FSH)
+            self._cast_prog["travel"].value = (0.0, 1.0, 0.0)
+            self._cast_layout = instance_layout(self._cast_prog)
             # Every level, 0 included: subpatch(0) is the flat triangle with
             # exact corners, so the soft-shadow passes can draw every actor
             # through the instanced programs whatever `smoothing` says.
@@ -337,8 +373,10 @@ class GLBackend:
             self._material_tex,
             self._tess_prog, self._tess_shadow_prog, *self._subpatch_bufs.values(),
             self._shadow_quad_vao, self._shadow_quad,
+            self._blur_quad_vao, self._blur_prog, self._cast_prog,
             self._shadow_prog, self._shadow_geom_prog,
             self._shadow_fbo, self._shadow_tex,
+            self._shadow_blur_fbo, self._shadow_blur_tex,
             self._mask_fbo, self._mask_tex,
             self._thumb_fbo, self._thumb_tex,
             self._ms_fbo, self._ms_color, self._ms_depth,
@@ -384,6 +422,7 @@ class GLBackend:
             self._ctx.depth_func = "<"  # ModernGL's own default
             self._ctx.disable(moderngl.BLEND)
             self._ctx.blend_func = moderngl.DEFAULT_BLENDING  # ModernGL's own default
+            self._ctx.blend_equation = moderngl.FUNC_ADD  # the gathered cast blends with MAX
             # Best-effort: prev_fbo can have been release()'d by another
             # backend sharing this ctx between when we captured it and now
             # (moderngl.InvalidObject`d, not cleared) -- restoring a dead
@@ -436,11 +475,14 @@ class GLBackend:
                     if len(data):
                         instances[i] = (self._ctx.buffer(data.tobytes()), len(data))
 
+            if soft:
+                self._gather_shadows(frame, instances, mask_by_id, travel, mvp, rot, level)
+
             for actor, inst in zip(frame.actors, instances):
                 masks = [mask_by_id[i] for i in actor.mask_ids if i in mask_by_id]
                 self._rasterize_masks(masks)  # switches to the mask FBO and disables depth test
 
-                if scene_lit:
+                if scene_lit and not soft:
                     if level:
                         cast = self._rasterize_shadow_tessellated(inst, travel, mvp, _plane_y(actor), level)
                     else:
@@ -693,7 +735,67 @@ class GLBackend:
         self._render_instanced(prog, self._tess_shadow_layout, instances[0], instances[1], level)
         return True
 
-    def _composite_shadow(self, light):
+    def _r_max(self):
+        """The widest penumbra radius the blur honours, in target pixels."""
+        return R_MAX_PER_SCALE * self._options.scale
+
+    def _gather_shadows(self, frame, instances, mask_by_id, travel, mvp, rot, level):
+        """Every actor's ground shadow into one coverage texture -- each cast
+        erased by that actor's own masks -- softened by the per-pixel
+        penumbra radius and multiplied onto the plate once, before any body
+        is drawn. A nearer actor's shadow can no longer paint over a farther
+        body, and overlapping casts take the MAX, so they darken once."""
+        self._shadow_fbo.use()
+        self._ctx.viewport = (0, 0, *self.size)
+        self._ctx.disable(moderngl.DEPTH_TEST)
+        self._shadow_fbo.clear(0.0, 0.0, 0.0, 0.0)
+        prog = self._cast_prog
+        prog["mvp"].write(mvp.T.astype("f4").tobytes())
+        prog["project"].value = 1
+        prog["travel"].value = tuple(float(v) for v in _clamp_downward(travel))
+        # rot maps world -> camera, so its first row is the world vector
+        # that lands on camera +x: the axis the penumbra width is measured along
+        prog["right"].value = tuple(float(v) for v in rot[0])
+        prog["tan_source"].value = TAN_SOURCE
+        prog["r_max"].value = float(self._r_max())
+        prog["target_size"].value = self.size
+        prog["mask_tex"].value = 1
+        cast = False
+        for actor, inst in zip(frame.actors, instances):
+            if inst is None:
+                continue
+            self._rasterize_masks([mask_by_id[i] for i in actor.mask_ids if i in mask_by_id])
+            self._shadow_fbo.use()
+            self._ctx.viewport = (0, 0, *self.size)
+            self._mask_tex.use(location=1)
+            prog["plane_y"].value = _plane_y(actor)
+            self._ctx.enable(moderngl.BLEND)
+            self._ctx.blend_func = moderngl.ONE, moderngl.ONE
+            self._ctx.blend_equation = moderngl.MAX
+            self._render_instanced(prog, self._cast_layout, inst[0], inst[1], level)
+            self._ctx.blend_equation = moderngl.FUNC_ADD
+            self._ctx.disable(moderngl.BLEND)
+            cast = True
+        if cast:
+            self._soften_shadows()
+            self._composite_shadow(frame.light, soft=True)
+
+    def _soften_shadows(self):
+        """Two passes of the radius-driven blur over the coverage texture:
+        horizontal into _shadow_blur_tex, vertical back into _shadow_tex."""
+        self._blur_prog["src"].value = 2
+        self._blur_prog["r_max"].value = self._r_max()
+        passes = (((1, 0), self._shadow_tex, self._shadow_blur_fbo),
+                  ((0, 1), self._shadow_blur_tex, self._shadow_fbo))
+        for axis, src, dst in passes:
+            dst.use()
+            self._ctx.viewport = (0, 0, *self.size)
+            self._ctx.disable(moderngl.DEPTH_TEST)
+            src.use(location=2)
+            self._blur_prog["axis"].value = axis
+            self._blur_quad_vao.render(moderngl.TRIANGLES)
+
+    def _composite_shadow(self, light, soft=False):
         """Multiply the background toward the room's ambient hue through the
         coverage texture: `mix(1, ambient, opacity)` is a per-channel
         factor <= 1.0 (ambient is 0..1), and it is multiplied into the
@@ -720,7 +822,11 @@ class GLBackend:
         (measured at 0 overlapping pixels across 50 live frames), and the
         mask discard keeps foreground geometry safe, but the mechanism is
         real: a true fix would need the shadows gathered into one coverage
-        pass before any actor is drawn."""
+        pass before any actor is drawn.
+
+        Under `soft` the coverage is the gathered, mask-erased, softened
+        texture and is consumed fractionally; the ordering caveat above
+        no longer applies, since this runs once before any body is drawn."""
         self._target.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
@@ -731,6 +837,7 @@ class GLBackend:
         self._shadow_prog["target_size"].value = self.size
         self._shadow_prog["shadow_color"].value = tuple(float(c) for c in light.ambient)
         self._shadow_prog["opacity"].value = shadow_opacity(light.contrast)
+        self._shadow_prog["soft"].value = 1 if soft else 0
         self._ctx.enable(moderngl.BLEND)
         self._ctx.blend_func = moderngl.DST_COLOR, moderngl.ZERO
         self._shadow_quad_vao.render(moderngl.TRIANGLES)
