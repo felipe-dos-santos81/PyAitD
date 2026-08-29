@@ -341,6 +341,16 @@ class GLBackend:
             # project=1 (task 6); an unseeded uniform defaults to (0,0,0) and
             # divides by zero (travel.y) if that write is ever missed.
             self._tess_shadow_prog["travel"].value = (0.0, 1.0, 0.0)
+            # And the penumbra divisor the cast branch added to that same
+            # branch: _tess_shadow_prog runs it with project=1 as well, and
+            # an unseeded r_max is 0, so v_penumbra would evaluate 0.0 / 0.0
+            # -- unspecified per the GLSL spec -- on every vertex. Nothing
+            # reads it there today (_STENCIL_FSH declares no v_penumbra), so
+            # a linker is free to drop the uniform outright; the membership
+            # test is instance_layout's own idiom for a program member that
+            # may not survive linking.
+            if "r_max" in self._tess_shadow_prog:
+                self._tess_shadow_prog["r_max"].value = 1.0
             self._tess_layout = instance_layout(self._tess_prog)
             self._tess_shadow_layout = instance_layout(self._tess_shadow_prog)
             # The gathered cast: _TESS_VSH in project mode, writing coverage
