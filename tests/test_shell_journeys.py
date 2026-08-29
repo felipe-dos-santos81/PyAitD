@@ -314,7 +314,7 @@ def test_menu_graphics_page_cycle_and_save_journey(data_dir, profile, monkeypatc
             return [_left_click(config_rows[-2].center)]          # Graphics...
         if frames == 4:
             assert session.system_menu.page is SystemMenuPage.GRAPHICS, "fixture"
-            return [_left_click(graphics_rows[5].center)]         # Realism
+            return [_left_click(graphics_rows[6].center)]         # Realism
         if frames == 5:
             return [_left_click(graphics_rows[-1].center)]        # Back
         if frames == 6:

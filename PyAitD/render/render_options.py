@@ -11,6 +11,12 @@ MIN_SCALE, MAX_SCALE = 1, 8
 LIGHTING_MODES = ("fixed", "scene")
 MSAA_LEVELS = (0, 2, 4, 8)
 SMOOTHING_LEVELS = (0, 1, 2, 3)   # 2**level segments per edge; 0 draws the flat mesh exactly as before
+# hard: today's per-actor projected silhouette, thresholded, verbatim.
+# soft: a penumbra that hardens at contact, every actor's shadow gathered
+# into one pass before any body is drawn, and a light-view depth map that
+# lets bodies shadow themselves and each other. Both under lighting="scene"
+# only; "fixed" casts nothing either way.
+SHADOW_MODES = ("hard", "soft")
 
 
 @dataclass(frozen=True)
@@ -23,6 +29,7 @@ class RenderOptions:
     msaa: int = 4
     realism: str = "enhanced"
     smoothing: int = 2
+    shadows: str = "hard"
 
     def to_payload(self):
         return {
@@ -34,6 +41,7 @@ class RenderOptions:
             "msaa": self.msaa,
             "realism": self.realism,
             "smoothing": self.smoothing,
+            "shadows": self.shadows,
         }
 
 
@@ -79,7 +87,11 @@ def validate_render_options(payload):
     if not (type(smoothing) is int and smoothing in SMOOTHING_LEVELS):
         errors.append(f"smoothing must be one of {', '.join(str(v) for v in SMOOTHING_LEVELS)}")
         smoothing = defaults.smoothing
-    options = RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism, smoothing)
+    shadows = payload.get("shadows")
+    if shadows not in SHADOW_MODES:
+        errors.append(f"shadows must be one of {', '.join(SHADOW_MODES)}")
+        shadows = defaults.shadows
+    options = RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism, smoothing, shadows)
     return options, ("; ".join(errors) or None)
 
 
@@ -116,3 +128,7 @@ def cycle_realism(options):
 def cycle_smoothing(options):
     current = options.smoothing if options.smoothing in SMOOTHING_LEVELS else SMOOTHING_LEVELS[0]
     return replace(options, smoothing=_cycle(SMOOTHING_LEVELS, current))
+
+
+def cycle_shadows(options):
+    return replace(options, shadows=_cycle(SHADOW_MODES, options.shadows))

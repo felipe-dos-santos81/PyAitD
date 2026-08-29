@@ -182,6 +182,10 @@ def test_story_whole_frame_confirms_and_menu_rows_are_large():
             # rows; effective_rects still pads every row past the 12x12
             # minimum target size
             assert all(rect.width >= 224 and rect.height >= 13 for rect in rows)
+        elif page is SystemMenuPage.GRAPHICS:
+            # GRAPHICS moved to an 18 px pitch to fit the Shadows row; still
+            # comfortably above the 12x12 minimum target size
+            assert all(rect.width >= 224 and rect.height >= 18 for rect in rows)
         else:
             assert all(rect.width >= 224 and rect.height >= 20 for rect in rows)
         for index, rect in enumerate(rows):

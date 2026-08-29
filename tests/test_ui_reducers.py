@@ -117,7 +117,7 @@ def test_configuration_graphics_row_opens_the_graphics_page():
 def test_graphics_rows_cycle_render_options():
     from PyAitD.app.ui import GRAPHICS_CYCLES, GRAPHICS_ROWS, graphics_row_count
     from PyAitD.render.render_options import RenderOptions
-    assert GRAPHICS_ROWS == 7 and len(GRAPHICS_CYCLES) == GRAPHICS_ROWS
+    assert GRAPHICS_ROWS == 8 and len(GRAPHICS_CYCLES) == GRAPHICS_ROWS
     assert graphics_row_count() == GRAPHICS_ROWS + 1
     settings = default_settings()
     state = SystemMenuPresenter(page=SystemMenuPage.GRAPHICS, cursor=0)
@@ -129,10 +129,12 @@ def test_graphics_rows_cycle_render_options():
     state.cursor = 3
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(lighting="fixed")
     state.cursor = 4
-    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(msaa=8)
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(shadows="soft")
     state.cursor = 5
-    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(realism="classic")
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(msaa=8)
     state.cursor = 6
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(realism="classic")
+    state.cursor = 7
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(smoothing=3)
     assert state.page is SystemMenuPage.GRAPHICS  # a cycle never leaves the page
 
