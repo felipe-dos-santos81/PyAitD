@@ -98,3 +98,34 @@ def test_classic_preset_is_all_zeros_and_enhanced_is_not():
     enhanced = PRESETS["enhanced"]
     assert all(0 < v <= 1 for v in (enhanced.spec, enhanced.rim, enhanced.ao,
                                     enhanced.contact, enhanced.detail, enhanced.hemisphere))
+
+
+def test_the_three_new_fields_default_to_zero_and_validate():
+    from PyAitD.render.materials import Material
+    m = Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0)
+    assert (m.bump, m.sss, m.emissive) == (0.0, 0.0, 0.0)
+    for field in ("bump", "sss", "emissive"):
+        with pytest.raises(ValueError, match=field):
+            Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0, **{field: 1.5})
+        with pytest.raises(ValueError, match=field):
+            Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0, **{field: -0.1})
+
+
+def test_parameters_are_twelve_wide_and_in_range():
+    from PyAitD.render.materials import PARAMETER_COUNT, default_table
+    assert PARAMETER_COUNT == 12
+    params = default_table().parameters()
+    assert params.shape == (256, 12)
+    assert params.dtype == np.float32
+    # every field is 0..1 except detail_scale (FITD units) and detail_kind
+    scaleless = np.delete(params, [5, 6], axis=1)
+    assert scaleless.min() >= 0.0 and scaleless.max() <= 1.0
+    assert (params[:, 5] > 0.0).all()
+
+
+def test_classic_zeroes_every_preset_field_including_the_new_ones():
+    from PyAitD.render.materials import PRESETS
+    classic = PRESETS["classic"]
+    assert (classic.spec, classic.rim, classic.ao) == (0.0, 0.0, 0.0)
+    assert (classic.contact, classic.detail, classic.hemisphere) == (0.0, 0.0, 0.0)
+    assert (classic.bump, classic.sss, classic.emissive) == (0.0, 0.0, 0.0)

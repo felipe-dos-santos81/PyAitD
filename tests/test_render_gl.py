@@ -1826,3 +1826,16 @@ def test_hard_shadows_never_touch_the_shadow_map(gl_ctx, monkeypatch):
     monkeypatch.setattr(backend, "_render_shadow_map", boom)
     backend.draw(_overlap_frame(True))
     backend.release()
+
+
+# Transitional, and deliberately so: Task 1 of the materials-v2 plan adds
+# fields, a texture row and three uniforms, all at zero strength, so the
+# enhanced render must not move. Task 2 lands bump and retires this test --
+# it is scaffolding for one task's blast radius, not a golden.
+def test_enhanced_is_unmoved_by_the_material_plumbing(gl_ctx):
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    actor = _standing_actor(0, _planned_geometry(_hex_prism_body()), feet_y=150)
+    rendered = _soft_frame_render(gl_ctx, "soft", [actor], plate, (0.0, -0.5, 0.85),
+                                  shading="smooth", realism="enhanced", level=2)
+    expected = np.load(pathlib.Path(__file__).parent / "golden" / "enhanced_plumbing.npy")
+    assert np.array_equal(rendered, expected)

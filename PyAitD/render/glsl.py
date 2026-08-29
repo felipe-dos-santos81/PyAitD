@@ -37,15 +37,19 @@ uniform mat4 mvp; uniform mat3 rot;
 // pushed along its world normal, so a surface never shadows itself at
 // its own depth. Unread under shadows=hard (light_vp stays zero).
 uniform mat4 light_vp; uniform float normal_offset;
+// Camera-space position, for the fragment shader's screen-space
+// derivatives. A direction would not do: bump needs dP/dx and dP/dy.
+uniform mat4 view;
 in vec3 in_pos; in vec3 in_normal; in vec3 in_color; in vec3 in_rest; in float in_ao; in float in_index;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
-out vec4 v_shadow;
+out vec4 v_shadow; out vec3 v_view;
 void main() {
     gl_Position = mvp * vec4(in_pos, 1.0);
     v_color = in_color; v_normal = rot * in_normal;
     v_rest = in_rest; v_ao = in_ao; v_index = in_index;
     v_world_y = in_pos.y;   // in_pos is already world space: the actor position was added on the CPU
     v_shadow = light_vp * vec4(in_pos + in_normal * normal_offset, 1.0);
+    v_view = (view * vec4(in_pos, 1.0)).xyz;
 }
 """
 ACTOR_FSH = """
@@ -57,21 +61,22 @@ uniform int shading; uniform int lighting;
 // ambient, an absolute reflectance. Same room, two different quantities.
 uniform vec3 light; uniform vec3 key_tint; uniform vec3 fill_tint;
 uniform sampler2D mask_tex; uniform vec2 target_size;
-// Materials (scene lighting only). material_tex is 256x2 RGBA32F: row 0 is
+// Materials (scene lighting only). material_tex is 256x3 RGBA32F: row 0 is
 // (roughness, specular, metallic, rim), row 1 (detail, detail_scale,
-// detail_kind, 0) for the palette index in v_index. preset_a/preset_b are
-// the RealismPreset strengths (spec, rim, ao) and (contact, detail,
-// hemisphere); under realism=classic all six are 0 and every term below
-// is exactly 1.0 or 0.0, leaving `base` untouched.
+// detail_kind, 0), row 2 (bump, sss, emissive, 0) for the palette index in
+// v_index. preset_a/preset_b/preset_c are the RealismPreset strengths
+// (spec, rim, ao), (contact, detail, hemisphere) and (bump, sss, emissive);
+// under realism=classic all nine are 0 and every term below is exactly 1.0
+// or 0.0, leaving `base` untouched.
 uniform sampler2D material_tex;
-uniform vec3 preset_a; uniform vec3 preset_b;
+uniform vec3 preset_a; uniform vec3 preset_b; uniform vec3 preset_c;
 uniform float plane_y; uniform float contact_height;
 // The light-view depth map (shadows=soft): hardware-compared, bilinear.
 // self_shadow gates the lookup; depth_bias is in map depth units, from
 // SHADOW_BIAS_UNITS over the map's extent along the light.
 uniform sampler2DShadow shadow_map; uniform int self_shadow; uniform float depth_bias;
 in vec3 v_color; in vec3 v_normal; in vec3 v_rest; in float v_ao; flat in float v_index; in float v_world_y;
-in vec4 v_shadow;
+in vec4 v_shadow; in vec3 v_view;
 out vec4 f_color;
 
 float hash3(vec3 p) {
@@ -181,6 +186,9 @@ TESS_VSH = """
 // refine.evaluate is the numpy twin the parity test pins this against.
 uniform mat4 mvp; uniform mat3 rot;
 uniform mat4 light_vp; uniform float normal_offset;
+// Camera-space position, for the fragment shader's screen-space
+// derivatives. A direction would not do: bump needs dP/dx and dP/dy.
+uniform mat4 view;
 // project == 1 is the shadow mode: the evaluated point slides along
 // `travel` onto the plane y == plane_y before mvp -- lighting.project_to_plane's
 // math for an ALREADY-CLAMPED travel. This shader does no clamping itself:
@@ -201,6 +209,7 @@ in vec4 in_p1; in vec4 in_n1; in vec4 in_c1; in vec3 in_r1;
 in vec4 in_p2; in vec4 in_n2; in vec4 in_c2; in vec3 in_r2;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
 out vec3 v_world;   // the evaluated world position: read back by transform feedback in tests, unused by the fragment shader
+out vec3 v_view;
 out float v_penumbra;
 out vec4 v_shadow;
 
@@ -248,6 +257,7 @@ void main() {
     }
     gl_Position = mvp * vec4(pos, 1.0);
     v_world = pos;
+    v_view = (view * vec4(pos, 1.0)).xyz;
     // the three corners carry the triangle's one colour; blending them keeps
     // every instance attribute referenced, so no driver's linker drops one
     v_color = in_c0.xyz * u + in_c1.xyz * v + in_c2.xyz * w; v_index = in_c0.w;
@@ -261,11 +271,12 @@ SCREEN_VSH = """
 #version 330
 in vec3 in_ndc; in vec3 in_color;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
-out vec4 v_shadow;
+out vec4 v_shadow; out vec3 v_view;
 void main() {
     gl_Position = vec4(in_ndc, 1.0); v_color = in_color; v_normal = vec3(0.0, 0.0, 1.0);
     v_rest = vec3(0.0); v_ao = 1.0; v_index = 0.0; v_world_y = 0.0;
     v_shadow = vec4(0.0);   // lines and points never reach the term
+    v_view = vec3(0.0);     // nor the derivative bump
 }
 """
 STENCIL_VSH = """

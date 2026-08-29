@@ -19,7 +19,7 @@ MATERIAL_CLASSES = ("matte", "skin", "cloth", "leather", "hair",
                     "wood", "stone", "metal", "glass", "emissive")
 REALISM_MODES = ("classic", "enhanced")
 PALETTE_SIZE = 256
-PARAMETER_COUNT = 8   # 7 Material fields + one padding float: two RGBA texels per index
+PARAMETER_COUNT = 12  # 10 Material fields + two padding floats: three RGBA texels per index
 DETAIL_NONE, DETAIL_GRAIN, DETAIL_WEAVE, DETAIL_STREAK, DETAIL_BRUSHED = range(5)
 DEFAULT_TABLE_PATH = Path(__file__).with_name("materials.json")
 
@@ -33,6 +33,9 @@ class Material:
     detail: float        # 0..1: procedural grain amount
     detail_scale: float  # FITD units per noise cell; always > 0, the shader divides by it
     detail_kind: int     # DETAIL_NONE .. DETAIL_BRUSHED
+    bump: float = 0.0    # 0..1: how much the detail height field perturbs the normal
+    sss: float = 0.0     # 0..1: warm terminator, the cheap stand-in for subsurface
+    emissive: float = 0.0  # 0..1: the surface renders its palette colour whatever the light does
 
     def __post_init__(self):
         # The shader divides v_rest by this, so a zero would make the noise
@@ -44,10 +47,19 @@ class Material:
         # of naming the bad field.
         if not self.detail_scale > 0:
             raise ValueError(f"detail_scale must be > 0, got {self.detail_scale!r}")
+        # The shader multiplies each of these by a preset strength and by a
+        # noise or wrap term; outside 0..1 they stop being a fraction of
+        # anything and the classic-identity argument (strength 0 collapses
+        # the term) no longer bounds what a bad table can do.
+        for name in ("bump", "sss", "emissive"):
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be within 0..1, got {value!r}")
 
     def parameters(self):
         return np.array([self.roughness, self.specular, self.metallic, self.rim,
-                         self.detail, self.detail_scale, float(self.detail_kind), 0.0], dtype=np.float32)
+                         self.detail, self.detail_scale, float(self.detail_kind), 0.0,
+                         self.bump, self.sss, self.emissive, 0.0], dtype=np.float32)
 
 
 # Tuned by eye against the docs/graphics-proof fixtures at scale 4: cloth's
@@ -90,7 +102,7 @@ class MaterialTable:
             _check_class(name, f"index {index}")
 
     def parameters(self):
-        """(256, 8) float32: what the GL backend uploads as a 256x2 RGBA texture."""
+        """(256, 12) float32: what the GL backend uploads as a 256x3 RGBA texture."""
         out = np.zeros((PALETTE_SIZE, PARAMETER_COUNT), dtype=np.float32)
         for index, name in enumerate(self.classes):
             out[index] = CLASS_PRESETS[name].parameters()
@@ -159,9 +171,14 @@ class RealismPreset:
     contact: float
     detail: float
     hemisphere: float
+    bump: float = 0.0
+    sss: float = 0.0
+    emissive: float = 0.0
 
 
 PRESETS = {
     "classic": RealismPreset(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+    # bump/sss/emissive stay 0.0 here until Task 5's retune: Tasks 2 and 3
+    # land the terms, and a term at zero strength cannot move a pixel.
     "enhanced": RealismPreset(spec=1.0, rim=0.6, ao=0.7, contact=1.0, detail=1.0, hemisphere=1.0),
 }
