@@ -66,7 +66,7 @@ click on any large button. Found objects open a Take/Leave prompt; inventory
 exposes the object's own actions; letters and books are readable; pictures
 play full-screen.
 
-The in-game Configuration screen's Graphics page, and eight CLI flags for a
+The in-game Configuration screen's Graphics page, and nine CLI flags for a
 single session, control the enhanced renderer: `--render-scale N` (1-8, the
 internal render resolution as a multiple of 320x200), `--shading
 {flat,lambert,smooth}` (the per-actor shading model: where surface normals
