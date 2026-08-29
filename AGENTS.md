@@ -151,10 +151,13 @@ a rule — add the test with the rule.
   tessellation plan, the per-corner normals and the numpy twin of `_TESS_VSH`
   that the transform-feedback test pins the GPU against — change the formula
   in both or neither. `glsl` is strings only — every GLSL source the backend
-  compiles, no imports (`test_layering` pins it). `lighting.soften` and
-  `lighting.light_view_matrix` are the numpy twins of the penumbra blur and
-  the shadow-map projection, pinned like `refine.evaluate` — change a
-  formula in both or neither.
+  compiles, no imports (`test_layering` pins it). `lighting.soften` is the numpy
+  twin of the penumbra blur (`SHADOW_BLUR_FSH`), pinned like
+  `refine.evaluate` — change the formula in both or neither.
+  `lighting.light_view_matrix` is *not* a twin: it is the shadow-map
+  projection itself, called straight from `render_gl._render_shadow_map`
+  with no GL copy to keep in step, so editing it moves shipped pixels
+  rather than a test oracle.
 - The UI layer is painted through `app.ui.UIPainter`, which owns a surface at
   `(320*s, 200*s)` and scales logical coordinates on every call. Presenters
   author in logical 320x200 and never build their own surface; `s` comes from

@@ -3,12 +3,14 @@
 Date: 2026-08-29
 Spec: `docs/superpowers/specs/2026-08-29-actor-realism-roadmap-design.md` (sub-project F)
 
-**This document's "Manual attestation" table is a checklist for a human with
-real game data and a real window; every row starts `pending` and no claim
-about the rendered PNGs should be inferred from this file until a human
-fills them in.** Everything under "Automated gates" was actually run, in this
-environment, on this branch, and the output shown is the real output of that
-run.
+**This document's "Manual attestation" table is a checklist for a human
+with real game data and a real window; every row started `pending` and no
+claim about the rendered PNGs should be inferred from this file until a
+human fills them in.** (One row has since been partly answered by a
+measurement rather than by a human at a window; it says exactly which half
+it answers and which half is still `pending`.) Everything under "Automated
+gates" was actually run, in this environment, on this branch, and the
+output shown is the real output of that run.
 
 ## What changed
 
@@ -106,6 +108,64 @@ remedy. The honest summary: at scale 4 the soft path centers on roughly
 1.4x hard with real run-to-run variance that occasionally crosses 1.5x, not
 a comfortable, decisively-under-budget number.
 
+### Scale 8
+
+Scale 4 is not the largest scale the option offers, so the same fixture and
+settings were measured again at scale 8. Attic fixture, msaa 4, smoothing
+2, enhanced, 15 frames after 3 warm-ups, `ctx.finish()` after each, in one
+invocation of the plan's Step-4 script with the scale, frame count and
+repeat count taken from argv:
+
+```
+$ SDL_VIDEODRIVER=dummy .venv/bin/python scratch_timing.py 8 15 13
+scale 8  hard 8.86 ms  soft 12.81 ms  ratio 1.45x
+scale 8  hard 8.63 ms  soft 12.69 ms  ratio 1.47x
+scale 8  hard 8.80 ms  soft 12.79 ms  ratio 1.45x
+scale 8  hard 9.13 ms  soft 13.17 ms  ratio 1.44x
+scale 8  hard 9.14 ms  soft 13.76 ms  ratio 1.51x
+scale 8  hard 9.45 ms  soft 14.45 ms  ratio 1.53x
+scale 8  hard 9.20 ms  soft 13.99 ms  ratio 1.52x
+scale 8  hard 8.92 ms  soft 12.78 ms  ratio 1.43x
+scale 8  hard 8.59 ms  soft 12.85 ms  ratio 1.49x
+scale 8  hard 8.62 ms  soft 12.73 ms  ratio 1.48x
+scale 8  hard 8.90 ms  soft 12.69 ms  ratio 1.43x
+scale 8  hard 9.82 ms  soft 12.98 ms  ratio 1.32x
+scale 8  hard 9.21 ms  soft 13.23 ms  ratio 1.44x
+```
+
+hard 8.59-9.82 ms (mean 9.02), soft 12.69-14.45 ms (mean 13.15); per-run
+ratios 1.32x to 1.53x, **ratio of means 1.46x**. Three of the thirteen runs
+were at or over 1.5x. An earlier sitting of thirteen runs at the same
+settings gave hard 8.78-10.08 ms, soft 12.94-15.00 ms, per-run 1.36x to
+1.59x, ratio of means 1.44x -- so 1.44-1.46x is the number to carry, with
+individual frames crossing 1.5x in both sittings.
+
+Two things this does *not* show, stated plainly because the tempting
+readings of it are both wrong:
+
+- **It does not show the soft/hard ratio worsening with scale.** Eight
+  scale-4 runs of the same script in the same sitting gave hard 3.65-5.40
+  ms, soft 5.84-7.53 ms, per-run 1.15x to 1.80x, ratio of means 1.49x --
+  in the same band as scale 8, and far noisier. Scale 8's contribution is
+  a *tighter* estimate (1.32-1.53x per run against scale 4's 1.15-1.80x),
+  not a worse one: the per-frame cost is large enough there for scheduling
+  jitter to stop dominating.
+- **It does not show the frame time scaling with pixel count.** Four times
+  the pixels cost about twice the time on both paths (hard 4.55 -> 9.02
+  ms, soft 6.78 -> 13.15 ms, comparing the scale-4 and scale-8 runs above,
+  which were made back to back), so neither path is fill-rate-bound at
+  these sizes.
+
+Worth stating precisely, though, because it is the growth term that will
+eventually bite: the blur's added work is **not quadratic in render
+scale**. It runs over `s^2` more pixels *and* takes a kernel
+`R_MAX_PER_SCALE * s` wide in each of its two separable passes, so the
+blur alone is `O(s^3)` while the rest of the frame is `O(s^2)`. That term
+is not what the measurements above are dominated by -- at scale 8 the
+frame is still bound by something else -- but it is why the budget cannot
+be assumed to hold at a larger scale just because it holds at scale 4, and
+why scale 8, the largest the option offers, is the one that was measured.
+
 ## Deviations from the plan
 
 - **`R_MAX_PER_SCALE` is 4, not 6** (see above). This is the plan's own
@@ -146,6 +206,19 @@ a comfortable, decisively-under-budget number.
   every actor's bounding box, so a scene with actors spread far apart has
   coarser texels -- and thus a less conservative effective bias -- than the
   single-actor scenes the automated tests measure.
+- The shadow map and the actor shader disagree about which way the light
+  goes. `_render_shadow_map` builds the map through `light_view_matrix`,
+  which tips `travel` onto the `MIN_UP` cone (`lighting._clamp_downward`)
+  so the map and the ground shadow always agree; `ACTOR_FSH`'s `light`
+  uniform, meanwhile, is `SceneLight.direction` raw -- camera space,
+  unclamped. For most cameras the clamp is a no-op and the two agree, but
+  `project_to_plane`'s docstring records that the unclamped world-space
+  travel points *upward* for four shipped (room, camera) pairs; in those
+  the frame's `vis` (from the map, clamped) and its `wrapped` diffuse
+  term (from `light`, unclamped) are computed from genuinely different
+  directions: a fragment's diffuse falloff and its shadow test no longer
+  agree about where the key is, so a face can be shaded as lit while the
+  map has it occluded, or the reverse.
 - Walls, masks and the plate receive nothing but the projected ground
   silhouette; the receiving plane still travels with the actor.
 - Lines and points cast nothing.
@@ -160,4 +233,4 @@ a comfortable, decisively-under-budget number.
 | No dark speckling (acne) on the wardrobe's flat panels or the barrels | pending |
 | Graphics page: `Shadows: Soft / Hard` sits between Lighting and AA; 8 rows plus Back, nothing clipped; every row cycles by mouse and keyboard | pending |
 | Toggling Shadows to Hard in the menu changes the look live; Hard looks as before | pending |
-| `--shadows soft` at scale 8 in the floor-5 combat venue keeps a playable frame rate | pending |
+| `--shadows soft` at scale 8 in the floor-5 combat venue keeps a playable frame rate | half answered -- see "Frame time / Scale 8". Scale 8 was **measured, not played**: on the attic fixture, headless, `soft` renders in 12.69-14.45 ms/frame (~69-79 fps of pure render time) against `hard`'s 8.59-9.82 ms. That establishes the render cost at scale 8 and it leaves headroom. It does *not* establish a played-through frame rate in the floor-5 combat venue, which is a busier scene inside a real game loop and a real window, with input, LIFE and the UI composite on the same thread. The playability half of this row is still `pending`. |

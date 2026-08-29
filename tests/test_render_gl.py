@@ -70,9 +70,14 @@ def _doubled_tri_geometry(z, color, span):
         base.points, base.point_sizes, base.point_colors)
 
 
-def _plain_background(gl_ctx, plate):
-    """The same plate with no actors at all: the baseline a shadow darkens."""
-    empty = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene"))
+def _plain_background(gl_ctx, plate, shadows="soft"):
+    """The same plate with no actors at all: the baseline a shadow darkens.
+
+    `shadows` cannot change what this renders -- an actor-less frame casts
+    nothing under either mode -- but a caller that compares a shadowed
+    frame against this one byte for byte passes its own mode through, so
+    the two backends differ in nothing at all."""
+    empty = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", shadows=shadows))
     empty.draw(FrameDescription(_view(), ImageAsset(plate, False), _palette(), (), ()))
     out = empty.read_rgb().astype(int)
     empty.release()
@@ -84,12 +89,20 @@ def _standing_actor(index, geometry, feet_y):
     return ActorDraw(index, geometry, (0.0, 0.0, 0.0), 0, zv, RenderResult([], []), ())
 
 
-def _lit_scene_backend(gl_ctx):
-    return GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene"))
+# `shadows` is required, never defaulted. The option's default has already
+# moved once (hard -> soft), and while this helper inherited it, every test
+# built on it silently left the hard path: neither `_rasterize_shadow` nor
+# `_rasterize_shadow_tessellated` ran anywhere in this file, and deleting
+# the `_shadow_fbo.clear()` from both left the whole file green. So callers
+# name the pipeline they mean, and the properties below -- which hold under
+# either -- are parametrized over both.
+def _lit_scene_backend(gl_ctx, shadows):
+    return GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", shadows=shadows))
 
 
-def test_a_shadow_darkens_the_ground_below_the_actor_only(gl_ctx):
-    backend = _lit_scene_backend(gl_ctx)
+@pytest.mark.parametrize("shadows", ["hard", "soft"])
+def test_a_shadow_darkens_the_ground_below_the_actor_only(gl_ctx, shadows):
+    backend = _lit_scene_backend(gl_ctx, shadows)
     plate = np.full((200, 320, 3), 200, np.uint8)
     geometry = _tri_geometry(600.0, 1, span=100.0)
     actor = _standing_actor(0, geometry, feet_y=150)
@@ -97,7 +110,7 @@ def test_a_shadow_darkens_the_ground_below_the_actor_only(gl_ctx):
     frame = FrameDescription(_view(), ImageAsset(plate, False), _palette(), (actor,), (), light)
     backend.draw(frame)
     rendered = backend.read_rgb().astype(int)
-    plain = _plain_background(gl_ctx, plate)
+    plain = _plain_background(gl_ctx, plate, shadows)
     # somewhere below the actor's feet the plate got darker...
     assert (rendered[120:, :] < plain[120:, :] - 5).any()
     # ...and nothing above the top of the frame did
@@ -105,10 +118,13 @@ def test_a_shadow_darkens_the_ground_below_the_actor_only(gl_ctx):
     backend.release()
 
 
-def test_overlapping_shadow_triangles_darken_a_pixel_once(gl_ctx):
-    # Coverage is binary: two limbs crossing must not stack into a black
-    # blob. This is the whole reason the pass goes through a texture.
-    backend = _lit_scene_backend(gl_ctx)
+@pytest.mark.parametrize("shadows", ["hard", "soft"])
+def test_overlapping_shadow_triangles_darken_a_pixel_once(gl_ctx, shadows):
+    # Coverage never stacks: two limbs crossing must not darken into a
+    # black blob. This is the whole reason both passes go through a
+    # texture -- hard writes binary coverage, soft MAX-blends it -- rather
+    # than compositing each triangle straight onto the plate.
+    backend = _lit_scene_backend(gl_ctx, shadows)
     plate = np.full((200, 320, 3), 200, np.uint8)
     single = _standing_actor(0, _tri_geometry(600.0, 1, span=100.0), feet_y=150)
     doubled = _standing_actor(0, _doubled_tri_geometry(600.0, 1, span=100.0), feet_y=150)
@@ -121,8 +137,9 @@ def test_overlapping_shadow_triangles_darken_a_pixel_once(gl_ctx):
     backend.release()
 
 
-def test_a_foreground_mask_erases_the_shadow_under_it(gl_ctx):
-    backend = _lit_scene_backend(gl_ctx)
+@pytest.mark.parametrize("shadows", ["hard", "soft"])
+def test_a_foreground_mask_erases_the_shadow_under_it(gl_ctx, shadows):
+    backend = _lit_scene_backend(gl_ctx, shadows)
     plate = np.full((200, 320, 3), 200, np.uint8)
     actor = _standing_actor(0, _tri_geometry(600.0, 1, span=100.0), feet_y=150)
     masked = ActorDraw(actor.index, actor.geometry, actor.position, actor.room, actor.zv,
@@ -132,7 +149,7 @@ def test_a_foreground_mask_erases_the_shadow_under_it(gl_ctx):
     light = _scene_light((0.0, -1.0, -0.2))
     frame = FrameDescription(_view(), ImageAsset(plate, False), _palette(), (masked,), (full,), light)
     backend.draw(frame)
-    assert np.array_equal(backend.read_rgb(), _plain_background(gl_ctx, plate))
+    assert np.array_equal(backend.read_rgb(), _plain_background(gl_ctx, plate, shadows))
     backend.release()
 
 
@@ -210,20 +227,23 @@ def test_shadow_lands_where_the_light_direction_says_under_a_rotated_camera(gl_c
     assert np.linalg.norm(rendered_centroid - expected_centroid) <= 2.5
 
 
-def test_a_triangle_less_actor_leaves_no_shadow_and_does_not_disturb_another_actors(gl_ctx):
+@pytest.mark.parametrize("shadows", ["hard", "soft"])
+def test_a_triangle_less_actor_leaves_no_shadow_and_does_not_disturb_another_actors(gl_ctx, shadows):
     """Smoke case only -- see test_two_different_casters_do_not_share_leftover_shadow_coverage
     below for the test that actually pins the per-actor coverage reset.
-    Because a triangle-less actor never composites at all (`if scene_lit
-    and self._rasterize_shadow(...)`  short-circuits for it), pairing one
-    with a real caster is a no-op by construction: it cannot fail whether
-    or not the shadow texture is reset between actors, so it does NOT pin
-    the reset, the guard's position relative to the clear, or painter
-    order. What it does verify is narrower: a triangle-less actor renders
-    nothing of its own and does not change the caster's own output,
-    regardless of draw order. It's kept because it's the only test in this
-    file that exercises the `if not len(geometry.tris): return False`
-    guard's return path at all."""
-    backend = _lit_scene_backend(gl_ctx)
+    Because a triangle-less actor never composites at all (under `hard`,
+    `if scene_lit and self._rasterize_shadow(...)` short-circuits for it;
+    under `soft`, `_gather_shadows` skips it on `inst is None`), pairing
+    one with a real caster is a no-op by construction: it cannot fail
+    whether or not the shadow texture is reset between actors, so it does
+    NOT pin the reset, the guard's position relative to the clear, or
+    painter order. What it does verify is narrower: a triangle-less actor
+    renders nothing of its own and does not change the caster's own
+    output, regardless of draw order. Its `hard` case is also the only
+    test in this file that reaches the `if not len(geometry.tris): return
+    False` guard's return path at all -- the soft path has no such guard,
+    so the `soft` case does not stand in for it."""
+    backend = _lit_scene_backend(gl_ctx, shadows)
     plate = np.full((200, 320, 3), 200, np.uint8)
     light = _scene_light((0.0, -1.0, -0.2))
     caster = _standing_actor(0, _tri_geometry(600.0, 1, span=100.0), feet_y=150)
@@ -246,7 +266,8 @@ def test_a_triangle_less_actor_leaves_no_shadow_and_does_not_disturb_another_act
     backend.release()
 
 
-def test_two_different_casters_do_not_share_leftover_shadow_coverage(gl_ctx):
+@pytest.mark.parametrize("smoothing", [0, 2])
+def test_two_different_casters_do_not_share_leftover_shadow_coverage(gl_ctx, smoothing):
     """This is the test that actually pins the per-actor coverage reset.
     Both actors here have real triangles, so neither one's composite is
     ever skipped -- unlike the triangle-less smoke case above, this cannot
@@ -265,8 +286,18 @@ def test_two_different_casters_do_not_share_leftover_shadow_coverage(gl_ctx):
     `small`'s composite would incorrectly darken that whole annulus a
     second time.
 
+    `hard` only, and deliberately: the per-actor reset it pins exists only
+    on that path. Under `soft` there is no per-actor clear to break --
+    `_gather_shadows` clears the coverage texture once per frame and
+    MAX-blends every actor into it on purpose, so an actor inheriting the
+    previous one's coverage is the intended behaviour there, not the bug.
+    Both rasterisers' clears are covered: level 0 goes through
+    `_rasterize_shadow` and level 2 through `_rasterize_shadow_tessellated`.
+
     Measured on this implementation: removing the `_shadow_fbo.clear()` in
-    `_rasterize_shadow` turns 0 differing pixels in the annulus into 160."""
+    `_rasterize_shadow` turns 0 differing pixels in the annulus (7058 of
+    them) into 160, and removing the one in `_rasterize_shadow_tessellated`
+    turns 0 into 159 (of 7057)."""
     plate = np.full((200, 320, 3), 200, np.uint8)
     light = _scene_light((0.0, -1.0, -0.2))
     large = _standing_actor(0, _tri_geometry(600.0, 1, span=300.0), feet_y=150)
@@ -279,7 +310,8 @@ def test_two_different_casters_do_not_share_leftover_shadow_coverage(gl_ctx):
         # let an earlier frame's leftover coverage contaminate them --
         # exactly the bug this test exists to catch, just relocated to the
         # test's own reference images instead of the thing under test.
-        backend = _lit_scene_backend(gl_ctx)
+        backend = GLBackend(gl_ctx, RenderOptions(
+            scale=1, shading="smooth", lighting="scene", shadows="hard", smoothing=smoothing))
         backend.draw(FrameDescription(_view(), ImageAsset(plate, False), _palette(), actors, (), light))
         image = backend.read_rgb().astype(int)
         backend.release()
@@ -296,6 +328,82 @@ def test_two_different_casters_do_not_share_leftover_shadow_coverage(gl_ctx):
     assert annulus.sum() > 1000, "the annulus is too small to be a meaningful check"
 
     assert np.array_equal(paired[annulus], solo_large[annulus])
+
+
+def test_draw_leaves_blend_equation_alpha_capable_for_the_ui_composite(gl_ctx):
+    """draw()'s postcondition names blend_equation, and Renderer.present() is
+    what leans on it: the moment draw() returns, present() composites the
+    UI canvas over the scene with SRC_ALPHA/ONE_MINUS_SRC_ALPHA
+    (render.py's present(), pinned by test_render.py's
+    test_present_gl_path_blends_ui_canvas_alpha_over_the_scene). The
+    equation is context state, not per-draw state, and blend factors are
+    ignored under MAX -- so a MAX left behind by the gathered cast would
+    silently turn every UI overlay into a componentwise max of canvas and
+    scene, blowing it out to white wherever the canvas is bright.
+
+    So: draw a frame, then blend a known half-alpha quad over a known
+    destination and check the arithmetic, exactly as the present() test
+    does. Two frames, because the postcondition is held up by two
+    independently removable lines:
+
+      * the frame with a real caster is the hazard end to end -- MAX is
+        genuinely set during it, since `_gather_shadows` blends every cast
+        with it, so this is the state present() would inherit in the live
+        pipeline. Two lines stand between that MAX and the UI composite
+        (`_gather_shadows`'s own in-loop reset and draw()'s `finally`), and
+        this half holds while either survives;
+      * the caster-less frame isolates the `finally`. Nothing in it enters
+        the cast loop, so the MAX set here before draw() can only be undone
+        there. Delete that one line and this half fails while the half
+        above still passes -- which is precisely the gap that let the
+        postcondition ship untested.
+    """
+    dst = (0.4, 0.6, 0.8)
+    prog = gl_ctx.program(
+        vertex_shader="#version 330\nin vec2 in_pos;\nvoid main() { gl_Position = vec4(in_pos, 0.0, 1.0); }",
+        fragment_shader="#version 330\nuniform vec4 src;\nout vec4 f_color;\nvoid main() { f_color = src; }")
+    quad = gl_ctx.buffer(np.array([-1, -1, 3, -1, -1, 3], "f4").tobytes())
+    vao = gl_ctx.vertex_array(prog, [(quad, "2f", "in_pos")])
+    probe_tex = gl_ctx.texture((16, 16), 4)
+    probe_fbo = gl_ctx.framebuffer(color_attachments=[probe_tex])
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    light = _scene_light((0.0, -1.0, -0.2))
+    caster = _standing_actor(0, _tri_geometry(600.0, 1, span=100.0), feet_y=150)
+
+    def blend_half_alpha_over_dst():
+        """SRC_ALPHA/ONE_MINUS_SRC_ALPHA white at 50% over `dst`, with the
+        equation left exactly as draw() returned it."""
+        probe_fbo.use()
+        gl_ctx.viewport = (0, 0, 16, 16)
+        gl_ctx.clear(*dst, 1.0)
+        gl_ctx.enable(moderngl.BLEND)
+        gl_ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        prog["src"].value = (1.0, 1.0, 1.0, 0.5)
+        vao.render(moderngl.TRIANGLES)
+        gl_ctx.disable(moderngl.BLEND)
+        return np.frombuffer(probe_tex.read(), np.uint8).reshape(16, 16, 4)[8, 8, :3].astype(int)
+
+    # out = src*a + dst*(1-a) = 0.5 + dst/2. Under a leaked MAX the factors
+    # are ignored and out = max(src, dst) = (255, 255, 255).
+    expected = np.array([round((0.5 + c / 2) * 255) for c in dst])
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", shadows="soft"))
+    try:
+        backend.draw(FrameDescription(_view(), ImageAsset(plate, False), _palette(), (caster,), (), light))
+        cast_frame = blend_half_alpha_over_dst()
+        assert np.abs(cast_frame - expected).max() <= 1, cast_frame
+
+        gl_ctx.blend_equation = moderngl.MAX
+        backend.draw(FrameDescription(_view(), ImageAsset(plate, False), _palette(), (), (), light))
+        empty_frame = blend_half_alpha_over_dst()
+        assert np.abs(empty_frame - expected).max() <= 1, empty_frame
+    finally:
+        gl_ctx.blend_equation = moderngl.FUNC_ADD
+        backend.release()
+        probe_fbo.release()
+        probe_tex.release()
+        vao.release()
+        quad.release()
+        prog.release()
 
 
 def test_target_size_follows_scale(gl_ctx):

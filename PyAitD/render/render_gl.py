@@ -84,10 +84,17 @@ _SHADOW_BIAS = np.array([[0.5, 0.0, 0.0, 0.5],
 
 
 def _set_uniform(prog, name, value):
-    """Set `name` if the linker kept it. A program whose fragment stage never
-    reads a varying loses the uniforms that only fed it -- the cast program
-    drops light_vp, the shadow-map program drops right/tan_source/r_max --
-    and ModernGL raises KeyError for a name the program lacks."""
+    """Set `name` if the linker kept it. A program whose stages never read a
+    uniform loses it, and ModernGL raises KeyError for a name the program
+    lacks -- so every caller that writes one name across programs built
+    from different shader pairs goes through here.
+
+    Measured on this driver: `_screen_prog` (_SCREEN_VSH + _ACTOR_FSH)
+    drops `light_vp` and `normal_offset`, because its vertex stage writes
+    v_shadow as a constant and never reads either. `_tess_shadow_prog`
+    (_TESS_VSH + _STENCIL_FSH) happens to keep `r_max` here, but its
+    fragment stage reads no varying at all, so a linker is free to drop the
+    whole penumbra chain and that write has to survive it either way."""
     try:
         uniform = prog[name]
     except KeyError:
@@ -412,11 +419,9 @@ class GLBackend:
             # an unseeded r_max is 0, so v_penumbra would evaluate 0.0 / 0.0
             # -- unspecified per the GLSL spec -- on every vertex. Nothing
             # reads it there today (_STENCIL_FSH declares no v_penumbra), so
-            # a linker is free to drop the uniform outright; the membership
-            # test is instance_layout's own idiom for a program member that
-            # may not survive linking.
-            if "r_max" in self._tess_shadow_prog:
-                self._tess_shadow_prog["r_max"].value = 1.0
+            # a linker is free to drop the uniform outright -- which is
+            # exactly what _set_uniform exists to absorb.
+            _set_uniform(self._tess_shadow_prog, "r_max", 1.0)
             self._tess_layout = instance_layout(self._tess_prog)
             self._tess_shadow_layout = instance_layout(self._tess_shadow_prog)
             # The gathered cast: _TESS_VSH in project mode, writing coverage
@@ -531,10 +536,6 @@ class GLBackend:
             travel = -(rot.astype(np.float64).T
                        @ np.asarray(frame.light.direction, np.float64))
             self._material_tex.use(location=3)
-        # Bound whatever `shadows` says: every actor program declares the
-        # sampler, and a sampler bound to no texture is undefined even on
-        # the branch that never reads it.
-        self._shadow_map.use(location=4)
 
         palette = frame.palette.astype("f4") / 255.0
         mask_by_id = {mask.id: mask for mask in frame.masks}
@@ -555,6 +556,17 @@ class GLBackend:
             shadow = None
             if soft:
                 shadow = self._render_shadow_map(frame, instances, travel, level)
+            # After _render_shadow_map, never before: for the length of that
+            # pass _shadow_map is _shadow_map_fbo's depth attachment, and
+            # binding a texture to a unit while it is the current
+            # framebuffer's attachment is the shape of a feedback loop.
+            # Harmless as written -- the program that pass runs declares no
+            # sampler, so nothing ever reads it -- but it is the kind of
+            # binding a GL debug layer flags, and there is no reason to make
+            # it. Bound whatever `shadows` says: every actor program declares
+            # the sampler, and a sampler bound to no texture is undefined
+            # even on the branch that never reads it.
+            self._shadow_map.use(location=4)
             self._set_frame_uniforms(self._actor_prog, frame, mvp, rot, scene_lit, shadow)
             if level:
                 self._set_frame_uniforms(self._tess_prog, frame, mvp, rot, scene_lit, shadow)
@@ -773,9 +785,12 @@ class GLBackend:
 
     def _rasterize_shadow(self, actor, travel, mvp):
         """This actor's triangles, flattened onto the ground plane beneath it,
-        into the single-channel coverage texture. Returns whether anything
-        was actually rasterised, so the caller can skip compositing an
-        empty coverage texture entirely.
+        into the coverage texture. Coverage is all this path writes: the
+        texture has been RG since the gathered cast arrived, but _SHADOW_FSH
+        reads only .r unless `soft`, and the G channel (the soft path's
+        penumbra radius) is left at whatever the clear put there. Returns
+        whether anything was actually rasterised, so the caller can skip
+        compositing an empty coverage texture entirely.
 
         The plane is the actor's own zv lower bound -- world y grows
         downward, so the feet are the larger of the two y bounds. It travels
