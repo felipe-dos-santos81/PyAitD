@@ -19,7 +19,11 @@ projected silhouette, byte for byte) every actor's ground shadow is cast
 into one coverage texture with a per-pixel penumbra radius -- the caster's
 height above its plane times tan 6 degrees, projected to pixels -- and
 softened by a two-pass blur that spreads each pixel over its own radius, so
-a foot on the floor stays sharp and a head's shadow goes soft. Every cast is
+a foot on the floor stays sharp and a head's shadow goes soft. Where several
+heights of one body project onto the same ground pixel, the sharpest of them
+wins: the texture stores the radius as `1 - r / R_MAX`, so the one blend
+equation its two channels share is MAX for the union of coverage and, in
+effect, MIN for the radius. Every cast is
 erased by its own actor's masks and the whole texture is composited once
 before any body is drawn, so a nearer actor's shadow no longer paints over a
 farther body. One 2048-square depth map rendered from the light over every
@@ -40,12 +44,12 @@ See "Frame time" and "Deviations from the plan".
 
 ```
 $ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m pytest tests/test_lighting.py tests/test_render_gl.py tests/test_render_options.py tests/test_layering.py tests/test_ui_reducers.py tests/test_ui_render.py tests/test_prove_graphics.py -q
-285 passed in 6.66s
+295 passed in 7.34s
 ```
 
 ```
 $ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m pytest -q
-1407 passed, 2 skipped, 1 xfailed, 26 warnings in 49.29s
+1417 passed, 2 skipped, 1 xfailed, 26 warnings in 50.77s
 ```
 
 `tests/test_render_gl.py::test_classic_realism_matches_the_pre_materials_golden`
@@ -59,6 +63,14 @@ $ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m pytest -q
 edge width near the feet (rows 140-144) versus 20.3 px far from them (rows
 156-161) -- a 3.9x ratio, comfortably past the test's `> 2.0x` bound -- and
 0 px on every row under `hard`.
+
+`test_a_solid_caster_hardens_under_its_own_feet` is the same claim on the
+caster shape that actually exposes it, a body with depth whose many heights
+project across each other. On the hex prism, rows fixed by the geometry
+(the body ends at row 133, so the ground shadow runs 134-153): 42.8 px of
+edge at the feet against 109.2 px at the far edge, a 2.55x ratio. Storing
+the radius directly instead of its complement gives 74.8 px against the
+same 109.2 -- 1.46x, which fails the bound.
 
 ## `make proof-graphics`
 
@@ -149,7 +161,12 @@ readings of it are both wrong:
   in the same band as scale 8, and far noisier. Scale 8's contribution is
   a *tighter* estimate (1.32-1.53x per run against scale 4's 1.15-1.80x),
   not a worse one: the per-frame cost is large enough there for scheduling
-  jitter to stop dominating.
+  jitter to stop dominating. Against that reading, and recorded rather
+  than left out: a separate sitting measured scale 4 at 1.27x against
+  scale 8's 1.44x, which points the other way. It is one pair, and the
+  within-sitting comparison above is the better-controlled one, but the
+  honest summary is that these measurements do not separate the two scales
+  -- not that scale 8 is established as the cheaper ratio.
 - **It does not show the frame time scaling with pixel count.** Four times
   the pixels cost about twice the time on both paths (hard 4.55 -> 9.02
   ms, soft 6.78 -> 13.15 ms, comparing the scale-4 and scale-8 runs above,
@@ -174,30 +191,37 @@ why scale 8, the largest the option offers, is the one that was measured.
 - **The penumbra test's scene differs from the plan.** The plan's
   `test_the_penumbra_hardens_toward_the_feet` cast from a hex prism and
   compared image rows 137-139 against 142-150; that scene has z-depth, so
-  under MAX blending every visible shadow row is reached by many drops at
-  once and the claim was unattainable. The shipped test keeps the name,
-  the claim and the `> 2x` ratio but casts from an upright flat quad (one
-  drop per shadow row) and measures per-row edge width against that row's
-  own floor.
-- **The coverage texture's penumbra-radius (G) channel is MAX-blended**,
-  not MIN, because R and G share one colour blend equation with the
-  coverage (R) channel, which must be MAX (two casters' shadows must not
-  subtract). For a single solid caster this means the shadow is uniformly
-  as soft as its softest (highest) part rather than hardening under its
-  own footprint -- visible above in the Carnby-arm crop, where the whole
-  shape reads at the soft, high radius rather than sharpening toward the
-  contact points within it. MIN would be the faithful per-caster rule but
-  is wrong the moment two casters' shadows overlap; this is a deliberate,
-  ruled-on trade-off, not an oversight.
+  under the original MAX-on-radius blending every visible shadow row was
+  reached by many drops at once and the claim was unattainable. The
+  shipped test keeps the name, the claim and the `> 2x` ratio but casts
+  from an upright flat quad (one drop per shadow row) and measures per-row
+  edge width against that row's own floor. The complement encoding below
+  retired the reason for that substitution, and a solid caster now has its
+  own test -- `test_a_solid_caster_hardens_under_its_own_feet`, on the
+  prism, at rows the geometry fixes rather than the result. The flat-quad
+  test stays: one drop per row is what makes its numbers readable as a
+  single height's penumbra.
+- **The coverage texture's penumbra-radius (G) channel holds the
+  complement**, `1 - r / R_MAX`, so the one colour blend equation the two
+  channels share is MAX for both and still means opposite things: the
+  union of coverage in R, the *smallest* radius in G. The first cut of
+  this feature stored the radius directly and so kept the largest, which
+  left a single solid caster uniformly as soft as its highest part and
+  never hardening under its own footprint. The complement fixes that
+  without a second target or a second pass -- the blur decodes on read and
+  re-encodes on write, and `lighting.soften` still takes the plain radius.
+  Measured on the hex prism: the rows where the shadow meets the feet went
+  from 74.8 px of edge to 42.8 px, the far edge unchanged at 109.2, so the
+  contact-to-far ratio went from 1.46 to 2.55.
+  `test_a_solid_caster_hardens_under_its_own_feet` is the gate.
 
 ## Known limitations
 
 - A penumbra can bleed up to `4 * scale` pixels (`R_MAX_PER_SCALE`) across
   a foreground mask's edge: the blur runs after the mask erase.
-- The coverage texture's penumbra-radius channel is MAX-blended along with
-  the coverage channel (see "Deviations from the plan"): a single solid
-  caster's shadow is uniformly as soft as its softest part, not hardened
-  under its own footprint.
+- The penumbra radius is a scalar: a grazing light should stretch the blur
+  along its own direction, and this one spreads the same width on both
+  axes.
 - One depth map for every actor in the frame: its texel is the frame's
   actor extent over 2048, coarse in the widest caves; single-sided panels
   can show acne bounded by the bias. The bias itself
