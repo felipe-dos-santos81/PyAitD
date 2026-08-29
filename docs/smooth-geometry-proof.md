@@ -47,15 +47,58 @@ smoothing 2, plus `<attic|combat>-smooth-enhanced-flatmesh.png` at smoothing
 0.
 
 Comparing `attic-smooth-enhanced.png` against its `-flatmesh` twin pixel by
-pixel: 63,031 of 1,024,000 pixels (6.16%) differ, concentrated around
-Carnby's head and body (bounding box x 37-1279, y 120-736 of the 1280x800
-frame). Cropped to just the head, the jaw and cheeks read as a continuous
-curve at smoothing 2 versus the flat mesh's faceted, pointed chin -- a clear
-visible difference, not just a pixel-count one. The wardrobe, chair, stool
-and window frame in the same frame are pixel-identical in shape between the
-two renders (only actor-adjacent shading/AA pixels move); their edges stay
-sharp because those bodies' dominant angles fall under the 80° crease
-threshold.
+pixel: 63,031 of 1,024,000 pixels (6.16%) differ, in a bounding box (x
+37-1279, y 120-736 of the 1280x800 frame) that spans almost the whole
+frame -- not a neighbourhood of the actor. Cropped to just the head, the
+jaw and cheeks read as a continuous curve at smoothing 2 versus the flat
+mesh's faceted, pointed chin -- a clear visible difference, not just a
+pixel-count one.
+
+The document originally claimed the wardrobe, chair, stool and window frame
+were "pixel-identical in shape" with "only actor-adjacent shading/AA
+pixels" moving. Isolating each as its own crop and diffing it against the
+same crop of the `-flatmesh` render shows that claim does not hold:
+
+| Body (crop) | Differing pixels (any magnitude) |
+|---|---|
+| Wardrobe | 12,732 / 18,760 (67.9%) |
+| Window frame (top corners only, clear of Carnby's head) | 1,095 / 1,360 (80.5%) |
+| Lantern (foreground prop) | 12,841 / 35,685 (36.0%) |
+| Rocking horse | 7,807 / 35,000 (22.3%) |
+| Stool | 1,906 / 5,208 (36.6%) |
+| Barrels | 713 / 16,150 (4.4%) |
+| Chair | 39 / 32,250 (0.1%) |
+
+Every one of those bodies except the chair differs substantially, and none
+of them is adjacent to the actor -- the wardrobe and window frame in
+particular sit well away from Carnby and his shadow.
+
+Tracing why: under `realism=enhanced`, `_ACTOR_FSH`'s `grain` term
+(`PyAitD/render/render_gl.py`) multiplies each fragment's colour by
+`detail_noise(v_rest / m1.y, ...)`, a deterministic noise function of the
+*interpolated* rest-pose position `v_rest`. PN tessellation interpolates
+`v_rest` across each sub-triangle differently from how the flat mesh
+interpolates it across the whole face, so any body whose material carries a
+nonzero "detail" strength (`m1.x`) samples a different point in that noise
+field at `smoothing=2` than at `smoothing=0` at the *same screen pixel* --
+whether or not its outline moved at all. That is what is driving most of
+the diff on the wardrobe, lantern, rocking horse, stool and window frame: a
+shading effect that happens to depend on tessellation, not a shape change,
+and it is not confined to pixels near the actor. The chair and barrels
+differ far less, consistent with a low or zero "detail" strength on their
+materials -- not independently confirmed from the body JSON.
+
+Isolating actual *shape* (not colour) for the wardrobe -- for each row of
+its crop, the x position where the pixel first diverges from the wall
+colour behind it, scanned from both the left and the right -- lands on the
+identical column on 134/140 rows from the left and 116/140 rows from the
+right; the remaining rows shift by a few pixels (max 43, one outlier row).
+So the wardrobe's outer silhouette is, practically, unchanged: its claimed
+sharp corners do survive. What does not survive is "pixel-identical" as a
+description of the rendered pixels, or "only actor-adjacent... pixels move"
+as a description of where the differences land -- the differences are real,
+frame-wide, and mostly a tessellation-dependent shading artifact rather
+than a geometry one.
 
 The `combat` fixture's camera does not frame an actor body in view, but its
 pair still differs (16,234 / 1,024,000 pixels, 1.59%): a shadow blob in the
@@ -74,6 +117,14 @@ shadow.
 - Silhouettes grow a few units past the `skel.skin` bbox picking uses;
   masks are unchanged.
 - `lambert` shading shows the sub-facets. The software backend is unchanged.
+- Under `realism=enhanced`, any body whose material has a nonzero "detail"
+  (grain/weave) strength renders different per-pixel noise at `smoothing=2`
+  than at `smoothing=0`, even where its silhouette does not move: the grain
+  term samples the interpolated rest-pose position, and PN sub-triangles
+  interpolate it differently from the flat parent triangle. Measured on the
+  attic fixture's wardrobe, stool, lantern, rocking horse and window frame
+  (see "`make proof-graphics`" above); this is a shading artifact of
+  tessellation, not a shape change.
 
 ## Manual attestation
 
