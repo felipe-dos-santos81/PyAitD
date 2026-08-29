@@ -92,11 +92,21 @@ float value_noise(vec3 p) {   // -1..1, C1 continuous
                       mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
     return n * 2.0 - 1.0;
 }
+// The per-kind stretch of the noise coordinate, split out of detail_noise
+// so that the bump's fade can take fwidth of the coordinate the noise
+// really samples. Streak and brushed stretch an axis by 4 and by 6, and a
+// fwidth measured on the unstretched cell misses that by the same factor:
+// brushed metal ran at 2.4x Nyquist at z=600 with the fade still reading
+// 1.0, which is exactly the shimmer the fade exists to stop.
+vec3 noise_coord(vec3 p, int kind) {
+    if (kind == 3) return vec3(p.x * 4.0, p.y * 0.25, p.z * 4.0);   // streak along y, the limb axis
+    if (kind == 4) return vec3(p.x * 0.25, p.y * 6.0, p.z * 0.25);  // brushed across it
+    return p;                                                       // grain and weave sample the cell itself
+}
+// `p` has already been through noise_coord.
 float detail_noise(vec3 p, int kind) {
-    if (kind == 1) return value_noise(p);                                                        // grain
     if (kind == 2) return sin(p.x * 6.2832) * sin(p.z * 6.2832) * (0.5 + 0.5 * value_noise(p));  // weave
-    if (kind == 3) return value_noise(vec3(p.x * 4.0, p.y * 0.25, p.z * 4.0));                   // streak along y, the limb axis
-    if (kind == 4) return value_noise(vec3(p.x * 0.25, p.y * 6.0, p.z * 0.25));                  // brushed across it
+    if (kind == 1 || kind == 3 || kind == 4) return value_noise(p);                              // grain, streak, brushed
     return 0.0;
 }
 
@@ -143,11 +153,18 @@ void main() {
     // `m2.x` come from texture-dependent values -- so the *branch* below
     // tests preset_c.x, a uniform, and only the assignment to `n` sits
     // inside it. That branch is also what keeps realism=classic
-    // byte-exact: the unguarded form still evaluates
-    // normalize(abs(det) * n), which is n mathematically but not
+    // byte-exact: unguarded, the line would still evaluate normalize(n)
+    // with a zero perturbation, which is n mathematically but not
     // bit-for-bit. (`relief` is the height field; the half vector below is
     // already called `h`.)
     vec4 m2 = texelFetch(material_tex, ivec2(index, 2), 0);
+    // One coordinate, one sample, read by all three consumers: the height
+    // here, the fade below and the surviving grain colour multiply at the
+    // end of main. Written once so the fade can never drift out of step
+    // with what the noise samples again.
+    int kind = int(m1.z + 0.5);
+    vec3 nc = noise_coord(v_rest / m1.y, kind);
+    float dn = detail_noise(nc, kind);
     // The height is a *length*, in the same units as v_view -- Mikkelsen's
     // formula divides the height gradient by the position gradient, so a
     // height that did not scale with the geometry would give a slope of
@@ -155,7 +172,7 @@ void main() {
     // detail_scale is one noise cell, so `detail * detail_scale` makes a
     // material's relief slope simply `detail` times the noise's own
     // gradient, at whatever size the body is modelled.
-    float relief = m1.x * m1.y * detail_noise(v_rest / m1.y, int(m1.z + 0.5));
+    float relief = m1.x * m1.y * dn;
     vec3 sx = dFdx(v_view), sy = dFdy(v_view);
     vec3 r1 = cross(sy, n), r2 = cross(n, sx);
     float det = dot(sx, r1);
@@ -164,15 +181,26 @@ void main() {
     // One noise cell shrinking toward half a pixel is relief the frame
     // cannot resolve; fading it out there is what stops a hero shimmering
     // as he walks away.
-    vec3 fw = fwidth(v_rest / m1.y);
+    vec3 fw = fwidth(nc);
     float fade = 1.0 - smoothstep(0.25, 0.5, max(fw.x, max(fw.y, fw.z)));
-    // det == 0 means the shading normal lies in the screen-space tangent
-    // plane -- which FITD geometry reaches whenever a body's authored
-    // normal disagrees with its facet, and which would leave
-    // normalize(0 * n - 0) undefined. There is no frame to bump against
-    // there, so the normal is left alone.
-    if (preset_c.x > 0.0 && det != 0.0) {
-        n = normalize(abs(det) * n - preset_c.x * m2.x * fade * grad);
+    // det is dot(cross(sx, sy), n), so abs(det) / length(cross(sx, sy)) is
+    // |cos| of the angle between the shading normal and the facet the pixel
+    // actually covers: 1 where they agree, 0 where the normal has fallen
+    // into the screen-space tangent plane. FITD reaches that whenever an
+    // authored normal disagrees with its facet, and a smoothed normal
+    // sweeps through it continuously -- so the degeneracy is a band, not a
+    // point, and a `det != 0.0` test would be a cliff with the bump at full
+    // wrong strength one ULP off the line. Ramp it out instead.
+    float ref = length(cross(sx, sy));
+    float k = smoothstep(0.0, 0.25, abs(det) / max(ref, 1e-20));
+    // Mikkelsen's line divided through by abs(det): the surface gradient,
+    // which is the quantity that actually tilts the normal. Dividing is
+    // what makes the exactly-degenerate frame a limit -- `n` keeps its
+    // unit coefficient as k reaches 0, where the undivided form would
+    // shrink to normalize(0).
+    vec3 surf_grad = grad / max(abs(det), 1e-20);
+    if (preset_c.x > 0.0) {
+        n = normalize(n - k * preset_c.x * m2.x * fade * surf_grad);
     }
 
     float vis = 1.0;
@@ -217,7 +245,7 @@ void main() {
     float gloss = exp2(1.0 + 10.0 * (1.0 - m0.x));
     vec3 spec = key_tint * mix(vec3(1.0), v_color, m0.z) * pow(max(dot(n, h), 0.0), gloss) * m0.y * preset_a.x * vis;
     vec3 rim = key_tint * pow(1.0 - max(dot(n, view), 0.0), 3.0) * m0.w * preset_a.y;
-    float grain = 1.0 + preset_b.y * m1.x * detail_noise(v_rest / m1.y, int(m1.z + 0.5));
+    float grain = 1.0 + preset_b.y * m1.x * dn;
     f_color = vec4(base * (grain * hemi * occl) + spec + rim, 1.0);
 }
 """

@@ -74,12 +74,12 @@ CLASS_PRESETS = {
     "hair":     Material(0.6, 0.3, 0.0, 0.4, 0.3, 8.0, DETAIL_STREAK, bump=0.8),
     "wood":     Material(0.6, 0.2, 0.0, 0.1, 0.35, 60.0, DETAIL_STREAK, bump=0.6),
     "stone":    Material(0.85, 0.05, 0.0, 0.05, 0.3, 50.0, DETAIL_GRAIN, bump=0.9),
-    # 0.5, the plan's first pass, costs metal 52 of the 62 points its
-    # highlight has over matte at the measured centre pixel: at gloss
-    # exp2(8.5) the lobe is a couple of degrees wide, so relief that
-    # deep scatters the highlight away instead of texturing it. Task 5
-    # retunes this against the shipped bodies.
-    "metal":    Material(0.25, 0.8, 0.8, 0.2, 0.15, 25.0, DETAIL_BRUSHED, bump=0.2),
+    # Inert as tabled, and not because of this number: brushed stretches
+    # the noise coordinate by 6, so metal's 25-unit cell is already
+    # 0.86 sampled cells per pixel at z=150 and the fade holds it at 0 from
+    # there out. Task 5 has to widen detail_scale before this bump can do
+    # anything at all.
+    "metal":    Material(0.25, 0.8, 0.8, 0.2, 0.15, 25.0, DETAIL_BRUSHED, bump=0.5),
     "glass":    Material(0.1, 0.9, 0.0, 0.6, 0.0, 1.0, DETAIL_NONE),
     # A label only: no emissive term exists in the shader, so it shades as matte.
     "emissive": Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, DETAIL_NONE),

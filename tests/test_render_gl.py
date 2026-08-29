@@ -1831,7 +1831,8 @@ def test_hard_shadows_never_touch_the_shadow_map(gl_ctx, monkeypatch):
 # ---- derivative bump (materials v2, task 2) ----
 
 
-def _material_square(gl_ctx, table, z=600.0, realism="enhanced", shading="smooth"):
+def _material_square(gl_ctx, table, z=600.0, realism="enhanced", shading="smooth",
+                     normal=(0.0, 0.0, -1.0)):
     """A camera-facing square lit by the scene light, with `table` as its
     material table. Returns the rendered frame.
 
@@ -1843,7 +1844,7 @@ def _material_square(gl_ctx, table, z=600.0, realism="enhanced", shading="smooth
     depends on its normal at all, which is the one thing a normal
     perturbation cannot be measured on."""
     plate = np.full((200, 320, 3), 200, np.uint8)
-    geometry = _facing_square(z, 1, (0.0, 0.0, -1.0), span=300.0)
+    geometry = _facing_square(z, 1, normal, span=300.0)
     actor = ActorDraw(0, geometry, (0.0, 0.0, 0.0), 0, (0, 0, 0, 200, 0, 0),
                       RenderResult([], []), (), materials=table)
     return _soft_frame_render(gl_ctx, "hard", [actor], plate, (0.0, -0.85, -0.5),
@@ -1906,6 +1907,51 @@ def test_bump_fades_out_with_distance(gl_ctx, monkeypatch):
     far_body = (slice(95, 105), slice(155, 165))
     assert near[near_body].std() - near_flat[near_body].std() > 1.0
     assert far[far_body].std() - far_flat[far_body].std() < 0.5
+
+
+def test_bump_ramps_out_where_the_shading_normal_lies_in_its_facet(gl_ctx, monkeypatch):
+    # det is dot(cross(sx, sy), n), so it passes through zero wherever an
+    # authored normal lies in the plane of the facet the pixel covers --
+    # which FITD geometry reaches often (_facing_tri(600, 1, (0, -1, 0)) is
+    # already one) and which a smoothed normal sweeps through continuously.
+    # There `abs(det) * n` vanishes while the height gradient keeps its
+    # magnitude, so the perturbed normal degenerates to +-normalize(grad),
+    # perpendicular to n. A `det != 0.0` test would be a cliff: measured
+    # with one in place, a normal 1e-7 off the plane took the patch's mean
+    # from 85.9 to 43.4 and moved pixels by 186 levels. It has to ramp.
+    #
+    # -tilt, not +tilt: a positive z would trip the `n.z > 0.0` flip above
+    # and confound the measurement with a different normal entirely.
+    body = (slice(70, 130), slice(120, 200))
+
+    def moved(tilt):
+        normal = np.array([0.0, -1.0, -tilt])
+        flat, relief = _bump_pair(gl_ctx, "stone", monkeypatch,
+                                  normal=tuple(normal / np.linalg.norm(normal)))
+        return np.abs(relief[body] - flat[body]).max()
+
+    assert moved(0.0) == 0            # exactly degenerate: no frame to bump against
+    assert moved(1e-6) == 0           # and no cliff one ULP off it
+    assert moved(1e-3) <= 5           # still ramping in
+    assert moved(0.5) > 20            # full strength once the normal has a facet
+
+
+def test_a_streak_material_fades_before_its_cells_go_sub_pixel(gl_ctx, monkeypatch):
+    # Every other bump test here uses stone, whose grain samples the noise
+    # cell itself -- so its fade read correctly even while `fwidth` measured
+    # a coordinate the noise does not sample. streak stretches an axis by 4
+    # and brushed by 6, and the fade has to see that stretch or the relief
+    # keeps running well past Nyquist. wood's 60-unit cell is 0.33 sampled
+    # cells per pixel at z=600 and 0.71 at z=2400: one side of half a cell
+    # and the other.
+    body = (slice(70, 130), slice(120, 200))
+    near_flat, near = _bump_pair(gl_ctx, "wood", monkeypatch, z=600.0)
+    far_flat, far = _bump_pair(gl_ctx, "wood", monkeypatch, z=2400.0)
+    assert np.abs(near[body] - near_flat[body]).max() > 8      # relief, close up
+    # Past half a cell per pixel the fade is exactly 0, so the bump's whole
+    # contribution is the zero vector and both frames take the same path
+    # through the same branch: equality here, not a bound.
+    assert np.array_equal(far, far_flat)
 
 
 def test_lambert_shading_gets_the_bump_too(gl_ctx, monkeypatch):
