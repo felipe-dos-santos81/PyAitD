@@ -24,8 +24,10 @@ import numpy as np
 
 from PyAitD.engine.cos_table import sin_cos
 from PyAitD.render.geometry import icosphere
-from PyAitD.render.lighting import project_to_plane, shading_terms, shadow_opacity
+from PyAitD.render.lighting import _clamp_downward, project_to_plane, shading_terms, shadow_opacity
 from PyAitD.render.materials import PALETTE_SIZE, PRESETS
+from PyAitD.render.refine import subpatch
+from PyAitD.render.render_options import SMOOTHING_LEVELS
 from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
 
 W, H = 320, 200
@@ -40,6 +42,36 @@ _DEPTH_B = -2 * FAR * NEAR / (FAR - NEAR)
 _SHADING_INDEX = {"flat": 0, "lambert": 1, "smooth": 2}
 
 CONTACT_HEIGHT = 150.0   # FITD units over which the contact term fades, roughly shin height
+
+# One instance per source triangle for the tessellating programs: per
+# corner k, (pos.xyz, ao), (normal.xyz, straight of edge k -> k+1),
+# (rgb, palette index), rest.xyz -- 15 floats, 45 per triangle, twelve
+# packed attributes plus the per-vertex barycentric: 13 of the 16 slots
+# GL 3.3 guarantees.
+INSTANCE_FLOATS = 45
+_INSTANCE_ATTRIBUTES = ("4f", "4f", "4f", "3f") * 3
+_INSTANCE_NAMES = ("in_p0", "in_n0", "in_c0", "in_r0",
+                   "in_p1", "in_n1", "in_c1", "in_r1",
+                   "in_p2", "in_n2", "in_c2", "in_r2")
+
+
+def instance_layout(prog):
+    """(format, names) that bind an INSTANCE_FLOATS-wide buffer to `prog`.
+    A linker may drop an attribute a program never ends up reading (a
+    shadow program discards colour, a transform-feedback test captures two
+    varyings), and ModernGL refuses to bind a name the program lacks: a
+    dropped attribute becomes padding of the same width, so the buffer's
+    stride never changes."""
+    present = set(prog)
+    tokens, names = [], []
+    for name, fmt in zip(_INSTANCE_NAMES, _INSTANCE_ATTRIBUTES):
+        if name in present:
+            tokens.append(fmt)
+            names.append(name)
+        else:
+            tokens.append(f"{fmt[0]}x4")
+    return " ".join(tokens) + "/i", tuple(names)
+
 
 _BG_VSH = """
 #version 330
@@ -180,6 +212,70 @@ void main() {
     vec3 rim = key_tint * pow(1.0 - max(dot(n, view), 0.0), 3.0) * m0.w * preset_a.y;
     float grain = 1.0 + preset_b.y * m1.x * detail_noise(v_rest / m1.y, int(m1.z + 0.5));
     f_color = vec4(base * (grain * hemi * occl) + spec + rim, 1.0);
+}
+"""
+_TESS_VSH = """
+#version 330
+// PN-triangle tessellation, one instance per source triangle (see
+// _INSTANCE_ATTRIBUTES), evaluated at the sub-patch barycentric in in_bary.
+// Emits exactly _ACTOR_VSH's varyings so _ACTOR_FSH is reused unchanged;
+// refine.evaluate is the numpy twin the parity test pins this against.
+uniform mat4 mvp; uniform mat3 rot;
+// project == 1 is the shadow mode: the evaluated point slides along
+// `travel` onto the plane y == plane_y before mvp -- lighting.project_to_plane's
+// math for an ALREADY-CLAMPED travel. This shader does no clamping itself:
+// the caller must tip `travel` onto the MIN_UP cone (lighting._clamp_downward)
+// before writing this uniform, exactly as project_to_plane does on the CPU
+// side, or an unclamped near-horizontal travel divides by a near-zero
+// travel.y here.
+uniform int project; uniform vec3 travel; uniform float plane_y;
+in vec3 in_bary;
+in vec4 in_p0; in vec4 in_n0; in vec4 in_c0; in vec3 in_r0;
+in vec4 in_p1; in vec4 in_n1; in vec4 in_c1; in vec3 in_r1;
+in vec4 in_p2; in vec4 in_n2; in vec4 in_c2; in vec3 in_r2;
+out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
+out vec3 v_world;   // the evaluated world position: read back by transform feedback in tests, unused by the fragment shader
+
+vec3 edge_point(vec3 pi, vec3 pj, vec3 ni, float straight) {
+    // a third of the way from pi toward pj, projected onto pi's tangent
+    // plane -- or left on the chord when the edge is a crease
+    return (2.0 * pi + pj) / 3.0 - (1.0 - straight) * dot(pj - pi, ni) * ni / 3.0;
+}
+vec3 edge_normal(vec3 pi, vec3 pj, vec3 ni, vec3 nj, float straight) {
+    vec3 d = pj - pi;
+    vec3 h = ni + nj;
+    float dd = dot(d, d);
+    float v = dd > 1e-12 ? 2.0 * dot(d, h) / dd : 0.0;
+    return normalize(h - (1.0 - straight) * v * d);
+}
+void main() {
+    vec3 p0 = in_p0.xyz, p1 = in_p1.xyz, p2 = in_p2.xyz;
+    vec3 n0 = in_n0.xyz, n1 = in_n1.xyz, n2 = in_n2.xyz;
+    float s01 = in_n0.w, s12 = in_n1.w, s20 = in_n2.w;
+    vec3 b210 = edge_point(p0, p1, n0, s01), b120 = edge_point(p1, p0, n1, s01);
+    vec3 b021 = edge_point(p1, p2, n1, s12), b012 = edge_point(p2, p1, n2, s12);
+    vec3 b102 = edge_point(p2, p0, n2, s20), b201 = edge_point(p0, p2, n0, s20);
+    vec3 e = (b210 + b120 + b021 + b012 + b102 + b201) / 6.0;
+    vec3 b111 = e + (e - (p0 + p1 + p2) / 3.0) / 2.0;
+    float u = in_bary.x, v = in_bary.y, w = in_bary.z;
+    vec3 pos = p0 * u*u*u + p1 * v*v*v + p2 * w*w*w
+             + b210 * 3.0*u*u*v + b120 * 3.0*u*v*v + b201 * 3.0*u*u*w
+             + b021 * 3.0*v*v*w + b102 * 3.0*u*w*w + b012 * 3.0*v*w*w
+             + b111 * 6.0*u*v*w;
+    vec3 n110 = edge_normal(p0, p1, n0, n1, s01);
+    vec3 n011 = edge_normal(p1, p2, n1, n2, s12);
+    vec3 n101 = edge_normal(p2, p0, n2, n0, s20);
+    vec3 n = normalize(n0 * u*u + n1 * v*v + n2 * w*w + n110 * u*v + n011 * v*w + n101 * w*u);
+    if (project == 1) pos += (plane_y - pos.y) / travel.y * travel;
+    gl_Position = mvp * vec4(pos, 1.0);
+    v_world = pos;
+    // the three corners carry the triangle's one colour; blending them keeps
+    // every instance attribute referenced, so no driver's linker drops one
+    v_color = in_c0.xyz * u + in_c1.xyz * v + in_c2.xyz * w; v_index = in_c0.w;
+    v_normal = rot * n;
+    v_rest = in_r0 * u + in_r1 * v + in_r2 * w;
+    v_ao = in_p0.w * u + in_p1.w * v + in_p2.w * w;
+    v_world_y = pos.y;
 }
 """
 _SCREEN_VSH = """
@@ -339,6 +435,10 @@ class GLBackend:
         self._sphere = None
         self._material_tex = None
         self._material_key = None
+        self._tess_prog = None
+        self._tess_shadow_prog = None
+        self._subpatch_bufs = {}
+        self._tess_layout = self._tess_shadow_layout = None
         self._released = False
         try:
             self.texture = ctx.texture(self.size, 4)
@@ -437,6 +537,24 @@ class GLBackend:
                     color_attachments=[self._ms_color], depth_attachment=self._ms_depth)
             self._target = self._ms_fbo or self._fbo
 
+            # The tessellating programs and their sub-patch buffers exist
+            # whatever `smoothing` says: the option is a per-frame choice
+            # (Renderer.set_options rebuilds the backend anyway), and
+            # compiling at construction is how every other program fails
+            # over to the software backend when a driver rejects it.
+            self._tess_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_ACTOR_FSH)
+            self._tess_shadow_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_STENCIL_FSH)
+            # Seeded on the shadow program, not _tess_prog: _tess_prog always
+            # writes project=0 itself (_draw_actor_tessellated), so travel is
+            # never read there. _tess_shadow_prog is the one that will set
+            # project=1 (task 6); an unseeded uniform defaults to (0,0,0) and
+            # divides by zero (travel.y) if that write is ever missed.
+            self._tess_shadow_prog["travel"].value = (0.0, 1.0, 0.0)
+            self._tess_layout = instance_layout(self._tess_prog)
+            self._tess_shadow_layout = instance_layout(self._tess_shadow_prog)
+            for level in SMOOTHING_LEVELS[1:]:
+                self._subpatch_bufs[level] = ctx.buffer(np.ascontiguousarray(subpatch(level), dtype="f4").tobytes())
+
             self._sphere = icosphere(1)
         except Exception:
             self.release()
@@ -453,6 +571,7 @@ class GLBackend:
             self._thumb_quad_vao, self._thumb_quad,
             self._stencil_prog, self._screen_prog, self._actor_prog, self._bg_prog,
             self._material_tex,
+            self._tess_prog, self._tess_shadow_prog, *self._subpatch_bufs.values(),
             self._shadow_quad_vao, self._shadow_quad,
             self._shadow_prog, self._shadow_geom_prog,
             self._shadow_fbo, self._shadow_tex,
@@ -520,38 +639,20 @@ class GLBackend:
 
         mvp = camera_matrix(frame.camera, self._options.scale)
         rot = rotation_matrix(frame.camera.state).astype("f4")
-        self._actor_prog["mvp"].write(mvp.T.tobytes())
-        self._actor_prog["rot"].write(rot.T.tobytes())
         scene_lit = self._options.lighting == "scene"
-        self._actor_prog["shading"].value = _SHADING_INDEX[self._options.shading]
+        level = self._options.smoothing
+        travel = None
         if scene_lit:
             # rotation_matrix maps world -> camera and is orthonormal, so
             # its transpose maps back. `direction` points toward the light;
-            # light travels the other way. Computed here rather than above
-            # the branch so the byte-for-byte `fixed` escape hatch never
-            # touches frame.light at all.
+            # light travels the other way. Computed only here so the
+            # byte-for-byte `fixed` escape hatch never touches frame.light.
             travel = -(rot.astype(np.float64).T
                        @ np.asarray(frame.light.direction, np.float64))
-            key_tint, fill_tint = shading_terms(frame.light)
-            self._actor_prog["lighting"].value = 1
-            self._actor_prog["light"].value = tuple(float(v) for v in frame.light.direction)
-            self._actor_prog["key_tint"].value = tuple(float(v) for v in key_tint)
-            self._actor_prog["fill_tint"].value = tuple(float(v) for v in fill_tint)
-            preset = PRESETS[self._options.realism]
-            self._actor_prog["preset_a"].value = (preset.spec, preset.rim, preset.ao)
-            self._actor_prog["preset_b"].value = (preset.contact, preset.detail, preset.hemisphere)
-            self._actor_prog["contact_height"].value = CONTACT_HEIGHT
             self._material_tex.use(location=3)
-            self._actor_prog["material_tex"].value = 3
-        else:
-            travel = None
-            self._actor_prog["lighting"].value = 0
-            self._actor_prog["light"].value = LIGHT_DIR
-            self._actor_prog["key_tint"].value = (0.0, 0.0, 0.0)
-            self._actor_prog["fill_tint"].value = (0.0, 0.0, 0.0)
-            self._actor_prog["preset_a"].value = (0.0, 0.0, 0.0)
-            self._actor_prog["preset_b"].value = (0.0, 0.0, 0.0)
-        self._actor_prog["target_size"].value = self.size
+        self._set_frame_uniforms(self._actor_prog, frame, mvp, rot, scene_lit)
+        if level:
+            self._set_frame_uniforms(self._tess_prog, frame, mvp, rot, scene_lit)
         self._screen_prog["target_size"].value = self.size
 
         palette = frame.palette.astype("f4") / 255.0
@@ -561,8 +662,18 @@ class GLBackend:
             masks = [mask_by_id[i] for i in actor.mask_ids if i in mask_by_id]
             self._rasterize_masks(masks)  # switches to the mask FBO and disables depth test
 
-            if scene_lit and self._rasterize_shadow(actor, travel, mvp):
-                self._composite_shadow(frame.light)
+            instances = None
+            if level:
+                data = self._instance_data(actor.geometry, np.asarray(actor.position, np.float64), palette)
+                instances = (self._ctx.buffer(data.tobytes()), len(data)) if len(data) else None
+
+            if scene_lit:
+                if level:
+                    cast = self._rasterize_shadow_tessellated(instances, travel, mvp, _plane_y(actor), level)
+                else:
+                    cast = self._rasterize_shadow(actor, travel, mvp)
+                if cast:
+                    self._composite_shadow(frame.light)
 
             self._target.use()
             self._ctx.viewport = (0, 0, *self.size)
@@ -583,17 +694,105 @@ class GLBackend:
             self._mask_tex.use(location=1)
             self._actor_prog["mask_tex"].value = 1
             self._screen_prog["mask_tex"].value = 1
+            if level:
+                self._tess_prog["mask_tex"].value = 1
 
             if scene_lit:
                 self._actor_prog["plane_y"].value = _plane_y(actor)
+                if level:
+                    self._tess_prog["plane_y"].value = _plane_y(actor)
                 self._upload_materials(actor.materials)
-            self._draw_actor(actor, frame, palette)
+            if level:
+                self._draw_actor_tessellated(actor, frame, palette, instances, level)
+                if instances is not None:
+                    instances[0].release()
+            else:
+                self._draw_actor(actor, frame, palette)
             self._ctx.disable(moderngl.DEPTH_TEST)
 
         if self._ms_fbo is not None:
             # Resolves the multisample buffer down into `.texture`, which is
             # what read_rgb, thumbnail and Renderer all read.
             self._ctx.copy_framebuffer(self._fbo, self._ms_fbo)
+
+    def _set_frame_uniforms(self, prog, frame, mvp, rot, scene_lit):
+        """Everything an actor program needs once per frame. Shared by
+        _actor_prog and _tess_prog so the two can never disagree about the
+        light; the values are exactly what _draw_frame set inline before."""
+        prog["mvp"].write(mvp.T.tobytes())
+        prog["rot"].write(rot.T.tobytes())
+        prog["shading"].value = _SHADING_INDEX[self._options.shading]
+        if scene_lit:
+            key_tint, fill_tint = shading_terms(frame.light)
+            prog["lighting"].value = 1
+            prog["light"].value = tuple(float(v) for v in frame.light.direction)
+            prog["key_tint"].value = tuple(float(v) for v in key_tint)
+            prog["fill_tint"].value = tuple(float(v) for v in fill_tint)
+            preset = PRESETS[self._options.realism]
+            prog["preset_a"].value = (preset.spec, preset.rim, preset.ao)
+            prog["preset_b"].value = (preset.contact, preset.detail, preset.hemisphere)
+            prog["contact_height"].value = CONTACT_HEIGHT
+            prog["material_tex"].value = 3
+        else:
+            prog["lighting"].value = 0
+            prog["light"].value = LIGHT_DIR
+            prog["key_tint"].value = (0.0, 0.0, 0.0)
+            prog["fill_tint"].value = (0.0, 0.0, 0.0)
+            prog["preset_a"].value = (0.0, 0.0, 0.0)
+            prog["preset_b"].value = (0.0, 0.0, 0.0)
+        prog["target_size"].value = self.size
+
+    def _instance_data(self, geometry, position, palette):
+        """(M', INSTANCE_FLOATS) float32, one row per triangle -- the body's
+        triangles then the expanded sphere triangles -- in _INSTANCE_ATTRIBUTES'
+        layout. The same numbers _triangle_data gathers, one triangle per row."""
+        rows = []
+        if len(geometry.tris):
+            idx = geometry.tris
+            pos = geometry.vertices[idx].astype(np.float64) + position          # (M,3,3)
+            ao = geometry.ao[idx][:, :, None]                                   # (M,3,1)
+            normal = geometry.corner_normals.astype(np.float64)                 # (M,3,3)
+            straight = geometry.straight[:, :, None]                            # (M,3,1)
+            col = np.repeat(palette[geometry.tri_colors][:, None, :], 3, axis=1)   # (M,3,3)
+            index = np.repeat(geometry.tri_colors.astype("f4")[:, None, None], 3, axis=1)   # (M,3,1)
+            rest = geometry.rest[idx]                                           # (M,3,3)
+            rows.append(np.concatenate([pos, ao, normal, straight, col, index, rest], axis=2).reshape(len(idx), INSTANCE_FLOATS))
+        if geometry.spheres:
+            sphere_verts, sphere_tris = self._sphere   # cached, lru_cache-shared: never mutated
+            unit = sphere_verts[sphere_tris].astype(np.float64)                 # (80,3,3) fancy-indexed copy
+            m = len(unit)
+            for centre_idx, radius, color in geometry.spheres:
+                centre = geometry.vertices[centre_idx].astype(np.float64) + position
+                pos = unit * radius + centre
+                # rest = the sphere's own surface about its rest centre, so
+                # grain is fixed to the ball; ao = open; the unit vectors
+                # are exact sphere normals, which is what lets PN round an
+                # 80-triangle icosphere into a sphere; no edge is a crease
+                rest = unit * radius + geometry.rest[centre_idx]
+                rows.append(np.concatenate([
+                    pos, np.ones((m, 3, 1)), unit, np.zeros((m, 3, 1)),
+                    np.tile(palette[color], (m, 3, 1)), np.full((m, 3, 1), float(color)), rest,
+                ], axis=2).reshape(m, INSTANCE_FLOATS))
+        if not rows:
+            return np.zeros((0, INSTANCE_FLOATS), dtype="f4")
+        return np.ascontiguousarray(np.concatenate(rows, axis=0), dtype="f4")
+
+    def _render_instanced(self, prog, layout, buf, count, level):
+        fmt, names = layout
+        vao = self._ctx.vertex_array(prog, [
+            (self._subpatch_bufs[level], "3f", "in_bary"),
+            (buf, fmt, *names),
+        ])
+        vao.render(moderngl.TRIANGLES, vertices=3 * 4 ** level, instances=count)
+        vao.release()
+
+    def _draw_actor_tessellated(self, actor, frame, palette, instances, level):
+        if instances is not None:
+            self._tess_prog["project"].value = 0
+            self._render_instanced(self._tess_prog, self._tess_layout, instances[0], instances[1], level)
+        position = np.asarray(actor.position, dtype=np.float64)
+        self._draw_lines(actor, frame, palette, position)
+        self._draw_points(actor, frame, palette, position)
 
     def _draw_background(self, asset):
         pixels = asset.pixels
@@ -695,6 +894,28 @@ class GLBackend:
         vao.render(moderngl.TRIANGLES)
         vao.release()
         buf.release()
+        return True
+
+    def _rasterize_shadow_tessellated(self, instances, travel, mvp, plane_y, level):
+        """_rasterize_shadow's twin for the tessellated path: the same
+        instance buffer the actor is about to be drawn from, evaluated by
+        _TESS_VSH in its `project` mode, so the coverage silhouette is
+        exactly as round as the actor. `travel` is tipped onto the MIN_UP
+        cone here, as project_to_plane does on the CPU, and handed to the
+        shader already clamped. Sphere primitives are in the instance
+        stream, so unlike the CPU path they cast shadows too."""
+        self._shadow_fbo.use()
+        self._ctx.viewport = (0, 0, *self.size)
+        self._ctx.disable(moderngl.DEPTH_TEST)
+        self._shadow_fbo.clear(0.0, 0.0, 0.0, 0.0)
+        if instances is None:
+            return False
+        prog = self._tess_shadow_prog
+        prog["mvp"].write(mvp.T.astype("f4").tobytes())
+        prog["project"].value = 1
+        prog["travel"].value = tuple(float(v) for v in _clamp_downward(travel))
+        prog["plane_y"].value = plane_y
+        self._render_instanced(prog, self._tess_shadow_layout, instances[0], instances[1], level)
         return True
 
     def _composite_shadow(self, light):

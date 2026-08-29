@@ -10,6 +10,7 @@ SCALE_STEPS = (1, 2, 3, 4, 6, 8)
 MIN_SCALE, MAX_SCALE = 1, 8
 LIGHTING_MODES = ("fixed", "scene")
 MSAA_LEVELS = (0, 2, 4, 8)
+SMOOTHING_LEVELS = (0, 1, 2, 3)   # 2**level segments per edge; 0 draws the flat mesh exactly as before
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class RenderOptions:
     lighting: str = "scene"
     msaa: int = 4
     realism: str = "enhanced"
+    smoothing: int = 2
 
     def to_payload(self):
         return {
@@ -31,6 +33,7 @@ class RenderOptions:
             "lighting": self.lighting,
             "msaa": self.msaa,
             "realism": self.realism,
+            "smoothing": self.smoothing,
         }
 
 
@@ -71,7 +74,12 @@ def validate_render_options(payload):
     if realism not in REALISM_MODES:
         errors.append(f"realism must be one of {', '.join(REALISM_MODES)}")
         realism = defaults.realism
-    options = RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism)
+    smoothing = payload.get("smoothing")
+    # bool-rejecting like msaa: True in (0, 1, 2, 3) is True, and is not a level
+    if not (type(smoothing) is int and smoothing in SMOOTHING_LEVELS):
+        errors.append(f"smoothing must be one of {', '.join(str(v) for v in SMOOTHING_LEVELS)}")
+        smoothing = defaults.smoothing
+    options = RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism, smoothing)
     return options, ("; ".join(errors) or None)
 
 
@@ -103,3 +111,8 @@ def cycle_msaa(options):
 
 def cycle_realism(options):
     return replace(options, realism=_cycle(REALISM_MODES, options.realism))
+
+
+def cycle_smoothing(options):
+    current = options.smoothing if options.smoothing in SMOOTHING_LEVELS else SMOOTHING_LEVELS[0]
+    return replace(options, smoothing=_cycle(SMOOTHING_LEVELS, current))

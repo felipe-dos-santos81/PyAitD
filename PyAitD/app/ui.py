@@ -18,15 +18,21 @@ from PyAitD.render.background_export import (
 )
 from PyAitD.render.render_options import (
     RenderOptions, cycle_filter, cycle_lighting, cycle_msaa, cycle_realism, cycle_scale, cycle_shading,
+    cycle_smoothing,
 )
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.text import BookToken
 
-GRAPHICS_ROWS = 6
+GRAPHICS_ROWS = 7          # rows on the Graphics page above Back, in GRAPHICS_CYCLES order
 
 
 def config_row_count():
-    return 2 + len(REMAPPABLE_CONTROLS) + GRAPHICS_ROWS
+    # Sticky Action, one row per remappable control, "Graphics...", "Back to Menu"
+    return 3 + len(REMAPPABLE_CONTROLS)
+
+
+def graphics_row_count():
+    return GRAPHICS_ROWS + 1   # plus Back
 
 
 class Command(Enum):
@@ -332,6 +338,7 @@ class CharacterSelectResult:
 class SystemMenuPage(Enum):
     MAIN = auto()
     CONFIG = auto()
+    GRAPHICS = auto()
     KEY_PICK = auto()
 
 
@@ -386,16 +393,37 @@ def reduce_character_select(state, command):
     return None
 
 
+# One cycle per Graphics-page row above Back; graphics_labels draws them in
+# the same order, and tests pin that the two never drift apart.
+GRAPHICS_CYCLES = (
+    cycle_scale, cycle_shading, cycle_filter, cycle_lighting, cycle_msaa, cycle_realism, cycle_smoothing,
+)
+
+
+def _leave_graphics(state):
+    state.page = SystemMenuPage.CONFIG
+    state.cursor = config_row_count() - 2   # back on the Graphics... row
+    state.hover = None
+
+
 def reduce_system_menu(state, command, settings):
     if state.capture is not None:
         return None
     command = Command.ACCEPT if command is Command.OPEN_INVENTORY else command
-    row_count = 3 if state.page is SystemMenuPage.MAIN else config_row_count()
+    if state.page is SystemMenuPage.MAIN:
+        row_count = 3
+    elif state.page is SystemMenuPage.GRAPHICS:
+        row_count = graphics_row_count()
+    else:
+        row_count = config_row_count()
     if command is Command.UP:
         state.cursor = (state.cursor - 1) % row_count
     elif command is Command.DOWN:
         state.cursor = (state.cursor + 1) % row_count
     elif command is Command.CANCEL:
+        if state.page is SystemMenuPage.GRAPHICS:
+            _leave_graphics(state)
+            return SystemMenuResult(save=True)
         if state.page is SystemMenuPage.CONFIG:
             state.page = SystemMenuPage.MAIN
             state.cursor = 0
@@ -409,19 +437,26 @@ def reduce_system_menu(state, command, settings):
             state.cursor = 0
         else:
             return SystemMenuResult(quit=True, save=True)
+    elif command is Command.ACCEPT and state.page is SystemMenuPage.GRAPHICS:
+        if state.cursor == row_count - 1:
+            _leave_graphics(state)
+            return SystemMenuResult(save=True)
+        cycle = GRAPHICS_CYCLES[state.cursor]
+        return SystemMenuResult(settings=replace(settings, render=cycle(settings.render)))
     elif (command is Command.ACCEPT and state.page is SystemMenuPage.CONFIG
           and state.cursor == row_count - 1):
         state.page = SystemMenuPage.MAIN
         state.cursor = 0
         return SystemMenuResult(save=True)
+    elif command is Command.ACCEPT and state.cursor == row_count - 2:
+        # the Graphics... row, just above Back
+        state.page = SystemMenuPage.GRAPHICS
+        state.cursor = 0
+        state.hover = None
     elif command is Command.ACCEPT and state.cursor == 0:
         return SystemMenuResult(
             settings=replace(settings, sticky_action=not settings.sticky_action),
         )
-    elif command is Command.ACCEPT and state.cursor > len(REMAPPABLE_CONTROLS):
-        cycles = (cycle_scale, cycle_shading, cycle_filter, cycle_lighting, cycle_msaa, cycle_realism)
-        cycle = cycles[state.cursor - 1 - len(REMAPPABLE_CONTROLS)]
-        return SystemMenuResult(settings=replace(settings, render=cycle(settings.render)))
     elif command is Command.ACCEPT:
         state.capture = REMAPPABLE_CONTROLS[state.cursor - 1].name
         state.page = SystemMenuPage.KEY_PICK
@@ -563,12 +598,19 @@ class CharacterLayout:
 
 class SystemMenuLayout:
     MAIN_ROWS = tuple(pygame.Rect(48, 45 + i * 42, 224, 32) for i in range(3))
-    # 15 rows at a 13 px pitch from y=2 ends at y=197. The 14 px pitch fitted
-    # exactly 14 rows and had no room for the Realism row. Rows stay >= 13 px
-    # tall, so effective_rects' 12x12 minimum target contract still holds.
+    # config_row_count() rows at a 13 px pitch from y=2; with the graphics
+    # rows moved to their own page this now bottoms out well short of the
+    # screen. Rows stay >= 13 px tall, so effective_rects' 12x12 minimum
+    # target contract still holds.
     CONFIG_ROWS = tuple(
         pygame.Rect(16, 2 + i * 13, 288, 13)
         for i in range(config_row_count())
+    )
+    # graphics_row_count() rows at a 22 px pitch, 20 px tall: the page is
+    # not squeezed the way CONFIG's 13 px rows are, and ends at y=186.
+    GRAPHICS_PAGE_ROWS = tuple(
+        pygame.Rect(16, 12 + i * 22, 288, 20)
+        for i in range(graphics_row_count())
     )
     # 8 columns x 7 rows of key cells under a one-line header, then a wide
     # Cancel button. The 4 px gaps absorb effective_rects' 2 px padding on
@@ -586,6 +628,8 @@ class SystemMenuLayout:
             return cls.MAIN_ROWS
         if page is SystemMenuPage.CONFIG:
             return cls.CONFIG_ROWS
+        if page is SystemMenuPage.GRAPHICS:
+            return cls.GRAPHICS_PAGE_ROWS
         return cls.KEY_PICK_ROWS
 
     @classmethod
@@ -1134,6 +1178,27 @@ def render_character_select(painter, presenter, assets, resolver=None):
         y += 15
 
 
+SMOOTHING_LABELS = ("Off", "Low", "Medium", "High")   # index = smoothing level
+
+
+def graphics_labels(render):
+    """One label per Graphics-page row above Back, in GRAPHICS_CYCLES order."""
+    return [
+        f"Scale: {render.scale}x",
+        f"Shading: {render.shading.title()}",
+        f"Filter: {render.background_filter.title()}",
+        f"Lighting: {render.lighting.title()}",
+        # "up to", because this row shows the *option*, and GLBackend clamps
+        # it to ctx.max_samples at construction (many drivers cap at 4). The
+        # menu has no handle on the live backend to read the real count off,
+        # so the label states the request honestly rather than claiming a
+        # sample count the GPU may not be giving.
+        f"AA: up to {render.msaa}x" if render.msaa else "AA: Off",
+        f"Realism: {render.realism.title()}",
+        f"Smoothing: {SMOOTHING_LABELS[render.smoothing]}",
+    ]
+
+
 def render_system_menu(painter, presenter, settings, assets):
     # the old scratch surface here was an OPAQUE pygame.Surface((320, 200)),
     # whose implicit fill is black; paint that ground explicitly so scale-1
@@ -1146,25 +1211,16 @@ def render_system_menu(painter, presenter, settings, assets):
         return
     if presenter.page is SystemMenuPage.MAIN:
         labels = ["Return to Game", "Configuration", "Quit"]
+    elif presenter.page is SystemMenuPage.GRAPHICS:
+        labels = graphics_labels(settings.render) + ["Back"]
     else:
         labels = [f"Sticky Action: {'On' if settings.sticky_action else 'Off'}"]
         for control in REMAPPABLE_CONTROLS:
             labels.append(f"{control.name}: {', '.join(settings.bindings[control.name])}")
-        labels.append(f"Scale: {settings.render.scale}x")
-        labels.append(f"Shading: {settings.render.shading.title()}")
-        labels.append(f"Filter: {settings.render.background_filter.title()}")
-        labels.append(f"Lighting: {settings.render.lighting.title()}")
-        # "up to", because this row shows the *option*, and GLBackend clamps
-        # it to ctx.max_samples at construction (many drivers cap at 4). The
-        # menu has no handle on the live backend to read the real count off,
-        # so the label states the request honestly rather than claiming a
-        # sample count the GPU may not be giving.
-        labels.append(f"AA: up to {settings.render.msaa}x"
-                      if settings.render.msaa else "AA: Off")
-        labels.append(f"Realism: {settings.render.realism.title()}")
+        labels.append("Graphics...")
         labels.append("Back to Menu")
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
-    button_size = 12 if presenter.page is SystemMenuPage.CONFIG else 18
+    button_size = 12 if presenter.page in (SystemMenuPage.CONFIG, SystemMenuPage.GRAPHICS) else 18
     rows = zip(SystemMenuLayout.rows(presenter.page), labels, strict=True)
     for index, (rect, label) in enumerate(rows):
         _button(painter, rect, label, selected=index == selection, size=button_size)

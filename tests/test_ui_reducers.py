@@ -106,22 +106,54 @@ def test_configuration_cursor_wraps_across_all_rows():
     assert state.cursor == 0
 
 
+def test_configuration_graphics_row_opens_the_graphics_page():
+    from PyAitD.app.ui import config_row_count
+    assert config_row_count() == 3 + len(REMAPPABLE_CONTROLS)
+    state = SystemMenuPresenter(page=SystemMenuPage.CONFIG, cursor=config_row_count() - 2, hover=3)
+    assert reduce_system_menu(state, Command.ACCEPT, default_settings()) is None
+    assert (state.page, state.cursor, state.hover) == (SystemMenuPage.GRAPHICS, 0, None)
+
+
 def test_graphics_rows_cycle_render_options():
-    from dataclasses import replace
-    from PyAitD.app.ui import GRAPHICS_ROWS, config_row_count
+    from PyAitD.app.ui import GRAPHICS_CYCLES, GRAPHICS_ROWS, graphics_row_count
     from PyAitD.render.render_options import RenderOptions
-    assert GRAPHICS_ROWS == 6 and config_row_count() == 2 + len(REMAPPABLE_CONTROLS) + 6
-    first = 1 + len(REMAPPABLE_CONTROLS)
+    assert GRAPHICS_ROWS == 7 and len(GRAPHICS_CYCLES) == GRAPHICS_ROWS
+    assert graphics_row_count() == GRAPHICS_ROWS + 1
     settings = default_settings()
-    state = SystemMenuPresenter(page=SystemMenuPage.CONFIG, cursor=first)
+    state = SystemMenuPresenter(page=SystemMenuPage.GRAPHICS, cursor=0)
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(scale=6)
-    state.cursor = first + 1
+    state.cursor = 1
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(shading="flat")
-    state.cursor = first + 2
+    state.cursor = 2
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(background_filter="xbr")
-    state.cursor = first + 5
+    state.cursor = 3
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(lighting="fixed")
+    state.cursor = 4
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(msaa=8)
+    state.cursor = 5
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(realism="classic")
-    assert state.page is SystemMenuPage.CONFIG  # never opens the key picker
+    state.cursor = 6
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(smoothing=3)
+    assert state.page is SystemMenuPage.GRAPHICS  # a cycle never leaves the page
+
+
+def test_graphics_back_and_cancel_return_to_the_graphics_row_saving():
+    from PyAitD.app.ui import config_row_count, graphics_row_count
+    state = SystemMenuPresenter(page=SystemMenuPage.GRAPHICS, cursor=graphics_row_count() - 1, hover=2)
+    assert reduce_system_menu(state, Command.ACCEPT, default_settings()) == SystemMenuResult(save=True)
+    assert (state.page, state.cursor, state.hover) == (SystemMenuPage.CONFIG, config_row_count() - 2, None)
+    state = SystemMenuPresenter(page=SystemMenuPage.GRAPHICS, cursor=3)
+    assert reduce_system_menu(state, Command.CANCEL, default_settings()) == SystemMenuResult(save=True)
+    assert (state.page, state.cursor) == (SystemMenuPage.CONFIG, config_row_count() - 2)
+
+
+def test_graphics_cursor_wraps_across_all_rows():
+    from PyAitD.app.ui import graphics_row_count
+    state = SystemMenuPresenter(page=SystemMenuPage.GRAPHICS)
+    reduce_system_menu(state, Command.UP, default_settings())
+    assert state.cursor == graphics_row_count() - 1
+    reduce_system_menu(state, Command.DOWN, default_settings())
+    assert state.cursor == 0
 
 
 def test_choosing_a_control_row_opens_the_key_picker():

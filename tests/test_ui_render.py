@@ -782,3 +782,38 @@ def test_big_cadre_spans_its_exact_scaled_box(data_dir, profile, scale, top, bot
     ink = np.argwhere(painter.to_frame()[:, :, 3] > 0)
     assert (int(ink[:, 0].min()), int(ink[:, 0].max())) == (top, bottom)
     assert (int(ink[:, 1].min()), int(ink[:, 1].max())) == (0, right)
+
+
+def test_graphics_page_rows_fit_the_screen_and_do_not_overlap():
+    from PyAitD.app.ui import SystemMenuLayout, graphics_row_count
+    rows = SystemMenuLayout.rows(SystemMenuPage.GRAPHICS)
+    assert len(rows) == graphics_row_count()
+    assert all(r.bottom <= 200 and r.height >= 13 for r in rows)
+    hit = SystemMenuLayout.hit_rows(SystemMenuPage.GRAPHICS)
+    for a in range(len(hit)):
+        for b in range(a + 1, len(hit)):
+            assert not hit[a].colliderect(hit[b])
+
+
+def test_graphics_labels_match_the_cycles_one_per_row():
+    from PyAitD.app.ui import GRAPHICS_CYCLES, GRAPHICS_ROWS, graphics_labels
+    labels = graphics_labels(default_settings().render)
+    assert len(labels) == GRAPHICS_ROWS == len(GRAPHICS_CYCLES)
+    assert labels[0] == "Scale: 4x" and labels[5] == "Realism: Enhanced"
+    assert labels[6] == "Smoothing: Medium"
+
+
+def test_configuration_page_ends_with_graphics_then_back(monkeypatch):
+    # The CONFIG label list is hand-built; pin its tail so the reducer's
+    # "row_count - 2 is Graphics..." rule and the drawn labels cannot drift.
+    from PyAitD.app.ui import _button
+    drawn = []
+    monkeypatch.setattr("PyAitD.app.ui._button", lambda painter, rect, label, **kw: drawn.append(label))
+    fake_sprite = np.zeros((20, 20, 3), dtype=np.uint8)
+    fake_assets = SimpleNamespace(cadre_bank=lambda: (fake_sprite,) * 9)
+    render_system_menu(UIPainter(), SystemMenuPresenter(page=SystemMenuPage.CONFIG), default_settings(), fake_assets)
+    assert drawn[-2:] == ["Graphics...", "Back to Menu"]
+    assert not any(label.startswith("Scale") for label in drawn)
+    drawn.clear()
+    render_system_menu(UIPainter(), SystemMenuPresenter(page=SystemMenuPage.GRAPHICS), default_settings(), fake_assets)
+    assert drawn[0] == "Scale: 4x" and drawn[-1] == "Back"

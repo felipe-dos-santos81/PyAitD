@@ -290,6 +290,19 @@ def test_each_render_flag_overrides_only_its_own_field():
     assert overrides_only == replace(base, render=replace(base.render, override_dir="/tmp/only-ov"))
 
 
+def test_smoothing_flag_overrides_only_its_own_field():
+    from dataclasses import replace
+
+    from PyAitD.app.shell import apply_render_overrides, parse_args
+    from PyAitD.app.config import default_settings
+
+    base = default_settings()
+    only = apply_render_overrides(base, parse_args(["--smoothing", "3"]))
+    assert only == replace(base, render=replace(base.render, smoothing=3))
+    with pytest.raises(SystemExit):
+        parse_args(["--smoothing", "5"])   # argparse choices reject it
+
+
 def test_no_render_flags_leaves_settings_completely_unchanged():
     from PyAitD.app.shell import apply_render_overrides, parse_args
     from PyAitD.app.config import default_settings

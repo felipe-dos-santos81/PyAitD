@@ -19,7 +19,7 @@ import numpy as np
 from PyAitD.render.asset_resolver import AssetResolver, override_alt_background_path
 from PyAitD.render.background_export import SCREEN_ENTRIES, SUPPORTED_SCHEMAS
 from PyAitD.render.override_check import (
-    alt_coverage, check_alt_backgrounds, check_body_materials, check_overrides, check_screens, coverage, has_errors,
+    alt_coverage, check_alt_backgrounds, check_bodies, check_overrides, check_screens, coverage, has_errors,
     screen_coverage, summarize,
 )
 from PyAitD.engine.pak import PakError
@@ -148,7 +148,7 @@ def main(argv=None):
 
     findings = check_overrides(args.overrides, floors, manifest)
     findings = findings + check_alt_backgrounds(args.overrides, floors, manifest)
-    findings = findings + check_body_materials(args.overrides)
+    findings = findings + check_bodies(args.overrides)
     cov = coverage(args.overrides, floors, manifest) if manifest is not None else None
     alt_cov = alt_coverage(args.overrides, floors, manifest) if manifest is not None else None
     screen_cov = None

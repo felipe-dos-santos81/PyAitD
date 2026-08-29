@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0-only
+import math
 import pathlib
 
 import moderngl
 import numpy as np
 import pytest
 
+from PyAitD.engine.formats import Body, Primitive
 from PyAitD.render.asset_resolver import ImageAsset
 from PyAitD.render.geometry import BodyGeometry
 from PyAitD.engine.mask_geometry import MaskDraw
@@ -717,12 +719,17 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         "_bg_prog", "_actor_prog", "_screen_prog", "_stencil_prog",
         "_quad", "_quad_vao", "_thumb_tex", "_thumb_fbo",
         "_thumb_quad", "_thumb_quad_vao", "_material_tex",
+        "_tess_prog", "_tess_shadow_prog",
     ):
         resource = getattr(backend, attr)
         assert resource is not None, f"{attr} was never allocated before the failure"
         assert isinstance(resource.mglo, moderngl.InvalidObject), f"{attr} leaked (not released)"
         leak_checked += 1
-    assert leak_checked == 25  # every GL resource __init__ allocates, none skipped
+    assert sorted(backend._subpatch_bufs) == [1, 2, 3]
+    for level, buf in backend._subpatch_bufs.items():
+        assert isinstance(buf.mglo, moderngl.InvalidObject), f"subpatch buffer {level} leaked"
+        leak_checked += 1
+    assert leak_checked == 30  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
@@ -776,7 +783,8 @@ GOLDEN = pathlib.Path(__file__).parent / "golden" / "scene_lit_classic.npy"
 
 
 def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0, realism="classic"))
+    # smoothing=0 names the legacy path explicitly: the golden predates tessellation
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0, realism="classic", smoothing=0))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
@@ -943,3 +951,300 @@ def test_contact_darkens_toward_the_feet_under_enhanced(gl_ctx):
     # 350), inside the hypotenuse x + y < 260, and inside the contact fade.
     top, bottom = rgb[60, 120], rgb[170, 85]
     assert bottom.sum() < top.sum() - 20
+
+
+def _body_of(vertices, polys, color=1):
+    return Body(0, (0,) * 6, (), [tuple(int(c) for c in v) for v in vertices], [], [],
+                [Primitive(1, 0, color, list(p)) for p in polys])
+
+
+def _hex_prism_body(z=600.0, radius=200.0, half_height=150.0):
+    """An open hexagonal prism around the y axis at depth z, two faces
+    square-on to +-x: its flat silhouette is 2 R cos 30 wide, its rounded
+    one closer to 2 R."""
+    ring = [(round(radius * math.cos(math.radians(30 + 60 * k))), round(z + radius * math.sin(math.radians(30 + 60 * k))))
+            for k in range(6)]
+    v = [(x, -half_height, zz) for x, zz in ring] + [(x, half_height, zz) for x, zz in ring]
+    return _body_of(v, [(k, (k + 1) % 6, 6 + (k + 1) % 6, 6 + k) for k in range(6)])
+
+
+def _closed_cube_body():
+    v = [(-100, -100, -100), (100, -100, -100), (100, 100, -100), (-100, 100, -100),
+         (-100, -100, 100), (100, -100, 100), (100, 100, 100), (-100, 100, 100)]
+    return _body_of(v, [(0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (2, 3, 7, 6), (0, 3, 7, 4), (1, 2, 6, 5)])
+
+
+def _planned_geometry(body):
+    from PyAitD.render.geometry import pose_geometry
+    from PyAitD.render.refine import plan_refinement
+    return pose_geometry(body, [], (0, 0, 0), refinement=plan_refinement(body))
+
+
+def _flat_backend(gl_ctx, level, scale=1):
+    return GLBackend(gl_ctx, RenderOptions(scale=scale, shading="flat", lighting="fixed", msaa=0, smoothing=level))
+
+
+def _instance_rows(corners, normals, straight):
+    """(M,45) float32 rows in GLBackend._instance_data's layout -- per corner
+    (pos.xyz, ao), (normal.xyz, straight), (rgb, index), rest -- with ao=1,
+    black, index 0 and rest 0: only positions, normals and flags matter to
+    the tessellation itself."""
+    m = len(corners)
+    parts = []
+    for k in range(3):
+        parts += [corners[:, k], np.ones((m, 1)), normals[:, k], straight[:, k:k + 1],
+                  np.zeros((m, 3)), np.zeros((m, 1)), np.zeros((m, 3))]
+    return np.concatenate(parts, axis=1).astype("f4")
+
+
+def _write_if_present(prog, name, matrix):
+    try:
+        prog[name].write(matrix.tobytes())
+    except KeyError:      # a uniform the linker dropped as unused
+        pass
+
+
+def test_tessellation_shader_matches_the_numpy_reference(gl_ctx):
+    from PyAitD.render import refine
+    from PyAitD.render.lighting import project_to_plane, _clamp_downward
+    from PyAitD.render.render_gl import _TESS_VSH, instance_layout
+    rng = np.random.default_rng(7)
+    corners = rng.uniform(-300.0, 300.0, (4, 3, 3))
+    normals = rng.normal(size=(4, 3, 3))
+    normals /= np.linalg.norm(normals, axis=2, keepdims=True)
+    straight = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 1], [1, 1, 1]], np.float64)
+    bary = refine.subpatch(2)
+    ref_pos, ref_nrm = refine.evaluate(corners, normals, straight, bary)
+
+    prog = gl_ctx.program(vertex_shader=_TESS_VSH, varyings=["v_world", "v_normal"])
+    _write_if_present(prog, "rot", np.eye(3, dtype="f4"))
+    _write_if_present(prog, "mvp", np.eye(4, dtype="f4"))
+    prog["project"].value = 0
+    prog["travel"].value = (0.0, 1.0, 0.0)
+    prog["plane_y"].value = 0.0
+    bary_buf = gl_ctx.buffer(np.ascontiguousarray(bary, dtype="f4").tobytes())
+    inst_buf = gl_ctx.buffer(_instance_rows(corners, normals, straight).tobytes())
+    fmt, names = instance_layout(prog)
+    vao = gl_ctx.vertex_array(prog, [(bary_buf, "3f", "in_bary"), (inst_buf, fmt, *names)])
+    out = gl_ctx.buffer(reserve=len(corners) * len(bary) * 6 * 4)
+    vao.transform(out, moderngl.POINTS, vertices=len(bary), instances=len(corners))
+    got = np.frombuffer(out.read(), "f4").reshape(len(corners), len(bary), 6)
+    assert np.allclose(got[..., :3], ref_pos, atol=0.05)      # 1e-4 of a 600-unit patch
+    assert np.allclose(got[..., 3:], ref_nrm, atol=1e-3)
+
+    # The shadow mode is project_to_plane's math for an ALREADY-CLAMPED
+    # travel (see _TESS_VSH's comment on the `project` uniform block): the
+    # shader itself never tips travel onto the MIN_UP cone, so this proves
+    # equivalence only once the uniform actually carries the clamped
+    # vector, exactly as render_gl (task 6) will write it. (0.3, 0.8, 0.2)'s
+    # unit y is ~0.91, already inside the cone -- its own clamp is a no-op,
+    # so on its own it cannot distinguish a clamped shader input from an
+    # unclamped one. (1.0, 0.1, 0.0) sits outside the cone (unit y ~0.10 <
+    # MIN_UP), so _clamp_downward genuinely changes it, and its case alone
+    # pins the precondition: feed the shader the pre-clamped uniform,
+    # compare against project_to_plane's *raw* input (which reaches the
+    # same clamped vector internally), and they must still agree.
+    for travel in ((0.3, 0.8, 0.2), (1.0, 0.1, 0.0)):
+        clamped = tuple(float(v) for v in _clamp_downward(travel))
+        prog["project"].value = 1
+        prog["travel"].value = clamped
+        prog["plane_y"].value = 250.0
+        vao.transform(out, moderngl.POINTS, vertices=len(bary), instances=len(corners))
+        projected = np.frombuffer(out.read(), "f4").reshape(len(corners), len(bary), 6)[..., :3]
+        expected = project_to_plane(ref_pos.reshape(-1, 3), travel, 250.0).reshape(ref_pos.shape)
+        assert np.allclose(projected, expected, atol=0.05)
+    for resource in (vao, out, inst_buf, bary_buf, prog):
+        resource.release()
+
+
+def _row_width(rgb, row):
+    return int((rgb[row].astype(int).sum(axis=1) > 0).sum())
+
+
+def test_a_hexagonal_prism_is_wider_at_mid_face_once_rounded(gl_ctx):
+    # At scale 4 so the bow shows: PN under-bulges a 60-degree facet (the
+    # cubic reaches ~0.06 R past the chord, not the circle's 0.13 R), which
+    # is 296 -> 308 px here and only 74 -> 76 px at scale 1.
+    geometry = _planned_geometry(_hex_prism_body())
+    widths = {}
+    for level in (0, 2):
+        backend = _flat_backend(gl_ctx, level, scale=4)
+        backend.draw(_frame([_actor(0, geometry)]))
+        widths[level] = _row_width(backend.read_rgb(), 400)
+        backend.release()
+    assert widths[0] >= 280                   # ~296 px: 2 R cos 30 at depth 1500, times 4
+    assert widths[2] >= widths[0] + 8         # ~308 px: the faces bow out toward the circle
+
+
+def test_a_creased_cube_renders_the_same_rounded_or_not(gl_ctx):
+    # Every cube edge is a 90-degree crease, so each face is a flat PN
+    # patch: the sub-triangles tile the original exactly. Sub-vertices on a
+    # straight edge are collinear to ~1e-5 px, so a pixel centre that close
+    # to an edge can still flip -- hence a tolerance rather than equality.
+    geometry = _planned_geometry(_closed_cube_body())
+    frames = {}
+    for level in (0, 2):
+        backend = _flat_backend(gl_ctx, level)
+        backend.draw(_frame([_actor(0, geometry)]))
+        frames[level] = backend.read_rgb()
+        backend.release()
+    assert (frames[0].astype(int).sum(axis=2) > 0).sum() > 500     # the cube is really drawn
+    assert int(np.any(frames[0] != frames[2], axis=2).sum()) <= 2
+
+
+def test_a_sphere_gets_rounder_with_smoothing(gl_ctx):
+    sphere = BodyGeometry(
+        np.array([[0.0, 0.0, 600.0]], np.float32), np.array([[0.0, 0.0, -1.0]], np.float32),
+        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, 300.0, 1),),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    counts = {}
+    for level in (0, 2):
+        backend = _flat_backend(gl_ctx, level)
+        backend.draw(_frame([_actor(0, sphere)]))
+        counts[level] = int((backend.read_rgb().astype(int).sum(axis=2) > 0).sum())
+        backend.release()
+    # the level-1 icosphere's silhouette is a ~12-gon inscribed in the disc;
+    # PN patches bow it back out toward the circle
+    assert counts[2] > counts[0] + 100
+
+
+def test_smoothing_zero_draws_through_the_legacy_path(gl_ctx, monkeypatch):
+    backend = _flat_backend(gl_ctx, 0)
+    monkeypatch.setattr(backend, "_render_instanced", lambda *a, **k: (_ for _ in ()).throw(AssertionError("tessellated")))
+    backend.draw(_frame([_actor(0, _planned_geometry(_closed_cube_body()))]))
+    backend.release()
+
+
+def test_instance_data_packs_each_corners_own_columns(gl_ctx):
+    # Finding 2 (task 5 review): the pixel tests above cannot pin
+    # _instance_data's straight-column ordering -- the hex prism's straight
+    # is uniformly 0, the cube's patches are planar so edge_point's
+    # dot(pj-pi, ni) term vanishes and the chord comes out the same
+    # whatever straight says, and the sphere passes np.zeros. A transposed
+    # or rolled `geometry.straight[:, :, None]` (or any other column) would
+    # pass the entire existing suite. Pin the documented per-corner layout
+    # directly instead: per corner k, (pos.xyz, ao), (normal.xyz,
+    # straight_k), (rgb, index), rest.xyz -- 15 floats, using a value
+    # distinct per corner in every field that varies per corner.
+    pos = np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0]], np.float32)
+    normals = np.array([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]], np.float32)
+    straight = np.array([[1.0, 0.0, 1.0]], np.float32)   # distinct per corner: not uniform, not a palindrome
+    ao = np.array([0.2, 0.5, 0.9], np.float32)
+    rest = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]], np.float32)
+    geometry = BodyGeometry(
+        pos, normals[0], np.array([[0, 1, 2]], np.int32), np.array([2], np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8),
+        rest, ao, normals, straight)
+    palette = _palette().astype("f4") / 255.0
+    backend = _flat_backend(gl_ctx, 0)
+    row = backend._instance_data(geometry, np.zeros(3, np.float64), palette)[0]
+    backend.release()
+    for k in range(3):
+        block = row[15 * k: 15 * (k + 1)]
+        assert np.allclose(block[0:3], pos[k]), f"corner {k} position"
+        assert block[3] == pytest.approx(ao[k]), f"corner {k} ao"
+        assert np.allclose(block[4:7], normals[0, k]), f"corner {k} normal"
+        assert block[7] == pytest.approx(straight[0, k]), f"corner {k} straight"
+        assert np.allclose(block[8:11], palette[2]), f"corner {k} colour"
+        assert block[11] == pytest.approx(2.0), f"corner {k} palette index"
+        assert np.allclose(block[12:15], rest[k]), f"corner {k} rest"
+
+
+def _enhanced_tessellated_backend(gl_ctx, level=2):
+    return GLBackend(gl_ctx, RenderOptions(
+        scale=2, shading="smooth", lighting="scene", msaa=0, realism="enhanced", smoothing=level))
+
+
+def test_scene_lit_enhanced_tessellation_shades_a_sphere_nonuniformly(gl_ctx):
+    # Finding 3 (task 5 review): every pixel test above runs shading="flat",
+    # where _ACTOR_FSH returns the raw palette colour and returns before
+    # v_normal, v_ao, v_rest, v_index, plane_y, contact_height or
+    # material_tex are ever read on the tessellated path -- so nothing
+    # exercised the scene_lit half of _set_frame_uniforms, the tessellated
+    # plane_y write, or the ao/rest/index columns of _instance_data. Task 7
+    # ships smoothing=2 under exactly shading="smooth"/lighting="scene"/
+    # realism="enhanced", so that is the configuration that needs one real
+    # picture: a lit sphere, tessellated, must show a genuine range of
+    # shading across its surface, not one flat colour.
+    sphere = BodyGeometry(
+        np.array([[0.0, 0.0, 600.0]], np.float32), np.array([[0.0, 0.0, -1.0]], np.float32),
+        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, 300.0, 1),),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    backend = _enhanced_tessellated_backend(gl_ctx)
+    actor = _material_actor(0, sphere, _table_of("matte"))
+    backend.draw(_lit_frame([actor], (0.3, -0.6, -0.7)))
+    rgb = backend.read_rgb().astype(int)
+    backend.release()
+    lit = rgb[rgb.sum(axis=2) > 0]
+    assert len(lit) > 500                  # the sphere is really drawn
+    assert lit.std(axis=0).max() > 10      # a real spread of shading, not one flat colour
+
+
+def _shadow_frame(actor, plate, masks=()):
+    # the light sits behind the prism and above it: the shadow falls toward
+    # the camera across the ground plane, so it has an area on screen
+    # rather than collapsing onto the horizon row
+    light = _scene_light((0.0, -0.5, 0.85))
+    return FrameDescription(_view(), ImageAsset(plate, False), _palette(), (actor,), tuple(masks), light)
+
+
+def _darkened_below_the_feet(gl_ctx, level, actor, plate):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene", msaa=0, smoothing=level))
+    backend.draw(_shadow_frame(actor, plate))
+    rendered = backend.read_rgb().astype(int)
+    backend.release()
+    plain = _plain_background(gl_ctx, plate)
+    # rows 137+ are below the prism's nearest foot (row ~134): shadow only
+    return int((rendered[137:] < plain[137:] - 5).any(axis=2).sum())
+
+
+def test_the_tessellated_shadow_is_as_round_as_the_actor(gl_ctx):
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    actor = _standing_actor(0, _planned_geometry(_hex_prism_body()), feet_y=150)
+    flat = _darkened_below_the_feet(gl_ctx, 0, actor, plate)
+    rounded = _darkened_below_the_feet(gl_ctx, 2, actor, plate)
+    assert flat > 100                     # a real shadow band, ~8 rows x ~69 px
+    assert rounded > flat + 40            # ~11 px wider on every row
+
+
+def test_a_tessellated_shadow_is_still_erased_under_a_mask(gl_ctx):
+    # A full-screen mask would erase the actor draw itself (mask_tex is
+    # shared by _actor_prog and _tess_prog), so rendered == plain_background
+    # would hold even if the shadow pass drew nothing or drew garbage --
+    # that version of this test could not fail. Use a partial mask instead,
+    # covering only the right half of the shadow's own footprint (measured:
+    # for this actor/light, the shadow below the feet -- rows 137-153 --
+    # spans columns ~101-216), and assert both halves of the erasure: gone
+    # where the mask covers it, still cast where it doesn't.
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    geometry = _planned_geometry(_hex_prism_body())
+    actor = ActorDraw(0, geometry, (0.0, 0.0, 0.0), 0, (0, 0, -50, 150, 0, 0), RenderResult([], []), (0,))
+    poly = np.array([[160, 137], [320, 137], [320, 200], [160, 200]], np.int16)
+    right_half = MaskDraw(0, (poly,), (160, 137, 320, 200), 0, ())
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene", msaa=0, smoothing=2))
+    backend.draw(_shadow_frame(actor, plate, [right_half]))
+    rendered = backend.read_rgb().astype(int)
+    backend.release()
+    plain = _plain_background(gl_ctx, plate)
+    below, right, left = slice(137, None), slice(160, None), slice(0, 160)
+    assert np.array_equal(rendered[below, right], plain[below, right])            # masked: shadow erased
+    outside = int((rendered[below, left] < plain[below, left] - 5).any(axis=2).sum())
+    assert outside > 400                                                          # unmasked: shadow still cast (measured 826)
+
+
+def test_a_sphere_casts_a_shadow_only_once_tessellated(gl_ctx):
+    # The CPU shadow path projects geometry.tris and never saw a sphere
+    # primitive; the instance stream carries them, so heads and hands cast
+    # shadows under smoothing > 0. Pinned so the change stays deliberate.
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    sphere = BodyGeometry(
+        np.array([[0.0, 0.0, 600.0]], np.float32), np.array([[0.0, 0.0, -1.0]], np.float32),
+        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, 150.0, 1),),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    actor = _standing_actor(0, sphere, feet_y=150)
+    assert _darkened_below_the_feet(gl_ctx, 0, actor, plate) == 0
+    assert _darkened_below_the_feet(gl_ctx, 2, actor, plate) > 50

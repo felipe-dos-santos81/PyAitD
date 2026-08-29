@@ -66,7 +66,7 @@ click on any large button. Found objects open a Take/Leave prompt; inventory
 exposes the object's own actions; letters and books are readable; pictures
 play full-screen.
 
-The in-game Configuration screen's Graphics rows, and seven CLI flags for a
+The in-game Configuration screen's Graphics page, and eight CLI flags for a
 single session, control the enhanced renderer: `--render-scale N` (1-8, the
 internal render resolution as a multiple of 320x200), `--shading
 {flat,lambert,smooth}` (the per-actor shading model: where surface normals
@@ -81,16 +81,20 @@ image and casts a ground shadow under every actor), `--msaa {0,2,4,8}`
 grain — from a palette-index table in `PyAitD/render/materials.json`, which
 `make bootstrap-materials` regenerates and an override directory can remap
 per body under `DIR/bodies/body<NNN>.json`),
+`--smoothing {0,1,2,3}` (GPU mesh smoothing: `0` draws the flat 1992 mesh,
+`1`–`3` round every body with 4/16/64 curved sub-triangles per face, keeping
+edges sharper than 80° — overridable per body with a `"crease"` degrees key
+in `DIR/bodies/body<NNN>.json`),
 and `--overrides DIR` (a user-supplied replacement asset directory; this repo
 still ships no game data — `make run` passes `data/aitd1/overrides` unless you
 override or clear `overrides=`). An override directory holds
 `DIR/backgrounds/floor<NN>/camera<NNN>.png` (any size) per camera and
 `DIR/palette.png` (256 pixels wide) for the palette, and `DIR/bodies/body<NNN>.json`
-(a per-body material remap); a missing override file
+(a per-body material remap and, optionally, its `crease` threshold); a missing override file
 falls back to the original asset silently, while one that exists but fails
 to load logs a warning and falls back — the game never crashes on a bad
 override. CLI flags apply only to the current session and are not persisted;
-the Configuration screen's Graphics rows persist like every other setting.
+the Graphics page's rows persist like every other setting.
 If no GL 3.3 context is available, rendering falls back to the software
 backend at scale 1 with a settings notice; the game always runs.
 

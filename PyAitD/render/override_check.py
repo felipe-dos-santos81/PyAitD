@@ -214,9 +214,9 @@ def screen_coverage(override_dir, assets, manifest, *, load_png=load_png_rgb):
     return counts
 
 
-def check_body_materials(override_dir):
-    """One Finding per file under bodies/ the game would not load: a
-    body<NNN>.json the resolver rejects, or a body*.json whose name the
+def check_bodies(override_dir):
+    """One Finding per file under bodies/ the game would not load -- a
+    material remap or a crease it rejects, or a body*.json whose name the
     resolver would never ask for. `floor` is -2 and `camera` is the body
     number, or -1 when the name carries no readable one. Loads through
     AssetResolver so acceptance stays identical to the game's."""
@@ -237,6 +237,9 @@ def check_body_materials(override_dir):
             findings.append(Finding(-2, num if num is not None else -1, path, "invalid",
                                     f"the game never loads this name; it opens {wanted}"))
             continue
+        # Reads the file once through the shared _validate_body_override, so
+        # this one call already covers both keys the file can carry --
+        # materials and crease alike -- and its verdict is final.
         resolver.material_table(num)
         if path in resolver.failures:
             findings.append(Finding(-2, num, path, "invalid", resolver.failures[path]))
