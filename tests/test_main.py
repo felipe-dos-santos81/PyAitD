@@ -57,7 +57,8 @@ def test_main_skip_intro_produces_a_session_whose_hero_boot_is_not_a_cutscene(mo
 
     monkeypatch.setattr(main, "run", fake_run)
     monkeypatch.setattr(
-        main, "load_runtime_session", lambda path: ModalSession(settings=default_settings()),
+        main, "load_runtime_session",
+        lambda path, save_directory=None: ModalSession(settings=default_settings()),
     )
     assert main.main(["--data", str(data_dir), "--skip-intro"]) == 0
 
@@ -86,7 +87,7 @@ def test_normal_main_opens_the_title_before_run(monkeypatch, tmp_path):
     game = SimpleNamespace(active_modal=None, open_modal=lambda effect: setattr(game, "active_modal", effect))
     seen = []
     monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
-    monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace(settings=default_settings()))
+    monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(main, "run", lambda g, trace, session=None: seen.append((g, session)) or 0)
     assert main.main(["--data", str(tmp_path)]) == 0
     assert isinstance(game.active_modal, ShowTitle)
@@ -106,7 +107,7 @@ def test_explicit_debug_starts_bypass_character_selection(monkeypatch, tmp_path,
             "mouse-combat-fixture": lambda value: None,
         }),
     )
-    monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace(settings=default_settings()))
+    monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(
         main, "run",
         lambda value, trace, session=None: seen.append((value, session)) or 0,
@@ -120,6 +121,18 @@ def test_parse_args_overrides():
     args = parse_args(["--floor", "3", "--data", "/tmp/x"])
     assert args.floor == 3
     assert args.data == pathlib.Path("/tmp/x")
+
+
+def test_parse_args_save_dir():
+    assert parse_args([]).save_dir is None
+    args = parse_args(["--save-dir", "/tmp/saves"])
+    assert args.save_dir == pathlib.Path("/tmp/saves")
+
+
+def test_load_runtime_session_takes_the_save_directory(tmp_path):
+    from PyAitD.app.shell import load_runtime_session
+    session = load_runtime_session(tmp_path / "settings.json", save_directory=tmp_path / "saves")
+    assert session.save_directory == tmp_path / "saves"
 
 
 def test_main_rejects_nonzero_floor_without_calling_run(monkeypatch, tmp_path):
@@ -147,7 +160,7 @@ def test_main_combat_venue_calls_enter_combat_venue_once_before_run(monkeypatch,
             "combat-venue": lambda g: calls.append(("venue", g)),
         }),
     )
-    monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace(settings=default_settings()))
+    monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(main, "run", lambda g, trace, session=None: calls.append(("run", g)))
 
     main.main(["--combat-venue", "--data", str(tmp_path)])
@@ -183,7 +196,7 @@ def test_main_mouse_combat_fixture_uses_the_requested_hero(monkeypatch, tmp_path
         main, "load_profile",
         lambda name: SimpleNamespace(debug_venues={"mouse-combat-fixture": lambda g: None}),
     )
-    monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace(settings=default_settings()))
+    monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(main, "run", lambda g, trace, session=None: 0)
 
     assert main.main([
@@ -205,7 +218,7 @@ def test_main_mouse_combat_fixture_runs_its_own_setup(monkeypatch, tmp_path):
             "mouse-combat-fixture": lambda g: calls.append(("mouse fixture", g)),
         }),
     )
-    monkeypatch.setattr(main, "load_runtime_session", lambda path: SimpleNamespace(settings=default_settings()))
+    monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(main, "run", lambda g, trace, session=None: calls.append(("run", g)) or 0)
     assert main.main([
         "--mouse-combat-fixture", "--data", str(tmp_path),
@@ -504,9 +517,10 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(profil
     monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
     monkeypatch.setattr(
         main, "load_runtime_session",
-        lambda path: SimpleNamespace(
+        lambda path, save_directory=None: SimpleNamespace(
             settings=default_settings(), settings_path=path, settings_error=None,
             settings_dirty=False, pending_hero=None, cutscene=False,
+            pending_load=None, quick_save_requested=False, runtime_error=None,
         ),
     )
     monkeypatch.setattr(

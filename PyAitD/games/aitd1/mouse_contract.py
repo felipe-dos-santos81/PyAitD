@@ -25,6 +25,11 @@ class PlayerCapability(Enum):
     CONFIRM_STORY_PAGE = auto()
     MENU_ACTIVATE = auto()
     PICK_REMAP_KEY = auto()
+    SAVE_MANUAL = auto()
+    LOAD_MANUAL = auto()
+    LOAD_QUICK = auto()
+    QUICK_SAVE = auto()
+    PERSISTENCE_BACK = auto()
     DISMISS_SETTINGS_ERROR = auto()
     ADVANCE_TITLE = auto()
     STARTUP_MENU_ACTIVATE = auto()
@@ -79,6 +84,21 @@ CAPABILITY_ROUTES = {
     ),
     PlayerCapability.PICK_REMAP_KEY: MouseRoute(
         "left_click", "key-picker cell or Cancel button", frozenset({GameMode.SYSTEM_MENU}),
+    ),
+    PlayerCapability.SAVE_MANUAL: MouseRoute(
+        "left_click", "Save page Manual Slot row", frozenset({GameMode.SYSTEM_MENU}),
+    ),
+    PlayerCapability.LOAD_MANUAL: MouseRoute(
+        "left_click", "Load page Manual Slot row", frozenset({GameMode.SYSTEM_MENU}),
+    ),
+    PlayerCapability.LOAD_QUICK: MouseRoute(
+        "left_click", "Load page Quick Save row", frozenset({GameMode.SYSTEM_MENU}),
+    ),
+    PlayerCapability.QUICK_SAVE: MouseRoute(
+        "left_click", "Quick Save row", frozenset({GameMode.SYSTEM_MENU}),
+    ),
+    PlayerCapability.PERSISTENCE_BACK: MouseRoute(
+        "left_click", "Save or Load page Back row", frozenset({GameMode.SYSTEM_MENU}),
     ),
     PlayerCapability.DISMISS_SETTINGS_ERROR: MouseRoute(
         "left_click", "settings error Dismiss button", ALL_MODES,
@@ -144,6 +164,11 @@ MODE_MOUSE_CAPABILITIES = {
     GameMode.SYSTEM_MENU: frozenset({
         PlayerCapability.MENU_ACTIVATE,
         PlayerCapability.PICK_REMAP_KEY,
+        PlayerCapability.SAVE_MANUAL,
+        PlayerCapability.LOAD_MANUAL,
+        PlayerCapability.LOAD_QUICK,
+        PlayerCapability.QUICK_SAVE,
+        PlayerCapability.PERSISTENCE_BACK,
         PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     }),

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Game state: CVars, script vars, world objects, actor table (FITD main.cpp ports)."""
+import random
 from collections import deque
 from dataclasses import dataclass, field
 from itertools import product
@@ -120,6 +121,9 @@ class Game:
         self.vars = parse_vars((data_dir / "VARS.ITD").read_bytes())
         self.timer = 0
         self._last_time_forward = 0  # FITD lastTimeForward static (track.cpp:151)
+        # the one gameplay RNG (evalVar 0x1C): owned here so a save can
+        # snapshot it and a restored game draws the identical stream
+        self.rng = random.Random()
         # input snapshot
         self.local_joyd = 0
         self.local_key = 0
@@ -175,6 +179,12 @@ class Game:
         self.last_sample = -1
         self.next_sample = -1
         self.last_priority = -1
+
+    @property
+    def hero(self):
+        # a read view, not state: FITD keeps the chosen character in the
+        # CHOOSE_PERSO CVar (startGame backs it up and restores it)
+        return self.cvars[self.profile.cvar_index("CHOOSE_PERSO")]
 
     def load_floor(self, number):
         """The Floor loader for callers outside Game: threads self.profile so

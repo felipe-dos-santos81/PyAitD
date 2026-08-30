@@ -1,7 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """evalVar port (FITD evalVar.cpp:148, AITD1 path). Owner = life owner actor."""
-import random
-
 from PyAitD.engine.life import read_s16
 from PyAitD.engine.realvalue import eval_chrono
 from PyAitD.engine.world import adjust_zv_between_rooms
@@ -152,7 +150,7 @@ def _prop(game, a, code, vm):
         return game.camera_param(game.num_camera)
     if code == 0x1C:
         n = read_s16(vm)
-        return random.randrange(n)
+        return game.rng.randrange(n)
     if code == 0x1D:
         return a.falling
     if code == 0x1E:

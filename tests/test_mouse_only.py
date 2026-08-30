@@ -140,6 +140,11 @@ def test_shell_modes_and_the_settings_notice_fulfill_the_mouse_contract():
     assert MODE_MOUSE_CAPABILITIES[GameMode.SYSTEM_MENU] == frozenset({
         PlayerCapability.MENU_ACTIVATE,
         PlayerCapability.PICK_REMAP_KEY,
+        PlayerCapability.SAVE_MANUAL,
+        PlayerCapability.LOAD_MANUAL,
+        PlayerCapability.LOAD_QUICK,
+        PlayerCapability.QUICK_SAVE,
+        PlayerCapability.PERSISTENCE_BACK,
         PlayerCapability.DISMISS_SETTINGS_ERROR,
         PlayerCapability.QUIT,
     })
@@ -154,6 +159,27 @@ def test_shell_modes_and_the_settings_notice_fulfill_the_mouse_contract():
         PlayerCapability.QUIT,
     })
     assert PlayerCapability.SKIP_CUTSCENE in MODE_MOUSE_CAPABILITIES[GameMode.PLAY]
+
+
+def test_every_persistence_decision_is_one_forgiving_left_click():
+    # M4a2: save, load, quick save and both Back rows are single primary-
+    # button clicks inside the system menu, so a touch-origin press reaches
+    # every persistence decision the same way a physical click does.
+    routes = {
+        capability: CAPABILITY_ROUTES[capability]
+        for capability in (
+            PlayerCapability.SAVE_MANUAL,
+            PlayerCapability.LOAD_MANUAL,
+            PlayerCapability.LOAD_QUICK,
+            PlayerCapability.QUICK_SAVE,
+            PlayerCapability.PERSISTENCE_BACK,
+        )
+    }
+    assert all(route.gesture == "left_click" for route in routes.values())
+    assert all(route.modes == frozenset({GameMode.SYSTEM_MENU}) for route in routes.values())
+    assert all(route.target for route in routes.values())
+    for capability in routes:
+        assert capability in MODE_MOUSE_CAPABILITIES[GameMode.SYSTEM_MENU]
 
 
 def test_no_operation_remains_keyboard_only():

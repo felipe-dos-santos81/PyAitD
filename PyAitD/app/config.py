@@ -112,6 +112,18 @@ def load_settings(path):
     return settings, None
 
 
+def settings_payload(settings):
+    """The JSON-ready dict save_settings writes; app/shell embeds the same
+    payload in game saves, so a slot's settings block is always a valid
+    settings file body."""
+    return {
+        "schema": SCHEMA,
+        "sticky_action": settings.sticky_action,
+        "bindings": {name: list(keys) for name, keys in settings.bindings.items()},
+        "render": settings.render.to_payload(),
+    }
+
+
 def save_settings(settings, path):
     path = Path(path)
     temporary = None
@@ -121,12 +133,7 @@ def save_settings(settings, path):
             dir=path.parent, prefix=f".{path.name}.", suffix=".tmp",
         )
         temporary = Path(raw_name)
-        payload = {
-            "schema": SCHEMA,
-            "sticky_action": settings.sticky_action,
-            "bindings": {name: list(keys) for name, keys in settings.bindings.items()},
-            "render": settings.render.to_payload(),
-        }
+        payload = settings_payload(settings)
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(payload, stream, indent=2)
             stream.write("\n")

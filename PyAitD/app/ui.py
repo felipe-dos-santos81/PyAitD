@@ -338,9 +338,17 @@ class CharacterSelectResult:
 
 class SystemMenuPage(Enum):
     MAIN = auto()
+    SAVE = auto()
+    LOAD = auto()
     CONFIG = auto()
     GRAPHICS = auto()
     KEY_PICK = auto()
+
+
+MAIN_ROW_LABELS = ("Return to Game", "Save", "Load", "Quick Save",
+                   "Configuration", "Quit")
+SAVE_ROW_LABELS = ("Manual Slot", "Back")
+LOAD_ROW_LABELS = ("Manual Slot", "Quick Save", "Back")
 
 
 # Mouse-only remap surface: every name round-trips through pygame.key.key_code
@@ -372,6 +380,9 @@ class SystemMenuResult:
     close: bool = False
     quit: bool = False
     save: bool = False
+    save_slot: str | None = None
+    load_slot: str | None = None
+    quick_save: bool = False
 
 
 def reduce_character_select(state, command):
@@ -408,12 +419,16 @@ def _leave_graphics(state):
     state.hover = None
 
 
-def reduce_system_menu(state, command, settings):
+def reduce_system_menu(state, command, settings, available_slots=frozenset()):
     if state.capture is not None:
         return None
     command = Command.ACCEPT if command is Command.OPEN_INVENTORY else command
     if state.page is SystemMenuPage.MAIN:
-        row_count = 3
+        row_count = len(MAIN_ROW_LABELS)
+    elif state.page is SystemMenuPage.SAVE:
+        row_count = len(SAVE_ROW_LABELS)
+    elif state.page is SystemMenuPage.LOAD:
+        row_count = len(LOAD_ROW_LABELS)
     elif state.page is SystemMenuPage.GRAPHICS:
         row_count = graphics_row_count()
     else:
@@ -430,15 +445,47 @@ def reduce_system_menu(state, command, settings):
             state.page = SystemMenuPage.MAIN
             state.cursor = 0
             return SystemMenuResult(save=True)
+        if state.page in (SystemMenuPage.SAVE, SystemMenuPage.LOAD):
+            state.page = SystemMenuPage.MAIN
+            state.cursor = 0
+            state.hover = None
+            return None
         return SystemMenuResult(close=True, save=True)
     elif command is Command.ACCEPT and state.page is SystemMenuPage.MAIN:
         if state.cursor == 0:
             return SystemMenuResult(close=True, save=True)
         if state.cursor == 1:
+            state.page = SystemMenuPage.SAVE
+            state.cursor = 0
+            state.hover = None
+        elif state.cursor == 2:
+            state.page = SystemMenuPage.LOAD
+            state.cursor = 0
+            state.hover = None
+        elif state.cursor == 3:
+            return SystemMenuResult(close=True, quick_save=True)
+        elif state.cursor == 4:
             state.page = SystemMenuPage.CONFIG
             state.cursor = 0
         else:
             return SystemMenuResult(quit=True, save=True)
+    elif command is Command.ACCEPT and state.page is SystemMenuPage.SAVE:
+        if state.cursor == 0:
+            return SystemMenuResult(save_slot="manual")
+        state.page = SystemMenuPage.MAIN
+        state.cursor = 0
+        state.hover = None
+    elif command is Command.ACCEPT and state.page is SystemMenuPage.LOAD:
+        if state.cursor == 2:
+            state.page = SystemMenuPage.MAIN
+            state.cursor = 0
+            state.hover = None
+        elif state.cursor == 0 and "manual" in available_slots:
+            return SystemMenuResult(load_slot="manual")
+        elif state.cursor == 1 and "quick" in available_slots:
+            return SystemMenuResult(load_slot="quick")
+        # a row whose slot file does not exist is a forgiving no-op: it can
+        # never fall through to Back
     elif command is Command.ACCEPT and state.page is SystemMenuPage.GRAPHICS:
         if state.cursor == row_count - 1:
             _leave_graphics(state)
@@ -599,7 +646,12 @@ class CharacterLayout:
 
 
 class SystemMenuLayout:
-    MAIN_ROWS = tuple(pygame.Rect(48, 45 + i * 42, 224, 32) for i in range(3))
+    # six 22 px rows at a 26 px pitch (Return/Save/Load/Quick Save/
+    # Configuration/Quit); the M4a2 persistence rows replaced the old
+    # three-row 42 px pitch. 22 >= 20 keeps the one-column row-size contract.
+    MAIN_ROWS = tuple(pygame.Rect(48, 22 + i * 26, 224, 22) for i in range(6))
+    SAVE_ROWS = tuple(pygame.Rect(48, 70 + i * 30, 224, 24) for i in range(2))
+    LOAD_ROWS = tuple(pygame.Rect(48, 55 + i * 30, 224, 24) for i in range(3))
     # config_row_count() rows at a 13 px pitch from y=2; with the graphics
     # rows moved to their own page this now bottoms out well short of the
     # screen. Rows stay >= 13 px tall, so effective_rects' 12x12 minimum
@@ -632,6 +684,10 @@ class SystemMenuLayout:
     def rows(cls, page):
         if page is SystemMenuPage.MAIN:
             return cls.MAIN_ROWS
+        if page is SystemMenuPage.SAVE:
+            return cls.SAVE_ROWS
+        if page is SystemMenuPage.LOAD:
+            return cls.LOAD_ROWS
         if page is SystemMenuPage.CONFIG:
             return cls.CONFIG_ROWS
         if page is SystemMenuPage.GRAPHICS:
@@ -923,7 +979,14 @@ def _resolver_or_originals(assets, resolver):
     return resolver if resolver is not None else AssetResolver(assets, None)
 
 
-def _button(painter, rect, label, selected=False, size=18):
+def _button(painter, rect, label, selected=False, size=18, enabled=True):
+    if not enabled:
+        # a disabled row takes no selection highlight: hover and cursor both
+        # render the same dim surface, so nothing clickable-looking appears
+        painter.rect((52, 46, 40), rect, border_radius=3)
+        painter.rect((110, 98, 84), rect, width=2, border_radius=3)
+        painter.text(label, size, (122, 112, 100), center=pygame.Rect(rect).center)
+        return
     painter.rect((214, 190, 142) if selected else (78, 59, 46), rect, border_radius=3)
     painter.rect((245, 226, 178), rect, width=2, border_radius=3)
     painter.text(label, size, (20, 16, 12) if selected else (250, 242, 216),
@@ -1207,7 +1270,25 @@ def graphics_labels(render):
     ]
 
 
-def render_system_menu(painter, presenter, settings, assets):
+def system_menu_labels(page, settings):
+    """One label per row of every non-picker page, in layout order."""
+    if page is SystemMenuPage.MAIN:
+        return list(MAIN_ROW_LABELS)
+    if page is SystemMenuPage.SAVE:
+        return list(SAVE_ROW_LABELS)
+    if page is SystemMenuPage.LOAD:
+        return list(LOAD_ROW_LABELS)
+    if page is SystemMenuPage.GRAPHICS:
+        return graphics_labels(settings.render) + ["Back"]
+    labels = [f"Sticky Action: {'On' if settings.sticky_action else 'Off'}"]
+    for control in REMAPPABLE_CONTROLS:
+        labels.append(f"{control.name}: {', '.join(settings.bindings[control.name])}")
+    labels.append("Graphics...")
+    labels.append("Back to Menu")
+    return labels
+
+
+def render_system_menu(painter, presenter, settings, assets, available_slots=frozenset()):
     # the old scratch surface here was an OPAQUE pygame.Surface((320, 200)),
     # whose implicit fill is black; paint that ground explicitly so scale-1
     # output stays byte-identical (draw_big_cadre below only overwrites the
@@ -1217,21 +1298,17 @@ def render_system_menu(painter, presenter, settings, assets):
     if presenter.page is SystemMenuPage.KEY_PICK:
         _render_key_picker(painter, presenter)
         return
-    if presenter.page is SystemMenuPage.MAIN:
-        labels = ["Return to Game", "Configuration", "Quit"]
-    elif presenter.page is SystemMenuPage.GRAPHICS:
-        labels = graphics_labels(settings.render) + ["Back"]
+    labels = system_menu_labels(presenter.page, settings)
+    if presenter.page is SystemMenuPage.LOAD:
+        enabled = ["manual" in available_slots, "quick" in available_slots, True]
     else:
-        labels = [f"Sticky Action: {'On' if settings.sticky_action else 'Off'}"]
-        for control in REMAPPABLE_CONTROLS:
-            labels.append(f"{control.name}: {', '.join(settings.bindings[control.name])}")
-        labels.append("Graphics...")
-        labels.append("Back to Menu")
+        enabled = [True] * len(labels)
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
     button_size = 12 if presenter.page in (SystemMenuPage.CONFIG, SystemMenuPage.GRAPHICS) else 18
-    rows = zip(SystemMenuLayout.rows(presenter.page), labels, strict=True)
-    for index, (rect, label) in enumerate(rows):
-        _button(painter, rect, label, selected=index == selection, size=button_size)
+    rows = zip(SystemMenuLayout.rows(presenter.page), labels, enabled, strict=True)
+    for index, (rect, label, row_enabled) in enumerate(rows):
+        _button(painter, rect, label, selected=index == selection,
+                size=button_size, enabled=row_enabled)
 
 
 def _render_key_picker(painter, presenter):
@@ -1319,6 +1396,13 @@ class ModalSession:
     settings_path: Path | None = None
     settings_error: str | None = None
     settings_dirty: bool = False
+    # M4a2 persistence: the slot directory, the dismissible error surface,
+    # the validated payload awaiting an atomic load replacement, and the
+    # deferred quick-save request committed at the first stable tick
+    save_directory: Path | None = None
+    runtime_error: str | None = None
+    pending_load: dict | None = None
+    quick_save_requested: bool = False
     # The render options as last loaded from (or defaulted for) the settings
     # file, before any session-only CLI override was applied to `settings`.
     # A save writes this, with only the render fields the player actually

@@ -419,14 +419,23 @@ def test_story_click_confirms_the_selected_portrait_not_the_click_side(
 def test_replacement_session_carries_only_application_settings(tmp_path):
     settings = Settings(default_settings().bindings, True)
     old = ModalSession(settings=settings, settings_path=tmp_path / "settings.json",
-                       settings_error="named error", settings_dirty=True)
+                       settings_error="named error", settings_dirty=True,
+                       save_directory=tmp_path / "saves")
     old.character.choice = 1
     old.character.hover = 0
     old.system_menu.hover = 2
+    old.quick_save_requested = True
+    old.pending_load = {"schema": 1}
+    old.runtime_error = "boom"
     new = replacement_session(old)
     assert (new.settings, new.settings_path, new.settings_error, new.settings_dirty) == (
         settings, old.settings_path, "named error", True,
     )
+    assert new.save_directory == tmp_path / "saves"
+    # persistence transients never cross a replacement
+    assert new.quick_save_requested is False
+    assert new.pending_load is None
+    assert new.runtime_error is None
     assert new.character == CharacterSelectPresenter()
     assert new.system_menu == SystemMenuPresenter()
 
@@ -677,7 +686,7 @@ def test_system_menu_subview_transitions_clear_keyboard_and_mouse_hover(data_dir
     game.open_modal(effect)
     session = ModalSession()
     session.reset_for(effect)
-    session.system_menu.cursor = 1
+    session.system_menu.cursor = 4
     session.system_menu.hover = 2
 
     assert route_command(game, session, Command.ACCEPT, InputBuffer())
@@ -986,7 +995,7 @@ def test_system_menu_mouse_activates_configuration_and_return(data_dir, profile)
     session = ModalSession()
     state = InputBuffer()
     assert route_mouse(
-        game, session, SystemMenuLayout.MAIN_ROWS[1].center, state,
+        game, session, SystemMenuLayout.MAIN_ROWS[4].center, state,
     )
     assert session.system_menu.page is SystemMenuPage.CONFIG
     assert route_mouse(
@@ -1023,7 +1032,7 @@ def test_failed_quit_save_stays_in_menu_with_live_settings(data_dir, profile, tm
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
     session.settings = Settings(dict(session.settings.bindings), True)
-    session.system_menu.cursor = 2
+    session.system_menu.cursor = 5
     monkeypatch.setattr("PyAitD.app.shell.save_settings", lambda *args: "Could not save settings to target: read only")
     assert route_command(game, session, Command.ACCEPT, InputBuffer()) is True
     assert game.mode is GameMode.SYSTEM_MENU
@@ -1036,7 +1045,7 @@ def test_clean_quit_saves_nothing_and_returns_false(data_dir, profile, tmp_path)
     game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json")
-    session.system_menu.cursor = 2
+    session.system_menu.cursor = 5
     assert route_command(game, session, Command.ACCEPT, InputBuffer()) is False
     assert not session.settings_path.exists()
 
@@ -1045,7 +1054,7 @@ def test_dirty_quit_saves_once_then_returns_false(data_dir, profile, tmp_path):
     game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
-    session.system_menu.cursor = 2
+    session.system_menu.cursor = 5
     assert route_command(game, session, Command.ACCEPT, InputBuffer()) is False
     loaded, error = load_settings(session.settings_path)
     assert error is None
@@ -1140,7 +1149,7 @@ def test_quitting_from_the_system_menu_drains_the_input_buffer(data_dir, profile
     game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession()
-    session.system_menu.cursor = 2
+    session.system_menu.cursor = 5
     state = InputBuffer(held_joyd=9, action_held=True, sticky_armed=True,
                         action_pulse=True, commands=deque([Command.ACCEPT]))
     assert route_command(game, session, Command.ACCEPT, state) is False
