@@ -172,6 +172,44 @@ def rotation_matrix(state):
     return m
 
 
+def _view_factors(state):
+    """The (rotate, translate) pair, float64 and unrounded, that both
+    `camera_matrix` and `view_matrix` are built from.
+
+    One copy of the camera's rotation-and-translation convention, because
+    there is no test that can catch the two drifting apart from downstream:
+    `view_matrix`'s only consumer is the bump's `dFdx(v_view)`/`dFdy(v_view)`,
+    and `k = abs(det) / length(cross(sx, sy))` is invariant to a uniform
+    scale on `v_view` while the distance fade reads `fwidth(nc)` rather than
+    `v_view` at all -- so a transposed rotation or a scale error would tilt
+    or deepen relief with every existing assertion still passing.
+    `test_view_matrix_is_camera_matrixs_view_half` pins the relationship
+    from the outside as well."""
+    translate = np.eye(4)
+    translate[:3, 3] = (-state.x, -state.y, -state.z)
+    rotate = np.eye(4)
+    rotate[:3, :3] = rotation_matrix(state)
+    return rotate, translate
+
+
+def projection_matrix(state):
+    """`camera_matrix`'s projection half: the clip-space projection times the
+    `depth = z + focal1` shift, before the world -> camera transform.
+
+    Split out so a test can recombine the two halves; `camera_matrix` still
+    evaluates exactly `((proj @ shift) @ rotate) @ translate`, which is what
+    left-associativity always gave it, so the golden cannot move."""
+    proj = np.array([
+        [state.focal2 / SCREEN_CENTER_X, 0, 0, 0],
+        [0, -state.focal3 / SCREEN_CENTER_Y, 0, 0],
+        [0, 0, _DEPTH_A, _DEPTH_B],
+        [0, 0, 1.0, 0],
+    ])
+    shift = np.eye(4)
+    shift[2, 3] = state.focal1  # depth = z + focal1 becomes the clip w
+    return proj @ shift
+
+
 def camera_matrix(view, scale):
     """(4,4) float32 view-projection matrix: world-homogeneous @ m.T gives
     clip space (row-vector convention, matching the parity test).
@@ -182,21 +220,23 @@ def camera_matrix(view, scale):
     resolution is applied later by the GL viewport, not by this matrix.
     """
     state = view.state
-    rot = rotation_matrix(state)
-    translate = np.eye(4)
-    translate[:3, 3] = (-state.x, -state.y, -state.z)
-    rotate = np.eye(4)
-    rotate[:3, :3] = rot
-    proj = np.array([
-        [state.focal2 / SCREEN_CENTER_X, 0, 0, 0],
-        [0, -state.focal3 / SCREEN_CENTER_Y, 0, 0],
-        [0, 0, _DEPTH_A, _DEPTH_B],
-        [0, 0, 1.0, 0],
-    ])
-    shift = np.eye(4)
-    shift[2, 3] = state.focal1  # depth = z + focal1 becomes the clip w
-    m = proj @ shift @ rotate @ translate
+    rotate, translate = _view_factors(state)
+    m = projection_matrix(state) @ rotate @ translate
     return m.astype(np.float32)
+
+
+def view_matrix(view):
+    """(4,4) float32 world -> camera space: `camera_matrix`'s `rotate @
+    translate` half, without the projection.
+
+    The fragment shader needs a camera-space *position* to take screen-space
+    derivatives of (Mikkelsen's bump needs dP/dx and dP/dy, not a direction),
+    and `rot` is rotation only -- it cannot carry the camera's translation.
+    Built from the same `_view_factors` as `camera_matrix`, so the two cannot
+    disagree about the convention; they are still separate functions because
+    the shader wants the view half alone."""
+    rotate, translate = _view_factors(view.state)
+    return (rotate @ translate).astype(np.float32)
 
 
 def _to_ndc(sx, sy, depth):
@@ -331,9 +371,9 @@ class GLBackend:
             self._screen_prog["lighting"].value = 0
             self._stencil_prog = ctx.program(vertex_shader=_STENCIL_VSH, fragment_shader=_STENCIL_FSH)
 
-            # 256 palette indices x 2 rows of 4 float parameters; uploaded
+            # 256 palette indices x 3 rows of 4 float parameters; uploaded
             # whenever an actor hands over a table object we have not seen.
-            self._material_tex = ctx.texture((PALETTE_SIZE, 2), 4, dtype="f4")
+            self._material_tex = ctx.texture((PALETTE_SIZE, 3), 4, dtype="f4")
             self._material_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
 
             # The light-view depth map every actor is rendered into under
@@ -531,6 +571,9 @@ class GLBackend:
         self._draw_background(frame.background)
 
         mvp = camera_matrix(frame.camera, self._options.scale)
+        view_m = view_matrix(frame.camera)
+        for prog in (self._actor_prog, self._tess_prog, self._tess_shadow_prog, self._cast_prog):
+            _set_uniform(prog, "view", np.ascontiguousarray(view_m.T))
         rot = rotation_matrix(frame.camera.state).astype("f4")
         scene_lit = self._options.lighting == "scene"
         soft = scene_lit and self._options.shadows == "soft"
@@ -656,6 +699,7 @@ class GLBackend:
             preset = PRESETS[self._options.realism]
             prog["preset_a"].value = (preset.spec, preset.rim, preset.ao)
             prog["preset_b"].value = (preset.contact, preset.detail, preset.hemisphere)
+            _set_uniform(prog, "preset_c", (preset.bump, preset.sss, preset.emissive))
             prog["contact_height"].value = CONTACT_HEIGHT
             prog["material_tex"].value = 3
         else:
@@ -665,6 +709,7 @@ class GLBackend:
             prog["fill_tint"].value = (0.0, 0.0, 0.0)
             prog["preset_a"].value = (0.0, 0.0, 0.0)
             prog["preset_b"].value = (0.0, 0.0, 0.0)
+            _set_uniform(prog, "preset_c", (0.0, 0.0, 0.0))
         if shadow is not None:
             light_vp, depth_bias = shadow
             _set_uniform(prog, "self_shadow", 1)
@@ -1010,8 +1055,8 @@ class GLBackend:
         parameters from before the mutation."""
         if table is self._material_key:
             return
-        params = table.parameters()                      # (256, 8)
-        rows = np.stack([params[:, :4], params[:, 4:]], axis=0)   # (2, 256, 4): texture row 0, row 1
+        params = table.parameters()                      # (256, 12)
+        rows = np.stack([params[:, :4], params[:, 4:8], params[:, 8:]], axis=0)   # (3, 256, 4)
         self._material_tex.write(np.ascontiguousarray(rows, dtype="f4").tobytes())
         self._material_key = table
 

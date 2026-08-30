@@ -10,7 +10,7 @@ from PyAitD.engine.formats import Body, Primitive
 from PyAitD.render.asset_resolver import ImageAsset
 from PyAitD.render.geometry import BodyGeometry
 from PyAitD.engine.mask_geometry import MaskDraw
-from PyAitD.render.render_gl import GLBackend, camera_matrix
+from PyAitD.render.render_gl import GLBackend, camera_matrix, projection_matrix, view_matrix
 from PyAitD.render.render_options import RenderOptions
 from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
 from PyAitD.engine.skel import RenderResult
@@ -555,6 +555,40 @@ def test_camera_matrix_parity_across_rotated_cameras():
     assert max_err < 0.05
 
 
+def test_view_matrix_is_camera_matrixs_view_half():
+    # `view_matrix` feeds the bump's `dFdx(v_view)`/`dFdy(v_view)` and
+    # nothing else, and that consumer cannot detect it being wrong: the
+    # distance fade reads `fwidth(nc)` rather than `v_view`, and
+    # `k = abs(det) / length(cross(sx, sy))` is invariant to a uniform scale
+    # on `v_view`. A transposed rotation or a scale error would tilt or
+    # deepen relief on every actor with the whole render suite still green,
+    # so the relationship is asserted here instead: recombined with
+    # `projection_matrix`, the view half must reproduce `camera_matrix`.
+    #
+    # The same rotated-camera sweep as the parity test above -- at
+    # alpha=beta=gamma=0 `rotation_matrix` is the identity and a transposed
+    # rotation block is invisible. `allclose`, not `array_equal`: the two
+    # sides group the same products differently and `view_matrix` rounds to
+    # float32 before the projection is applied. Measured worst-case
+    # discrepancy over these 50 cameras is 2.9e-04 absolute, 7.2e-06
+    # relative -- both far inside allclose's default rtol of 1e-05, and both
+    # far under what a transposed or rescaled view half produces.
+    rng = np.random.default_rng(0)
+    for _ in range(50):
+        alpha, beta, gamma = (int(v) for v in rng.integers(1, 1024, size=3))
+        x, y, z = (int(v) for v in rng.integers(-2000, 2000, size=3))
+        view = CameraView(CameraState(alpha, beta, gamma, x, y, z, 1000, 320, 320).angles())
+        recombined = projection_matrix(view.state) @ view_matrix(view)
+        assert np.allclose(recombined, camera_matrix(view, scale=1))
+    # and the mutations it has to catch, on one of those cameras
+    view = CameraView(CameraState(300, 700, 120, 50, -90, 400, 1000, 320, 320).angles())
+    projection, half = projection_matrix(view.state), view_matrix(view)
+    transposed = half.copy()
+    transposed[:3, :3] = half[:3, :3].T
+    assert not np.allclose(projection @ transposed, camera_matrix(view, scale=1))
+    assert not np.allclose(projection @ (half * 1.001), camera_matrix(view, scale=1))
+
+
 def test_flat_triangle_lands_where_the_logical_projection_says(gl_ctx):
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
     geometry = _tri_geometry(z=1000.0, color=1)
@@ -985,6 +1019,8 @@ def test_scene_lighting_never_goes_below_the_rooms_ambient(gl_ctx):
 
 
 def _table_of(name):
+    """A material table that classifies every one of the 256 palette indices
+    as `name`: whatever a fixture draws, it draws in that one class."""
     from PyAitD.render.materials import parse_table
     return parse_table({"ramps": [{"lo": 0, "hi": 255, "class": name}]})
 
@@ -1004,16 +1040,6 @@ def _centre(rgb):
     return rgb[80, 130].astype(int)
 
 
-def test_classic_ignores_the_material_table(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0, realism="classic"))
-    tri = _facing_tri(600.0, 1, (0.0, 0.0, -1.0))
-    backend.draw(_lit_frame([_material_actor(0, tri, _table_of("metal"))], (0.0, 0.0, -1.0)))
-    metal = backend.read_rgb().copy()
-    backend.draw(_lit_frame([_material_actor(0, tri, _table_of("matte"))], (0.0, 0.0, -1.0)))
-    assert np.array_equal(backend.read_rgb(), metal)
-    backend.release()
-
-
 def test_metal_is_brighter_than_matte_under_enhanced(gl_ctx):
     # n = l = view = the half-vector: the highlight lands dead centre.
     #
@@ -1025,11 +1051,24 @@ def test_metal_is_brighter_than_matte_under_enhanced(gl_ctx):
     # contributes nothing measurable. The whole of the margin below comes
     # from the *non*-metallic part, scaled by `metal.specular`. So raising
     # `metal.metallic` toward 1.0 shrinks the measured delta (it fails
-    # somewhere above ~0.9) and lowering `metal.specular` shrinks it too --
+    # above ~0.843, measured below) and lowering `metal.specular` shrinks it too --
     # and in both cases the failure would read as if the specular term had
     # broken. It has not; the test simply cannot see a highlight that has
     # been tinted entirely into a clamped channel. Re-tune against a
     # desaturated palette entry before touching either constant.
+    #
+    # After the Task 5 retune (metal at roughness 0.4 / specular 0.15 /
+    # bump 0.08) this fixture's centre pixel is matte (255, 0, 0) vs.
+    # metal (255, 20, 20): a margin of 40 against the 30 this assertion
+    # requires -- not the 510 an earlier draft of this comment claimed.
+    # Sweeping `metal.metallic` alone (specular and roughness held at
+    # their shipped values) finds the margin falls in lockstep -- 0.80:40,
+    # 0.85:30 (fails), 0.87:26 -- and crosses the 30-margin bound between
+    # 0.842 (margin 32, passes) and 0.843 (margin 30, fails). The argument
+    # is unchanged -- what is visible is still the non-metallic part, on
+    # the two channels red does not clamp -- but the headroom above that
+    # crossing from the shipped metallic (0.8) is about 0.04, not the
+    # ~0.19 the old ~0.993 figure implied.
     backend = _enhanced_backend(gl_ctx)
     tri = _facing_tri(600.0, 1, (0.0, 0.0, -1.0))
     backend.draw(_lit_frame([_material_actor(0, tri, _table_of("matte"))], (0.0, 0.0, -1.0)))
@@ -1462,11 +1501,13 @@ def test_a_sphere_casts_a_shadow_only_once_tessellated(gl_ctx):
 FULL_SHADOW_ON_200 = 74
 
 
-def _soft_frame_render(gl_ctx, shadows, actors, plate, direction, masks=(), level=0, shading="flat", realism="enhanced"):
+def _soft_frame_render(gl_ctx, shadows, actors, plate, direction, masks=(), level=0, shading="flat",
+                       realism="enhanced", palette=None):
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading=shading, lighting="scene", msaa=0,
                                               realism=realism, smoothing=level, shadows=shadows))
-    backend.draw(FrameDescription(_view(), ImageAsset(plate, False), _palette(), tuple(actors), tuple(masks),
-                                  _scene_light(direction)))
+    backend.draw(FrameDescription(_view(), ImageAsset(plate, False),
+                                  _palette() if palette is None else palette,
+                                  tuple(actors), tuple(masks), _scene_light(direction)))
     out = backend.read_rgb().astype(int)
     backend.release()
     return out
@@ -1826,3 +1867,440 @@ def test_hard_shadows_never_touch_the_shadow_map(gl_ctx, monkeypatch):
     monkeypatch.setattr(backend, "_render_shadow_map", boom)
     backend.draw(_overlap_frame(True))
     backend.release()
+
+
+# ---- derivative bump (materials v2, task 2) ----
+
+
+KEY_FROM_ABOVE = (0.0, -0.85, -0.5)
+
+
+def _material_square(gl_ctx, table, z=600.0, realism="enhanced", shading="smooth",
+                     normal=(0.0, 0.0, -1.0), palette=None, light=KEY_FROM_ABOVE):
+    """A camera-facing square lit by the scene light, with `table` as its
+    material table. Returns the rendered frame.
+
+    The key comes from above and in front, not from the shadow tests'
+    (0.0, -0.5, 0.85): that direction points *away* from the camera, so it
+    backlights a camera-facing square and leaves it standing in its own
+    shade. Measured there, the fill supplies 98.6% of the square's
+    brightness and `wrapped` is 0.069 -- a surface whose colour barely
+    depends on its normal at all, which is the one thing a normal
+    perturbation cannot be measured on. A caller that *wants* that -- the
+    emissive test, whose whole claim is that the key stops mattering --
+    passes its own `light`."""
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    geometry = _facing_square(z, 1, normal, span=300.0)
+    actor = ActorDraw(0, geometry, (0.0, 0.0, 0.0), 0, (0, 0, 0, 200, 0, 0),
+                      RenderResult([], []), (), materials=table)
+    return _soft_frame_render(gl_ctx, "hard", [actor], plate, light,
+                              shading=shading, realism=realism, palette=palette)
+
+
+def _bump_pair(gl_ctx, name, monkeypatch, **kwargs):
+    """The same material class rendered twice, with its bump off and at its
+    tabled strength. Everything else -- the grain colour multiply, the
+    specular, the rim, the roughness -- is identical between the two
+    frames, so the only thing that can separate them is the relief.
+
+    A fresh MaterialTable for each render: _upload_materials caches on the
+    table object's identity and reads CLASS_PRESETS at upload time, so
+    reusing one table would hand the second frame the first one's
+    parameters."""
+    import dataclasses
+
+    from PyAitD.render import materials
+
+    tabled = materials.CLASS_PRESETS[name]
+
+    def render(bump):
+        monkeypatch.setitem(materials.CLASS_PRESETS, name,
+                            dataclasses.replace(tabled, bump=bump))
+        return _material_square(gl_ctx, _table_of(name), **kwargs)
+
+    return render(0.0), render(tabled.bump)
+
+
+def test_bump_is_relief_not_tint(gl_ctx, monkeypatch):
+    # The grain multiplies the colour, so it changes a surface's mean
+    # brightness. Relief moves light around instead: pixel to pixel it must
+    # differ, but the patch's mean luminance must stay put. Both frames
+    # carry the same grain, so a mean that moved here would be the bump
+    # itself tinting rather than shading.
+    body = (slice(70, 130), slice(120, 200))
+    flat, relief = _bump_pair(gl_ctx, "stone", monkeypatch)
+    flat_patch = flat[body].astype(float)
+    relief_patch = relief[body].astype(float)
+    assert relief_patch.std() > flat_patch.std() + 1.0          # relief varies
+    assert abs(relief_patch.mean() - flat_patch.mean()) < 0.01 * flat_patch.mean()
+
+
+def test_bump_fades_out_with_distance(gl_ctx, monkeypatch):
+    # fwidth of the noise coordinate crosses half a cell as the surface
+    # recedes, and `fade` -- 1 - smoothstep(0.25, 0.5, ...) -- takes the
+    # perturbation to zero before the relief can alias into shimmer.
+    #
+    # A fade is a slope, so this measures three distances and not two: an
+    # assertion that the bump is visible up close would only repeat
+    # test_bump_is_relief_not_tint's first line, on the same class, patch
+    # and z. stone's 50-unit cell puts this fixture's sampling rate at
+    # (z + 1000) / 16000 cells per pixel, so the ramp's knees are z = 3000
+    # (0.25 cells, fade still exactly 1) and z = 7000 (0.5, fade exactly 0),
+    # and the three z below straddle it at 0.10, 0.35 and 0.475 cells.
+    #
+    # One fixed patch at all three: the far square is only ~27 px across, so
+    # a patch that grows with the near one would not be comparable -- and
+    # what is compared is the bump's own contribution, since a lit red
+    # square keeps a patch spread near 79 whatever its normals do.
+    core = (slice(95, 105), slice(155, 165))
+
+    def moved(z):
+        flat, relief = _bump_pair(gl_ctx, "stone", monkeypatch, z=z)
+        return int(np.abs(relief[core].astype(int) - flat[core].astype(int)).max())
+
+    near, mid, far = moved(600.0), moved(4600.0), moved(6600.0)
+    assert near > mid > far           # measured 78, 46 and 3 levels
+    assert far <= 5                   # and all but gone before half a cell
+
+
+def test_bump_ramps_out_where_the_shading_normal_lies_in_its_facet(gl_ctx, monkeypatch):
+    # det is dot(cross(sx, sy), n), so it passes through zero wherever an
+    # authored normal lies in the plane of the facet the pixel covers --
+    # which FITD geometry reaches often (_facing_tri(600, 1, (0, -1, 0)) is
+    # already one) and which a smoothed normal sweeps through continuously.
+    # There `abs(det) * n` vanishes while the height gradient keeps its
+    # magnitude, so the perturbed normal degenerates to +-normalize(grad),
+    # perpendicular to n. A `det != 0.0` test would be a cliff: measured
+    # with one in place, a normal 1e-7 off the plane took the patch's mean
+    # from 85.9 to 43.4 and moved pixels by 186 levels. It has to ramp.
+    #
+    # -tilt, not +tilt: a positive z would trip the `n.z > 0.0` flip above
+    # and confound the measurement with a different normal entirely.
+    body = (slice(70, 130), slice(120, 200))
+
+    def moved(tilt):
+        normal = np.array([0.0, -1.0, -tilt])
+        flat, relief = _bump_pair(gl_ctx, "stone", monkeypatch,
+                                  normal=tuple(normal / np.linalg.norm(normal)))
+        return np.abs(relief[body] - flat[body]).max()
+
+    assert moved(0.0) == 0            # exactly degenerate: no frame to bump against
+    # One ULP off it, one pixel in 14400 moves by one level. At tilt 1e-6
+    # the two frames' float colours differ by far less than a level, so
+    # which of them straddle a rounding boundary depends on the absolute
+    # scale of every *other* term: normalising the specular lobe (task 3)
+    # rescaled stone's highlight by (5.66 + 8) / 8pi and carried exactly
+    # one pixel across one boundary. The cliff this line exists to catch is
+    # the 186 levels above, not that, so the bound carries headroom over
+    # the measured 1 rather than sitting exactly on it: a second term
+    # rescaled the same way would otherwise turn a rounding boundary into a
+    # test failure.
+    assert moved(1e-6) <= 3           # and no cliff one ULP off it
+    assert moved(1e-3) <= 5           # still ramping in
+    assert moved(0.5) > 20            # full strength once the normal has a facet
+
+
+def test_a_streak_material_fades_before_its_cells_go_sub_pixel(gl_ctx, monkeypatch):
+    # Every other bump test here uses stone, whose grain samples the noise
+    # cell itself -- so its fade read correctly even while `fwidth` measured
+    # a coordinate the noise does not sample. streak stretches an axis by 4
+    # and brushed by 6, and the fade has to see that stretch or the relief
+    # keeps running well past Nyquist. wood's 60-unit cell is 0.33 sampled
+    # cells per pixel at z=600 and 0.71 at z=2400: one side of half a cell
+    # and the other.
+    body = (slice(70, 130), slice(120, 200))
+    near_flat, near = _bump_pair(gl_ctx, "wood", monkeypatch, z=600.0)
+    far_flat, far = _bump_pair(gl_ctx, "wood", monkeypatch, z=2400.0)
+    assert np.abs(near[body] - near_flat[body]).max() > 8      # relief, close up
+    # Past half a cell per pixel the fade is exactly 0, so the bump's whole
+    # contribution is the zero vector and both frames take the same path
+    # through the same branch: equality here, not a bound.
+    assert np.array_equal(far, far_flat)
+
+
+def test_lambert_shading_gets_the_bump_too(gl_ctx, monkeypatch):
+    # lambert derives n from gl_FragCoord derivatives; the perturbation is
+    # applied after that choice, so it must reach both paths.
+    flat, relief = _bump_pair(gl_ctx, "stone", monkeypatch, shading="lambert")
+    assert not np.array_equal(flat, relief)
+
+
+# ---- the sss terminator, emissive, and the normalised specular lobe
+# ---- (materials v2, task 3)
+
+
+def _grey_palette():
+    """`_palette()` with index 1 a mid grey instead of a saturated red.
+
+    Two of the three terms below are invisible on that red. SSS_TINT's red
+    channel is exactly 1.0, so a warm terminator multiplies (r, 0, 0) by
+    (1.0, 0.82, 0.74) and changes nothing at all; and a lit red face
+    already reads 255 in the one channel it has, so an emissive surface
+    rendering its raw palette colour cannot be told from a shaded one. A
+    grey carries all three channels and sits below both rails."""
+    palette = _palette()
+    palette[1] = (200, 200, 200)
+    return palette
+
+
+def _swept_normal_quad(z=600.0, color=1, span=300.0, columns=48, arc=85.0):
+    """A camera-facing quad, `columns` strips wide, whose vertex normals
+    turn with x through `arc` degrees either side of the view axis.
+
+    _material_square's flat quad has a single normal, so every fragment on
+    it shares one `wrapped` value and the terminator -- the band where
+    `wrapped` is 0.5 -- is not in the frame at all. Here the normal turns
+    with x, so under _material_sweep's side key `wrapped` is
+    0.5 + 0.5 sin(theta): it runs from ~0 at the left edge, through exactly
+    0.5 at the centre column, to ~1 at the right. The light/shade boundary
+    and both of the sides a terminator term must vanish on are each a
+    column of the image.
+
+    arc < 90, so every normal keeps a negative z and none of them trips the
+    shader's `n.z > 0.0` flip; the sweep is monotone across the face."""
+    xs = np.linspace(-span, span, columns + 1)
+    angles = np.radians(np.linspace(-arc, arc, columns + 1))
+    vertices, normals = [], []
+    for x, theta in zip(xs, angles):
+        vertices += [[x, -span, z], [x, span, z]]
+        normals += [[math.sin(theta), 0.0, -math.cos(theta)]] * 2
+    tris = [t for i in range(columns)
+            for t in ([2 * i, 2 * i + 2, 2 * i + 1], [2 * i + 1, 2 * i + 2, 2 * i + 3])]
+    return BodyGeometry(np.array(vertices, np.float32), np.array(normals, np.float32),
+                        np.array(tris, np.int32), np.full(len(tris), color, np.uint8),
+                        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
+                        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+
+
+# The swept quad projects to rows 40..159, columns 100..219. These are the
+# interior of that: the whole face, then the three columns the terminator
+# claim is about -- the unlit side, the boundary itself and the lit side.
+SWEEP_ROWS = slice(60, 140)
+SWEEP_BODY = (SWEEP_ROWS, slice(102, 218))
+SWEEP_UNLIT, SWEEP_BAND, SWEEP_LIT = slice(102, 110), slice(156, 164), slice(210, 218)
+
+
+def _material_sweep(gl_ctx, table, palette=None, realism="enhanced"):
+    """_swept_normal_quad lit from the side, with `table` as its materials.
+
+    The key is (1, 0, 0), square across the view axis rather than
+    _material_square's above-and-in-front: dot(n, l) is then exactly the
+    normal's x, which puts `wrapped` == 0.5 on the quad's centre column and
+    so on image column 160, and the specular half vector at 45 degrees,
+    which the sweep reaches inside the face."""
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    actor = ActorDraw(0, _swept_normal_quad(), (0.0, 0.0, 0.0), 0, (0, 0, 0, 200, 0, 0),
+                      RenderResult([], []), (), materials=table)
+    return _soft_frame_render(gl_ctx, "hard", [actor], plate, (1.0, 0.0, 0.0),
+                              shading="smooth", realism=realism, palette=palette)
+
+
+def test_skin_warms_at_the_terminator(gl_ctx, monkeypatch):
+    # The sss tint peaks where wrapped is 0.5 -- the light/shade boundary --
+    # and vanishes on both the fully lit and the fully unlit side, which is
+    # what makes it a terminator rather than a flat tint. A flat tint would
+    # read the same excess in all three columns below.
+    #
+    # Measured as R/G on a grey quad: SSS_TINT is (1.0, 0.82, 0.74), so the
+    # term takes green and blue away and leaves red exactly alone, and a
+    # rising ratio is the tint and nothing else.
+    #
+    # Against skin with its own sss at zero rather than against matte: skin
+    # carries a grain, a bump and a rim that matte does not, and all three
+    # are identical between these two frames (sss does not touch the
+    # normal). A fresh MaterialTable per render, per _upload_materials.
+    import dataclasses
+
+    from PyAitD.render import materials
+
+    tabled = materials.CLASS_PRESETS["skin"]
+
+    def render(sss):
+        monkeypatch.setitem(materials.CLASS_PRESETS, "skin",
+                            dataclasses.replace(tabled, sss=sss))
+        return _material_sweep(gl_ctx, _table_of("skin"), _grey_palette())
+
+    off, on = render(0.0), render(tabled.sss)
+
+    def excess(cols):
+        def redness(img):
+            patch = img[SWEEP_ROWS, cols].astype(float)
+            return patch[..., 0].mean() / patch[..., 1].mean()
+        return redness(on) - redness(off)
+
+    band, unlit, lit = excess(SWEEP_BAND), excess(SWEEP_UNLIT), excess(SWEEP_LIT)
+    # 1/0.82 - 1 = 0.22 is the whole tint; measured 0.218 at the boundary.
+    assert band > 0.15
+    # 4w(1-w) is not one number over these columns: across each 8-column
+    # band it runs from 0.02 at the outer edge to 0.10 at the inner one
+    # (mean 0.057), so what they can carry is a few per cent of the band's
+    # tint. Measured 0.016 unlit and 0.013 lit against 0.218 at the
+    # boundary -- 7.4% and 6.0% -- so the 6x bound has room to spare.
+    assert band > 6 * max(unlit, lit)
+    # Warm, not merely dark: measured 0 levels of movement in red against
+    # 21 in green.
+    assert np.abs(on[..., 0] - off[..., 0]).max() <= 1
+
+
+# A key that is neither straight down the view axis nor across it: the
+# receiver's own `wrapped` is 0.85 under it, so 4w(1-w) is 0.50 -- half the
+# full terminator tint, everywhere on the receiver at once -- and an
+# occluder placed between it and the key throws a shadow the receiver
+# catches. (The same light and the same receiver as
+# test_an_occluder_shadows_the_key_share_of_a_receiver_only_under_soft; the
+# occluder is wider, for the reason `_wide_occluder` gives.)
+SHADOW_KEY = (0.5, -0.5, -0.7)
+# Inside the umbra: solid, measured, and 40+ px clear of the penumbra the
+# soft pass spreads around the occluder's outline.
+UMBRA = (slice(84, 94), slice(109, 119))
+
+
+def _wide_occluder():
+    """A triangle between SHADOW_KEY and the receiver, wide enough that the
+    umbra it casts is a region rather than the couple of pixels a small
+    caster leaves once the four-tap PCF has spread its edge."""
+    v = np.array([[-140.0, -460.0, 300.0], [340.0, -460.0, 300.0], [-140.0, 60.0, 300.0]], np.float32)
+    return BodyGeometry(v, np.tile([0.0, 0.0, -1.0], (3, 1)).astype(np.float32),
+                        np.array([[0, 1, 2]], np.int32), np.array([1], np.uint8),
+                        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
+                        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+
+
+def test_a_key_shadowed_face_takes_no_warm_terminator(gl_ctx, monkeypatch):
+    # `wrapped` is the *geometric* half-Lambert wrap and the shadow map does
+    # not touch it, so before the sss factor was multiplied by `vis` a face
+    # standing fully inside another actor's key shadow still took the whole
+    # warm tint -- a lit terminator painted across an unlit face. Subsurface
+    # scattering is key light that entered the surface; where the shadow map
+    # says no key arrives, there is nothing to scatter.
+    #
+    # The same patch of the same receiver is measured twice, once with the
+    # occluder and once without, so nothing but `vis` differs between the
+    # two claims: identical normals, identical `wrapped`, identical grain
+    # and bump (sss does not touch the normal), identical everything the
+    # skin preset carries. As in test_skin_warms_at_the_terminator the
+    # measurement is R/G on a grey quad, since SSS_TINT's red channel is
+    # exactly 1.0 and the term can only take green and blue away.
+    #
+    # Deep in the umbra all four shadow taps read 0, so `vis` is exactly 0,
+    # the mix factor is exactly 0 and mix(a, b, 0) is exactly a -- which
+    # makes the shadowed half an equality rather than a bound.
+    import dataclasses
+
+    from PyAitD.render import materials
+
+    tabled = materials.CLASS_PRESETS["skin"]
+    plate = np.full((200, 320, 3), 200, np.uint8)
+
+    def render(sss, occluded):
+        monkeypatch.setitem(materials.CLASS_PRESETS, "skin",
+                            dataclasses.replace(tabled, sss=sss))
+        receiver = ActorDraw(0, _facing_tri(600.0, 1, (0.0, 0.0, -1.0)), (0.0, 0.0, 0.0), 0,
+                             (0, 0, 200, 400, 0, 0), RenderResult([], []), (), _table_of("skin"))
+        actors = [receiver] + ([_standing_actor(1, _wide_occluder(), 400.0)] if occluded else [])
+        return _soft_frame_render(gl_ctx, "soft", actors, plate, SHADOW_KEY,
+                                  shading="smooth", realism="enhanced", palette=_grey_palette())
+
+    def warmth(occluded):
+        off, on = render(0.0, occluded), render(tabled.sss, occluded)
+
+        def redness(img):
+            patch = img[UMBRA].astype(float)
+            return patch[..., 0].mean() / patch[..., 1].mean()
+
+        return redness(on) - redness(off), np.array_equal(on[UMBRA], off[UMBRA])
+
+    lit_excess, lit_identical = warmth(occluded=False)
+    shadowed_excess, shadowed_identical = warmth(occluded=True)
+    # The control: unoccluded, this patch takes a real terminator tint --
+    # measured 0.093 of excess redness, and 22 levels of movement.
+    assert lit_excess > 0.05 and not lit_identical
+    # The claim: shadowed, the same patch is no warmer than it is with skin's
+    # own sss at zero. Measured exactly equal, not merely no warmer.
+    assert shadowed_excess <= 0.001
+    assert shadowed_identical
+
+
+def test_classic_renders_every_material_class_like_matte(gl_ctx):
+    # Every class in CLASS_PRESETS, rather than the one or two a per-term
+    # test happens to name: under realism=classic each preset strength is 0
+    # and every term the table drives collapses to exactly 1.0 or 0.0 by
+    # construction, so no class can move a pixel. The swept-normal quad
+    # reaches the whole table at once -- its normals run `wrapped` from 0
+    # through the terminator to 1 (sss), turn away from the view axis (rim),
+    # sweep through the specular half vector (spec, roughness, metallic) and
+    # give the bump a non-degenerate facet (bump, detail, detail_scale) --
+    # and `emissive`, the one term that can replace a fragment's colour
+    # outright, is in the loop with the rest.
+    from PyAitD.render.materials import CLASS_PRESETS
+
+    palette = _grey_palette()
+
+    def sweep(name, realism):
+        return _material_sweep(gl_ctx, _table_of(name), palette, realism=realism)
+
+    matte = sweep("matte", "classic")
+    for name in CLASS_PRESETS:
+        assert np.array_equal(sweep(name, "classic"), matte), \
+            f"{name} moved a pixel under realism=classic"
+    # The control, or the loop above would pass just as well on a fixture
+    # that cannot see a material at all: under enhanced every class that is
+    # not matte renders differently from matte on this same quad.
+    enhanced = sweep("matte", "enhanced")
+    for name in CLASS_PRESETS:
+        if name != "matte":
+            assert not np.array_equal(sweep(name, "enhanced"), enhanced), \
+                f"{name} is indistinguishable from matte under realism=enhanced"
+
+
+def test_an_emissive_surface_renders_its_palette_colour(gl_ctx):
+    # Ramp 14 is a flame: it must not go dark when the key turns away. The
+    # claim is stronger than invariance -- the fragment *is* its raw
+    # palette colour, since preset_c.z * m2.z is exactly 1.0 and
+    # mix(x, y, 1) is exactly y -- so it is asserted as the colour itself
+    # and not merely as two frames that agree.
+    #
+    # A grey palette entry, because a lit red square reads 255 in its one
+    # channel whether or not the term exists.
+    body = (slice(70, 130), slice(120, 200))
+    away = (0.0, -0.5, 0.85)          # behind the square: it stands in its own shade
+
+    def square(name, light):
+        return _material_square(gl_ctx, _table_of(name), palette=_grey_palette(), light=light)
+
+    lit, unlit = square("emissive", KEY_FROM_ABOVE), square("emissive", away)
+    assert (lit[body] == 200).all() and (unlit[body] == 200).all()
+    # The control: the same two lights on a matte square are not the same
+    # frame at all, so the invariance above is the term and not the fixture.
+    matte_lit, matte_unlit = square("matte", KEY_FROM_ABOVE), square("matte", away)
+    assert np.abs(matte_lit[body] - matte_unlit[body]).max() > 20
+
+
+def test_a_tight_highlight_peaks_brighter_than_a_broad_one(gl_ctx, monkeypatch):
+    # Blinn-Phong without its (gloss + 8) / 8pi normalisation spreads a
+    # low-roughness lobe so thin it reads no brighter than a broad one,
+    # which is backwards: the same energy in a smaller cone must be
+    # brighter. Both halves are asserted -- the tight lobe peaks higher
+    # *and* covers fewer columns -- because a peak that rose while the lobe
+    # widened would be a brightness change, not a normalisation.
+    from PyAitD.render import materials
+    from PyAitD.render.materials import DETAIL_NONE, Material
+
+    def lobe(roughness):
+        # specular 0.05, not the tabled 0.8. The factor spans
+        # (512 + 8) / 8pi = 20.7 against (8 + 8) / 8pi = 0.64, a ratio of
+        # 32, and at any strength that leaves the broad lobe readable in 8
+        # bits the tight one clips at 255 and stops being a measurement.
+        monkeypatch.setitem(materials.CLASS_PRESETS, "matte",
+                            Material(roughness, 0.05, 0.0, 0.0, 0.0, 1.0, DETAIL_NONE))
+        # Green on the red quad is the specular and nothing else: base is
+        # v_color * (...) and v_color's green is 0, metallic and rim are 0
+        # here, and the grain multiplies a base that is already 0.
+        green = _material_sweep(gl_ctx, _table_of("matte"))[SWEEP_BODY][..., 1]
+        peak = int(green.max())
+        return peak, int((green.max(axis=0) > peak / 2).sum())
+
+    tight_peak, tight_width = lobe(0.2)      # gloss 512
+    broad_peak, broad_width = lobe(0.8)      # gloss 8
+    assert tight_peak > 4 * broad_peak       # measured 196 against 6
+    assert tight_width < broad_width         # measured 4 columns against 30

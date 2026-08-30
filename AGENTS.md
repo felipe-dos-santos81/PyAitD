@@ -161,7 +161,18 @@ a rule — add the test with the rule.
   `lighting.light_view_matrix` is *not* a twin: it is the shadow-map
   projection itself, called straight from `render_gl._render_shadow_map`
   with no GL copy to keep in step, so editing it moves shipped pixels
-  rather than a test oracle.
+  rather than a test oracle. `materials` owns the twelve per-index shader
+  parameters (`Material`'s ten fields plus two padding floats,
+  `PARAMETER_COUNT`, uploaded as a 256x3 RGBA texture) and the two realism
+  presets; `preset_c` is the `(bump, sss, emissive)` half of the
+  classic/enhanced switch, and `classic` being all zeros is what makes
+  every material term collapse to the pre-materials expression byte for
+  byte — so a term must be written `1 + strength * ...` or
+  `mix(x, y, strength)`, never a form that only *probably* reduces at
+  zero. Tuning `CLASS_PRESETS` changes how a class looks; changing which
+  palette index *is* that class means `materials.json` and
+  `tests/test_bootstrap_materials.py`'s `REVIEWED_RAMPS`, which is a
+  reviewed, human decision (`docs/materials-v2-proof.md`).
 - The UI layer is painted through `app.ui.UIPainter`, which owns a surface at
   `(320*s, 200*s)` and scales logical coordinates on every call. Presenters
   author in logical 320x200 and never build their own surface; `s` comes from

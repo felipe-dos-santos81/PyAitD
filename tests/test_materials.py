@@ -98,3 +98,61 @@ def test_classic_preset_is_all_zeros_and_enhanced_is_not():
     enhanced = PRESETS["enhanced"]
     assert all(0 < v <= 1 for v in (enhanced.spec, enhanced.rim, enhanced.ao,
                                     enhanced.contact, enhanced.detail, enhanced.hemisphere))
+
+
+def test_the_three_new_fields_default_to_zero_and_validate():
+    from PyAitD.render.materials import Material
+    m = Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0)
+    assert (m.bump, m.sss, m.emissive) == (0.0, 0.0, 0.0)
+    for field in ("bump", "sss", "emissive"):
+        with pytest.raises(ValueError, match=field):
+            Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0, **{field: 1.5})
+        with pytest.raises(ValueError, match=field):
+            Material(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0, **{field: -0.1})
+
+
+def test_parameters_are_twelve_wide_and_in_range():
+    from PyAitD.render.materials import PARAMETER_COUNT, default_table
+    assert PARAMETER_COUNT == 12
+    params = default_table().parameters()
+    assert params.shape == (256, 12)
+    assert params.dtype == np.float32
+    # every field is 0..1 except detail_scale (FITD units) and detail_kind
+    scaleless = np.delete(params, [5, 6], axis=1)
+    assert scaleless.min() >= 0.0 and scaleless.max() <= 1.0
+    assert (params[:, 5] > 0.0).all()
+
+
+def test_classic_zeroes_every_preset_field_including_the_new_ones():
+    from PyAitD.render.materials import PRESETS
+    classic = PRESETS["classic"]
+    assert (classic.spec, classic.rim, classic.ao) == (0.0, 0.0, 0.0)
+    assert (classic.contact, classic.detail, classic.hemisphere) == (0.0, 0.0, 0.0)
+    assert (classic.bump, classic.sss, classic.emissive) == (0.0, 0.0, 0.0)
+
+
+# ---- the retune (materials v2, task 5)
+
+
+def test_every_class_keeps_its_parameters_in_range_after_the_retune():
+    # The retune moved every specular value and three detail_scales at
+    # once. `Material.__post_init__` only guards bump/sss/emissive and the
+    # positive detail_scale, so a fat-fingered specular of 1.5 or a
+    # negative rim would ship: the shader multiplies each of these by a
+    # preset strength and a lighting term, and outside 0..1 they stop
+    # being a fraction of anything.
+    for name, material in CLASS_PRESETS.items():
+        for field in ("roughness", "specular", "metallic", "rim", "detail", "bump", "sss", "emissive"):
+            value = getattr(material, field)
+            assert 0.0 <= value <= 1.0, f"{name}.{field} = {value}"
+        assert material.detail_scale > 0.0, name
+
+
+def test_only_emissive_emits():
+    # `emissive` replaces a fragment's whole colour -- mix(shaded, v_color,
+    # preset_c.z * m2.z) is exactly v_color at 1.0 -- so it is the one
+    # parameter a stray non-zero would take a body completely out of the
+    # lighting. Ramp 14's flames are the only thing in the reviewed table
+    # that asked for it.
+    emitting = {n for n, m in CLASS_PRESETS.items() if m.emissive > 0.0}
+    assert emitting == {"emissive"}

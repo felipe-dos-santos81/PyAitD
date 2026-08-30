@@ -308,3 +308,39 @@ def test_label_stage_writes_vision_classes_back(tmp_path, monkeypatch):
     assert bm.main(["unused", "label", "--out", str(tmp_path)]) == 0
     out = json.loads((tmp_path / "survey.json").read_text())
     assert out["ramps"][0]["vision_class"] == "stone"
+
+
+# The 23 ramps any body actually uses, hand-reviewed against the sheets in
+# data/aitd1/materials-survey/sheets/ -- see docs/materials-v2-proof.md for
+# the decisions. This is the only in-repo record: the survey holding the
+# hand labels is git-ignored, so a re-emit that silently dropped a label
+# back to its stale vision_class or heuristic guess would otherwise be
+# invisible until someone re-reviewed the renders by eye.
+REVIEWED_RAMPS = {
+    (0, 1): "matte", (2, 3): "metal", (14, 14): "emissive",
+    (15, 31): "skin", (32, 47): "skin", (48, 63): "matte",
+    (64, 68): "stone", (69, 74): "leather", (75, 79): "cloth",
+    (80, 95): "matte", (96, 107): "cloth", (108, 111): "cloth",
+    (112, 127): "skin", (128, 143): "leather", (144, 159): "skin",
+    (160, 175): "cloth", (176, 191): "metal", (192, 197): "cloth",
+    (198, 201): "wood", (202, 204): "metal", (205, 207): "wood",
+    (208, 217): "cloth", (218, 223): "cloth",
+}
+
+
+def test_the_committed_table_matches_the_reviewed_survey():
+    """`check` is the gate that stops materials.json drifting from the
+    survey it was emitted from at bootstrap time -- this test is what
+    stops it drifting afterward, since nothing else in the repo re-derives
+    the survey. A class assertion is not enough: the table already
+    contained skin/wood/emissive/metal *before* the review (from an
+    earlier vision pass), so this pins the actual per-ramp mapping the
+    review decided, not just which class names appear somewhere in it."""
+    from PyAitD.render.materials import default_table
+    classes = default_table().classes
+    for (lo, hi), expected in REVIEWED_RAMPS.items():
+        for index in range(lo, hi + 1):
+            assert classes[index] == expected, (
+                f"palette index {index} (ramp {lo}-{hi}): "
+                f"expected reviewed class {expected!r}, got {classes[index]!r}"
+            )

@@ -37,15 +37,19 @@ uniform mat4 mvp; uniform mat3 rot;
 // pushed along its world normal, so a surface never shadows itself at
 // its own depth. Unread under shadows=hard (light_vp stays zero).
 uniform mat4 light_vp; uniform float normal_offset;
+// Camera-space position, for the fragment shader's screen-space
+// derivatives. A direction would not do: bump needs dP/dx and dP/dy.
+uniform mat4 view;
 in vec3 in_pos; in vec3 in_normal; in vec3 in_color; in vec3 in_rest; in float in_ao; in float in_index;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
-out vec4 v_shadow;
+out vec4 v_shadow; out vec3 v_view;
 void main() {
     gl_Position = mvp * vec4(in_pos, 1.0);
     v_color = in_color; v_normal = rot * in_normal;
     v_rest = in_rest; v_ao = in_ao; v_index = in_index;
     v_world_y = in_pos.y;   // in_pos is already world space: the actor position was added on the CPU
     v_shadow = light_vp * vec4(in_pos + in_normal * normal_offset, 1.0);
+    v_view = (view * vec4(in_pos, 1.0)).xyz;
 }
 """
 ACTOR_FSH = """
@@ -57,22 +61,28 @@ uniform int shading; uniform int lighting;
 // ambient, an absolute reflectance. Same room, two different quantities.
 uniform vec3 light; uniform vec3 key_tint; uniform vec3 fill_tint;
 uniform sampler2D mask_tex; uniform vec2 target_size;
-// Materials (scene lighting only). material_tex is 256x2 RGBA32F: row 0 is
+// Materials (scene lighting only). material_tex is 256x3 RGBA32F: row 0 is
 // (roughness, specular, metallic, rim), row 1 (detail, detail_scale,
-// detail_kind, 0) for the palette index in v_index. preset_a/preset_b are
-// the RealismPreset strengths (spec, rim, ao) and (contact, detail,
-// hemisphere); under realism=classic all six are 0 and every term below
-// is exactly 1.0 or 0.0, leaving `base` untouched.
+// detail_kind, 0), row 2 (bump, sss, emissive, 0) for the palette index in
+// v_index. preset_a/preset_b/preset_c are the RealismPreset strengths
+// (spec, rim, ao), (contact, detail, hemisphere) and (bump, sss, emissive);
+// under realism=classic all nine are 0 and every term below is exactly 1.0
+// or 0.0, leaving `base` untouched.
 uniform sampler2D material_tex;
-uniform vec3 preset_a; uniform vec3 preset_b;
+uniform vec3 preset_a; uniform vec3 preset_b; uniform vec3 preset_c;
 uniform float plane_y; uniform float contact_height;
 // The light-view depth map (shadows=soft): hardware-compared, bilinear.
 // self_shadow gates the lookup; depth_bias is in map depth units, from
 // SHADOW_BIAS_UNITS over the map's extent along the light.
 uniform sampler2DShadow shadow_map; uniform int self_shadow; uniform float depth_bias;
 in vec3 v_color; in vec3 v_normal; in vec3 v_rest; in float v_ao; flat in float v_index; in float v_world_y;
-in vec4 v_shadow;
+in vec4 v_shadow; in vec3 v_view;
 out vec4 f_color;
+
+// Warm blood under thin skin: the tint the terminator picks up. One
+// constant, not a material field -- the hue is a property of people, not
+// of this palette index.
+const vec3 SSS_TINT = vec3(1.0, 0.82, 0.74);
 
 float hash3(vec3 p) {
     p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
@@ -87,11 +97,21 @@ float value_noise(vec3 p) {   // -1..1, C1 continuous
                       mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
     return n * 2.0 - 1.0;
 }
+// The per-kind stretch of the noise coordinate, split out of detail_noise
+// so that the bump's fade can take fwidth of the coordinate the noise
+// really samples. Streak and brushed stretch an axis by 4 and by 6, and a
+// fwidth measured on the unstretched cell misses that by the same factor:
+// brushed metal ran at 2.4x Nyquist at z=600 with the fade still reading
+// 1.0, which is exactly the shimmer the fade exists to stop.
+vec3 noise_coord(vec3 p, int kind) {
+    if (kind == 3) return vec3(p.x * 4.0, p.y * 0.25, p.z * 4.0);   // streak along y, the limb axis
+    if (kind == 4) return vec3(p.x * 0.25, p.y * 6.0, p.z * 0.25);  // brushed across it
+    return p;                                                       // grain and weave sample the cell itself
+}
+// `p` has already been through noise_coord.
 float detail_noise(vec3 p, int kind) {
-    if (kind == 1) return value_noise(p);                                                        // grain
     if (kind == 2) return sin(p.x * 6.2832) * sin(p.z * 6.2832) * (0.5 + 0.5 * value_noise(p));  // weave
-    if (kind == 3) return value_noise(vec3(p.x * 4.0, p.y * 0.25, p.z * 4.0));                   // streak along y, the limb axis
-    if (kind == 4) return value_noise(vec3(p.x * 0.25, p.y * 6.0, p.z * 0.25));                  // brushed across it
+    if (kind == 1 || kind == 3 || kind == 4) return value_noise(p);                              // grain, streak, brushed
     return 0.0;
 }
 
@@ -124,6 +144,76 @@ void main() {
     // which is what removes the winding dependence FITD geometry cannot
     // provide. Deleting the flip inverts every lambert normal.
     if (n.z > 0.0) n = -n;
+
+    int index = int(v_index + 0.5);
+    vec4 m0 = texelFetch(material_tex, ivec2(index, 0), 0);
+    vec4 m1 = texelFetch(material_tex, ivec2(index, 1), 0);
+    // Mikkelsen's unparametrized bump: perturb the normal by the screen-space
+    // gradient of a height field, using derivatives of the camera-space
+    // position instead of a tangent frame. FITD bodies carry no UVs and no
+    // tangents, so this is the only bump that is available at all.
+    //
+    // Every derivative this bump needs is taken here, at top level -- but
+    // the rule is narrower than "at top level". dFdx/dFdy/fwidth are
+    // undefined inside *non-uniform* control flow only, and the one branch
+    // below tests preset_c.x, a uniform, so the whole block would be legal
+    // inside it. What genuinely has to stay out here is `nc`, `dn` and
+    // `relief`: the grain colour multiply at the end of main reads `dn`
+    // unconditionally. Everything after them -- sx, sy, r1, r2, det, dh,
+    // grad, fw, fade, ref, k, surf_grad -- feeds the guarded assignment
+    // and nothing else, so sinking it into the branch is a legitimate
+    // optimisation, not a correctness bug; this comment does not forbid
+    // it. The branch itself is what keeps realism=classic byte-exact:
+    // unguarded, the line would still evaluate normalize(n) with a zero
+    // perturbation, which is n mathematically but not bit-for-bit.
+    // (`relief` is the height field; the half vector below is already
+    // called `h`.)
+    vec4 m2 = texelFetch(material_tex, ivec2(index, 2), 0);
+    // One coordinate, one sample, read by all three consumers: the height
+    // here, the fade below and the surviving grain colour multiply at the
+    // end of main. Written once so the fade can never drift out of step
+    // with what the noise samples again.
+    int kind = int(m1.z + 0.5);
+    vec3 nc = noise_coord(v_rest / m1.y, kind);
+    float dn = detail_noise(nc, kind);
+    // The height is a *length*, in the same units as v_view -- Mikkelsen's
+    // formula divides the height gradient by the position gradient, so a
+    // height that did not scale with the geometry would give a slope of
+    // detail/1_unit and vanish on FITD's hundreds-of-units bodies. One
+    // detail_scale is one noise cell, so `detail * detail_scale` makes a
+    // material's relief slope simply `detail` times the noise's own
+    // gradient, at whatever size the body is modelled.
+    float relief = m1.x * m1.y * dn;
+    vec3 sx = dFdx(v_view), sy = dFdy(v_view);
+    vec3 r1 = cross(sy, n), r2 = cross(n, sx);
+    float det = dot(sx, r1);
+    vec2 dh = vec2(dFdx(relief), dFdy(relief));
+    vec3 grad = sign(det) * (dh.x * r1 + dh.y * r2);
+    // One noise cell shrinking toward half a pixel is relief the frame
+    // cannot resolve; fading it out there is what stops a hero shimmering
+    // as he walks away.
+    vec3 fw = fwidth(nc);
+    float fade = 1.0 - smoothstep(0.25, 0.5, max(fw.x, max(fw.y, fw.z)));
+    // det is dot(cross(sx, sy), n), so abs(det) / length(cross(sx, sy)) is
+    // |cos| of the angle between the shading normal and the facet the pixel
+    // actually covers: 1 where they agree, 0 where the normal has fallen
+    // into the screen-space tangent plane. FITD reaches that whenever an
+    // authored normal disagrees with its facet, and a smoothed normal
+    // sweeps through it continuously -- so the degeneracy is a band, not a
+    // point, and a `det != 0.0` test would be a cliff with the bump at full
+    // wrong strength one ULP off the line. Ramp it out instead.
+    float ref = length(cross(sx, sy));
+    float k = smoothstep(0.0, 0.25, abs(det) / max(ref, 1e-20));
+    // Mikkelsen's line divided through by abs(det): the surface gradient,
+    // which is the quantity that actually tilts the normal. Dividing is
+    // what makes the exactly-degenerate frame a limit -- `n` keeps its
+    // unit coefficient as k reaches 0, where the undivided form would
+    // shrink to normalize(0).
+    vec3 surf_grad = grad / max(abs(det), 1e-20);
+    if (preset_c.x > 0.0) {
+        n = normalize(n - k * preset_c.x * m2.x * fade * surf_grad);
+    }
+
     float vis = 1.0;
     if (self_shadow == 1) {
         // How much of the key reaches this fragment: a slope-scaled bias in
@@ -146,10 +236,23 @@ void main() {
     // The key's share is what a shadow removes; the fill's share stays, so
     // a shadowed limb falls to the room's fill colour and never to black.
     vec3 base = v_color * (fill_tint + key_tint * wrapped * wrapped * vis);
+    // Peaks at the light/shade boundary (wrapped 0.5, where 4x(1-x) is 1)
+    // and vanishes on both the fully lit and the fully unlit side.
+    //
+    // Gated by `vis`, like the key's own share in `base`: subsurface
+    // scattering is key light that entered the surface, so where the
+    // shadow map says no key arrives there is nothing to scatter, and a
+    // warm terminator across a face standing in another actor's shadow is
+    // backwards. `wrapped` is the *geometric* wrap and shadowing does not
+    // touch it, so without this factor a fully key-shadowed skin fragment
+    // still took the full tint. (`rim` has the same gap and keeps it: it
+    // predates this term and is out of scope here.)
+    //
+    // Under classic preset_c.y is 0, mix(a, b, 0) is exactly a, and base
+    // is untouched whatever `vis` is; under shadows=hard `vis` is exactly
+    // 1.0, so this is the same expression it was.
+    base *= mix(vec3(1.0), SSS_TINT, preset_c.y * m2.y * vis * 4.0 * wrapped * (1.0 - wrapped));
 
-    int index = int(v_index + 0.5);
-    vec4 m0 = texelFetch(material_tex, ivec2(index, 0), 0);
-    vec4 m1 = texelFetch(material_tex, ivec2(index, 1), 0);
     vec3 view = vec3(0.0, 0.0, -1.0);                 // from the surface toward the viewer
     vec3 h = normalize(l + view);
     // Camera-space y grows downward, so "up" (the sky half of the
@@ -167,10 +270,19 @@ void main() {
     float contact = 1.0 - preset_b.x * 0.5 * (1.0 - height);
     float occl = mix(1.0, v_ao, preset_a.z) * contact;
     float gloss = exp2(1.0 + 10.0 * (1.0 - m0.x));
-    vec3 spec = key_tint * mix(vec3(1.0), v_color, m0.z) * pow(max(dot(n, h), 0.0), gloss) * m0.y * preset_a.x * vis;
+    // Blinn-Phong's lobe integrates to less as it tightens, so without
+    // (gloss + 8) / 8pi a polished metal reads *dimmer* than a rough one.
+    // preset_a.x already zeroes the whole term under classic.
+    vec3 spec = key_tint * mix(vec3(1.0), v_color, m0.z) * pow(max(dot(n, h), 0.0), gloss)
+              * ((gloss + 8.0) / (8.0 * 3.14159265)) * m0.y * preset_a.x * vis;
     vec3 rim = key_tint * pow(1.0 - max(dot(n, view), 0.0), 3.0) * m0.w * preset_a.y;
-    float grain = 1.0 + preset_b.y * m1.x * detail_noise(v_rest / m1.y, int(m1.z + 0.5));
-    f_color = vec4(base * (grain * hemi * occl) + spec + rim, 1.0);
+    float grain = 1.0 + preset_b.y * m1.x * dn;
+    vec3 shaded = base * (grain * hemi * occl) + spec + rim;
+    // mix(x, y, 0) is x*(1-0) + y*0 -- exactly x -- so classic is untouched
+    // by construction. That is `a` on the nose 0.0, not the general mix
+    // the hemisphere comment above warns about; it is the same identity
+    // `occl`'s mix(1.0, v_ao, preset_a.z) has always rested on.
+    f_color = vec4(mix(shaded, v_color, preset_c.z * m2.z), 1.0);
 }
 """
 TESS_VSH = """
@@ -181,6 +293,9 @@ TESS_VSH = """
 // refine.evaluate is the numpy twin the parity test pins this against.
 uniform mat4 mvp; uniform mat3 rot;
 uniform mat4 light_vp; uniform float normal_offset;
+// Camera-space position, for the fragment shader's screen-space
+// derivatives. A direction would not do: bump needs dP/dx and dP/dy.
+uniform mat4 view;
 // project == 1 is the shadow mode: the evaluated point slides along
 // `travel` onto the plane y == plane_y before mvp -- lighting.project_to_plane's
 // math for an ALREADY-CLAMPED travel. This shader does no clamping itself:
@@ -201,6 +316,7 @@ in vec4 in_p1; in vec4 in_n1; in vec4 in_c1; in vec3 in_r1;
 in vec4 in_p2; in vec4 in_n2; in vec4 in_c2; in vec3 in_r2;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
 out vec3 v_world;   // the evaluated world position: read back by transform feedback in tests, unused by the fragment shader
+out vec3 v_view;
 out float v_penumbra;
 out vec4 v_shadow;
 
@@ -248,6 +364,7 @@ void main() {
     }
     gl_Position = mvp * vec4(pos, 1.0);
     v_world = pos;
+    v_view = (view * vec4(pos, 1.0)).xyz;
     // the three corners carry the triangle's one colour; blending them keeps
     // every instance attribute referenced, so no driver's linker drops one
     v_color = in_c0.xyz * u + in_c1.xyz * v + in_c2.xyz * w; v_index = in_c0.w;
@@ -261,11 +378,12 @@ SCREEN_VSH = """
 #version 330
 in vec3 in_ndc; in vec3 in_color;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
-out vec4 v_shadow;
+out vec4 v_shadow; out vec3 v_view;
 void main() {
     gl_Position = vec4(in_ndc, 1.0); v_color = in_color; v_normal = vec3(0.0, 0.0, 1.0);
     v_rest = vec3(0.0); v_ao = 1.0; v_index = 0.0; v_world_y = 0.0;
     v_shadow = vec4(0.0);   // lines and points never reach the term
+    v_view = vec3(0.0);     // nor the derivative bump
 }
 """
 STENCIL_VSH = """

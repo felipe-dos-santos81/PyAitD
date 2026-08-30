@@ -88,6 +88,17 @@ depends on the actor's proximity.
    a different noise-field point at `smoothing=2` than at `smoothing=0`,
    at the same screen pixel. This term is gated by `preset_b.y`, which is
    zero under `realism=classic` and nonzero under `realism=enhanced`.
+
+   **Stale as written, twice over, and left as written because the
+   conclusion does not depend on it** (see the note under the table
+   below). The call is now
+   `detail_noise(noise_coord(v_rest / m1.y, kind), kind)` — the materials
+   v2 branch split the per-kind stretch of the coordinate out into
+   `noise_coord` so the bump's distance fade could take `fwidth` of the
+   coordinate the noise really samples — and `grain` is no longer the only
+   enhanced-only effect that reads `v_rest`. The derivative bump reads the
+   same sample as a height field, and its relief is plausibly the larger of
+   the two.
 2. The two render paths shade with different normals entirely, independent
    of realism. The legacy path's `_triangle_data` shades with
    `geometry.normals[idx]` -- plain per-vertex normals from
@@ -120,6 +131,18 @@ crops, same two smoothing levels, `realism="classic"` this time):
 | Barrels | 713 / 16,150 (4.4%) | 712 / 16,150 (4.4%) |
 | Chair | 39 / 32,250 (0.1%) | 39 / 32,250 (0.1%) |
 | Whole frame | 63,031 / 1,024,000 (6.16%) | 60,991 / 1,024,000 (5.96%) |
+
+**These numbers predate the derivative bump.** They were measured before
+the materials v2 branch turned the same `v_rest` noise sample into a
+height field, so the **enhanced** column above no longer describes what
+`realism=enhanced` renders: there are now two `v_rest`-dependent
+enhanced-only effects rather than one, and relief is plausibly the larger.
+The **classic** column is unaffected — `preset_b.y` and `preset_c.x` are
+both zero under `classic`, so neither grain nor bump exists there — and
+the classic column is the whole of the argument below. The conclusion
+therefore stands unchanged, and it would stand had the enhanced column
+grown: what it rests on is that the *classic* diff is already almost the
+whole diff.
 
 Every crop's classic-realism diff is within a few percentage points of its
 enhanced-realism diff, and the whole-frame count drops by only 2,040 pixels
@@ -170,13 +193,18 @@ shadow.
   `corner_normals`, while the legacy path shades with plain, face-averaging
   `geometry.normals` -- so a faceted body's corners go from Gouraud-smoothed
   to flat the moment `smoothing` turns on, independent of realism. Under
-  `realism=enhanced` a second, smaller effect stacks on top: the `grain`
-  material term samples the interpolated rest-pose position, which PN
-  sub-triangles interpolate differently from the flat parent triangle.
-  Measured on the attic fixture's wardrobe, stool, lantern, rocking horse
-  and window frame (see "`make proof-graphics`" above, including the
-  classic-vs-enhanced measurement that separates the two); neither is a
-  shape change.
+  `realism=enhanced` further effects stack on top, all of them driven by
+  the same thing: the material terms that sample the interpolated rest-pose
+  position, which PN sub-triangles interpolate differently from the flat
+  parent triangle. When this was written that was the `grain` colour
+  multiply alone; since the materials v2 branch the derivative bump reads
+  the same sample as a height field, so there are two, and the relief is
+  plausibly the larger. Measured on the attic fixture's wardrobe, stool,
+  lantern, rocking horse and window frame (see "`make proof-graphics`"
+  above, including the classic-vs-enhanced measurement that separates the
+  realism-gated effects from the normals) — those enhanced-column
+  measurements predate the bump, but the classic column that carries the
+  argument does not depend on it. None of these is a shape change.
 
 ## Manual attestation
 
