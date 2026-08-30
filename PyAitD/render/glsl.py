@@ -511,9 +511,15 @@ uniform float cell;        // one plate pixel, in target pixels
 uniform int pixelate;      // 1 under `nearest`: fetch per plate cell
 uniform vec3 plate_black;   // the room's floor, 0..1 linear RGB
 uniform vec3 plate_white;   // the room's ceiling
-uniform float plate_grain;  // RMS luma residual of the plate's own dither, as
-                            // *displayed*: estimate_plate's source-resolution
-                            // measurement times plate.grain_retention
+uniform float plate_grain;  // RMS luma residual of the plate's own dither, at
+                            // the plate's own resolution -- estimate_plate's
+                            // measurement, uncorrected. `dither` below
+                            // reproduces the magnification the room's own
+                            // dither went through, and that is what
+                            // attenuates it.
+uniform int smooth_grain;   // 1 when the background filter interpolates, so
+                            // the plate's dither arrives as a ramp across
+                            // each cell rather than as hard source texels
 uniform float strength;     // the integration level's multiplier, applied to
                             // the toe, the shoulder and the grain alike. The
                             // fourth term, softness, is scaled on the CPU
@@ -533,9 +539,10 @@ out vec4 f_color;
 const float TOE = 1.0;
 const float SHOULDER = 1.0;
 // hash - 0.5 is uniform on [-0.5, 0.5], whose RMS is 1/sqrt(12). Scaling
-// by sqrt(12) makes the composited residual's RMS equal `plate_grain` --
-// which is the RMS estimate_plate measured off the plate. Not a taste
-// constant: it is what "the plate's own amplitude" resolves to.
+// by sqrt(12) makes the field's RMS equal `plate_grain` at the plate's own
+// resolution -- the amplitude estimate_plate measured -- before `dither`
+// magnifies it the way the background filter magnified the room's. Not a
+// taste constant: it is what "the plate's own amplitude" resolves to.
 const float GAIN = 3.4641016;
 const vec3 REC709 = vec3(0.2126, 0.7152, 0.0722);
 
@@ -546,6 +553,35 @@ float hash21(vec2 v) {
     vec3 p = fract(vec3(v.xyx) * 0.1031);
     p += dot(p, p.yzx + 33.33);
     return fract((p.x + p.y) * p.z);
+}
+
+// The room's dither is per-source-texel noise that the background filter
+// magnified, so the actor's has to be built the same way rather than
+// corrected to the same variance. Under an interpolating filter the
+// displayed field is a bilinear ramp between neighbouring source values:
+// two fields can share a per-pixel RMS and still read as different
+// processes, because what a dither *looks* like is its residual against
+// the local mean, and a flat block's is ~3x a ramp's. Building the ramp
+// also performs the attenuation `plate.grain_retention` used to apply as
+// a scalar, which is why `plate_grain` arrives here uncorrected.
+float dither(vec2 frag) {
+    if (smooth_grain == 0) {
+        // `nearest`, and xbr at the classic size: every displayed pixel is
+        // some source texel, so the dither arrives intact and hard-edged.
+        // Seeded on the screen cell, which is also the grid `pixelate`
+        // fetches the actor on.
+        return hash21(floor(frag / cell)) - 0.5;
+    }
+    // The source coordinate GL_LINEAR samples for this pixel, and the same
+    // four-tap blend it performs there.
+    vec2 x = frag / cell - 0.5;
+    vec2 c = floor(x);
+    vec2 f = x - c;
+    float n00 = hash21(c);
+    float n10 = hash21(c + vec2(1.0, 0.0));
+    float n01 = hash21(c + vec2(0.0, 1.0));
+    float n11 = hash21(c + vec2(1.0, 1.0));
+    return mix(mix(n00, n10, f.x), mix(n01, n11, f.x), f.y) - 0.5;
 }
 
 vec4 sample_actor(ivec2 p, ivec2 size) {
@@ -587,7 +623,7 @@ void main() {
         shoulder *= shoulder;                   // luma^4
         c += plate_black * (toe * TOE * strength);
         c -= (vec3(1.0) - plate_white) * (shoulder * SHOULDER * strength);
-        c += plate_grain * strength * (hash21(floor(gl_FragCoord.xy / cell)) - 0.5) * GAIN;
+        c += plate_grain * strength * dither(gl_FragCoord.xy) * GAIN;
         c = clamp(c, 0.0, 1.0);
     }
     f_color = vec4(plate * (1.0 - a.a) + c * a.a, 1.0);

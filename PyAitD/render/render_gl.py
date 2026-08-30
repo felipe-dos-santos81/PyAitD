@@ -42,7 +42,7 @@ from PyAitD.render.glsl import (
 from PyAitD.render.lighting import (_clamp_downward, light_view_matrix, project_to_plane,
                                     shading_terms, shadow_opacity, SHADOW_MAP_SIZE)
 from PyAitD.render.materials import PALETTE_SIZE, PRESETS
-from PyAitD.render.plate import grain_retention, softness
+from PyAitD.render.plate import dither_arrives_smoothed, softness
 from PyAitD.render.render_options import INTEGRATION_STRENGTHS
 from PyAitD.render.refine import subpatch
 from PyAitD.render.render_options import SMOOTHING_LEVELS
@@ -1156,18 +1156,19 @@ class GLBackend:
         self._composite_prog["strength"].value = strength
         self._composite_prog["plate_black"].value = tuple(float(v) for v in frame.plate.black)
         self._composite_prog["plate_white"].value = tuple(float(v) for v in frame.plate.white)
-        # `frame.plate.grain` is the dither of the *source* 320x200 image;
-        # the shader's amplitude has to be the dither of the plate as
-        # displayed, after `background_filter` has magnified it. The two
-        # differ by exactly the fraction `grain_retention` derives, and
-        # without it the actor is grained at an amplitude the room around
-        # it no longer has -- measured on the attic plate at scale 4, 8.48
-        # counts of source dither against the 5.05 the displayed plate
-        # still carries per cell. 1.0 wherever nothing is lost (cell <= 1,
-        # `nearest`, xbr at the classic size), so the msaa-0 identity and
-        # `test_grain_lands_at_the_plates_own_amplitude` are untouched.
-        self._composite_prog["plate_grain"].value = float(frame.plate.grain) * grain_retention(
-            self._options.background_filter, (src_w, src_h), self.size)
+        # The *source* amplitude, uncorrected. The shader magnifies this
+        # field the way `background_filter` magnified the room's own
+        # dither, and that magnification is what attenuates it -- an
+        # analytic correction here as well would attenuate it twice.
+        #
+        # Correcting the amplitude was the earlier model, and it matched
+        # the room's variance while missing its character: a scalar cannot
+        # turn one flat value per plate cell into the ramp an interpolating
+        # filter actually produces, and the residual against the local mean
+        # -- which is what a dither looks like -- came out ~3x the room's.
+        self._composite_prog["plate_grain"].value = float(frame.plate.grain)
+        self._composite_prog["smooth_grain"].value = 1 if dither_arrives_smoothed(
+            self._options.background_filter, (src_w, src_h), self.size) else 0
         self._fbo.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)

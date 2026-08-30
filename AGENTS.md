@@ -151,12 +151,22 @@ a rule — add the test with the rule.
   tessellation plan, the per-corner normals and the numpy twin of `_TESS_VSH`
   that the transform-feedback test pins the GPU against — change the formula
   in both or neither. `plate` is pure numpy too: `PlateProfile`,
-  `estimate_plate`, `softness` and `grain_retention` — what the room's own
+  `estimate_plate`, `softness`, `grain_retention` and
+  `dither_arrives_smoothed` — what the room's own
   picture says about its black, its white, its dither and its cell size,
   read off the background image. Not consumed only by the composite:
   `asset_resolver` calls `estimate_plate`, `scene` carries `PlateProfile`
   and `NEUTRAL_PLATE` on the frame, and `render_gl` reads `softness` and
-  `grain_retention` to drive the composite. Under
+  `dither_arrives_smoothed` to drive the composite. `grain_retention`
+  derives the attenuation of a plate *cell mean*, which is the right
+  question for a grain laid down one flat value per cell and the wrong one
+  for the field the composite now builds: the shader magnifies its own
+  dither the way the filter magnified the room's, which attenuates it in
+  the same step, so `plate_grain` reaches it uncorrected and scaling by the
+  factor as well would attenuate twice. The factor keeps its derivation and
+  its tests and answers the predicate instead — a filter attenuates the
+  dither exactly when it smooths it, which is `dither_arrives_smoothed`.
+  Under
   any `integration` level above 0 (2 is the default) `render_gl` splits the
   frame into a plate layer and an actor layer, resolves each, and composites
   the second back through the first in one full-target pass
@@ -164,9 +174,12 @@ a rule — add the test with the rule.
   indexes `render_options.INTEGRATION_STRENGTHS`, and that strength scales
   the toe, the shoulder and the grain in the shader and the softness sigma
   in `_composite` before the blur radius is derived from it — four terms,
-  one multiplier, so level 2 is 1.0 and reproduces the composite this pass
-  shipped as, pixel for pixel. `pixelate` is deliberately outside it: which
-  plate cell a pixel falls in has no half-measure.
+  one multiplier, and level 2 is 1.0 — the full match, and what every
+  golden and identity test is pinned at. (It reproduced the pre-grading
+  composite pixel for pixel when the levels landed; the dither rebuild
+  since has moved those pixels on purpose.) `pixelate` is deliberately
+  outside the multiplier: which plate cell a pixel falls in has no
+  half-measure.
   `glsl` is strings only — every GLSL source the backend
   compiles, no imports (`test_layering` pins it). `lighting.soften` is the numpy
   twin of the penumbra blur (`SHADOW_BLUR_FSH`), pinned like

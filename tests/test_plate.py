@@ -2,6 +2,8 @@
 import numpy as np
 import pytest
 
+from tests.gl_linear import gl_linear_upscale
+
 from PyAitD.render.plate import (
     CLASSIC_PLATE_SIZE, NEUTRAL_PLATE, PlateProfile, estimate_plate, grain_retention,
     softness,
@@ -81,26 +83,6 @@ def test_xbr_falls_back_to_bilinear_softness_off_the_classic_size():
     assert softness("xbr", (640, 400), (1280, 800))[0] == pytest.approx(0.35 * 2)
 
 
-def _gl_linear_upscale(src, cell):
-    """One channel magnified by an integer `cell` the way GL_LINEAR does:
-    target pixel `j` samples the source at `(j + 0.5) / cell - 0.5`, with
-    the two straddling texels weighted by the fractional part and the
-    border clamped. This is the operation `grain_retention` models, written
-    out independently so the test is evidence about the derivation rather
-    than a restatement of it."""
-    height, width = src.shape
-
-    def taps(count):
-        x = (np.arange(count * cell) + 0.5) / cell - 0.5
-        lo = np.floor(x).astype(int)
-        return np.clip(lo, 0, count - 1), np.clip(lo + 1, 0, count - 1), x - lo
-
-    x0, x1, fx = taps(width)
-    y0, y1, fy = taps(height)
-    rows = src[:, x0] * (1.0 - fx) + src[:, x1] * fx
-    return rows[y0, :] * (1.0 - fy)[:, None] + rows[y1, :] * fy[:, None]
-
-
 @pytest.mark.parametrize("cell", [2, 3, 4, 6, 8])
 def test_grain_retention_predicts_a_synthetic_upscale(cell):
     # The derivation's evidence, on synthetic noise rather than on game
@@ -111,7 +93,7 @@ def test_grain_retention_predicts_a_synthetic_upscale(cell):
     # match -- and compare the RMS before and after.
     rng = np.random.default_rng(7)
     src = rng.normal(0.0, 1.0, (200, 320))
-    up = _gl_linear_upscale(src, cell)
+    up = gl_linear_upscale(src, cell)
     cells = up.reshape(200, cell, 320, cell).mean(axis=(1, 3))
     measured = cells.std() / src.std()
     predicted = grain_retention("bilinear", CLASSIC_PLATE_SIZE, (320 * cell, 200 * cell))

@@ -2704,21 +2704,27 @@ def test_grain_lands_at_the_plates_displayed_amplitude_once_magnified(gl_ctx):
     # target pixel and there is nothing for the upscale to take away. At
     # scale 4 there is: `grain` is measured on the 320x200 source, but the
     # plate the actor stands next to has been through GL_LINEAR, which
-    # leaves 0.59375 of a white dither's amplitude per cell
-    # (`plate.grain_retention`, pinned against a synthetic upscale in
-    # tests/test_plate.py). The composited residual has to track the
-    # displayed amplitude, not the source one -- matching the source is
+    # attenuates a white dither on the way. The composited amplitude has to
+    # track the displayed one, not the source -- matching the source is
     # what made the actor visibly noisier than its own room.
-    from PyAitD.render.plate import grain_retention
+    #
+    # The reference is the magnified field itself rather than a factor.
+    # `plate.grain_retention` derives the attenuation of a *cell mean*,
+    # which is the right question for a grain laid down one flat value per
+    # cell and the wrong one for a field that ramps within the cell the way
+    # the room's does: per displayed pixel the ramp keeps 0.658 of the
+    # source amplitude, not the cell mean's 0.59375.
+    from tests.gl_linear import gl_linear_upscale
     quiet = _grey_grain_render(gl_ctx, 0.0, scale=4).astype(float)
     noisy = _grey_grain_render(gl_ctx, 0.08, scale=4).astype(float)
     patch = (noisy - quiet)[240:400, 440:600, 0]
-    retention = grain_retention("bilinear", (320, 200), (1280, 800))
-    assert retention == pytest.approx(0.59375)
-    assert patch.std() == pytest.approx(0.08 * 255 * retention, rel=0.05)
-    # And is not the un-attenuated amplitude: 12.1 counts against 20.4, far
-    # enough apart that dropping the retention factor fails here rather
-    # than merely loosening a tolerance.
+    rng = np.random.default_rng(11)
+    source = rng.uniform(-0.5, 0.5, (200, 320)) * np.sqrt(12.0) * 0.08 * 255.0
+    displayed = gl_linear_upscale(source, 4)[240:400, 440:600]
+    assert patch.std() == pytest.approx(displayed.std(), rel=0.05)
+    # And is not the un-attenuated amplitude: 13.4 counts against 20.4, far
+    # enough apart that magnifying nothing fails here rather than merely
+    # loosening a tolerance.
     assert patch.std() < 0.08 * 255 * 0.8
 
 
@@ -2763,3 +2769,35 @@ def test_nearest_pixelates_at_every_level_that_composites(gl_ctx):
         backend.release()
         cells = out.reshape(200, 4, 320, 4, 3)
         assert (cells.max(axis=(1, 3)) == cells.min(axis=(1, 3))).all(), level
+
+
+def _residual_rms(field):
+    """RMS of a field against its own 3x3 box mean -- `plate._grain`'s
+    estimator, at target resolution. What the eye compares the actor's
+    dither against is the room's residual, not its variance."""
+    padded = np.pad(field, 1, mode="edge")
+    mean = sum(padded[dy:dy + field.shape[0], dx:dx + field.shape[1]]
+               for dy in range(3) for dx in range(3)) / 9.0
+    return float((field - mean).std())
+
+
+def test_grain_arrives_the_way_the_rooms_own_dither_does(gl_ctx):
+    # Amplitude is not character. One constant value per plate cell and a
+    # bilinearly magnified white field can share a per-pixel RMS and still
+    # read as different processes, because the residual against the local
+    # mean -- which is what a dither *looks* like -- differs by 3x between
+    # them. So this holds the composited noise against a synthetic upscale
+    # of the same dither, built independently the way test_plate builds it,
+    # rather than against a variance the block model already satisfies.
+    from tests.gl_linear import gl_linear_upscale
+    grain, cell = 0.08, 4
+    quiet = _grey_grain_render(gl_ctx, 0.0, scale=cell).astype(float)
+    noisy = _grey_grain_render(gl_ctx, grain, scale=cell).astype(float)
+    added = (noisy - quiet)[240:400, 440:600, 0]
+
+    rng = np.random.default_rng(7)
+    source = rng.uniform(-0.5, 0.5, (200, 320)) * np.sqrt(12.0) * grain * 255.0
+    room = gl_linear_upscale(source, cell)[240:400, 440:600]
+
+    assert added.std() == pytest.approx(room.std(), rel=0.1)
+    assert _residual_rms(added) == pytest.approx(_residual_rms(room), rel=0.15)
