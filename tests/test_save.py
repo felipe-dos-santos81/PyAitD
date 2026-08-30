@@ -245,3 +245,134 @@ def test_validate_rejects_corrupt_rng_state(data_dir, profile):
     payload["rng_state"] = payload["rng_state"][:2]
     with pytest.raises(SaveError, match=r"rng_state"):
         validate_snapshot(payload, data_dir, profile)
+
+
+# ── task 3: animation state and fresh-game restoration ──────────────────────
+
+from PyAitD.engine.actors import anim_player_for
+from PyAitD.engine.effects import TimedMessage
+from PyAitD.engine.floor import Floor
+from PyAitD.engine.game import FloorStart
+from PyAitD.engine.navmesh import MeshCache
+from PyAitD.engine.playworld import play_tick
+from PyAitD.engine.save import restore_game
+
+
+PLAYER_KEYS = {"frame", "start_tick", "prev_frame_index", "states", "anim_step", "wrapped"}
+
+
+def _animated_slot(game, slot=127):
+    actor = game.actors[slot]
+    actor.body_num = 4
+    actor.anim = 0
+    player = anim_player_for(game, slot)
+    player.advance(game.timer + 1)
+    return slot, player
+
+
+def test_snapshot_encodes_anim_players(data_dir, profile):
+    game = _game(data_dir, profile)
+    slot, player = _animated_slot(game)
+    payload = snapshot_game(game, SETTINGS)
+    entry = payload["anim_players"][str(slot)]
+    assert set(entry) == PLAYER_KEYS
+    assert entry["frame"] == player.frame
+    assert entry["start_tick"] == player.start_tick
+    expected_prev = None if player.prev_frame is None else player.anim.frames.index(player.prev_frame)
+    assert entry["prev_frame_index"] == expected_prev
+    assert entry["anim_step"] == list(player.anim_step)
+    assert entry["wrapped"] == player.wrapped
+
+
+def test_restore_round_trip_state(data_dir, profile):
+    game = _game(data_dir, profile)
+    # representatives of every persisted field family
+    game.timer = 1234
+    game.action = 0x2000
+    game.vars[5] = 4242
+    game.cvars[10] = 701
+    hero = game.actors[0]
+    hero.beta = 123
+    hero.world_x += 5
+    hero.speed_change.end_value = 9
+    hero.zv[1] = 42
+    game.world_objects[3].beta = 512
+    game.inventory_table[0][0] = 2
+    game.inventory_count[0] = 1
+    game.in_hand_table[0] = 2
+    game.messages[0] = TimedMessage(5, age=3)
+    game.floor_start = FloorStart(5, 4, -7800, -4010, -1000, 0)
+    game.rng.seed(77)
+    game.rng.randrange(100)
+    _animated_slot(game)
+
+    payload = json.loads(json.dumps(snapshot_game(game, SETTINGS)))
+    restored, settings = restore_game(data_dir, profile, payload)
+    assert settings == SETTINGS
+    assert snapshot_game(restored, SETTINGS) == payload
+
+
+def test_restored_game_ticks_and_draws_like_the_original(data_dir, profile):
+    game = _game(data_dir, profile)
+    game.rng.seed(77)
+    _animated_slot(game)
+    payload = json.loads(json.dumps(snapshot_game(game, SETTINGS)))
+    restored, _ = restore_game(data_dir, profile, payload)
+
+    play_tick(game, Floor(data_dir, game.current_floor, profile), _input_buffer())
+    play_tick(restored, Floor(data_dir, restored.current_floor, profile), _input_buffer())
+    assert snapshot_game(game, SETTINGS) == snapshot_game(restored, SETTINGS)
+    assert game.rng.randrange(1000) == restored.rng.randrange(1000)
+
+
+def _input_buffer():
+    from PyAitD.app.ui import InputBuffer
+    return InputBuffer()
+
+
+def test_restore_resets_transient_state_and_forces_boot_flags(data_dir, profile):
+    payload = _snapshot(data_dir, profile)
+    payload["game"]["flag_init_view"] = 0
+    payload["game"]["flag_genere_aff_list"] = 0
+    restored, _ = restore_game(data_dir, profile, payload)
+    assert restored.flag_init_view == 2
+    assert restored.flag_genere_aff_list == 1
+    assert restored.active_modal is None
+    assert restored.life_stack == []
+    assert not restored.immediate_effects
+    assert restored.nav_intent is None
+    assert restored.nav_decision is None
+    assert restored.nav_arrived_target == -1
+    assert not restored.restart_requested
+    assert isinstance(restored.nav_meshes, MeshCache)
+
+
+def test_restore_rejects_players_inconsistent_with_their_actor(data_dir, profile):
+    payload = _snapshot(data_dir, profile)
+    payload["anim_players"]["127"] = {
+        "frame": 0, "start_tick": 0, "prev_frame_index": None,
+        "states": [[0, [0, 0, 0]]], "anim_step": [0, 0, 0], "wrapped": False,
+    }
+    with pytest.raises(SaveError, match=r"anim_players\[127\]"):
+        restore_game(data_dir, profile, payload)
+
+
+def test_validate_rejects_bad_anim_player_entries(data_dir, profile):
+    payload = _snapshot(data_dir, profile)
+    payload["anim_players"]["nope"] = {}
+    with pytest.raises(SaveError, match=r"anim_players"):
+        validate_snapshot(payload, data_dir, profile)
+    payload = _snapshot(data_dir, profile)
+    payload["anim_players"]["3"] = {
+        "frame": "x", "start_tick": 0, "prev_frame_index": None,
+        "states": [], "anim_step": [0, 0, 0], "wrapped": False,
+    }
+    with pytest.raises(SaveError, match=r"anim_players\[3\]\.frame"):
+        validate_snapshot(payload, data_dir, profile)
+    payload = _snapshot(data_dir, profile)
+    payload["anim_players"]["3"] = {
+        "frame": 0, "start_tick": 0, "prev_frame_index": None,
+        "states": [], "anim_step": [0, 0], "wrapped": False,
+    }
+    with pytest.raises(SaveError, match=r"anim_players\[3\]\.anim_step"):
+        validate_snapshot(payload, data_dir, profile)

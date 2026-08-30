@@ -8,8 +8,10 @@ import pathlib
 from dataclasses import fields as dataclass_fields
 
 from PyAitD import __version__
+from PyAitD.engine.anim import AnimPlayer
+from PyAitD.engine.effects import TimedMessage
 from PyAitD.engine.formats import WorldObject, parse_defines, parse_objets, parse_vars
-from PyAitD.engine.game import NUM_MAX_OBJECT, Actor
+from PyAitD.engine.game import NUM_MAX_OBJECT, Actor, FloorStart, init_game
 
 SCHEMA = 1
 
@@ -43,6 +45,8 @@ _WORLD_FIELDS = tuple(f.name for f in dataclass_fields(WorldObject))
 _FLOOR_START_KEYS = {"stage", "room", "x", "y", "z", "camera_slot"}
 _INVENTORY_KEYS = {"table", "count", "in_hand", "current"}
 _MESSAGE_KEYS = {"message_id", "age"}
+_PLAYER_KEYS = {"frame", "start_tick", "prev_frame_index", "states", "anim_step", "wrapped"}
+_RNG_STATE_LENGTH = 625  # CPython Mersenne Twister: 624 words + index
 
 
 class SaveError(Exception):
@@ -73,8 +77,8 @@ def snapshot_game(game, settings):
         "actors": [_snapshot_actor(a) for a in game.actors],
         "world_objects": [{name: getattr(w, name) for name in _WORLD_FIELDS}
                           for w in game.world_objects],
-        # task 3 fills in the per-actor animation players
-        "anim_players": {},
+        "anim_players": {str(idx): _snapshot_player(player)
+                         for idx, player in game.anim_players.items()},
         "inventory": {
             "table": [list(row) for row in game.inventory_table],
             "count": list(game.inventory_count),
@@ -112,8 +116,7 @@ def validate_snapshot(payload, data_dir, profile):
     _validate_state(payload["game"], data_dir, profile)
     _validate_actors(payload["actors"])
     _validate_world_objects(payload["world_objects"], data_dir)
-    if type(payload["anim_players"]) is not dict:
-        _fail("anim_players", f"expected an object, got {type(payload['anim_players']).__name__}")
+    _validate_anim_players(payload["anim_players"])
     _validate_inventory(payload["inventory"])
     _validate_messages(payload["messages"])
     _validate_rng_state(payload["rng_state"])
@@ -175,6 +178,20 @@ def _snapshot_actor(actor):
         else:
             out[name] = value
     return out
+
+
+def _snapshot_player(player):
+    prev = player.prev_frame
+    return {
+        "frame": player.frame,
+        "start_tick": player.start_tick,
+        # body/anim identities are the restored actor's; only the keyframe
+        # index rides in the save
+        "prev_frame_index": None if prev is None else player.anim.frames.index(prev),
+        "states": [[gtype, list(delta)] for gtype, delta in player.group_states()],
+        "anim_step": list(player.anim_step),
+        "wrapped": player.wrapped,
+    }
 
 
 def _rng_to_json(state):
@@ -332,7 +349,131 @@ def _validate_rng_state(state):
     if not isinstance(state, list) or len(state) != 3:
         _fail("rng_state", "expected [version, internal state, gauss_next]")
     _require_int(state[0], "rng_state[0]")
-    _require_int_list(state[1], "rng_state[1]")
+    _require_int_list(state[1], "rng_state[1]", _RNG_STATE_LENGTH)
     gauss = state[2]
     if gauss is not None and type(gauss) is not float:
         _fail("rng_state[2]", f"expected a float or null, got {type(gauss).__name__}")
+
+
+def _validate_anim_players(players):
+    if type(players) is not dict:
+        _fail("anim_players", f"expected an object, got {type(players).__name__}")
+    for key, entry in players.items():
+        if not (isinstance(key, str) and key.isdigit() and int(key) < NUM_MAX_OBJECT):
+            _fail("anim_players", f"bad actor key {key!r}")
+        path = f"anim_players[{key}]"
+        _require_keys(entry, _PLAYER_KEYS, path)
+        _require_int(entry["frame"], f"{path}.frame")
+        _require_int(entry["start_tick"], f"{path}.start_tick")
+        prev = entry["prev_frame_index"]
+        if prev is not None:
+            _require_int(prev, f"{path}.prev_frame_index")
+        states = entry["states"]
+        if not isinstance(states, list):
+            _fail(f"{path}.states", f"expected a list, got {type(states).__name__}")
+        for i, state in enumerate(states):
+            if not isinstance(state, list) or len(state) != 2:
+                _fail(f"{path}.states[{i}]", "expected [group type, [x, y, z]]")
+            _require_int(state[0], f"{path}.states[{i}][0]")
+            _require_int_list(state[1], f"{path}.states[{i}][1]", 3)
+        _require_int_list(entry["anim_step"], f"{path}.anim_step", 3)
+        if type(entry["wrapped"]) is not bool:
+            _fail(f"{path}.wrapped", f"expected a boolean, got {type(entry['wrapped']).__name__}")
+
+
+def restore_game(data_dir, profile, payload):
+    """Validate the complete payload, then rebuild a fresh Game from it.
+    Nothing live is mutated: any failure raises SaveError before the new
+    game is returned. The settings block comes back untouched for
+    app/config.validate_settings to own."""
+    payload = validate_snapshot(payload, data_dir, profile)
+    game = init_game(data_dir, profile, hero=payload["hero"])
+
+    state = payload["game"]
+    game.timer = state["timer"]
+    game._last_time_forward = state["last_time_forward"]
+    game.action = state["action"]
+    game.vars = list(state["vars"])
+    game.cvars = list(state["cvars"])
+    game.current_floor = state["current_floor"]
+    game.current_room = state["current_room"]
+    game.current_stage = state["current_stage"]
+    game.num_camera = state["num_camera"]
+    game.new_num_camera = state["new_num_camera"]
+    game.current_camera_target_actor = state["current_camera_target_actor"]
+    game.current_world_target = state["current_world_target"]
+    game.flag_change_etage = state["flag_change_etage"]
+    game.new_num_etage = state["new_num_etage"]
+    game.flag_change_salle = state["flag_change_salle"]
+    game.new_num_salle = state["new_num_salle"]
+    game.hard_clip = list(state["hard_clip"])
+    game.status_screen_allowed = state["status_screen_allowed"]
+    game.allow_system_menu = state["allow_system_menu"]
+    game.current_music = state["current_music"]
+    game.next_music = state["next_music"]
+    game.light_off = state["light_off"]
+    game.last_sample = state["last_sample"]
+    game.next_sample = state["next_sample"]
+    game.last_priority = state["last_priority"]
+    floor_start = state["floor_start"]
+    game.floor_start = None if floor_start is None else FloorStart(
+        floor_start["stage"], floor_start["room"], floor_start["x"],
+        floor_start["y"], floor_start["z"], floor_start["camera_slot"],
+    )
+    # the flags snapshot carries, overridden by fresh-boot semantics:
+    # a loaded game re-inits its view and regenerates its active list
+    game.flag_init_view = 2
+    game.flag_genere_aff_list = 1
+
+    for idx, entry in enumerate(payload["actors"]):
+        actor = game.actors[idx]
+        for name in _ACTOR_INT_FIELDS:
+            setattr(actor, name, entry[name])
+        for name in _ACTOR_LIST_FIELDS:
+            setattr(actor, name, list(entry[name]))
+        for name in _ACTOR_REALVALUE_FIELDS:
+            realvalue = getattr(actor, name)
+            for key in _REALVALUE_KEYS:
+                setattr(realvalue, key, entry[name][key])
+
+    for world, entry in zip(game.world_objects, payload["world_objects"]):
+        for name in _WORLD_FIELDS:
+            setattr(world, name, entry[name])
+
+    for key, entry in payload["anim_players"].items():
+        idx = int(key)
+        actor = game.actors[idx]
+        path = f"anim_players[{key}]"
+        if actor.anim == -1:
+            _fail(path, "actor has no animation")
+        try:
+            body = game.assets.body(actor.body_num)
+            anim = game.assets.anim(actor.anim)
+        except Exception as exc:
+            _fail(path, f"actor's body/anim cannot be resolved: {exc}")
+        prev = entry["prev_frame_index"]
+        if prev is not None and not 0 <= prev < anim.num_frames:
+            _fail(f"{path}.prev_frame_index",
+                  f"expected 0..{anim.num_frames - 1}, got {prev}")
+        player = AnimPlayer(body, anim, entry["start_tick"])
+        player.frame = entry["frame"]
+        player.prev_frame = None if prev is None else anim.frames[prev]
+        player._states = [(gtype, tuple(delta)) for gtype, delta in entry["states"]]
+        player.anim_step = tuple(entry["anim_step"])
+        player.wrapped = entry["wrapped"]
+        game.anim_players[idx] = player
+
+    inventory = payload["inventory"]
+    game.inventory_table = [list(row) for row in inventory["table"]]
+    game.inventory_count = list(inventory["count"])
+    game.in_hand_table = list(inventory["in_hand"])
+    game.current_inventory = inventory["current"]
+
+    game.messages = [
+        None if m is None else TimedMessage(m["message_id"], m["age"])
+        for m in payload["messages"]
+    ]
+
+    version, internal, gauss = payload["rng_state"]
+    game.rng.setstate((version, tuple(internal), gauss))
+    return game, payload["settings"]
