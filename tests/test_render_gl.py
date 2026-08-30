@@ -2308,6 +2308,19 @@ def test_a_tight_highlight_peaks_brighter_than_a_broad_one(gl_ctx, monkeypatch):
     assert tight_width < broad_width         # measured 4 columns against 30
 
 
+def _gradient_plate():
+    """A plate no composite can be right about by accident: every column a
+    different value, so a plate term dropped, halved, or fetched at the
+    wrong pixel all show up as a difference rather than as black-on-black.
+    `_lit_frame`'s all-black background cannot distinguish
+    `plate * (1 - a) + rgb` from `rgb` at all."""
+    plate = np.zeros((200, 320, 3), np.uint8)
+    plate[:, :, 0] = np.arange(320, dtype=np.uint8)
+    plate[:, :, 1] = 90
+    plate[:, :, 2] = 200 - np.arange(320, dtype=np.uint8) // 2
+    return plate
+
+
 def _integration_options(**kw):
     base = dict(scale=1, shading="smooth", lighting="scene", msaa=0)
     base.update(kw)
@@ -2329,9 +2342,16 @@ def test_integration_on_with_a_neutral_plate_reproduces_the_golden(gl_ctx):
 
 @pytest.mark.parametrize("shadows", ["hard", "soft"])
 def test_integration_on_matches_off_pixel_for_pixel_at_msaa_zero(gl_ctx, shadows):
-    # Not just the golden scene: a real cast shadow under both shadow modes.
-    frame = _lit_frame([_standing_actor(0, _tri_geometry(600.0, 1), 400.0)],
-                       (0.3, -0.6, -0.7))
+    # Not just the golden scene: a real cast shadow under both shadow modes,
+    # over a plate every column of which differs. Built here rather than
+    # through _lit_frame -- same actor, same light -- because that helper's
+    # background is all black, and against black this assertion cannot tell
+    # `plate * (1 - a) + rgb` from `rgb`.
+    from PyAitD.render.lighting import SceneLight
+    frame = FrameDescription(
+        _view(), ImageAsset(_gradient_plate(), False), _palette(),
+        (_standing_actor(0, _tri_geometry(600.0, 1), 400.0),), (),
+        SceneLight((0.3, -0.6, -0.7), (1.0, 1.0, 1.0), (0.2, 0.2, 0.2), 1.0))
     off = GLBackend(gl_ctx, _integration_options(shadows=shadows, integration="off"))
     off.draw(frame)
     expected = off.read_rgb().copy()
@@ -2371,7 +2391,15 @@ def test_integration_on_still_resolves_msaa_into_the_same_texture(gl_ctx):
 def test_integration_on_still_darkens_the_ground_under_a_hard_shadow(gl_ctx):
     # The hard cast moved ahead of the bodies to reach the plate layer; it
     # must still land on the plate.
-    plate = np.full((200, 320, 3), 200, np.uint8)
+    #
+    # Both halves are asserted, and the second is the load-bearing one: a
+    # composite that dropped the plate term entirely would turn the frame
+    # black, which satisfies "something got darker" *more* easily than a
+    # correct render does. Only "and the rest of the plate came through
+    # untouched" tells the two apart, which is why the plate is a gradient
+    # and why the corner is compared against the baseline render rather
+    # than against a colour written down here.
+    plate = _gradient_plate()
     baseline = _plain_background(gl_ctx, plate, shadows="hard")
     backend = GLBackend(gl_ctx, _integration_options(shadows="hard", integration="on"))
     backend.draw(FrameDescription(
@@ -2381,3 +2409,8 @@ def test_integration_on_still_darkens_the_ground_under_a_hard_shadow(gl_ctx):
     out = backend.read_rgb().astype(int)
     backend.release()
     assert (out < baseline).any(), "the hard cast never reached the plate layer"
+    # Measured: nothing outside rows 20..179, columns 60..238 differs from
+    # the baseline at all, so this corner is 42 columns clear of the cast.
+    corner = (slice(0, 40), slice(280, 320))
+    assert np.array_equal(out[corner], baseline[corner]), \
+        "the plate the shadow never reached did not survive the composite"
