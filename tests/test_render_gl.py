@@ -2379,13 +2379,38 @@ def test_integration_leaves_fixed_lighting_untouched(gl_ctx):
 
 
 def test_integration_on_still_resolves_msaa_into_the_same_texture(gl_ctx):
+    # The two shapes below cannot tell a correct composite from one whose
+    # output is thrown away -- appending the single-target resolve to the
+    # end of _composite() overwrites the composited frame with the stale
+    # multisample buffer, and the shapes are identical either way. So this
+    # also holds `on` against `off` on the same frame, over a gradient
+    # plate: against an all-black background a discarded composite is
+    # indistinguishable from a correct one.
+    #
+    # The two paths agree mathematically -- the resolve is a linear average
+    # and so is "over" -- but _plate_tex and _actor_tex quantise to 8 bits
+    # in between, so an antialiased edge can land a bit apart. Measured
+    # max=1 at scale 1 and 2, msaa 2, 4 and 8, three repeats each. The 2 is
+    # driver headroom on sample weighting, not a measurement: tightening it
+    # to the measured 1 is not the safe-looking edit it appears to be.
+    from PyAitD.render.lighting import SceneLight
+    frame = FrameDescription(
+        _view(), ImageAsset(_gradient_plate(), False), _palette(),
+        (_standing_actor(0, _tri_geometry(600.0, 1), 400.0),), (),
+        SceneLight((0.3, -0.6, -0.7), (1.0, 1.0, 1.0), (0.2, 0.2, 0.2), 1.0))
     backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
                                               msaa=4, integration="on"))
-    backend.draw(_lit_frame([_standing_actor(0, _tri_geometry(600.0, 1), 400.0)],
-                            (0.3, -0.6, -0.7)))
-    assert backend.read_rgb().shape == (400, 640, 3)
+    backend.draw(frame)
+    on = backend.read_rgb().copy()
+    assert on.shape == (400, 640, 3)
     assert backend.thumbnail().shape == (200, 320, 3)
     backend.release()
+    direct = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
+                                             msaa=4, integration="off"))
+    direct.draw(frame)
+    off = direct.read_rgb().copy()
+    direct.release()
+    assert np.abs(on.astype(int) - off.astype(int)).max() <= 2
 
 
 def test_integration_on_still_darkens_the_ground_under_a_hard_shadow(gl_ctx):
