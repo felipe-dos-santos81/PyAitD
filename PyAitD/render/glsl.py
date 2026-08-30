@@ -489,3 +489,22 @@ void main() {
     f_color = vec4(min(cover, 1.0), 1.0 - reach / float(r_max), 0.0, 0.0);
 }
 """
+COMPOSITE_FSH = """
+#version 330
+// The one full-target pass that puts the actor layer back onto the plate.
+//
+// The actor layer is premultiplied: its shader writes alpha 1, so a
+// multisample resolve of covered and uncovered samples yields colour
+// already scaled by coverage, which is exactly what "over" wants. At
+// msaa = 0 alpha is 0 or 1 and this is `plate` or `rgb` with no arithmetic
+// in between -- byte-exact against drawing the body straight onto the
+// plate, which is the identity `integration=on` has to hold.
+uniform sampler2D plate_tex; uniform sampler2D actor_tex;
+out vec4 f_color;
+void main() {
+    ivec2 p = ivec2(gl_FragCoord.xy);
+    vec4 a = texelFetch(actor_tex, p, 0);
+    vec3 plate = texelFetch(plate_tex, p, 0).rgb;
+    f_color = vec4(plate * (1.0 - a.a) + a.rgb, 1.0);
+}
+"""

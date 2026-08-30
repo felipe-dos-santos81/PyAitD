@@ -37,6 +37,7 @@ from PyAitD.render.glsl import (
     SHADOW_FSH as _SHADOW_FSH,
     SHADOW_CAST_FSH as _SHADOW_CAST_FSH,
     SHADOW_BLUR_FSH as _SHADOW_BLUR_FSH,
+    COMPOSITE_FSH as _COMPOSITE_FSH,
 )
 from PyAitD.render.lighting import (_clamp_downward, light_view_matrix, project_to_plane,
                                     shading_terms, shadow_opacity, SHADOW_MAP_SIZE)
@@ -283,6 +284,12 @@ class GLBackend:
         self._ms_depth = None
         self._ms_fbo = None
         self._target = None
+        self._plate_tex = None
+        self._plate_fbo = None
+        self._actor_tex = None
+        self._actor_fbo = None
+        self._composite_prog = None
+        self._composite_vao = None
         self._mask_tex = None
         self._mask_fbo = None
         self._shadow_tex = None
@@ -443,6 +450,31 @@ class GLBackend:
                     color_attachments=[self._ms_color], depth_attachment=self._ms_depth)
             self._target = self._ms_fbo or self._fbo
 
+            # The two halves integration="on" splits the frame into. Both
+            # are the target's own size and format, so a resolve into either
+            # is the same copy_framebuffer the single-target path already
+            # does. _actor_fbo shares `_depth` with `_fbo` rather than
+            # allocating a second one: the two are never both the render
+            # target, and the composite that writes through `_fbo` runs with
+            # the depth test disabled.
+            self._plate_tex = ctx.texture(self.size, 4)
+            self._plate_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+            self._plate_tex.repeat_x = False
+            self._plate_tex.repeat_y = False
+            self._plate_fbo = ctx.framebuffer(color_attachments=[self._plate_tex])
+            self._actor_tex = ctx.texture(self.size, 4)
+            self._actor_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+            self._actor_tex.repeat_x = False
+            self._actor_tex.repeat_y = False
+            self._actor_fbo = ctx.framebuffer(
+                color_attachments=[self._actor_tex], depth_attachment=self._depth)
+            self._composite_prog = ctx.program(
+                vertex_shader=_STENCIL_VSH, fragment_shader=_COMPOSITE_FSH)
+            _set_uniform(self._composite_prog, "plate_tex", 5)
+            _set_uniform(self._composite_prog, "actor_tex", 6)
+            self._composite_vao = ctx.vertex_array(
+                self._composite_prog, [(self._shadow_quad, "2f", "in_pos")])
+
             # The tessellating programs and their sub-patch buffers exist
             # whatever `smoothing` says: the option is a per-frame choice
             # (Renderer.set_options rebuilds the backend anyway), and
@@ -486,11 +518,12 @@ class GLBackend:
             raise
 
     def release(self):
-        # `self._target` is intentionally absent: it aliases either
-        # `self._ms_fbo` (when msaa is on) or `self._fbo` (when it's off),
-        # and each of those is released below under its own name. Releasing
-        # it a second time through `self._target` would be a double-release
-        # of the same GL object.
+        # `self._target` is intentionally absent: it aliases `self._ms_fbo`,
+        # `self._fbo`, `self._plate_fbo` or `self._actor_fbo` depending on
+        # the integration mode and the frame phase, and each of those is
+        # released below under its own name. Releasing it a second time
+        # through `self._target` would be a double-release of the same GL
+        # object.
         for resource in (
             self._quad_vao, self._quad,
             self._thumb_quad_vao, self._thumb_quad,
@@ -498,15 +531,16 @@ class GLBackend:
             self._material_tex,
             self._shadow_map_fbo, self._shadow_map,
             self._tess_prog, self._tess_shadow_prog, *self._subpatch_bufs.values(),
-            # Both VAOs are built on `_shadow_quad`, so both come before it:
-            # every other pair in this tuple frees the VAO ahead of its
+            # All three VAOs are built on `_shadow_quad`, so all three come
+            # before it: every other pair in this tuple frees the VAO ahead of its
             # buffer, and deleting a buffer does not unbind it from a VAO
             # that is not current.
-            self._shadow_quad_vao, self._blur_quad_vao, self._shadow_quad,
+            self._shadow_quad_vao, self._blur_quad_vao, self._composite_vao, self._shadow_quad,
             self._blur_prog, self._cast_prog,
             self._shadow_prog, self._shadow_geom_prog,
             self._shadow_fbo, self._shadow_tex,
             self._shadow_blur_fbo, self._shadow_blur_tex,
+            self._composite_prog, self._plate_fbo, self._plate_tex, self._actor_fbo, self._actor_tex,
             self._mask_fbo, self._mask_tex,
             self._thumb_fbo, self._thumb_tex,
             self._ms_fbo, self._ms_color, self._ms_depth,
@@ -561,6 +595,14 @@ class GLBackend:
                 prev_fbo.use()
 
     def _draw_frame(self, frame):
+        scene_lit = self._options.lighting == "scene"
+        soft = scene_lit and self._options.shadows == "soft"
+        level = self._options.smoothing
+        # Under lighting="scene" only: `fixed` runs the single-target path
+        # byte for byte whatever `integration` says.
+        integrate = scene_lit and self._options.integration == "on"
+        self._target = (self._ms_fbo or self._plate_fbo) if integrate \
+            else (self._ms_fbo or self._fbo)
         self._target.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
@@ -575,9 +617,6 @@ class GLBackend:
         for prog in (self._actor_prog, self._tess_prog, self._tess_shadow_prog, self._cast_prog):
             _set_uniform(prog, "view", np.ascontiguousarray(view_m.T))
         rot = rotation_matrix(frame.camera.state).astype("f4")
-        scene_lit = self._options.lighting == "scene"
-        soft = scene_lit and self._options.shadows == "soft"
-        level = self._options.smoothing
         travel = None
         if scene_lit:
             # rotation_matrix maps world -> camera and is orthonormal, so
@@ -625,18 +664,36 @@ class GLBackend:
 
             if soft:
                 self._gather_shadows(frame, instances, mask_by_id, travel, mvp, rot, level)
+            elif integrate and scene_lit:
+                # The hard casts have to reach the *plate* layer, so under
+                # `on` they all run here, before any body, instead of
+                # interleaved in the loop below. _composite_shadow blends
+                # (DST_COLOR, ZERO): on a transparent actor layer it would
+                # scale (0,0,0,0) by a factor -- producing nothing -- while
+                # darkening every body already drawn. Running them here also
+                # retires, for this path only, the ordering caveat in
+                # _composite_shadow's docstring.
+                for actor, inst in zip(frame.actors, instances):
+                    self._cast_hard_shadow(actor, inst, mask_by_id, frame, travel, mvp, level)
+
+            if integrate:
+                self._resolve_into(self._plate_fbo)
+                self._target = self._ms_fbo or self._actor_fbo
+                self._target.use()
+                self._ctx.viewport = (0, 0, *self.size)
+                self._ctx.disable(moderngl.DEPTH_TEST)
+                self._ctx.disable(moderngl.BLEND)
+                self._target.color_mask = (True, True, True, True)
+                # Transparent, not opaque black: the actor shader writes
+                # alpha 1, so what survives the resolve is coverage.
+                self._ctx.clear(0.0, 0.0, 0.0, 0.0)
 
             for actor, inst in zip(frame.actors, instances):
                 masks = [mask_by_id[i] for i in actor.mask_ids if i in mask_by_id]
                 self._rasterize_masks(masks)  # switches to the mask FBO and disables depth test
 
-                if scene_lit and not soft:
-                    if level:
-                        cast = self._rasterize_shadow_tessellated(inst, travel, mvp, _plane_y(actor), level)
-                    else:
-                        cast = self._rasterize_shadow(actor, travel, mvp)
-                    if cast:
-                        self._composite_shadow(frame.light)
+                if scene_lit and not soft and not integrate:
+                    self._cast_hard_shadow(actor, inst, mask_by_id, frame, travel, mvp, level)
 
                 self._target.use()
                 self._ctx.viewport = (0, 0, *self.size)
@@ -675,7 +732,10 @@ class GLBackend:
                 if inst is not None:
                     inst[0].release()
 
-        if self._ms_fbo is not None:
+        if integrate:
+            self._resolve_into(self._actor_fbo)
+            self._composite()
+        elif self._ms_fbo is not None:
             # Resolves the multisample buffer down into `.texture`, which is
             # what read_rgb, thumbnail and Renderer all read.
             self._ctx.copy_framebuffer(self._fbo, self._ms_fbo)
@@ -1042,6 +1102,42 @@ class GLBackend:
         self._ctx.blend_func = moderngl.DST_COLOR, moderngl.ZERO
         self._shadow_quad_vao.render(moderngl.TRIANGLES)
         self._ctx.disable(moderngl.BLEND)
+
+    def _cast_hard_shadow(self, actor, inst, mask_by_id, frame, travel, mvp, level):
+        """One actor's `shadows=hard` projected silhouette, erased by its own
+        masks and multiplied onto whatever `self._target` currently is.
+
+        Extracted so the per-actor loop and the integration pre-loop share
+        one copy of the rule; the only difference between the two callers is
+        which layer `self._target` names when they run."""
+        self._rasterize_masks([mask_by_id[i] for i in actor.mask_ids if i in mask_by_id])
+        if level:
+            cast = self._rasterize_shadow_tessellated(inst, travel, mvp, _plane_y(actor), level)
+        else:
+            cast = self._rasterize_shadow(actor, travel, mvp)
+        if cast:
+            self._composite_shadow(frame.light)
+
+    def _resolve_into(self, fbo):
+        """Resolve the multisample buffer into `fbo`'s single-sampled
+        texture. A no-op when msaa is off: `fbo` was the render target
+        itself, and its texture already holds the result."""
+        if self._ms_fbo is not None:
+            self._ctx.copy_framebuffer(fbo, self._ms_fbo)
+
+    def _composite(self):
+        """The actor layer back onto the plate layer, into `.texture`."""
+        self._fbo.use()
+        self._ctx.viewport = (0, 0, *self.size)
+        self._ctx.disable(moderngl.DEPTH_TEST)
+        self._ctx.disable(moderngl.BLEND)
+        self._fbo.color_mask = (True, True, True, True)
+        self._fbo.use()
+        self._plate_tex.use(location=5)
+        self._actor_tex.use(location=6)
+        self._composite_prog["plate_tex"].value = 5
+        self._composite_prog["actor_tex"].value = 6
+        self._composite_vao.render(moderngl.TRIANGLES)
 
     def _upload_materials(self, table):
         """Write `table.parameters()` into the material texture unless it is

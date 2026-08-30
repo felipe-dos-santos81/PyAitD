@@ -866,6 +866,8 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         "_tess_prog", "_tess_shadow_prog",
         "_shadow_blur_tex", "_shadow_blur_fbo", "_cast_prog", "_blur_prog", "_blur_quad_vao",
         "_shadow_map", "_shadow_map_fbo",
+        "_plate_tex", "_plate_fbo", "_actor_tex", "_actor_fbo",
+        "_composite_prog", "_composite_vao",
     ):
         resource = getattr(backend, attr)
         assert resource is not None, f"{attr} was never allocated before the failure"
@@ -875,7 +877,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
     for level, buf in backend._subpatch_bufs.items():
         assert isinstance(buf.mglo, moderngl.InvalidObject), f"subpatch buffer {level} leaked"
         leak_checked += 1
-    assert leak_checked == 38  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 44  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
@@ -2304,3 +2306,78 @@ def test_a_tight_highlight_peaks_brighter_than_a_broad_one(gl_ctx, monkeypatch):
     broad_peak, broad_width = lobe(0.8)      # gloss 8
     assert tight_peak > 4 * broad_peak       # measured 196 against 6
     assert tight_width < broad_width         # measured 4 columns against 30
+
+
+def _integration_options(**kw):
+    base = dict(scale=1, shading="smooth", lighting="scene", msaa=0)
+    base.update(kw)
+    return RenderOptions(**base)
+
+
+def test_integration_on_with_a_neutral_plate_reproduces_the_golden(gl_ctx):
+    # The plumbing identity: `on` changes where the pixels are assembled,
+    # never what they are. NEUTRAL_PLATE makes every composite term vanish
+    # by construction, and msaa=0 makes coverage exactly 0 or 1.
+    backend = GLBackend(gl_ctx, RenderOptions(
+        scale=1, shading="smooth", lighting="scene", msaa=0,
+        realism="classic", smoothing=0, shadows="hard", integration="on"))
+    backend.draw(_golden_frame())
+    out = backend.read_rgb()
+    backend.release()
+    assert np.array_equal(out, np.load(GOLDEN))
+
+
+@pytest.mark.parametrize("shadows", ["hard", "soft"])
+def test_integration_on_matches_off_pixel_for_pixel_at_msaa_zero(gl_ctx, shadows):
+    # Not just the golden scene: a real cast shadow under both shadow modes.
+    frame = _lit_frame([_standing_actor(0, _tri_geometry(600.0, 1), 400.0)],
+                       (0.3, -0.6, -0.7))
+    off = GLBackend(gl_ctx, _integration_options(shadows=shadows, integration="off"))
+    off.draw(frame)
+    expected = off.read_rgb().copy()
+    off.release()
+    on = GLBackend(gl_ctx, _integration_options(shadows=shadows, integration="on"))
+    on.draw(frame)
+    got = on.read_rgb().copy()
+    on.release()
+    assert np.array_equal(got, expected)
+
+
+def test_integration_leaves_fixed_lighting_untouched(gl_ctx):
+    # `integration` applies under lighting="scene" only.
+    actor = _actor(0, _facing_tri(600.0, 1, (0.0, 0.0, -1.0)))
+    off = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="fixed",
+                                          integration="off"))
+    off.draw(_frame([actor]))
+    expected = off.read_rgb().copy()
+    off.release()
+    on = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="fixed",
+                                         integration="on"))
+    on.draw(_frame([actor]))
+    assert np.array_equal(on.read_rgb(), expected)
+    on.release()
+
+
+def test_integration_on_still_resolves_msaa_into_the_same_texture(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
+                                              msaa=4, integration="on"))
+    backend.draw(_lit_frame([_standing_actor(0, _tri_geometry(600.0, 1), 400.0)],
+                            (0.3, -0.6, -0.7)))
+    assert backend.read_rgb().shape == (400, 640, 3)
+    assert backend.thumbnail().shape == (200, 320, 3)
+    backend.release()
+
+
+def test_integration_on_still_darkens_the_ground_under_a_hard_shadow(gl_ctx):
+    # The hard cast moved ahead of the bodies to reach the plate layer; it
+    # must still land on the plate.
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    baseline = _plain_background(gl_ctx, plate, shadows="hard")
+    backend = GLBackend(gl_ctx, _integration_options(shadows="hard", integration="on"))
+    backend.draw(FrameDescription(
+        _view(), ImageAsset(plate, False), _palette(),
+        (_standing_actor(0, _tri_geometry(600.0, 1), 400.0),), (),
+        _scene_light((0.3, -0.6, -0.7))))
+    out = backend.read_rgb().astype(int)
+    backend.release()
+    assert (out < baseline).any(), "the hard cast never reached the plate layer"
