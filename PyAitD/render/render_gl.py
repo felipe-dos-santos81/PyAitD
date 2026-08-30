@@ -42,6 +42,7 @@ from PyAitD.render.glsl import (
 from PyAitD.render.lighting import (_clamp_downward, light_view_matrix, project_to_plane,
                                     shading_terms, shadow_opacity, SHADOW_MAP_SIZE)
 from PyAitD.render.materials import PALETTE_SIZE, PRESETS
+from PyAitD.render.plate import softness
 from PyAitD.render.refine import subpatch
 from PyAitD.render.render_options import SMOOTHING_LEVELS
 from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
@@ -68,6 +69,12 @@ CONTACT_HEIGHT = 150.0   # FITD units over which the contact term fades, roughly
 SOURCE_ANGLE = 6.0
 TAN_SOURCE = math.tan(math.radians(SOURCE_ANGLE))
 R_MAX_PER_SCALE = 4
+
+# The composite's tap budget: a 9x9 window at the widest. sigma tops out at
+# 0.35 * 8 = 2.8 at scale 8 over a classic plate, where +-4 covers 1.4
+# sigma; the weights are renormalised by what was actually gathered, so the
+# truncation costs sharpness at the tail, never brightness.
+MAX_BLUR_RADIUS = 4
 
 # The shadow-map receiver: a vertex is pushed NORMAL_OFFSET world units
 # along its normal before it is looked up, and the comparison is biased
@@ -734,7 +741,7 @@ class GLBackend:
 
         if integrate:
             self._resolve_into(self._actor_fbo)
-            self._composite()
+            self._composite(frame)
         elif self._ms_fbo is not None:
             # Resolves the multisample buffer down into `.texture`, which is
             # what read_rgb, thumbnail and Renderer all read.
@@ -1125,8 +1132,17 @@ class GLBackend:
         if self._ms_fbo is not None:
             self._ctx.copy_framebuffer(fbo, self._ms_fbo)
 
-    def _composite(self):
+    def _composite(self, frame):
         """The actor layer back onto the plate layer, into `.texture`."""
+        src_h, src_w = frame.background.pixels.shape[:2]
+        sigma, cell, pixelate = softness(
+            self._options.background_filter, (src_w, src_h), self.size)
+        radius = 0 if sigma <= 0.0 else min(MAX_BLUR_RADIUS, int(math.ceil(2.0 * sigma)))
+        self._composite_prog["radius"].value = radius
+        self._composite_prog["inv_sigma2"].value = (
+            0.0 if sigma <= 0.0 else 1.0 / (2.0 * sigma * sigma))
+        self._composite_prog["cell"].value = float(cell)
+        self._composite_prog["pixelate"].value = 1 if pixelate else 0
         self._fbo.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)

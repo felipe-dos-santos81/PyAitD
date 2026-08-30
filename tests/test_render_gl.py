@@ -2393,9 +2393,16 @@ def test_integration_on_still_resolves_msaa_into_the_same_texture(gl_ctx):
     # max=1 at scale 1 and 2, msaa 2, 4 and 8, three repeats each. The 2 is
     # driver headroom on sample weighting, not a measurement: tightening it
     # to the measured 1 is not the safe-looking edit it appears to be.
+    #
+    # The plate is upscaled to the scale=2 target resolution rather than
+    # left at 320x320 -- Task 4 softens or pixelates the actor layer to
+    # match a plate cell wider than a target pixel, and at cell==1 that
+    # machinery is a no-op, which is what this test needs: it is about the
+    # msaa resolve, not about the composite's sharpness matching.
     from PyAitD.render.lighting import SceneLight
+    plate = np.repeat(np.repeat(_gradient_plate(), 2, axis=0), 2, axis=1)
     frame = FrameDescription(
-        _view(), ImageAsset(_gradient_plate(), False), _palette(),
+        _view(), ImageAsset(plate, False), _palette(),
         (_standing_actor(0, _tri_geometry(600.0, 1), 400.0),), (),
         SceneLight((0.3, -0.6, -0.7), (1.0, 1.0, 1.0), (0.2, 0.2, 0.2), 1.0))
     backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
@@ -2439,3 +2446,68 @@ def test_integration_on_still_darkens_the_ground_under_a_hard_shadow(gl_ctx):
     corner = (slice(0, 40), slice(280, 320))
     assert np.array_equal(out[corner], baseline[corner]), \
         "the plate the shadow never reached did not survive the composite"
+
+
+def _edge_transition_width(rgb, row):
+    """How many pixels of the row are strictly between the two extremes:
+    the width of the actor's edge ramp."""
+    line = rgb[row].astype(int).sum(axis=1)
+    lo, hi = line.min(), line.max()
+    return int(((line > lo + 4) & (line < hi - 4)).sum())
+
+
+def _edge_frame(plate):
+    # `_actor`, not `_standing_actor`: its zv puts the ground plane on the
+    # horizon, so the shadow pass rasterises nothing. A real ground shadow
+    # lands on the *plate* layer at target resolution -- it is neither
+    # softened nor pixelated -- and would confound both measurements below.
+    return FrameDescription(
+        _view(), ImageAsset(plate, False), _palette(),
+        (_actor(0, _tri_geometry(600.0, 1)),), (),
+        _scene_light((0.0, -1.0, 0.0)))
+
+
+def test_bilinear_softening_widens_an_actor_edge(gl_ctx):
+    # At scale 4 over a 320-wide plate each plate pixel became a 4x4 cell,
+    # so bilinear left the plate soft over ~1.4 px; the actor is softened
+    # to match, and its edge ramp gets wider than the hard `off` one.
+    plate = np.zeros((200, 320, 3), np.uint8)
+    frame = _edge_frame(plate)
+    widths = {}
+    for integration in ("off", "on"):
+        backend = GLBackend(gl_ctx, RenderOptions(
+            scale=4, shading="smooth", lighting="scene", msaa=0,
+            background_filter="bilinear", integration=integration))
+        backend.draw(frame)
+        widths[integration] = _edge_transition_width(backend.read_rgb(), 400)
+        backend.release()
+    assert widths["on"] > widths["off"]
+
+
+def test_nearest_pixelates_the_actor_to_the_plate_grid(gl_ctx):
+    # A constant plate, so the only thing that could vary inside a 4x4 cell
+    # is the actor -- and under `nearest` it must not.
+    plate = np.full((200, 320, 3), 90, np.uint8)
+    backend = GLBackend(gl_ctx, RenderOptions(
+        scale=4, shading="smooth", lighting="scene", msaa=0,
+        background_filter="nearest", integration="on"))
+    backend.draw(_edge_frame(plate))
+    out = backend.read_rgb()
+    backend.release()
+    cells = out.reshape(200, 4, 320, 4, 3)
+    assert (cells.max(axis=(1, 3)) == cells.min(axis=(1, 3))).all()
+
+
+def test_nothing_is_softened_when_the_plate_is_already_target_resolution(gl_ctx):
+    # cell == 1: an override plate at the target size. Still the identity.
+    frame = _edge_frame(np.zeros((200, 320, 3), np.uint8))
+    off = GLBackend(gl_ctx, _integration_options(background_filter="bilinear",
+                                                 integration="off"))
+    off.draw(frame)
+    expected = off.read_rgb().copy()
+    off.release()
+    on = GLBackend(gl_ctx, _integration_options(background_filter="bilinear",
+                                                integration="on"))
+    on.draw(frame)
+    assert np.array_equal(on.read_rgb(), expected)
+    on.release()

@@ -499,11 +499,45 @@ COMPOSITE_FSH = """
 // msaa = 0 alpha is 0 or 1 and this is `plate` or `rgb` with no arithmetic
 // in between -- byte-exact against drawing the body straight onto the
 // plate, which is the identity `integration=on` has to hold.
+//
+// Sampling is done on the premultiplied values throughout: blurring colour
+// and coverage together is what keeps a soft edge from bleeding the
+// interior's colour outward into fully transparent pixels.
 uniform sampler2D plate_tex; uniform sampler2D actor_tex;
+uniform int radius;        // Gaussian half-width in target pixels; 0 = one tap
+uniform float inv_sigma2;  // 1 / (2 sigma^2); unread when radius is 0
+uniform float cell;        // one plate pixel, in target pixels
+uniform int pixelate;      // 1 under `nearest`: fetch per plate cell
 out vec4 f_color;
+
+vec4 sample_actor(ivec2 p, ivec2 size) {
+    if (pixelate != 0) {
+        // The centre of the plate cell this pixel falls in, so a blocky
+        // plate gets blocky actors on the same grid.
+        vec2 c = (floor(vec2(p) / cell) + 0.5) * cell;
+        return texelFetch(actor_tex, clamp(ivec2(c), ivec2(0), size - 1), 0);
+    }
+    if (radius <= 0) return texelFetch(actor_tex, p, 0);
+    vec4 sum = vec4(0.0);
+    float total = 0.0;
+    // `radius` is a uniform, so this is uniform control flow and the tap
+    // count is the same for every pixel of the frame. Edge-clamped rather
+    // than skipped, and normalised by the weight actually accumulated, so
+    // the border neither darkens nor loses coverage.
+    for (int dy = -radius; dy <= radius; dy++) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            ivec2 q = clamp(p + ivec2(dx, dy), ivec2(0), size - 1);
+            float w = exp(-float(dx * dx + dy * dy) * inv_sigma2);
+            sum += texelFetch(actor_tex, q, 0) * w;
+            total += w;
+        }
+    }
+    return sum / total;
+}
+
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
-    vec4 a = texelFetch(actor_tex, p, 0);
+    vec4 a = sample_actor(p, textureSize(actor_tex, 0));
     vec3 plate = texelFetch(plate_tex, p, 0).rgb;
     f_color = vec4(plate * (1.0 - a.a) + a.rgb, 1.0);
 }
