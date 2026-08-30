@@ -15,7 +15,7 @@ docs/intro-proof/*.png
 docs/intro-proof/intro-ticks.txt
 overrides/
 overrides-*/
-materials-survey/
+materials-survey
 .env
 .claude/
 .taskmaster/
