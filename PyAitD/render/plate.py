@@ -143,6 +143,20 @@ def grain_retention(background_filter, src_size, target_size):
     return 2.0 * v * v + (1.0 - 2.0 * v) ** 2
 
 
+def dither_arrives_smoothed(background_filter, src_size, target_size):
+    """True when the filter magnifies the plate by interpolating between
+    source texels, so its dither reaches the screen as a ramp across each
+    cell rather than as the source's own hard texels.
+
+    Which construction the composite has to build the actor's grain with.
+    Stated through `grain_retention` rather than beside it so the two
+    cannot drift: a filter attenuates the dither exactly when it smooths
+    it, and leaves the amplitude alone exactly when it samples the source
+    intact (`nearest`, xbr at the classic size, or no magnification at
+    all)."""
+    return grain_retention(background_filter, src_size, target_size) < 1.0
+
+
 def softness(background_filter, src_size, target_size):
     """(sigma_px, cell_px, pixelate) for a plate of `src_size` shown at
     `target_size` through `background_filter`. Both sizes are (width, height).

@@ -17,6 +17,7 @@ from PyAitD.render.background_export import (
     PORTRAIT_RECTS, READING_CLOSE_RECT, READING_NEXT_RECT, READING_PREV_RECT,
 )
 from PyAitD.render.render_options import (
+    INTEGRATION_LABELS,
     RenderOptions, cycle_filter, cycle_integration, cycle_lighting, cycle_msaa, cycle_realism, cycle_scale,
     cycle_shading, cycle_shadows, cycle_smoothing,
 )
@@ -1202,7 +1203,7 @@ def graphics_labels(render):
         f"AA: up to {render.msaa}x" if render.msaa else "AA: Off",
         f"Realism: {render.realism.title()}",
         f"Smoothing: {SMOOTHING_LABELS[render.smoothing]}",
-        f"Integration: {render.integration.title()}",
+        f"Integration: {INTEGRATION_LABELS[render.integration]}",
     ]
 
 

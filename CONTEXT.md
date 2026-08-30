@@ -27,7 +27,7 @@ make test-meta                 # the repo's own rules (package layering, test gr
 make test-journey              # real run() event pump and long real-data simulations
 make proof-mouse               # navmesh for every camera-visible room, every floor (needs game data)
 make proof-combat              # venue, real enemy damage, player arms, game over (needs game data)
-make proof-graphics            # attic + combat fixtures at every shading mode, plus flat-mesh and hard-shadow pairs, -> docs/graphics-proof/ (needs GL + game data)
+make proof-graphics            # attic + combat fixtures at every shading mode, plus flat-mesh, hard-shadow, un-composited and over-composited pairs, -> docs/graphics-proof/ (needs GL + game data)
 make proof-intro               # opening cutscene: headless gate + one GL render per visited camera
 make export-backgrounds      # originals + 5 KILLED_SORCERER alts + palette + guides + manifest schema 3 -> data/aitd1/overrides (out=, floors=, scale=, force=1, screens=0 to skip)
 make check-overrides         # validate an override dir as the game loads it (overrides=DIR, proof=1 side-by-sides: bases, alts -alt.png, screens)
@@ -59,7 +59,7 @@ below for what pins each alias to the files it historically ran.
 | Enhanced graphics scene layer | Higher-resolution actor rendering, per-vertex shading, GPU mask erasure, background upscale filters, asset override directory, GL fallback | automated gates green; windowed attestation pending (`docs/enhanced-graphics-proof.md`) |
 | Smooth actor geometry | GPU PN tessellation behind `smoothing`, crease-aware corner normals, tessellated shadow, Graphics sub-page | automated gates green; windowed attestation pending (`docs/smooth-geometry-proof.md`) |
 | Soft shadows (roadmap F) | Contact-hardening penumbra, one gathered shadow pass, light-view shadow map for self/inter-actor shadowing, `shadows` knob | automated gates green; windowed attestation pending (`docs/soft-shadows-proof.md`) |
-| Plate integration (roadmap G) | Actors resolved into their own layer and composited back through the plate's softness, tone curve and grain, `integration` on by default | automated gates green; windowed attestation pending (`docs/plate-integration-proof.md`) |
+| Plate integration (roadmap G) | Actors resolved into their own layer and composited back through the plate's softness, tone curve and grain, graded by an `integration` level 0-3 that defaults to 2 (the full match) | automated gates green; windowed attestation pending (`docs/plate-integration-proof.md`) |
 | Materials v2 (roadmap H) | Derivative bump so `detail` is relief and not dirt, a warm skin terminator, real emissive, a normalised specular lobe, the 23 used palette ramps hand-reviewed, and the class table retuned against the fixtures | automated gates green; windowed attestation pending (`docs/materials-v2-proof.md`) |
 | AI background regeneration | Export originals + structure guides + manifest, validate override dirs as the game loads them, optional Gemini describe+render+verify (offline gate + vision judge, retry, reject-on-drift) regeneration | done — `make export-backgrounds` / `check-overrides` / `regenerate-backgrounds`; `docs/ai-background-regeneration.md` |
 | Engine package reorganization | engine / render / games / app split + GameProfile | done — `tests/test_layering.py` |
@@ -97,7 +97,7 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `engine/mask_geometry.py` | Mask polygons in 320x200 screen space plus their trigger rects, parsed once from the existing mask data |
 | `render/asset_resolver.py` | `AssetResolver(assets, override_dir=None)`: background/palette/light lookup, per-body material table (with `bodies/body<NNN>.json` override) and AO bake, checking an optional override directory first and falling back to the original asset, tessellation plan (with the same file's `crease`) |
 | `render/lighting.py` | `estimate_light(pixels) -> SceneLight`, `shading_terms`, `project_to_plane`: a per-camera light read off the background image, and the ground-plane projection the shadow pass uses; pygame/GL-free. `light_view_matrix`, `soften`: the orthographic light view every actor's shadow map is rendered from, and the numpy twin of the penumbra blur |
-| `render/render_options.py` | `RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism, smoothing, shadows)`: validation, clamping, menu-cycle helpers; pygame/GL-free |
+| `render/render_options.py` | `RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism, smoothing, shadows, integration)`: validation, clamping, menu-cycle helpers, and the `INTEGRATION_STRENGTHS` the composite multiplies by; pygame/GL-free |
 | `render/render_gl.py` | `GLBackend(ctx, options)`: ModernGL pipeline, per-actor depth, GPU mask-texture erasure, shading modes, estimated scene lighting, projected ground shadows, per-material surface response, multisampling, background filtering, instanced PN tessellation of actors and their shadows, gathered contact-hardening soft shadows and a light-view shadow map behind `shadows` |
 | `render/glsl.py` | Every GLSL source as a plain string; no imports, no logic |
 | `render/render_soft.py` | `SoftwareBackend`: numpy/pygame compositor over the logical projection, used headless and as the GL-failure fallback |

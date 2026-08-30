@@ -125,23 +125,45 @@ def test_invalid_shadows_falls_back_alone():
         assert options == RenderOptions() and "shadows" in error, bad
 
 
-def test_integration_defaults_to_on_and_cycles():
-    from PyAitD.render.render_options import INTEGRATION_MODES, cycle_integration
-    options = RenderOptions()
-    assert INTEGRATION_MODES == ("off", "on")
-    assert options.integration == "on"
-    assert cycle_integration(options).integration == "off"
-    assert cycle_integration(RenderOptions(integration="off")).integration == "on"
+def test_integration_defaults_to_the_full_level():
+    from PyAitD.render.render_options import INTEGRATION_LEVELS
+    assert INTEGRATION_LEVELS == (0, 1, 2, 3)
+    assert RenderOptions().integration == 2
+
+
+def test_a_settings_file_written_before_the_levels_still_means_what_it_said():
+    # "off" and "on" are what this option shipped as; someone who turned the
+    # composite off keeps it off, and neither spelling is worth an error.
+    for legacy, level in (("off", 0), ("on", 2)):
+        options, error = validate_render_options({**RenderOptions().to_payload(),
+                                                  "integration": legacy})
+        assert (options.integration, error) == (level, None), legacy
 
 
 def test_an_unknown_integration_clamps_to_the_default_with_an_error():
-    options, error = validate_render_options({**RenderOptions().to_payload(),
-                                              "integration": "sometimes"})
-    assert options.integration == RenderOptions().integration
-    assert "integration must be one of off, on" in error
+    # The list is not idle: the legacy-string lookup below is a dict get,
+    # and an unhashable payload value would raise straight through the
+    # per-field fallback into config's blanket except, resetting every
+    # other render option with it.
+    for bad in ("sometimes", 4, -1, None, True, 1.0, []):
+        options, error = validate_render_options({**RenderOptions().to_payload(),
+                                                  "integration": bad})
+        assert options.integration == RenderOptions().integration, bad
+        assert "integration must be one of 0, 1, 2, 3" in error, bad
 
 
 def test_integration_round_trips_through_the_payload():
-    payload = RenderOptions(integration="on").to_payload()
-    assert payload["integration"] == "on"
-    assert validate_render_options(payload)[0].integration == "on"
+    for level in (0, 1, 2, 3):
+        payload = RenderOptions(integration=level).to_payload()
+        assert payload["integration"] == level
+        assert validate_render_options(payload) == (RenderOptions(integration=level), None)
+
+
+def test_integration_cycles_through_every_level():
+    from PyAitD.render.render_options import cycle_integration
+    seen = [RenderOptions().integration]
+    options = RenderOptions()
+    for _ in range(4):
+        options = cycle_integration(options)
+        seen.append(options.integration)
+    assert seen == [2, 3, 0, 1, 2]

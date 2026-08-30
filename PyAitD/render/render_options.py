@@ -17,12 +17,24 @@ SMOOTHING_LEVELS = (0, 1, 2, 3)   # 2**level segments per edge; 0 draws the flat
 # lets bodies shadow themselves and each other. Both under lighting="scene"
 # only; "fixed" casts nothing either way.
 SHADOW_MODES = ("hard", "soft")
-# off: today's single-target path -- bodies drawn straight over the plate,
-# at the internal resolution, with the plate's tone and dither ignored.
-# on: bodies resolved into their own RGBA layer and composited back through
-# the plate's softness, tone curve and grain. Under lighting="scene" only;
-# "fixed" runs the single-target path either way.
-INTEGRATION_MODES = ("off", "on")
+# How much of the plate the actor layer takes on. Level 0 is the
+# single-target path -- bodies drawn straight over the plate, at the
+# internal resolution, with the plate's tone and dither ignored. Levels 1-3
+# resolve bodies into their own RGBA layer and composite it back through
+# the plate's softness, tone curve and grain, scaled by the matching
+# strength below. Under lighting="scene" only; "fixed" runs the
+# single-target path at every level.
+INTEGRATION_LEVELS = (0, 1, 2, 3)
+INTEGRATION_LABELS = ("Off", "Subtle", "Full", "Strong")
+# The multiplier each level applies to all three composite terms. Level 2 is
+# 1.0 by construction: it is the "on" this option shipped as, and every
+# pixel it draws has to stay the pixel it drew. Level 3 overshoots -- the
+# toe lifts the actor's darks past the room's floor -- which is what
+# "Strong" means, not a bug the clamp is papering over.
+INTEGRATION_STRENGTHS = (0.0, 0.5, 1.0, 1.5)
+# What the option was spelled as before it was a level, and what those
+# spellings mean now. `validate_render_options` reads it; nothing else should.
+LEGACY_INTEGRATION = {"off": 0, "on": 2}
 
 
 @dataclass(frozen=True)
@@ -36,7 +48,7 @@ class RenderOptions:
     realism: str = "enhanced"
     smoothing: int = 2
     shadows: str = "soft"
-    integration: str = "on"
+    integration: int = 2
 
     def to_payload(self):
         return {
@@ -100,8 +112,16 @@ def validate_render_options(payload):
         errors.append(f"shadows must be one of {', '.join(SHADOW_MODES)}")
         shadows = defaults.shadows
     integration = payload.get("integration")
-    if integration not in INTEGRATION_MODES:
-        errors.append(f"integration must be one of {', '.join(INTEGRATION_MODES)}")
+    # This option shipped as the strings "off" and "on" before it was a
+    # level, so a settings file written then still says one of them. Map
+    # them to the levels that mean the same thing rather than erroring: the
+    # only person the error would reach is one whose composite silently
+    # turned back on, which is the outcome worth avoiding.
+    if isinstance(integration, str):
+        integration = LEGACY_INTEGRATION.get(integration, integration)
+    # bool-rejecting like msaa and smoothing: True in (0, 1, 2, 3) is True.
+    if not (type(integration) is int and integration in INTEGRATION_LEVELS):
+        errors.append(f"integration must be one of {', '.join(str(v) for v in INTEGRATION_LEVELS)}")
         integration = defaults.integration
     options = RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism, smoothing, shadows, integration)
     return options, ("; ".join(errors) or None)
@@ -147,4 +167,5 @@ def cycle_shadows(options):
 
 
 def cycle_integration(options):
-    return replace(options, integration=_cycle(INTEGRATION_MODES, options.integration))
+    current = options.integration if options.integration in INTEGRATION_LEVELS else INTEGRATION_LEVELS[0]
+    return replace(options, integration=_cycle(INTEGRATION_LEVELS, current))

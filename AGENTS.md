@@ -16,7 +16,7 @@ make test-meta     # the repo's own rules (package layering, test grouping)
 make test-journey  # real run() event pump and long real-data simulations
 make proof-mouse   # navmesh for every camera-visible room, every floor (needs game data)
 make proof-combat  # venue, real enemy damage, player arms, game over (needs game data)
-make proof-graphics # attic + combat fixtures per shading mode x realism preset x smoothing default, plus a flat-mesh pair and a hard-shadow pair (needs GL + game data)
+make proof-graphics # attic + combat fixtures per shading mode x realism preset x smoothing default, plus a flat-mesh pair, a hard-shadow pair and the integration range's two ends -- an un-composited pair and an over-composited one (needs GL + game data)
 make proof-intro   # opening cutscene: headless gate + one GL render per visited camera
 make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
 make export-backgrounds # originals + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + manifest schema 3 to data/aitd1/overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1, screens=0 to skip)
@@ -151,16 +151,35 @@ a rule — add the test with the rule.
   tessellation plan, the per-corner normals and the numpy twin of `_TESS_VSH`
   that the transform-feedback test pins the GPU against — change the formula
   in both or neither. `plate` is pure numpy too: `PlateProfile`,
-  `estimate_plate`, `softness` and `grain_retention` — what the room's own
+  `estimate_plate`, `softness`, `grain_retention` and
+  `dither_arrives_smoothed` — what the room's own
   picture says about its black, its white, its dither and its cell size,
   read off the background image. Not consumed only by the composite:
   `asset_resolver` calls `estimate_plate`, `scene` carries `PlateProfile`
   and `NEUTRAL_PLATE` on the frame, and `render_gl` reads `softness` and
-  `grain_retention` to drive the composite. Under
-  `integration="on"` (the default) `render_gl` splits the frame into a
-  plate layer and an actor layer, resolves each, and composites the second
-  back through the first in one full-target pass (`COMPOSITE_FSH`);
-  `integration="off"` keeps the single-target path.
+  `dither_arrives_smoothed` to drive the composite. `grain_retention`
+  derives the attenuation of a plate *cell mean*, which is the right
+  question for a grain laid down one flat value per cell and the wrong one
+  for the field the composite now builds: the shader magnifies its own
+  dither the way the filter magnified the room's, which attenuates it in
+  the same step, so `plate_grain` reaches it uncorrected and scaling by the
+  factor as well would attenuate twice. The factor keeps its derivation and
+  its tests and answers the predicate instead — a filter attenuates the
+  dither exactly when it smooths it, which is `dither_arrives_smoothed`.
+  Under
+  any `integration` level above 0 (2 is the default) `render_gl` splits the
+  frame into a plate layer and an actor layer, resolves each, and composites
+  the second back through the first in one full-target pass
+  (`COMPOSITE_FSH`); `integration=0` keeps the single-target path. The level
+  indexes `render_options.INTEGRATION_STRENGTHS`, and that strength grades
+  the range clamp and the grain in the shader and the softness sigma
+  in `_composite` before the blur radius is derived from it — three terms,
+  one multiplier, and level 2 is 1.0 — the full match, and what every
+  golden and identity test is pinned at. (It reproduced the pre-grading
+  composite pixel for pixel when the levels landed; the dither rebuild
+  since has moved those pixels on purpose.) `pixelate` is deliberately
+  outside the multiplier: which plate cell a pixel falls in has no
+  half-measure.
   `glsl` is strings only — every GLSL source the backend
   compiles, no imports (`test_layering` pins it). `lighting.soften` is the numpy
   twin of the penumbra blur (`SHADOW_BLUR_FSH`), pinned like

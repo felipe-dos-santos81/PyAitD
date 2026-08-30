@@ -4,8 +4,9 @@
 Boots two fixtures on a standalone ModernGL context and writes one PNG per
 fixture per shading mode per realism preset to `--out` (default
 `docs/graphics-proof/`), plus one flat-mesh (smoothing 0), one
-hard-shadow (`shadows=hard`) and one un-composited (`integration=off`)
-PNG per fixture beside the smooth-enhanced render:
+hard-shadow (`shadows=hard`), one un-composited (`integration=0`) and one
+over-composited (`integration=3`) PNG per fixture beside the
+smooth-enhanced render:
 
 - `attic`: the M1/M2 attic debug start (`init_game`, floor 0).
 - `combat`: the shared floor-5 debug venue (`scenario.enter_combat_venue`).
@@ -17,7 +18,9 @@ per-mode renders feed, `docs/smooth-geometry-proof.md` for the one the two
 `-flatmesh` files feed, `docs/soft-shadows-proof.md` for the one the
 two `-hardshadow` files feed, `docs/plate-integration-proof.md` for the
 one the two `-nocomposite` files feed, and `docs/materials-v2-proof.md`
-for the per-material-class one the `-enhanced` renders feed.
+for the per-material-class one the `-enhanced` renders feed. The two
+`-strong` files are the top of the integration range, which the
+`-nocomposite` pair floors and the default renders sit between.
 """
 import argparse
 import pathlib
@@ -30,7 +33,7 @@ from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.game import init_game
 from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import (
-    INTEGRATION_MODES, REALISM_MODES, SHADING_MODES, SHADOW_MODES, SMOOTHING_LEVELS,
+    INTEGRATION_LEVELS, REALISM_MODES, SHADING_MODES, SHADOW_MODES, SMOOTHING_LEVELS,
     RenderOptions,
 )
 from PyAitD.games.aitd1.scenario import enter_combat_venue
@@ -71,9 +74,14 @@ def output_paths(out_dir, smoothing=None, shadows=None, integration=None):
     """(name, mode, realism, smoothing, shadows, integration, path) for every
     fixture x shading-mode x realism combination at `smoothing`, `shadows`
     and `integration` (the RenderOptions defaults when None), then one
-    flat-mesh (smoothing 0), one hard-shadow (shadows "hard") and one
-    un-composited (integration "off") file per fixture beside the
-    smooth-enhanced render, in the order rendered and printed by `main`."""
+    flat-mesh (smoothing 0), one hard-shadow (shadows "hard"), one
+    un-composited (integration 0) and one over-composited (integration 3)
+    file per fixture beside the smooth-enhanced render, in the order
+    rendered and printed by `main`.
+
+    The last two bracket the integration level the main renders use: 0 and
+    3 are the ends of the range, and the default sits between them, so the
+    proof shows the grading rather than only its middle."""
     out_dir = pathlib.Path(out_dir)
     defaults = RenderOptions()
     level = defaults.smoothing if smoothing is None else smoothing
@@ -92,8 +100,11 @@ def output_paths(out_dir, smoothing=None, shadows=None, integration=None):
     paths += [(name, "smooth", "enhanced", level, "hard", mode_integration,
                out_dir / f"{name}-smooth-enhanced-hardshadow.png")
               for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, mode_shadows, "off",
+    paths += [(name, "smooth", "enhanced", level, mode_shadows, 0,
                out_dir / f"{name}-smooth-enhanced-nocomposite.png")
+              for name in FIXTURES]
+    paths += [(name, "smooth", "enhanced", level, mode_shadows, 3,
+               out_dir / f"{name}-smooth-enhanced-strong.png")
               for name in FIXTURES]
     return paths
 
@@ -108,9 +119,9 @@ def _parse_args(argv):
                    help="mesh smoothing level for the main renders (the -flatmesh pair is always 0)")
     p.add_argument("--shadows", choices=SHADOW_MODES, default=RenderOptions().shadows,
                    help="shadow mode for the main renders (the -hardshadow pair is always hard)")
-    p.add_argument("--integration", choices=INTEGRATION_MODES,
+    p.add_argument("--integration", type=int, choices=INTEGRATION_LEVELS,
                    default=RenderOptions().integration,
-                   help="plate integration for the main renders (the -nocomposite pair is always off)")
+                   help="plate integration for the main renders (the -nocomposite pair is always 0)")
     return p.parse_args(argv)
 
 
