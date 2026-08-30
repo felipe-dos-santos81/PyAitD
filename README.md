@@ -100,11 +100,11 @@ composites every actor's shadow once before any body is drawn, and lets
 limbs and actors shadow each other through a light-view depth map),
 `--integration {0,1,2,3}` (how much of the room's own picture the actors take
 on: any level above 0 resolves the bodies into their own layer and composites
-them back — softened or pixelated to the plate's cell, lifted to the room's
-black, pulled to its white, and grained at the plate's *displayed* amplitude,
-the source dither scaled by whatever the background filter actually leaves at
-the cell size, not the dither the plate image was stored with — so the actors
-sit inside the room rather than on top of it. 2 is the full match and the
+them back — softened or pixelated to the plate's cell, clamped into the
+range the room can actually print (nothing darker than its floor, nothing
+brighter than its ceiling, and no opinion about a value already in between),
+and grained with a dither built the way the background filter built the
+room's own — so the actors sit inside the room rather than on top of it. 2 is the full match and the
 default, 1 does half of it, 3 half again as much; 0 is the previous
 single-target path, which draws the bodies straight over the plate. The
 option's original `off` and `on` still parse as 0 and 2),

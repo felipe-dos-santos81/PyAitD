@@ -2589,65 +2589,6 @@ def test_the_shoulder_pulls_a_white_actor_to_the_rooms_ceiling(gl_ctx):
     assert pulled.max() == pytest.approx(204, abs=2)   # 255 * 0.8
 
 
-def test_the_toes_shape_tracks_the_quartic_and_rec709_weights(gl_ctx):
-    # The two endpoint tests above cannot tell the quartic from a square,
-    # or Rec.709 luma from flat 1/3 weights: at luma 0 (colour=0) and luma 1
-    # (a 255 entry), (1 - luma)^n and luma^n are both exactly 1 for any n,
-    # and luma itself is 0 or 1 no matter which weights compute it. Only a
-    # midtone actually exercises the exponent and the weighting -- this
-    # test measures the toe's lift there, on two colours, against a plate
-    # whose white is neutral so only the toe is active.
-    from PyAitD.render.plate import NEUTRAL_PLATE, PlateProfile
-    black = (30 / 255, 20 / 255, 20 / 255)
-    profile = PlateProfile(black, (1.0, 1.0, 1.0), 0.0)
-
-    # Mid-grey (128, 128, 128): Rec.709 luma is (0.2126+0.7152+0.0722) *
-    # 128/255 == 128/255 == 0.50196. The quartic toe predicts a red lift of
-    # 30 * (1 - 0.50196)^4 == 30 * 0.49804^4 == 1.8458 counts. A square
-    # (i.e. `toe *= toe;` deleted) would instead predict
-    # 30 * 0.49804^2 == 7.4413 counts -- 4x more, well past the tolerance.
-    grey = np.zeros((256, 3), np.uint8)
-    grey[1] = (128, 128, 128)
-    grey_flat = _composited_centre(gl_ctx, NEUTRAL_PLATE, palette=grey)
-    grey_lifted = _composited_centre(gl_ctx, profile, palette=grey)
-    grey_lift = int(grey_lifted[0]) - int(grey_flat[0])
-    assert grey_lift == pytest.approx(1.8458, abs=1)
-
-    # Saturated green (0, 200, 0): Rec.709 luma is 0.7152 * 200/255 ==
-    # 0.56094, predicting a red lift of 30 * (1 - 0.56094)^4 ==
-    # 30 * 0.43906^4 == 1.1148 counts. Flat 1/3 weights would instead see
-    # luma (1/3) * 200/255 == 0.26144 and predict
-    # 30 * 0.73856^4 == 8.9263 counts -- again far past the tolerance.
-    green = np.zeros((256, 3), np.uint8)
-    green[1] = (0, 200, 0)
-    green_flat = _composited_centre(gl_ctx, NEUTRAL_PLATE, palette=green)
-    green_lifted = _composited_centre(gl_ctx, profile, palette=green)
-    green_lift = int(green_lifted[0]) - int(green_flat[0])
-    assert green_lift == pytest.approx(1.1148, abs=1)
-
-
-def test_the_shoulders_shape_tracks_the_quartic(gl_ctx):
-    # Mirror of the toe probe above, isolating the shoulder instead: black
-    # is neutral (the toe contributes exactly nothing) and white is 0.8, so
-    # 1 - plate_white is (0.2, 0.2, 0.2) and only the shoulder is active.
-    from PyAitD.render.plate import NEUTRAL_PLATE, PlateProfile
-    profile = PlateProfile((0.0, 0.0, 0.0), (0.8, 0.8, 0.8), 0.0)
-
-    # Mid-grey (128, 128, 128): Rec.709 luma is (0.2126+0.7152+0.0722) *
-    # 128/255 == 128/255 == 0.50196, luma^2 == 0.25196. The quartic
-    # shoulder predicts a red drop of 255 * 0.2 * 0.25196^2 ==
-    # 255 * 0.2 * 0.063486 == 3.2378 counts against the neutral render. A
-    # square (i.e. `shoulder *= shoulder;` deleted) would instead predict
-    # 255 * 0.2 * 0.25196 == 12.8502 counts -- 4x more, well past the
-    # tolerance.
-    grey = np.zeros((256, 3), np.uint8)
-    grey[1] = (128, 128, 128)
-    grey_flat = _composited_centre(gl_ctx, NEUTRAL_PLATE, palette=grey)
-    grey_pulled = _composited_centre(gl_ctx, profile, palette=grey)
-    grey_drop = int(grey_flat[0]) - int(grey_pulled[0])
-    assert grey_drop == pytest.approx(3.2378, abs=1.5)
-
-
 def _grey_grain_render(gl_ctx, grain, scale=1, integration=2):
     """One flat mid-grey triangle over a flat plate, at `grain`.
 
@@ -2656,8 +2597,9 @@ def _grey_grain_render(gl_ctx, grain, scale=1, integration=2):
     grain 0.08) neither clips at 255 nor floors at 0. Measuring the noise
     on a saturated channel would clip half of it and halve the RMS.
 
-    `scale` is 1 -- cell 1, where `plate.grain_retention` is 1.0 -- unless
-    a caller asks for the magnified case."""
+    `scale` is 1 -- cell 1, where the plate's dither arrives intact and the
+    composite lays down a hard per-pixel field to match -- unless a caller
+    asks for the magnified case."""
     from PyAitD.render.plate import PlateProfile
     from PyAitD.render.scene import FrameDescription as FD
     palette = np.zeros((256, 3), np.uint8)
@@ -2801,3 +2743,41 @@ def test_grain_arrives_the_way_the_rooms_own_dither_does(gl_ctx):
 
     assert added.std() == pytest.approx(room.std(), rel=0.1)
     assert _residual_rms(added) == pytest.approx(_residual_rms(room), rel=0.15)
+
+
+def test_the_tone_match_leaves_an_actor_already_inside_the_rooms_range_alone(gl_ctx):
+    # The whole of the wash. An actor pixel between the plate's floor and
+    # its ceiling is a value the room can already print, so matching the
+    # room has nothing to say about it -- and in a dark room that is most
+    # of the figure, not an edge case: the attic's range is luma 16..124
+    # counts and the actor's median luma is 47.
+    #
+    # A quartic weighted on absolute luma cannot express that. It was
+    # written as an extremes-only correction on the assumption that luma
+    # 0.5 is a midtone; at the luma an actor in this game actually sits at,
+    # (1 - luma)^4 is still ~0.43, so it lifted the whole figure.
+    from PyAitD.render.plate import NEUTRAL_PLATE, PlateProfile
+    # The attic camera's own profile, and an actor at the median luma the
+    # figure actually renders at there.
+    room = PlateProfile((33 / 255, 12 / 255, 8 / 255), (157 / 255, 117 / 255, 98 / 255), 0.0)
+    grey = np.zeros((256, 3), np.uint8)
+    grey[1] = (60, 60, 60)
+    flat = _composited_centre(gl_ctx, NEUTRAL_PLATE, palette=grey)
+    matched = _composited_centre(gl_ctx, room, palette=grey)
+    assert list(matched) == list(flat)
+
+
+def test_the_tone_match_still_meets_the_room_at_both_extremes(gl_ctx):
+    # What the clamp must not lose: an actor darker than anything the room
+    # can print is raised to the room's floor, and one brighter than the
+    # room's ceiling is pulled down to it. Same claim the quartic made at
+    # luma 0 and luma 1, now made only there.
+    from PyAitD.render.plate import PlateProfile
+    room = PlateProfile((33 / 255, 12 / 255, 8 / 255), (157 / 255, 117 / 255, 98 / 255), 0.0)
+    black = np.zeros((256, 3), np.uint8)
+    white = np.zeros((256, 3), np.uint8)
+    white[1] = (255, 255, 255)
+    assert list(_composited_centre(gl_ctx, room, palette=black, colour=0)) == \
+        pytest.approx([33, 12, 8], abs=1)
+    assert list(_composited_centre(gl_ctx, room, palette=white)) == \
+        pytest.approx([157, 117, 98], abs=1)

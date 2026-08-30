@@ -531,20 +531,26 @@ uniform float strength;     // the integration level's multiplier, applied to
                             // rather than an amount of anything.
 out vec4 f_color;
 
-// Meet the plate exactly at the extremes: at luma 0 the toe adds the whole
-// of `plate_black`, at luma 1 the shoulder subtracts the whole of
-// `1 - plate_white`. The quartic confines both to the ends -- at luma 0.5
-// only 1/16 of the offset applies -- so this lifts the actor's darks into
-// the room without flattening its midtones.
-const float TOE = 1.0;
-const float SHOULDER = 1.0;
+// The room is a print with a floor and a ceiling: it cannot show anything
+// darker than `plate_black` or brighter than `plate_white`. An actor
+// outside that range is a hole cut in the print, or a highlight nothing
+// around it could have produced -- so the match is to bring it inside the
+// range, and to say nothing at all about a value already in it.
+//
+// The earlier model pushed toward the ends instead, weighting the push by
+// (1 - luma)^4 to confine it there. That confines it only if the actor's
+// midtone really is luma 0.5. In this game it is not: the attic's whole
+// range is luma 16..124 counts and the figure's median is 47, where the
+// quartic is still 0.43 -- so what was meant as an extremes-only
+// correction lifted the entire actor, a neutral 60-count grey arriving as
+// a warm (71, 63, 62). The clamp below has no midtone behaviour to get
+// wrong, because it has no midtone behaviour.
 // hash - 0.5 is uniform on [-0.5, 0.5], whose RMS is 1/sqrt(12). Scaling
 // by sqrt(12) makes the field's RMS equal `plate_grain` at the plate's own
 // resolution -- the amplitude estimate_plate measured -- before `dither`
 // magnifies it the way the background filter magnified the room's. Not a
 // taste constant: it is what "the plate's own amplitude" resolves to.
 const float GAIN = 3.4641016;
-const vec3 REC709 = vec3(0.2126, 0.7152, 0.0722);
 
 // Hoskins' hash11 on a vec2 seed: no sin(), which GPUs implement to wildly
 // different precision at large arguments. Seeded on the screen cell alone,
@@ -616,13 +622,11 @@ void main() {
     vec3 c = vec3(0.0);
     if (a.a > 0.0) {
         c = a.rgb / a.a;                        // unpremultiply to tone-match
-        float luma = dot(c, REC709);
-        float toe = (1.0 - luma) * (1.0 - luma);
-        toe *= toe;                             // (1 - luma)^4
-        float shoulder = luma * luma;
-        shoulder *= shoulder;                   // luma^4
-        c += plate_black * (toe * TOE * strength);
-        c -= (vec3(1.0) - plate_white) * (shoulder * SHOULDER * strength);
+        // `mix`, not a plain clamp, so `strength` grades it -- and above 1
+        // it extrapolates past the range, which is what the top level
+        // means. NEUTRAL_PLATE makes this the identity by construction:
+        // max(c, 0) and min(c, 1) are c for anything the actor pass wrote.
+        c = mix(c, min(max(c, plate_black), plate_white), strength);
         c += plate_grain * strength * dither(gl_FragCoord.xy) * GAIN;
         c = clamp(c, 0.0, 1.0);
     }

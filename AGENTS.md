@@ -171,9 +171,9 @@ a rule — add the test with the rule.
   frame into a plate layer and an actor layer, resolves each, and composites
   the second back through the first in one full-target pass
   (`COMPOSITE_FSH`); `integration=0` keeps the single-target path. The level
-  indexes `render_options.INTEGRATION_STRENGTHS`, and that strength scales
-  the toe, the shoulder and the grain in the shader and the softness sigma
-  in `_composite` before the blur radius is derived from it — four terms,
+  indexes `render_options.INTEGRATION_STRENGTHS`, and that strength grades
+  the range clamp and the grain in the shader and the softness sigma
+  in `_composite` before the blur radius is derived from it — three terms,
   one multiplier, and level 2 is 1.0 — the full match, and what every
   golden and identity test is pinned at. (It reproduced the pre-grading
   composite pixel for pixel when the levels landed; the dither rebuild
