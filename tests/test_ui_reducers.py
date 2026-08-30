@@ -51,10 +51,10 @@ def test_character_cancel_backs_out_then_quits():
 def test_system_main_wraps_and_opens_configuration():
     state = SystemMenuPresenter()
     reduce_system_menu(state, Command.UP, default_settings())
-    assert state.cursor == 2
+    assert state.cursor == 5
     reduce_system_menu(state, Command.DOWN, default_settings())
     assert state.cursor == 0
-    state.cursor = 1
+    state.cursor = 4
     assert reduce_system_menu(state, Command.OPEN_INVENTORY, default_settings()) is None
     assert (state.page, state.cursor) == (SystemMenuPage.CONFIG, 0)
 
@@ -78,12 +78,67 @@ def test_system_main_accept_rows_and_cancel():
     state = SystemMenuPresenter(cursor=0)
     assert reduce_system_menu(state, Command.ACCEPT, default_settings()) == SystemMenuResult(
         close=True, save=True)
-    state = SystemMenuPresenter(cursor=2)
+    state = SystemMenuPresenter(cursor=5)
     assert reduce_system_menu(state, Command.ACCEPT, default_settings()) == SystemMenuResult(
         quit=True, save=True)
     state = SystemMenuPresenter(cursor=1)
     assert reduce_system_menu(state, Command.CANCEL, default_settings()) == SystemMenuResult(
         close=True, save=True)
+
+
+def test_main_save_load_and_quick_save_rows():
+    state = SystemMenuPresenter(cursor=1)
+    assert reduce_system_menu(state, Command.ACCEPT, default_settings()) is None
+    assert (state.page, state.cursor) == (SystemMenuPage.SAVE, 0)
+    state = SystemMenuPresenter(cursor=2)
+    assert reduce_system_menu(state, Command.ACCEPT, default_settings()) is None
+    assert (state.page, state.cursor) == (SystemMenuPage.LOAD, 0)
+    state = SystemMenuPresenter(cursor=3)
+    assert reduce_system_menu(state, Command.ACCEPT, default_settings()) == SystemMenuResult(
+        close=True, quick_save=True)
+
+
+def test_save_page_manual_slot_and_back():
+    state = SystemMenuPresenter(page=SystemMenuPage.SAVE)
+    assert reduce_system_menu(state, Command.ACCEPT, default_settings()) == SystemMenuResult(
+        save_slot="manual")
+    assert state.page is SystemMenuPage.SAVE, "the menu stays open after a manual save"
+    state.cursor = 1
+    assert reduce_system_menu(state, Command.ACCEPT, default_settings()) is None
+    assert (state.page, state.cursor) == (SystemMenuPage.MAIN, 0)
+    state = SystemMenuPresenter(page=SystemMenuPage.SAVE)
+    reduce_system_menu(state, Command.UP, default_settings())
+    assert state.cursor == 1
+
+
+def test_load_page_disabled_slots_are_inert_no_ops():
+    for cursor in (0, 1):
+        state = SystemMenuPresenter(page=SystemMenuPage.LOAD, cursor=cursor)
+        assert reduce_system_menu(state, Command.ACCEPT, default_settings()) is None
+        assert (state.page, state.cursor) == (SystemMenuPage.LOAD, cursor)
+
+
+def test_load_page_enabled_slots_load_and_back():
+    slots = frozenset({"manual", "quick"})
+    state = SystemMenuPresenter(page=SystemMenuPage.LOAD, cursor=0)
+    assert reduce_system_menu(
+        state, Command.ACCEPT, default_settings(), slots) == SystemMenuResult(load_slot="manual")
+    state = SystemMenuPresenter(page=SystemMenuPage.LOAD, cursor=1)
+    assert reduce_system_menu(
+        state, Command.ACCEPT, default_settings(), slots) == SystemMenuResult(load_slot="quick")
+    state = SystemMenuPresenter(page=SystemMenuPage.LOAD, cursor=2)
+    assert reduce_system_menu(state, Command.ACCEPT, default_settings(), slots) is None
+    assert (state.page, state.cursor) == (SystemMenuPage.MAIN, 0)
+    state = SystemMenuPresenter(page=SystemMenuPage.LOAD)
+    reduce_system_menu(state, Command.UP, default_settings())
+    assert state.cursor == 2
+
+
+def test_save_and_load_cancel_returns_to_main():
+    for page in (SystemMenuPage.SAVE, SystemMenuPage.LOAD):
+        state = SystemMenuPresenter(page=page, cursor=1, hover=1)
+        assert reduce_system_menu(state, Command.CANCEL, default_settings()) is None
+        assert (state.page, state.cursor, state.hover) == (SystemMenuPage.MAIN, 0, None)
 
 
 def test_configuration_cancel_and_back_row_return_to_main_saving():

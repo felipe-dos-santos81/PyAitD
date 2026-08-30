@@ -414,6 +414,43 @@ def test_system_menu_is_a_logical_rgb_frame(data_dir, profile, page):
     assert frame.dtype == np.uint8
 
 
+def test_system_menu_labels_match_the_layouts():
+    from PyAitD.app.ui import SystemMenuLayout, system_menu_labels
+    settings = default_settings()
+    for page in (SystemMenuPage.MAIN, SystemMenuPage.SAVE, SystemMenuPage.LOAD,
+                 SystemMenuPage.CONFIG, SystemMenuPage.GRAPHICS):
+        assert len(system_menu_labels(page, settings)) == len(SystemMenuLayout.rows(page))
+    assert system_menu_labels(SystemMenuPage.MAIN, settings) == [
+        "Return to Game", "Save", "Load", "Quick Save", "Configuration", "Quit",
+    ]
+    assert system_menu_labels(SystemMenuPage.SAVE, settings) == ["Manual Slot", "Back"]
+    assert system_menu_labels(SystemMenuPage.LOAD, settings) == [
+        "Manual Slot", "Quick Save", "Back",
+    ]
+
+
+def test_load_page_renders_missing_slots_disabled(data_dir, profile):
+    assets = Assets(data_dir, profile)
+    disabled = UIPainter()
+    render_system_menu(
+        disabled, SystemMenuPresenter(page=SystemMenuPage.LOAD), default_settings(), assets,
+    )
+    enabled = UIPainter()
+    render_system_menu(
+        enabled, SystemMenuPresenter(page=SystemMenuPage.LOAD), default_settings(), assets,
+        frozenset({"manual", "quick"}),
+    )
+    assert not np.array_equal(disabled.to_frame(), enabled.to_frame())
+    # a disabled row takes no selection highlight: hovering it paints
+    # exactly what the plain cursor already shows
+    hovered = UIPainter()
+    render_system_menu(
+        hovered, SystemMenuPresenter(page=SystemMenuPage.LOAD, hover=0),
+        default_settings(), assets,
+    )
+    assert np.array_equal(hovered.to_frame(), disabled.to_frame())
+
+
 def test_configuration_lists_graphics_rows_inside_the_screen():
     from PyAitD.app.ui import SystemMenuLayout, config_row_count
     rows = SystemMenuLayout.rows(SystemMenuPage.CONFIG)

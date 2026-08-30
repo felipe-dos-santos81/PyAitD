@@ -240,7 +240,7 @@ def test_menu_remap_sticky_save_and_reload_journey(data_dir, profile, monkeypatc
         if frames == 1:
             return [_key(pygame.K_ESCAPE)]
         if frames == 2:
-            return [_left_click(SystemMenuLayout.MAIN_ROWS[1].center)]
+            return [_left_click(SystemMenuLayout.MAIN_ROWS[4].center)]
         if frames == 3:
             return [_left_click(SystemMenuLayout.CONFIG_ROWS[0].center)]
         if frames == 4:
@@ -309,7 +309,7 @@ def test_menu_graphics_page_cycle_and_save_journey(data_dir, profile, monkeypatc
         if frames == 1:
             return [_key(pygame.K_ESCAPE)]
         if frames == 2:
-            return [_left_click(SystemMenuLayout.MAIN_ROWS[1].center)]
+            return [_left_click(SystemMenuLayout.MAIN_ROWS[4].center)]
         if frames == 3:
             return [_left_click(config_rows[-2].center)]          # Graphics...
         if frames == 4:
@@ -346,7 +346,7 @@ def test_capture_consumes_the_captured_key_exclusively(data_dir, profile, monkey
         if frames == 1:
             return [_key(pygame.K_ESCAPE)]
         if frames == 2:
-            return [_left_click(SystemMenuLayout.MAIN_ROWS[1].center)]
+            return [_left_click(SystemMenuLayout.MAIN_ROWS[4].center)]
         if frames == 3:
             # CONFIG row 5: Sticky (0) then UP/DOWN/LEFT/RIGHT (1-4), ACTION
             return [_left_click(SystemMenuLayout.CONFIG_ROWS[5].center)]
@@ -498,7 +498,7 @@ def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
             return [_key(pygame.K_ESCAPE)]
         if frames == 5:
             assert game_now.mode is GameMode.SYSTEM_MENU
-            return [_left_click(SystemMenuLayout.MAIN_ROWS[1].center)]
+            return [_left_click(SystemMenuLayout.MAIN_ROWS[4].center)]
         if frames == 6:
             return [_left_click(SystemMenuLayout.CONFIG_ROWS[0].center)]
         if frames == 7:
@@ -649,7 +649,7 @@ def test_mouse_only_remap_journey_binds_through_the_key_picker(data_dir, profile
         if frames == 1:
             return [_key(pygame.K_ESCAPE)]
         if frames == 2:
-            return [_left_click(SystemMenuLayout.MAIN_ROWS[1].center)]
+            return [_left_click(SystemMenuLayout.MAIN_ROWS[4].center)]
         if frames == 3:
             return [_left_click(SystemMenuLayout.CONFIG_ROWS[5].center)]
         if frames == 4:

@@ -165,6 +165,16 @@ def test_character_portraits_match_fitd_and_have_exclusive_edges():
         assert hit_test_character((hit.right, hit.bottom - 1), CharacterSelectPresenter()) is None
 
 
+def test_save_and_load_hit_rows_are_exclusive_and_inside_the_frame():
+    for page in (SystemMenuPage.SAVE, SystemMenuPage.LOAD):
+        rows = SystemMenuLayout.rows(page)
+        assert all(rect.bottom <= 200 for rect in rows)
+        hit = SystemMenuLayout.hit_rows(page)
+        for a in range(len(hit)):
+            for b in range(a + 1, len(hit)):
+                assert not hit[a].colliderect(hit[b])
+
+
 def test_story_whole_frame_confirms_and_menu_rows_are_large():
     story = CharacterSelectPresenter(phase=CharacterPhase.STORY)
     assert hit_test_character((0, 0), story) == 0
