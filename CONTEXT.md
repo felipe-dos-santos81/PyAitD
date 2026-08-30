@@ -29,6 +29,7 @@ make proof-mouse               # navmesh for every camera-visible room, every fl
 make proof-combat              # venue, real enemy damage, player arms, game over (needs game data)
 make proof-graphics            # attic + combat fixtures at every shading mode, plus flat-mesh, hard-shadow, un-composited and over-composited pairs, -> docs/graphics-proof/ (needs GL + game data)
 make proof-intro               # opening cutscene: headless gate + one GL render per visited camera
+make prove-persistence         # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract (headless)
 make export-textures         # originals + 5 KILLED_SORCERER alts + palette + guides + manifest schema 3 -> data/aitd1/textures (out=, floors=, scale=, force=1, screens=0 to skip)
 make check-textures          # validate a texture dir as the game loads it (textures=DIR, proof=1 side-by-sides: bases, alts -alt.png, screens)
 make run textures=DIR        # play with a different texture directory; textures= plays the originals
@@ -62,7 +63,8 @@ below for what pins each alias to the files it historically ran.
 | Materials v2 (roadmap H) | Derivative bump so `detail` is relief and not dirt, a warm skin terminator, real emissive, a normalised specular lobe, the 23 used palette ramps hand-reviewed, and the class table retuned against the fixtures | automated gates green; windowed attestation pending (`docs/materials-v2-proof.md`) |
 | Texture export + check | Export originals + structure guides + manifest for an external texture tool, validate texture dirs as the game loads them | done — `make export-textures` / `check-textures` (regeneration itself moved to an external tool) |
 | Engine package reorganization | engine / render / games / app split + GameProfile | done — `tests/test_layering.py` |
-| M4a2 / M4b / M4c | Save/load, audio + sequences, ending/completability | next (plans drafted under `docs/superpowers/plans/2026-08-24-m4*`) |
+| M4a2 | Save/load: validated atomic JSON slots, persistence menu pages, deferred quick save, atomic load replacement | automated gates green (`make prove-persistence`); windowed attestation pending (`docs/m4a2-persistence-proof.md`) |
+| M4b / M4c | Audio + sequences, ending/completability | next (plans drafted under `docs/superpowers/plans/2026-08-24-m4*`) |
 
 Design docs live in `docs/superpowers/specs/` and `docs/superpowers/plans/`
 (one spec + one task-level TDD plan per milestone). `docs/life-vm-opcodes.md`
@@ -104,6 +106,7 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `engine/anim_action.py` | GereFrappe action runner: melee (1→10→2), hit-object, firearm volume sweep (4→5), throw setup/launch/flight (6→7→9). Publishes `hit`/`hit_by`/`hit_force` only — never actor `life` |
 | `games/aitd1/scenario.py` | `COMBAT_VENUE`/`enter_combat_venue`: the one pinned floor-5 debug venue shared by play, tests and the proof tool |
 | `engine/playworld.py` | PlayWorld tick (mainLoop.cpp:41-281 order): input snapshot → anim/dec pass → LIFE pass → floor/room/camera flags → messages. Free of pygame/GL: `play_tick` runs headless |
+| `engine/save.py` | M4a2 save/load: `SCHEMA 1` snapshot, SHA-256 source identity, full validation with JSON-path errors, atomic `save-manual.json`/`save-quick.json` slots, `restore_game` into a fresh `Game`. Settings ride through as an opaque dict — `app/config.validate_settings` owns them, so the module never imports the app layer |
 | `engine/navmesh.py` | Walkable grid from cover zones (FITD `is_in_poly` vectorised) + A* |
 | `engine/picking.py` | Screen->world: floor homography fitted from the real projection, actor bbox hit-test |
 | `engine/navigate.py` | Mouse follower: NavIntent -> one tick of steering + mirrored joyd |
@@ -416,6 +419,52 @@ action runner.
   `tools/prove_intro.py`, one GL render per camera the opening visits);
   tests: `tests/test_intro.py` (golden ticks, both heroes) and the real-loop
   journeys in `tests/test_shell_journeys.py`; evidence: `docs/intro-proof.md`.
+
+## M4a2 persistence boundary
+
+- The snapshot schema is `engine/save.py:SCHEMA` (1): root keys `schema`,
+  `engine_version`, `source`, `hero`, `game`, `actors`, `world_objects`,
+  `anim_players`, `inventory`, `messages`, `rng_state`, `settings`.
+  Validation is total before anything live is touched: exact key sets, exact
+  counts (actors pinned to `NUM_MAX_OBJECT`; world/var/CVar counts
+  re-derived from the three world files), strict `type is int` (bools
+  rejected), and the JSON path of the first offending value in every
+  `SaveError`.
+- The save carries the game's own data identity: one SHA-256 over
+  `OBJETS.ITD`, `VARS.ITD`, `DEFINES.ITD`, `LISTLIFE.PAK`, `LISTTRAK.PAK`
+  and the selected hero's body/anim paks, in that order. A save only loads
+  against the data it was written from.
+- Settings ride through the snapshot as an opaque JSON-ready dict:
+  `engine/save.py` never imports the app layer, and
+  `app/config.validate_settings` alone validates the block at the shell
+  boundary (`settings_payload` in `app/config.py` is the one builder shared
+  with `save_settings`).
+- `Game.rng` owns every gameplay draw (evalVar 0x1C reads it, never the
+  module-global `random`); the snapshot stores `getstate()` as JSON lists,
+  so a restored game continues the identical stream.
+- Slots are `save-manual.json` / `save-quick.json` under `save_dir()`
+  (beside the settings file; `--save-dir` overrides). `write_slot` is the
+  settings atomic idiom: same-directory temp file, flush + fsync,
+  `os.replace`, best-effort cleanup — a failure never touches a prior slot.
+- Policy lives in `app/shell.py`: manual save only at a stable system-menu
+  boundary (a pending LIFE continuation or platform effect refuses with the
+  dismissible runtime notice); Quick Save closes the menu and commits at the
+  first stable end-of-PLAY-tick boundary, never mid-tick; a Load click reads
+  and validates the slot, stages `session.pending_load`, and `_load_branch`
+  rebuilds game/floor/session/input as one replace tuple (the `_hero_branch`
+  shape), landing in PLAY with clean pointer/action/navigation state. Every
+  failure path leaves the live game, settings, input, floor and modal
+  untouched. Unavailable load rows are dimmed inert no-ops, never falling
+  through to Back.
+- The menu surfaces are `SystemMenuPage.SAVE`/`LOAD` inside the existing
+  system menu (`app/ui.py`): MAIN rows Return/Save/Load/Quick
+  Save/Configuration/Quit; SAVE rows Manual Slot/Back; LOAD rows Manual
+  Slot/Quick Save/Back. `reduce_system_menu`, `render_system_menu` and the
+  mouse routes take `available_slots`; the mouse contract names each
+  persistence decision a single forgiving `left_click` in `SYSTEM_MENU`.
+- Focused gate: `make prove-persistence`; evidence:
+  `docs/m4a2-persistence-proof.md` (windowed one-button attestation
+  pending).
 
 ## Testing conventions
 
