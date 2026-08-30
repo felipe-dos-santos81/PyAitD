@@ -39,10 +39,14 @@ camera's own background image by `PyAitD/render/plate.py`:
   meets the plate exactly at both extremes and its midtones are barely
   touched (at luma 0.5 only 1/16 of either offset applies).
 - **Grain.** `estimate_plate`'s `grain` is the RMS of the plate's luma
-  residual against its own 3x3 box mean. The composite adds
-  `grain * (hash(floor(gl_FragCoord.xy / cell)) - 0.5) * GAIN`, hashed on
-  the screen cell alone so it sits still like the plate's dither rather
-  than crawling between frames.
+  residual against its own 3x3 box mean, and `grain_retention` is the
+  fraction of it the background filter leaves once the plate is magnified.
+  The composite adds
+  `grain * retention * (hash(floor(gl_FragCoord.xy / cell)) - 0.5) * GAIN`,
+  hashed on the screen cell alone so it sits still like the plate's dither
+  rather than crawling between frames. The retention factor is the one
+  correction this task made to the shipped model; its derivation and the
+  measurement that forced it are the next section.
 - **Coverage.** `out = plate * (1 - a) + c * a`, on premultiplied values
   throughout, so a soft edge cannot bleed the actor's interior colour into
   fully transparent pixels.
@@ -60,11 +64,89 @@ meet the plate *exactly* at the extremes: at luma 0 the whole of `black` is
 added, at luma 1 the whole of `1 - white` is subtracted. `GAIN` follows
 from the hash: `hash - 0.5` is uniform on [-0.5, 0.5], whose RMS is
 `1/sqrt(12)`, so multiplying by `sqrt(12)` makes the composited residual's
-RMS equal the `grain` that `estimate_plate` measured off the plate. None of
-the three was changed by the fixture pass; the fixture pass did, however,
-produce a measurement that questions what `grain` is being matched *to* —
-see "Known limitations", first row, which is the most important row in this
-document.
+RMS equal whatever amplitude it is handed. None of the three was changed
+by the fixture pass. The fixture pass did, however, show that the
+amplitude `GAIN` was being handed was the wrong one — the plate's dither
+as *stored*, not as *displayed* — which the next section fixes without
+touching any of the three.
+
+### The grain is matched to the plate as displayed, not as stored
+
+The first pass of this task shipped the grain at `estimate_plate`'s raw
+amplitude, and looking at the rendered fixtures is what caught the problem:
+the composited actor was visibly noisier than the room it was being joined
+to, in hard `cell`-sized blocks. The cause is that `grain` is a *source*
+amplitude — measured on the 320x200 image — while what the actor stands
+next to is that image after `background_filter` has magnified it, and a
+smoothing filter attenuates dither on the way. Measured on the attic plate
+at scale 4: 8.48 counts of luma residual on the source against 5.05 counts
+still carried per plate cell by the plate as displayed. The actor was
+receiving 1.68x the room's own amplitude.
+
+`plate.grain_retention(background_filter, src_size, target_size)` closes
+that gap, and it is derived rather than fitted. Under GL_LINEAR
+magnification by an integer `cell`, target pixel `j` samples the source at
+`x = (j + 0.5) / cell - 0.5`, so the `cell` target pixels covering source
+pixel `m` interpolate between `m` and one of its neighbours. Summing their
+weights and dividing by `cell`, the mean of one cell is
+`v*s[m-1] + (1 - 2v)*s[m] + v*s[m+1]` with
+
+```
+v = (cell**2 - cell % 2) / (8 * cell**2)
+```
+
+— exactly **1/8 for every even cell**, 1/9 at cell 3, and 0 at cell 1. For
+a dither modelled as white, which is precisely what `_grain`'s
+residual-against-the-3x3-mean estimator already assumes it is, a separable
+2D kernel scales the RMS by the sum of its squared 1D weights, so
+
+```
+retention = 2*v**2 + (1 - 2*v)**2
+```
+
+| cell | 1 | 2 | 3 | 4 | 6 | 8 |
+|---|---|---|---|---|---|---|
+| retention | 1.0 | 0.59375 | 0.62963 | 0.59375 | 0.59375 | 0.59375 |
+
+`nearest` and `xbr` both retain 1.0, and for the same reason rather than by
+coincidence: both sample with GL_NEAREST and never average two texels, so
+every displayed pixel *is* some source texel and the dither arrives intact.
+`BG_FSH`'s xbr is a selection — it returns either the nearest texel or a
+neighbour, never a blend — and its branch is gated on finding an edge
+(`distance(h, v) < 0.05` with `distance(h, c) > 0.1`), which dither does
+not produce. The xBR-only-at-320x200 fallback is shared with `softness`
+and must be: `_draw_background` runs the xbr shader only when the source
+really is `CLASSIC_PLATE_SIZE` and uses GL_LINEAR anywhere else, so at any
+other size a model claiming xbr's retention would be describing a filter
+that did not run.
+
+The derivation's evidence is a synthetic check, not the attic:
+`tests/test_plate.py::test_grain_retention_predicts_a_synthetic_upscale`
+builds a white-noise plate, magnifies it with an independently written
+GL_LINEAR upscale, averages each cell back down, and asserts the measured
+RMS ratio matches `grain_retention` within 2%. Measured against predicted:
+
+| cell | 2 | 3 | 4 | 6 | 8 |
+|---|---|---|---|---|---|
+| predicted | 0.59375 | 0.62963 | 0.59375 | 0.59375 | 0.59375 |
+| measured on synthetic noise | 0.59683 | 0.63242 | 0.59683 | 0.59683 | 0.59683 |
+
+— agreement to about 0.5% at every cell, the excess being the edge-clamped
+border. A hardcoded constant would pass at cell 4 and fail at cell 3.
+
+Real data then agrees independently: the attic's `grain` of 0.0332 times
+0.59375 is **5.03 counts**, against the **5.05 counts** measured directly
+off the displayed plate. Those are different measurements of the same
+quantity — one predicted from the filter, one read off the frame — and they
+land 0.4% apart.
+
+`GAIN` is untouched at `sqrt(12)`, and so is its derivation: the bug was
+never in the calibration from a uniform hash to unit RMS, only in which
+amplitude that unit was being multiplied by. `TOE` and `SHOULDER` stay 1.0.
+At `cell == 1` retention is 1.0, so
+`test_grain_lands_at_the_plates_own_amplitude`, which renders at scale 1,
+passes unchanged — if it had moved, the retention would have been wrong at
+cell 1.
 
 One non-obvious guard is worth naming here because it is easy to delete by
 accident: `render_gl._composite` divides every fragment by `cell`, so a
@@ -77,19 +159,26 @@ load-bearing, not defensive noise.
 ## Automated gates
 
 ```
+$ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m pytest tests/test_plate.py -q
+32 passed in 0.11s
+```
+
+```
 $ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m pytest tests/test_plate.py tests/test_render_gl.py tests/test_render_options.py tests/test_layering.py tests/test_ui_reducers.py tests/test_ui_render.py tests/test_prove_graphics.py tests/test_config.py tests/test_main.py -q
-330 passed, 2 warnings in 10.86s
+347 passed, 2 warnings in 10.95s
 ```
 
 ```
 $ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m pytest -q
-1475 passed, 2 skipped, 1 xfailed, 26 warnings in 55.29s
+1492 passed, 2 skipped, 1 xfailed, 26 warnings in 55.12s
 ```
 
 The two skips and the xfail are the suite's standing ones, unrelated to
 this change; the baseline before the default flip was 1474 passed, 2
-skipped, 1 xfailed, 26 warnings. The one test the flip added is
-`tests/test_prove_graphics.py::test_the_default_composites_and_nocomposite_does_not`.
+skipped, 1 xfailed, 26 warnings. The 18 added are
+`tests/test_prove_graphics.py::test_the_default_composites_and_nocomposite_does_not`,
+16 `grain_retention` cases in `tests/test_plate.py`, and
+`test_grain_lands_at_the_plates_displayed_amplitude_once_magnified`.
 
 The binding tests are
 `tests/test_render_gl.py::test_integration_on_with_a_neutral_plate_reproduces_the_golden`
@@ -102,6 +191,18 @@ column of which differs),
 `test_integration_leaves_fixed_lighting_untouched`, and
 `test_classic_realism_matches_the_pre_materials_golden`, which now names
 `integration="off"` alongside `smoothing=0` and `shadows="hard"`.
+
+For the grain, three tests hold the model between them and none of the
+three is redundant:
+`tests/test_plate.py::test_grain_retention_predicts_a_synthetic_upscale`
+(the derivation, against an independently written upscale),
+`tests/test_render_gl.py::test_grain_lands_at_the_plates_own_amplitude`
+(the composited residual at `cell == 1`, unchanged by this task), and
+`test_grain_lands_at_the_plates_displayed_amplitude_once_magnified` (the
+composited residual at `cell == 4`, which is the one that would catch a
+regression to the source amplitude). Removing the retention factor from
+`_composite` makes the last of these fail with 20.41 counts measured
+against 12.11 expected — a 1.69x miss, not a tolerance nudge.
 
 ### The default flip broke exactly one test
 
@@ -162,8 +263,12 @@ by pixel, at scale 4 (a 1280x800 frame over a 320x200 plate, so `cell` is
 
 | | differing pixels | bounding box | max channel delta | mean delta where differing |
 |---|---|---|---|---|
-| attic | 76,124 of 1,024,000 (7.43%) | x 36-1279, y 117-738 | 115 | 10.32 |
-| combat | 4,937 of 1,024,000 (0.48%) | x 399-655, y 261-292 | 59 | 8.59 |
+| attic | 76,111 of 1,024,000 (7.43%) | x 36-1279, y 117-738 | 115 | 8.99 |
+| combat | 4,937 of 1,024,000 (0.48%) | x 399-655, y 261-292 | 57 | 8.30 |
+
+(Before the grain retention factor the attic's mean delta was 10.32 and the
+combat's 8.59, on the same pixel counts: the composite touches the same
+pixels either way and moves them less far now.)
 
 The attic frame draws 10 actors, covering 88,589 pixels. Of the 76,124
 that the composite moves, 68,267 are pixels a body was drawn on and 7,857
@@ -175,21 +280,46 @@ untouched, which is what the "over" formula promises. The combat fixture
 has only the one plank actor visible from its camera, which is why its
 bounding box is a 257x32 band.
 
+The attic pair is the one worth attesting against: it draws 10 actors,
+while the combat fixture's camera shows only the plank. The `-nocomposite`
+twin is rendered at `shadows=soft`, the default, so it isolates the
+composite from the shadow mode; the `shadows=hard` ordering difference is
+covered by a test rather than by a PNG pair.
+
 Read as pictures rather than as counts, cropping the attic pair around
 Carnby's head and shoulders at 3x: `-nocomposite` gives a crisp,
 high-contrast figure that plainly sits *in front of* the room rather than
 in it. The composited render is visibly softer — the edge ramp matches the
 bilinear plate's, the face's darks are lifted toward the room's warm floor,
-and the figure stops looking cut out. That much is the feature working.
+and the figure stops looking cut out. That is the feature working.
 
-**But at full grain the same crop is also visibly noisier than the room it
-is standing in**, in hard `cell`-sized blocks. Rendering the same frame
-three ways — `off`, `on` with the plate's `grain` forced to 0, and `on` as
-shipped — the middle one is the one that looks like an actor standing in a
-room; the third looks like an actor standing in a room while being dithered
-by a different, coarser process than the one that dithered the room. The
-numbers behind that reading are in the first row of "Known limitations",
-and the corresponding attestation row is the one to check first.
+The same frame was rendered four ways to judge the grain: `off`, `on` at
+the source amplitude (what the first pass shipped), `on` with `grain`
+forced to 0, and `on` with the retention factor live. At the source
+amplitude the figure is dithered by a visibly coarser process than the one
+that dithered the room — Carnby's face loses its features and the window
+panes behind him checkerboard. With the retention factor the amplitude
+drops by the derived 0.594 and the crop reads as a shaded surface carrying
+a light dither rather than as damage; on the trousers at 5x, beside the
+floor's own texture, the two now look like the same kind of noise.
+
+Honestly stated, the fix does not make the term invisible, and the residual
+is structural rather than a matter of amplitude. Measured on the injected
+field alone (the difference between two otherwise identical renders):
+
+| | injected grain, after the fix | the displayed plate |
+|---|---|---|
+| RMS per plate cell | 5.04 counts | 5.05 counts |
+| 3x3 residual per target pixel | 2.32 counts | 1.40 counts |
+
+At the cell scale — the scale the term is *for* — the actor now carries
+exactly the room's amplitude. At the target-pixel scale it still carries
+1.66x the room's, because the injected field is a hard block across each
+cell while the plate's dither arrives as a smooth bilinear ramp across the
+same cell. Before the fix that figure was about 2.8x. So: the amplitude
+error is closed, a smaller shape difference remains, and it is recorded as
+a limitation rather than claimed away. At 3x zoom on the face you can still
+find cell-sized blocks.
 
 ## Frame time
 
@@ -353,49 +483,44 @@ composite or window present.
   broke exactly one test" above. It is a repin plus new coverage, not a
   loosening: the original claim is unchanged and still asserted, at the
   `integration="off"` it always meant.
-- **`TOE`, `SHOULDER` and `GAIN` were not changed by the fixture pass.**
-  The plan called all three tunables to be settled against the fixtures.
-  They were left at their derived values (1.0, 1.0, `sqrt(12)`) because
-  each follows from a stated requirement rather than from taste, and the
-  fixture pass found no reason to move `TOE` or `SHOULDER`. It did find a
-  reason to question `GAIN` — or rather, to question the amplitude `GAIN`
-  is asked to hit — which is written up as a limitation and an attestation
-  row rather than acted on unilaterally, since it is a change to the model
-  task 5 shipped and tested, not a calibration within it.
+- **`TOE`, `SHOULDER` and `GAIN` were not changed by the fixture pass;
+  `plate.grain_retention` was added instead.** The plan called all three
+  constants tunables to be settled against the fixtures. They are left at
+  their derived values (1.0, 1.0, `sqrt(12)`) because each follows from a
+  stated requirement rather than from taste. What the fixture pass found
+  was not a miscalibration of `GAIN` but a wrong *target*: `GAIN` converts
+  a uniform hash to unit RMS correctly, and was then being asked to hit an
+  amplitude measured on the source plate rather than on the plate as
+  displayed. Moving `GAIN` would have fixed the symptom at one cell while
+  silently contradicting the derivation its own comment states. The
+  retention factor fixes the target instead, is derived rather than fitted,
+  and is 1.0 wherever nothing is lost — so no existing test's numbers
+  moved. See "The grain is matched to the plate as displayed, not as
+  stored".
 
 ## Known limitations
 
-- **The grain matches the plate at its own 320x200 resolution, not the
-  plate as the viewer actually sees it, and the difference is visible.**
-  `estimate_plate` measures the dither on the source image; the composite
-  injects that amplitude as one constant per plate cell. But the plate
-  reaches the screen through `background_filter`, which smooths it.
-  Measured on the attic plate at scale 4:
-
-  | | luma residual RMS |
-  |---|---|
-  | source plate, 320x200, against its own 3x3 mean (what `grain` is) | 8.48 counts |
-  | the same plate as displayed, per plate cell after the bilinear upscale | 5.05 counts |
-  | the same plate as displayed, per target pixel | 1.40 counts |
-  | what the composite injects, per plate cell, by construction | 8.48 counts |
-
-  So the actor gets 1.68x the per-cell amplitude the room around it has,
-  and it gets it as *hard 4x4 blocks* where the displayed plate has smooth
-  bilinear ramps — about 6x the room's per-target-pixel amplitude. The
-  actor ends up noisier than the room it is being joined to, which is the
-  opposite of what the feature is for. A second contribution points the
-  same way: `_grain`'s residual-against-3x3-mean does not separate dither
-  from image detail, so a busy plate reads as a grainy one. Per 20x20
-  block of the attic plate the residual ranges from 1.74 to 18.72 counts
-  (median 7.87), and from 0.00 to 9.64 (median 4.83) on the combat plate —
-  a spread that is mostly *content*, not dither, and the whole-plate
-  average is what every actor in the frame receives. **This is the one
-  finding in this document that could warrant a code change rather than a
-  note**; it was deliberately not acted on here, because the fix is a
-  change to the model (attenuate `grain` by the filter's magnification,
-  or estimate it on the plate as composited) rather than a calibration of
-  `GAIN`, and it belongs to whoever owns that model. The first two
-  attestation rows put the question to a human at a window.
+- **The grain's amplitude now matches the room; its shape does not.**
+  `grain_retention` lands the injected field at 5.04 counts per plate cell
+  against the displayed plate's 5.05, but the field is a hard block across
+  each cell while the plate's dither is a smooth bilinear ramp across the
+  same cell. At the target-pixel scale the actor therefore still carries
+  2.32 counts of 3x3 residual against the room's 1.40 — 1.66x, down from
+  about 2.8x before the retention factor. Closing that would mean giving
+  the grain the filter's own reconstruction shape rather than a per-cell
+  constant, which is a larger change than this plan's scope; the term is
+  now weak enough to read as dither rather than as damage, and erring weak
+  is the deliberate direction.
+- **`_grain` does not separate the plate's dither from its image content,
+  so a busy plate reads as a grainy one.** Per 20x20 block of the attic
+  plate the luma residual ranges from **1.74 to 18.72 counts** (median
+  7.87), and from 0.00 to 9.64 (median 4.83) on the combat plate — a
+  spread that is mostly *content*, not dither, and the whole-plate average
+  is what every actor in the frame receives. Changing the estimator is a
+  design change and is deliberately out of this plan's scope. The
+  retention factor bounds how much damage it can do: whatever `_grain`
+  over-reads, the actor now receives only the fraction of it the room
+  itself still shows.
 - Tone matching is global to the plate, not local to the pixels around
   the actor; grain is luma-only.
 - `nearest` pixelates the actor, not its ground shadow, which stays at
@@ -418,15 +543,20 @@ composite or window present.
   roadmap spec's 1.5x budget: 1.60x (ratio of means over 8 runs), with
   every individual run between 1.52x and 1.64x.** At scale 4 the same
   comparison is 1.27x, inside budget. `integration` alone is 1.12x at
-  scale 4 and 1.17x at scale 8. See "Frame time".
+  scale 4 and 1.17x at scale 8, so the composite is not the largest term —
+  F's blur is. Nothing was retuned to close it. Both `Integration: Off`
+  and `Shadows: Hard` are rows on the Graphics page, so a player on a
+  slower machine has two escape hatches without leaving the game. See
+  "Frame time".
 
 ## Manual attestation
 
 | Check | Status |
 |---|---|
 | `attic-smooth-enhanced-nocomposite.png` is identical to the pre-change `attic-smooth-enhanced.png` | pending |
-| **Does the composited actor look like it belongs in the room, or does it look noisier than the room?** Compare `attic-smooth-enhanced.png` against its `-nocomposite` twin at 1:1, on Carnby's face and coat and on the lantern. The measurement in the first "Known limitations" row predicts the actor carries 1.68x the room's per-cell dither in hard 4x4 blocks. If that reads as wrong at a real window, the grain model needs the change that row describes | pending |
-| At scale 8 (`cell` 8, `sigma` 2.8) the same question again: the blocks are twice as wide and the softening twice as strong | pending |
+| **Does the composited actor look like it belongs in the room?** Compare `attic-smooth-enhanced.png` against its `-nocomposite` twin at 1:1, on Carnby's face and coat and on the lantern. The grain now sits at the room's own per-cell amplitude (5.04 counts against 5.05), but it is still a hard block where the room's is a smooth ramp, so it carries 1.66x the room's per-target-pixel residual. The reading from the crops was "dither, not damage"; a human at a window is the authority on whether that holds | pending |
+| At scale 8 (`cell` 8, `sigma` 2.8) the same question again: the blocks are twice as wide and the softening twice as strong, and the retention factor is the same 0.59375 | pending |
+| Under `--background-filter nearest` and `--background-filter xbr` (at 320x200), where `grain_retention` is 1.0 by derivation, the actor's grain still looks like the room's rather than stronger than it — the one place the retention model could be wrong in the loud direction | pending |
 | Under `--background-filter nearest`, the actor is blocky on the same grid as the plate, and its ground shadow — which stays sharp on the plate layer — does not look wrong beside it | pending |
 | Under `--background-filter xbr`, the actor's edge is crisper than under `bilinear` and still no crisper than the plate's | pending |
 | An override plate at or above the target resolution (`cell <= 1`) composites as an identity: no softening, no pixelation | pending |

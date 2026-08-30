@@ -2631,13 +2631,16 @@ def test_the_shoulders_shape_tracks_the_quartic(gl_ctx):
     assert grey_drop == pytest.approx(3.2378, abs=1.5)
 
 
-def _grey_grain_render(gl_ctx, grain):
+def _grey_grain_render(gl_ctx, grain, scale=1):
     """One flat mid-grey triangle over a flat plate, at `grain`.
 
     Mid-grey and realism="classic" together: the actor's composited value
     lands near 128, so a +-0.5 * grain * GAIN excursion (about +-35 at
     grain 0.08) neither clips at 255 nor floors at 0. Measuring the noise
-    on a saturated channel would clip half of it and halve the RMS."""
+    on a saturated channel would clip half of it and halve the RMS.
+
+    `scale` is 1 -- cell 1, where `plate.grain_retention` is 1.0 -- unless
+    a caller asks for the magnified case."""
     from PyAitD.render.plate import PlateProfile
     from PyAitD.render.scene import FrameDescription as FD
     palette = np.zeros((256, 3), np.uint8)
@@ -2647,7 +2650,7 @@ def _grey_grain_render(gl_ctx, grain):
                _scene_light((0.0, 0.0, -1.0)),
                PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), grain))
     backend = GLBackend(gl_ctx, RenderOptions(
-        scale=1, shading="smooth", lighting="scene", msaa=0,
+        scale=scale, shading="smooth", lighting="scene", msaa=0,
         realism="classic", integration="on"))
     backend.draw(frame)
     out = backend.read_rgb().copy()
@@ -2677,3 +2680,26 @@ def test_grain_lands_at_the_plates_own_amplitude(gl_ctx):
     # A patch well inside the triangle (see _centre's note on its extent).
     patch = (noisy - quiet)[60:100, 110:150, 0]
     assert patch.std() == pytest.approx(0.08 * 255, rel=0.25)
+
+
+def test_grain_lands_at_the_plates_displayed_amplitude_once_magnified(gl_ctx):
+    # The test above renders at scale 1, where one plate pixel is one
+    # target pixel and there is nothing for the upscale to take away. At
+    # scale 4 there is: `grain` is measured on the 320x200 source, but the
+    # plate the actor stands next to has been through GL_LINEAR, which
+    # leaves 0.59375 of a white dither's amplitude per cell
+    # (`plate.grain_retention`, pinned against a synthetic upscale in
+    # tests/test_plate.py). The composited residual has to track the
+    # displayed amplitude, not the source one -- matching the source is
+    # what made the actor visibly noisier than its own room.
+    from PyAitD.render.plate import grain_retention
+    quiet = _grey_grain_render(gl_ctx, 0.0, scale=4).astype(float)
+    noisy = _grey_grain_render(gl_ctx, 0.08, scale=4).astype(float)
+    patch = (noisy - quiet)[240:400, 440:600, 0]
+    retention = grain_retention("bilinear", (320, 200), (1280, 800))
+    assert retention == pytest.approx(0.59375)
+    assert patch.std() == pytest.approx(0.08 * 255 * retention, rel=0.15)
+    # And is not the un-attenuated amplitude: 12.1 counts against 20.4, far
+    # enough apart that dropping the retention factor fails here rather
+    # than merely loosening a tolerance.
+    assert patch.std() < 0.08 * 255 * 0.8

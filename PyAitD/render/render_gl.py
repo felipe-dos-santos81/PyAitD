@@ -42,7 +42,7 @@ from PyAitD.render.glsl import (
 from PyAitD.render.lighting import (_clamp_downward, light_view_matrix, project_to_plane,
                                     shading_terms, shadow_opacity, SHADOW_MAP_SIZE)
 from PyAitD.render.materials import PALETTE_SIZE, PRESETS
-from PyAitD.render.plate import softness
+from PyAitD.render.plate import grain_retention, softness
 from PyAitD.render.refine import subpatch
 from PyAitD.render.render_options import SMOOTHING_LEVELS
 from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
@@ -1145,7 +1145,18 @@ class GLBackend:
         self._composite_prog["pixelate"].value = 1 if pixelate else 0
         self._composite_prog["plate_black"].value = tuple(float(v) for v in frame.plate.black)
         self._composite_prog["plate_white"].value = tuple(float(v) for v in frame.plate.white)
-        self._composite_prog["plate_grain"].value = float(frame.plate.grain)
+        # `frame.plate.grain` is the dither of the *source* 320x200 image;
+        # the shader's amplitude has to be the dither of the plate as
+        # displayed, after `background_filter` has magnified it. The two
+        # differ by exactly the fraction `grain_retention` derives, and
+        # without it the actor is grained at an amplitude the room around
+        # it no longer has -- measured on the attic plate at scale 4, 8.48
+        # counts of source dither against the 5.05 the displayed plate
+        # still carries per cell. 1.0 wherever nothing is lost (cell <= 1,
+        # `nearest`, xbr at the classic size), so the msaa-0 identity and
+        # `test_grain_lands_at_the_plates_own_amplitude` are untouched.
+        self._composite_prog["plate_grain"].value = float(frame.plate.grain) * grain_retention(
+            self._options.background_filter, (src_w, src_h), self.size)
         self._fbo.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)

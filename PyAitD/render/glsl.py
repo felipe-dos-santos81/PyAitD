@@ -510,7 +510,9 @@ uniform float cell;        // one plate pixel, in target pixels
 uniform int pixelate;      // 1 under `nearest`: fetch per plate cell
 uniform vec3 plate_black;   // the room's floor, 0..1 linear RGB
 uniform vec3 plate_white;   // the room's ceiling
-uniform float plate_grain;  // RMS luma residual of the plate's own dither
+uniform float plate_grain;  // RMS luma residual of the plate's own dither, as
+                            // *displayed*: estimate_plate's source-resolution
+                            // measurement times plate.grain_retention
 out vec4 f_color;
 
 // Meet the plate exactly at the extremes: at luma 0 the toe adds the whole
