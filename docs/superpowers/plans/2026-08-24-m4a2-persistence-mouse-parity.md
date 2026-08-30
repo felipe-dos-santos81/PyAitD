@@ -10,6 +10,37 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-24-overall-mouse-accessibility-design.md` and `docs/superpowers/specs/2026-08-22-aitd1-build-conclusion-design.md`
 
+## Addendum 2026-08-30: post-reorganization translation
+
+This plan was drafted before the 2026-08-26 engine/render/games/app package
+split. Execution reads its file map through these translations, and the task
+bodies below keep their original (pre-split) paths:
+
+| Plan path | Current path |
+|---|---|
+| `PyAitD/save.py` | `PyAitD/engine/save.py` (a new engine capability per AGENTS.md) |
+| `PyAitD/game.py` | `PyAitD/engine/game.py` |
+| `PyAitD/eval_var.py` | `PyAitD/engine/eval_var.py` |
+| `PyAitD/ui.py` | `PyAitD/app/ui.py` |
+| `PyAitD/__main__.py` | `PyAitD/app/shell.py` |
+| `PyAitD/mouse_contract.py` | `PyAitD/games/aitd1/mouse_contract.py` |
+
+Three adaptations beyond the path moves:
+
+- **Layering:** `tests/test_layering.py` (newer than this plan) forbids
+  `engine/` from importing `app/`. `engine/save.py` therefore never imports
+  `Settings`: the snapshot carries `settings` as an opaque JSON-ready dict,
+  and `app/config.validate_settings` alone validates it at the shell
+  boundary. `snapshot_game` takes the settings payload, and `restore_game`
+  returns `(Game, dict)` — the shell converts the dict through
+  `validate_settings` when it builds the replacement session.
+- **Version:** `PyAitD.__version__` lands as `"0.5.0"`, aligned with
+  `pyproject.toml` (the plan's `"0.1.0"` is stale).
+- **Test grouping:** every new test file declares exactly one subject marker
+  as a module-level `pytestmark` (`engine` for the pure save/RNG tests,
+  `shell` for the UI and loop tests, plus `journey` where a test drives the
+  real `run()` pump) — `tests/test_test_groups.py` enforces this.
+
 ## Global Constraints
 
 - Depends on the mouse-accessibility-hardening plan and reuses effective rectangles, hover, atomic takeover, notice first refusal, and touch parity.
