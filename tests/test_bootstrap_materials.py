@@ -288,6 +288,26 @@ def test_ask_vision_dictates_the_agy_call(tmp_path, monkeypatch):
     assert str((tmp_path / "sheets/body0-001.png").resolve()) in cmd[2]
 
 
+def test_agy_structured_reports_a_non_zero_exit(monkeypatch):
+    import subprocess
+    import types
+
+    def fake_run(cmd, capture_output=True, text=True, check=False):
+        return types.SimpleNamespace(stdout="", stderr="model not found", returncode=1)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="exited 1.*model not found"):
+        bm.agy_structured("gemini-3.1-pro", "hello", bm.LABEL_SCHEMA)
+
+
+def test_agy_tail_keeps_the_end_and_says_so_when_there_is_nothing():
+    import types
+    quiet = types.SimpleNamespace(stdout="", stderr="  \n")
+    assert bm._agy_tail(quiet) == "no output"
+    long = types.SimpleNamespace(stdout="x" * 2000, stderr="")
+    assert bm._agy_tail(long) == "x" * bm.AGY_OUTPUT_TAIL
+
+
 def test_label_stage_without_agy_exits_2_and_leaves_the_survey(tmp_path, monkeypatch, capsys):
     import shutil
     data = _survey_for_labelling()

@@ -13,7 +13,7 @@ from PyAitD.app.config import (
     Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
 )
 from PyAitD.engine.effects import ChooseCharacter, FoundResult, OpenStartupMenu, OpenSystemMenu, ShowTitle
-from PyAitD.render.background_export import (
+from PyAitD.render.texture_export import (
     PORTRAIT_RECTS, READING_CLOSE_RECT, READING_NEXT_RECT, READING_PREV_RECT,
 )
 from PyAitD.render.render_options import (
@@ -647,7 +647,7 @@ class ModalLayout:
     FOUND_LEAVE = pygame.Rect(28, 154, 120, 30)
     FOUND_TAKE = pygame.Rect(172, 154, 120, 30)
     INVENTORY_ROWS = tuple(pygame.Rect(24, 30 + i * 24, 272, 22) for i in range(5))
-    # Pinned to background_export.READING_*_RECT (the same convention
+    # Pinned to texture_export.READING_*_RECT (the same convention
     # CharacterLayout.PORTRAITS follows for PORTRAIT_RECTS) so the screen
     # guides for entries 6/7/8 can never drift from where these buttons draw.
     READING_PREV = pygame.Rect(*READING_PREV_RECT)

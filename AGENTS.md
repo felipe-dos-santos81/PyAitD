@@ -9,7 +9,7 @@ update it when a milestone lands.
 ```bash
 make test          # the whole suite, headless — the gate
 make test-engine   # simulation, LIFE VM, formats, actors, anim, tracks, collision, navmesh, picking, opcodes
-make test-render   # scene, geometry, both backends, asset resolution, override export/check
+make test-render   # scene, geometry, both backends, asset resolution, texture export/check
 make test-shell    # event pump, settings, CLI, UI screens and modals
 make test-tools    # the standalone scripts under tools/
 make test-meta     # the repo's own rules (package layering, test grouping)
@@ -18,10 +18,9 @@ make proof-mouse   # navmesh for every camera-visible room, every floor (needs g
 make proof-combat  # venue, real enemy damage, player arms, game over (needs game data)
 make proof-graphics # attic + combat fixtures per shading mode x realism preset x smoothing default, plus a flat-mesh pair, a hard-shadow pair and the integration range's two ends -- an un-composited pair and an over-composited one (needs GL + game data)
 make proof-intro   # opening cutscene: headless gate + one GL render per visited camera
-make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, overrides=DIR defaults to data/aitd1/overrides (overrides= disables), data="..." trace=/tmp/t.log optional
-make export-backgrounds # originals + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + manifest schema 3 to data/aitd1/overrides (git-ignored) for external AI regeneration (out=, floors=, scale=, force=1, screens=0 to skip)
-make check-overrides # validate data/aitd1/overrides (or overrides=DIR) as the game loads it; proof=1 renders side-by-sides (bases, alts -alt.png, screens)
-make regenerate-backgrounds # Gemini describe+render+verify data/aitd1/overrides (incl. 5 alts sharing base guides) -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1, attempts=3, gate_scale=1.0); rejects drifted plates; needs the `agy` CLI on PATH
+make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, textures=DIR defaults to data/aitd1/textures (textures= disables), data="..." trace=/tmp/t.log optional
+make export-textures # originals + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + manifest schema 3 to data/aitd1/textures (git-ignored) for the external texture tool (out=, floors=, scale=, force=1, screens=0 to skip)
+make check-textures # validate data/aitd1/textures (or textures=DIR) as the game loads it; proof=1 renders side-by-sides (bases, alts -alt.png, screens)
 make bootstrap-materials # palette ramps + body usage -> PyAitD/render/materials.json (vision=1 asks Gemini through agy about uncertain ramps)
 ```
 
@@ -94,7 +93,7 @@ a rule — add the test with the rule.
 | Package | Owns | May import |
 |---|---|---|
 | `PyAitD/engine/` | The simulation, ported from FITD with `file:line` citations: formats, PAK/floor data, `Game` state, LIFE VM core, actors, animation, tracks, collision, navmesh, picking, `playworld` tick. Game-neutral: reads per-game facts from `game.profile`. | stdlib, NumPy, `engine` |
-| `PyAitD/render/` | `FrameDescription` → pixels: scene description, geometry, both backends, asset resolution, override export/check. | `engine` |
+| `PyAitD/render/` | `FrameDescription` → pixels: scene description, geometry, both backends, asset resolution, texture export/check. | `engine` |
 | `PyAitD/games/<id>/` | Everything FITD branches on `g_gameId`: the `GameProfile` instance, the game's opcode handlers and reduced dispatch, debug venues, the mouse contract. `games/base.py` holds the dataclass. | `engine` |
 | `PyAitD/app/` | Window, the single event pump, settings schema/persistence, CLI, UI screens. | everything |
 | `tools/` | Standalone scripts: PNG encoding, proofs, the one AI-service caller. | everything |
@@ -218,23 +217,23 @@ a rule — add the test with the rule.
   is pygame-free settings schema/persistence; `app/shell.py` owns the single
   event pump, the settings lifecycle, game/floor replacement, and one present
   per frame. Settings live on `ModalSession`, never `Game`.
-- `render/background_export.py` and `render/override_check.py` are pure like
+- `render/texture_export.py` and `render/texture_check.py` are pure like
   `render/scene.py`; PNG encoding lives only in `tools/`. The export
-  directory layout is `render/asset_resolver.override_background_path`'s and
-  `override_screen_path`'s — change both or neither. `background_export`
+  directory layout is `render/asset_resolver.texture_background_path`'s and
+  `texture_screen_path`'s — change both or neither. `texture_export`
   additionally owns the guide and layout-sidecar paths (`layout_rel_path`,
   `screen_layout_rel_path`); a sidecar holds the guide's own geometry, so
-  `layout_segments` is the single source both the guide pixels and
-  `tools/plate_check.py`'s leak check draw from — never re-derive either.
-- `tools/regenerate_backgrounds.py` owns the AI-service boundary: it is the
-  only module that shells out to the `agy` CLI, and
-  `tools/bootstrap_materials.py`'s label stage reaches Gemini only through
-  its `agy_structured`. Neither module imports an AI SDK directly — and
-  `regenerate_backgrounds`'s unit tests monkeypatch `subprocess.run`, so they
-  never touch the network. `tests/test_layering.py` pins that boundary.
-  Credentials belong to that CLI, not to this repo (a `.env` is git-ignored);
-  never commit keys or generated `overrides*/` output. `tools/plate_check.py`
-  is the offline gate (numpy only, no I/O); it never calls anything.
+  `layout_segments` is the single source the guide pixels draw from — never
+  re-derive it.
+- `tools/bootstrap_materials.py` owns the AI-service boundary: it is the
+  only module that shells out to the `agy` CLI (its label stage reaches
+  Gemini through `agy_structured`). It imports no AI SDK directly — and its
+  unit tests monkeypatch `subprocess.run`, so they never touch the network.
+  `tests/test_layering.py` pins that boundary. Credentials belong to that
+  CLI, not to this repo (a `.env` is git-ignored); never commit keys or
+  generated `textures*/` output. Texture regeneration itself lives outside
+  this repo: `make export-textures` writes the contract (originals, guides,
+  layout sidecars, manifest) and `make check-textures` validates the result.
 - `skel.skin`'s integer projection stays authoritative for picking, masks and
   the mouse contract; `draw_list` entries must stay byte-identical.
   `scene.CameraView` is a parallel float path for rendering only and is

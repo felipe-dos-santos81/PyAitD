@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-"""Check an override directory the way the game will load it.
+"""Check a texture directory the way the game will load it.
 
 Pure: loads through AssetResolver so whatever it accepts, the game
 accepts, and vice versa. PNG decoding is asset_resolver.load_png_rgb.
@@ -8,10 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PyAitD.render.asset_resolver import (
-    AssetResolver, load_png_rgb, override_alt_background_path, override_background_path, override_body_material_path,
-    override_screen_path,
+    AssetResolver, load_png_rgb, texture_alt_background_path, texture_background_path, texture_body_material_path,
+    texture_screen_path,
 )
-from PyAitD.render.background_export import SCREEN_ENTRIES, sha256_rgb
+from PyAitD.render.texture_export import SCREEN_ENTRIES, sha256_rgb
 
 ERROR_KINDS = ("invalid", "aspect")
 _ASPECT = 320 / 200
@@ -32,20 +32,20 @@ def has_errors(findings):
     return any(f.kind in ERROR_KINDS for f in findings)
 
 
-def _each_camera(override_dir, floors, load_png):
+def _each_camera(texture_dir, floors, load_png):
     """Yield (floor, cam_idx, path, resolver) for every camera of every floor;
     one resolver per floor keeps AssetResolver's cache and failures intact."""
     for floor in floors:
-        resolver = AssetResolver(None, override_dir, load_png=load_png)
+        resolver = AssetResolver(None, texture_dir, load_png=load_png)
         for cam_idx in range(len(floor.cameras)):
-            yield floor, cam_idx, override_background_path(override_dir, floor.number, cam_idx), resolver
+            yield floor, cam_idx, texture_background_path(texture_dir, floor.number, cam_idx), resolver
 
 
-def check_overrides(override_dir, floors, manifest=None, *, load_png=load_png_rgb):
+def check_textures(texture_dir, floors, manifest=None, *, load_png=load_png_rgb):
     """At most one Finding per camera. `manifest` is accepted for symmetry
     with coverage() and unused here."""
     findings = []
-    for floor, cam_idx, path, resolver in _each_camera(override_dir, floors, load_png):
+    for floor, cam_idx, path, resolver in _each_camera(texture_dir, floors, load_png):
         if not path.is_file():
             findings.append(Finding(floor.number, cam_idx, path, "missing", "original will be used"))
             continue
@@ -64,13 +64,13 @@ def check_overrides(override_dir, floors, manifest=None, *, load_png=load_png_rg
     return findings
 
 
-def coverage(override_dir, floors, manifest, *, load_png=load_png_rgb):
+def coverage(texture_dir, floors, manifest, *, load_png=load_png_rgb):
     """Per-floor counts. An override whose pixels hash to the manifest's
     sha256 is an untouched export ('original'); any other loadable override
     is 'regenerated'."""
     expected = {(c["floor"], c["camera"]): c["sha256"] for c in manifest["cameras"]}
     out = {}
-    for floor, cam_idx, path, resolver in _each_camera(override_dir, floors, load_png):
+    for floor, cam_idx, path, resolver in _each_camera(texture_dir, floors, load_png):
         counts = out.setdefault(floor.number, {"regenerated": 0, "original": 0, "missing": 0, "invalid": 0})
         if not path.is_file():
             counts["missing"] += 1
@@ -90,7 +90,7 @@ def coverage(override_dir, floors, manifest, *, load_png=load_png_rgb):
 _DEFAULT_ALT_KEYS = [(7, 0), (7, 1), (6, 0), (6, 5), (6, 8)]
 
 
-def _each_alt_camera(override_dir, floors, load_png, *, manifest=None):
+def _each_alt_camera(texture_dir, floors, load_png, *, manifest=None):
     """Yield (floor, cam_idx, path, resolver) for every alt camera.
 
     Alt keys come from manifest["alt_cameras"] when the manifest carries them
@@ -114,16 +114,16 @@ def _each_alt_camera(override_dir, floors, load_png, *, manifest=None):
         if floor is None:
             continue
         if floor_num not in resolvers:
-            resolvers[floor_num] = AssetResolver(None, override_dir, load_png=load_png)
+            resolvers[floor_num] = AssetResolver(None, texture_dir, load_png=load_png)
         resolver = resolvers[floor_num]
-        path = override_alt_background_path(override_dir, floor_num, cam_idx)
+        path = texture_alt_background_path(texture_dir, floor_num, cam_idx)
         yield floor, cam_idx, path, resolver
 
 
-def check_alt_backgrounds(override_dir, floors, manifest=None, *, load_png=load_png_rgb):
+def check_alt_backgrounds(texture_dir, floors, manifest=None, *, load_png=load_png_rgb):
     """At most one Finding per alt camera. Reuses _require_rgb/8192/aspect logic via AssetResolver."""
     findings = []
-    for floor, cam_idx, path, resolver in _each_alt_camera(override_dir, floors, load_png, manifest=manifest):
+    for floor, cam_idx, path, resolver in _each_alt_camera(texture_dir, floors, load_png, manifest=manifest):
         if not path.is_file():
             findings.append(Finding(floor.number, cam_idx, path, "missing", "original will be used"))
             continue
@@ -147,11 +147,11 @@ def check_alt_backgrounds(override_dir, floors, manifest=None, *, load_png=load_
     return findings
 
 
-def alt_coverage(override_dir, floors, manifest, *, load_png=load_png_rgb):
+def alt_coverage(texture_dir, floors, manifest, *, load_png=load_png_rgb):
     """Counts for alt cameras. An override whose sha matches the manifest is 'original'."""
     expected = {(c["floor"], c["camera"]): c["sha256"] for c in manifest.get("alt_cameras", [])} if manifest else {}
     counts = {"regenerated": 0, "original": 0, "missing": 0, "invalid": 0}
-    for floor, cam_idx, path, resolver in _each_alt_camera(override_dir, floors, load_png, manifest=manifest):
+    for floor, cam_idx, path, resolver in _each_alt_camera(texture_dir, floors, load_png, manifest=manifest):
         if not path.is_file():
             counts["missing"] += 1
             continue
@@ -169,16 +169,16 @@ def alt_coverage(override_dir, floors, manifest, *, load_png=load_png_rgb):
     return counts
 
 
-def _each_screen(override_dir, assets, load_png):
-    resolver = AssetResolver(assets, override_dir, load_png=load_png)
+def _each_screen(texture_dir, assets, load_png):
+    resolver = AssetResolver(assets, texture_dir, load_png=load_png)
     for entry in SCREEN_ENTRIES:
-        yield entry, override_screen_path(override_dir, entry), resolver
+        yield entry, texture_screen_path(texture_dir, entry), resolver
 
 
-def check_screens(override_dir, assets, *, load_png=load_png_rgb):
+def check_screens(texture_dir, assets, *, load_png=load_png_rgb):
     """At most one Finding per screen; `floor` is -1, `camera` is the entry."""
     findings = []
-    for entry, path, resolver in _each_screen(override_dir, assets, load_png):
+    for entry, path, resolver in _each_screen(texture_dir, assets, load_png):
         if not path.is_file():
             findings.append(Finding(-1, entry, path, "missing", "original will be used"))
             continue
@@ -197,10 +197,10 @@ def check_screens(override_dir, assets, *, load_png=load_png_rgb):
     return findings
 
 
-def screen_coverage(override_dir, assets, manifest, *, load_png=load_png_rgb):
+def screen_coverage(texture_dir, assets, manifest, *, load_png=load_png_rgb):
     expected = {s["entry"]: s["sha256"] for s in manifest.get("screens", [])}
     counts = {"regenerated": 0, "original": 0, "missing": 0, "invalid": 0}
-    for entry, path, resolver in _each_screen(override_dir, assets, load_png):
+    for entry, path, resolver in _each_screen(texture_dir, assets, load_png):
         if not path.is_file():
             counts["missing"] += 1
             continue
@@ -214,17 +214,17 @@ def screen_coverage(override_dir, assets, manifest, *, load_png=load_png_rgb):
     return counts
 
 
-def check_bodies(override_dir):
+def check_bodies(texture_dir):
     """One Finding per file under bodies/ the game would not load -- a
     material remap or a crease it rejects, or a body*.json whose name the
     resolver would never ask for. `floor` is -2 and `camera` is the body
     number, or -1 when the name carries no readable one. Loads through
     AssetResolver so acceptance stays identical to the game's."""
-    bodies = Path(override_dir) / "bodies"
+    bodies = Path(texture_dir) / "bodies"
     findings = []
     # One resolver for the whole directory, as the game has: a fresh one per
     # file would re-log every failure and defeat AssetResolver's log-once.
-    resolver = AssetResolver(None, override_dir)
+    resolver = AssetResolver(None, texture_dir)
     for path in sorted(bodies.glob("body*.json")):
         # The name must round-trip through the path the game actually asks
         # for. body7.json reads as body 7 but the game only ever opens
@@ -232,8 +232,8 @@ def check_bodies(override_dir):
         # no-op is exactly the failure a checker exists to catch, so it is
         # reported rather than skipped.
         num = int(path.stem[4:]) if path.stem[4:].isdigit() else None
-        if num is None or path != override_body_material_path(override_dir, num):
-            wanted = override_body_material_path(override_dir, num).name if num is not None else "body<NNN>.json"
+        if num is None or path != texture_body_material_path(texture_dir, num):
+            wanted = texture_body_material_path(texture_dir, num).name if num is not None else "body<NNN>.json"
             findings.append(Finding(-2, num if num is not None else -1, path, "invalid",
                                     f"the game never loads this name; it opens {wanted}"))
             continue

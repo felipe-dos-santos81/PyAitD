@@ -11,10 +11,13 @@ dist/
 *.egg-info/
 docs/graphics-proof/*.png
 docs/graphics-proof/overrides/
+docs/graphics-proof/textures/
 docs/intro-proof/*.png
 docs/intro-proof/intro-ticks.txt
 overrides/
 overrides-*/
+textures/
+textures-*/
 materials-survey
 .env
 .claude/

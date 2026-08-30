@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-"""Export every camera background for external (AI) regeneration.
+"""Export every camera background for the external texture tool.
 
 Writes, under --out DIR:
 
@@ -13,9 +13,8 @@ Writes, under --out DIR:
                                         blit rects drawn on (blue)
     guides/screens/ressNN.json          the blit rects as JSON
 
-DIR is directly usable as `--overrides DIR` / `make run overrides=DIR`.
-See docs/ai-background-regeneration.md. This repo never ships game data:
-never commit the output.
+DIR is directly usable as `--textures DIR` / `make run textures=DIR`.
+This repo never ships game data: never commit the output.
 """
 import argparse
 import json
@@ -25,7 +24,7 @@ import sys
 
 import numpy as np
 
-from PyAitD.render.background_export import (
+from PyAitD.render.texture_export import (
     SCREEN_ENTRIES, SCREEN_NAMES, SUPPORTED_SCHEMAS, alt_background_rel_path, alt_manifest_record,
     background_rel_path, export_manifest, guide_overlay, guide_rel_path, layout_geometry, layout_rel_path,
     manifest_record, screen_guide, screen_guide_rel_path, screen_layout, screen_layout_rel_path,
@@ -36,7 +35,7 @@ from PyAitD.engine.floor import Floor, load_entry
 from PyAitD.engine.formats import decode_image
 from PyAitD.engine.pak import PakError, find_pak
 from PyAitD.games import load_profile
-from PyAitD.render.asset_resolver import override_palette_path
+from PyAitD.render.asset_resolver import texture_palette_path
 
 
 # This tool exports AITD1 data and has no Game to take a profile from, so it
@@ -216,7 +215,7 @@ def export_palette(data_dir, out_dir, save=save_png):
     """Write palette.png (256x1 RGB) from Floor 0's palette, atomically via save_png.
 
     Returns True on success, False on failure (warns)."""
-    assert pathlib.Path(out_dir) / "palette.png" == override_palette_path(out_dir)
+    assert pathlib.Path(out_dir) / "palette.png" == texture_palette_path(out_dir)
     try:
         palette = load_floor(data_dir, 0).palette  # (256, 3)
         row = palette[None, :, :].astype(np.uint8)  # (1, 256, 3)
@@ -230,7 +229,7 @@ def export_palette(data_dir, out_dir, save=save_png):
 def _parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("data", type=pathlib.Path, help="game data directory (e.g. .../INDARK)")
-    p.add_argument("--out", type=pathlib.Path, required=True, help="override directory to create")
+    p.add_argument("--out", type=pathlib.Path, required=True, help="texture directory to create")
     p.add_argument("--floors", default="0-7", help="floors to export, e.g. 0-7 or 0,3,5 (default 0-7)")
     p.add_argument("--guide-scale", type=int, default=4, help="guide image scale (default 4)")
     p.add_argument("--screens", action=argparse.BooleanOptionalAction, default=True,

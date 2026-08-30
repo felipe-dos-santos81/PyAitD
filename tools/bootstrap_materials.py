@@ -10,14 +10,15 @@ table the game loads.
     emit    survey.json -> materials.json, precedence: hand `label` > vision_class > heuristic
     check   exit 1 when the committed table differs from a fresh emit of survey.json
 
-Only `label` touches a model, and only through regenerate_backgrounds'
-agy_structured. survey.json and sheets/ are git-ignored; the emitted table
+Only `label` touches a model, through the `agy` CLI (agy_structured below).
+survey.json and sheets/ are git-ignored; the emitted table
 is the one committed file. Spec:
 docs/superpowers/specs/2026-08-28-actor-surface-and-materials-design.md."""
 import argparse
 import json
 import pathlib
 import shutil
+import subprocess
 import sys
 
 import numpy as np
@@ -26,7 +27,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from PyAitD.render.geometry import POLY_TYPES, pose_geometry, vertex_groups  # noqa: E402
 from PyAitD.render.materials import DEFAULT_TABLE_PATH, MATERIAL_CLASSES  # noqa: E402
-from tools.export_backgrounds import save_png  # noqa: E402
+from tools.export_textures import save_png  # noqa: E402
 
 SURVEY_FILE = "survey.json"
 DEFAULT_OUT = pathlib.Path("data/aitd1/materials-survey")
@@ -344,6 +345,42 @@ def main(argv=None):
     return 0
 
 
+AGY_OUTPUT_TAIL = 400          # chars of agy's own output kept in an error message
+
+
+def _agy_tail(result):
+    """The tail of what agy printed. agy's own words are the only evidence of
+    why a call produced nothing, and an error without them cannot be
+    diagnosed. Trimmed so a chatty run does not bloat the message."""
+    text = ((result.stderr or "") + (result.stdout or "")).strip()
+    return text[-AGY_OUTPUT_TAIL:] if text else "no output"
+
+
+def _run_agy(cmd):
+    """Run an agy call and return it, having raised on a non-zero exit.
+    check=True would raise CalledProcessError, whose message carries the whole
+    argv -- the entire prompt -- and none of agy's stderr."""
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"agy exited {result.returncode}: {_agy_tail(result)}")
+    return result
+
+
+def agy_structured(model, instructions, schema):
+    """One agy call with an enforced JSON schema; returns structured_output."""
+    cmd = ["agy", "-p", instructions, "--dangerously-skip-permissions", "--effort", "low",
+           "--model", model, "--output-format", "json", "--json-schema", json.dumps(schema)]
+    result = _run_agy(cmd)
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError:
+        payload = None
+    out = payload.get("structured_output") if isinstance(payload, dict) else None
+    if not isinstance(out, dict):
+        raise RuntimeError("agy returned no structured output")
+    return out
+
+
 LABEL_SCHEMA = {
     "type": "object",
     "required": ["class", "reason"],
@@ -364,7 +401,6 @@ def label_instructions(sheet, highlight):
 def ask_vision(model, out_dir):
     """An `ask(sheet, highlight)` over agy, resolving the survey's relative
     sheet paths against `out_dir`."""
-    from tools.regenerate_backgrounds import agy_structured
     out_dir = pathlib.Path(out_dir)
 
     def ask(sheet, highlight):

@@ -8,15 +8,15 @@ PYTHON = $(VENV_DIR)/bin/python
 PIP = $(VENV_DIR)/bin/pip
 floor ?=
 data ?= data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK
-out ?= data/aitd1/overrides
-overrides ?= data/aitd1/overrides
+out ?= data/aitd1/textures
+textures ?= data/aitd1/textures
 
 # Every pytest target runs headless: AGENTS.md requires SDL_VIDEODRIVER=dummy
 # for any test touching rendering or pygame, and SDL_AUDIODRIVER=dummy keeps
 # the mixer from opening a device on machines that have one.
 HEADLESS = SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy
 
-.PHONY: help install run run-combat run-mouse-combat test test-engine test-render test-shell test-tools test-meta test-journey proof-mouse proof-combat proof-graphics proof-intro prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro export-backgrounds check-overrides regenerate-backgrounds bootstrap-materials clean
+.PHONY: help install run run-combat run-mouse-combat test test-engine test-render test-shell test-tools test-meta test-journey proof-mouse proof-combat proof-graphics proof-intro prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro export-textures check-textures bootstrap-materials clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -42,8 +42,8 @@ clean: ## Remove venv and all temporary/generated files
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
-run: install ## Run the game through character selection (floor=0 attic debug bypass, overrides=DIR defaults to data/aitd1/overrides — pass overrides= to play the original backgrounds, trace=FILE)
-	$(PYTHON) -m PyAitD $(if $(floor),--floor "$(floor)") --data "$(data)" $(if $(trace),--trace $(trace)) $(if $(overrides),--overrides "$(overrides)")
+run: install ## Run the game through character selection (floor=0 attic debug bypass, textures=DIR defaults to data/aitd1/textures — pass textures= to play the original backgrounds, trace=FILE)
+	$(PYTHON) -m PyAitD $(if $(floor),--floor "$(floor)") --data "$(data)" $(if $(trace),--trace $(trace)) $(if $(textures),--textures "$(textures)")
 
 run-combat: install ## Run the supported floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
 	$(PYTHON) -m PyAitD --combat-venue --data "$(data)" $(if $(hero),--hero "$(hero)") $(if $(trace),--trace $(trace))
@@ -59,7 +59,7 @@ test: install ## Run the whole pytest suite, headless
 test-engine: install ## Engine group: simulation, LIFE VM, formats, actors, anim, tracks, collision, navmesh, picking, opcodes
 	$(HEADLESS) $(PYTHON) -m pytest -m engine -q
 
-test-render: install ## Render group: scene, geometry, both backends, asset resolution, override export and check
+test-render: install ## Render group: scene, geometry, both backends, asset resolution, texture export and check
 	$(HEADLESS) $(PYTHON) -m pytest -m render -q
 
 test-shell: install ## Shell group: event pump, settings, CLI, UI screens and modals
@@ -112,14 +112,11 @@ prove-graphics: proof-graphics ## Alias of proof-graphics
 
 prove-intro: proof-intro ## Alias of proof-intro
 
-export-backgrounds: install ## Export every camera background + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + manifest schema 3 for external AI regeneration (out=data/aitd1/overrides, floors=0-7, scale=4, force=1, screens=0 to skip screens)
-	$(PYTHON) tools/export_backgrounds.py "$(data)" --out "$(out)" --floors "$(or $(floors),0-7)" --guide-scale "$(or $(scale),4)" $(if $(force),--force) $(if $(filter 0,$(screens)),--no-screens)
+export-textures: install ## Export every camera background + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + manifest schema 3 for the external texture tool (out=data/aitd1/textures, floors=0-7, scale=4, force=1, screens=0 to skip screens)
+	$(PYTHON) tools/export_textures.py "$(data)" --out "$(out)" --floors "$(or $(floors),0-7)" --guide-scale "$(or $(scale),4)" $(if $(force),--force) $(if $(filter 0,$(screens)),--no-screens)
 
-check-overrides: install ## Check an override dir the way the game loads it (overrides=data/aitd1/overrides, floors=0-7); proof=1 renders original|override side-by-sides to docs/graphics-proof/overrides/ (bases, alts -alt.png, screens)
-	$(PYTHON) tools/check_overrides.py "$(data)" "$(overrides)" --floors "$(or $(floors),0-7)" $(if $(proof),--proof)
-
-regenerate-backgrounds: install ## Regenerate data/aitd1/overrides backgrounds + 5 alts + screens with Gemini into data/aitd1/overrides-ai (in=, out_ai=, floors=0-7, style=, force=1, dry=1, text_model=, attempts=3, gate_scale=1.0, screens=0 to skip screens); alt plates share base guides, gate/judge/retry like bases; rejects plates whose layout drifts; needs the `agy` CLI on PATH
-	$(PYTHON) tools/regenerate_backgrounds.py "$(or $(in),data/aitd1/overrides)" --out "$(or $(out_ai),data/aitd1/overrides-ai)" --floors "$(or $(floors),0-7)" $(if $(style),--style "$(style)") $(if $(force),--force) $(if $(dry),--dry-run) $(if $(text_model),--text-model "$(text_model)") $(if $(attempts),--attempts "$(attempts)") $(if $(gate_scale),--gate-scale "$(gate_scale)") $(if $(filter 0,$(screens)),--no-screens)
+check-textures: install ## Check a texture dir the way the game loads it (textures=data/aitd1/textures, floors=0-7); proof=1 renders original|texture side-by-sides to docs/graphics-proof/textures/ (bases, alts -alt.png, screens)
+	$(PYTHON) tools/check_textures.py "$(data)" "$(textures)" --floors "$(or $(floors),0-7)" $(if $(proof),--proof)
 
 bootstrap-materials: install ## Survey palette ramps + body usage into data/aitd1/materials-survey, then emit PyAitD/render/materials.json (survey_out=, vision=1 runs the agy labelling stage in between, model=, threshold=0.8). The survey dir is git-ignored and holds the hand `label`s from the 23-ramp review; without it the emit falls back to vision/heuristic guesses, which tests/test_bootstrap_materials.py's REVIEWED_RAMPS then fails on. See docs/materials-v2-proof.md.
 	$(PYTHON) tools/bootstrap_materials.py "$(data)" survey --out "$(or $(survey_out),data/aitd1/materials-survey)"

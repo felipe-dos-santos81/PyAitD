@@ -384,7 +384,7 @@ def test_scene_frame_delegates_to_build_frame_and_compose_scene(monkeypatch):
 
 def test_scene_frame_requires_a_resolver_instead_of_silently_defaulting_one(monkeypatch):
     """_scene_frame must never build its own AssetResolver(game.assets) as a
-    fallback: that would silently drop whatever override_dir the caller's
+    fallback: that would silently drop whatever texture_dir the caller's
     resolver was configured with. Every real call site (run()'s pre-loop and
     per-frame calls, both branch functions) always has a resolver in hand and
     passes it explicitly -- this pins that resolver stays a required
@@ -526,10 +526,10 @@ def test_run_propagates_renderer_fallback_notice_into_settings_error(monkeypatch
 
 def test_run_builds_one_resolver_and_threads_it_through_scene_frame_calls(monkeypatch, tmp_path, profile):
     """run()'s `resolver = resolver or AssetResolver(game.assets,
-    session.settings.render.override_dir)` and its threading into every
+    session.settings.render.texture_dir)` and its threading into every
     _scene_frame call (task 9 review finding 2): exactly one AssetResolver
     gets built for a run with no hero swap or restart, carrying the
-    session's override_dir, and the *same* instance reaches both the
+    session's texture_dir, and the *same* instance reaches both the
     pre-loop and the per-frame _scene_frame call."""
     import PyAitD.app.shell as main
     from dataclasses import replace as dc_replace
@@ -537,7 +537,7 @@ def test_run_builds_one_resolver_and_threads_it_through_scene_frame_calls(monkey
     from PyAitD.render.render_options import RenderOptions
 
     settings = dc_replace(
-        default_settings(), render=RenderOptions(override_dir="/tmp/custom-override"),
+        default_settings(), render=RenderOptions(texture_dir="/tmp/custom-override"),
     )
     session = ModalSession(settings=settings)
     game = _fake_game(tmp_path, profile)
@@ -545,9 +545,9 @@ def test_run_builds_one_resolver_and_threads_it_through_scene_frame_calls(monkey
     built = []
 
     class SpyAssetResolver:
-        def __init__(self, assets, override_dir):
+        def __init__(self, assets, texture_dir):
             self.assets = assets
-            self.override_dir = override_dir
+            self.texture_dir = texture_dir
             built.append(self)
 
     seen_resolvers = []
@@ -576,17 +576,17 @@ def test_run_builds_one_resolver_and_threads_it_through_scene_frame_calls(monkey
         assert main.run(game, session=session) == 0
     assert len(built) == 1
     assert built[0].assets is game.assets
-    assert built[0].override_dir == "/tmp/custom-override"
+    assert built[0].texture_dir == "/tmp/custom-override"
     assert len(seen_resolvers) >= 2  # the pre-loop call and at least one per-frame call
     assert all(resolver is built[0] for resolver in seen_resolvers)
 
 
-def test_resolver_for_wraps_new_assets_with_the_given_override_dir():
+def test_resolver_for_wraps_new_assets_with_the_given_texture_dir():
     """_resolver_for (task 9 review finding 2): a brand-new helper with no
     test at all before this. Pins that it wraps the *given* assets object
-    with the *given* override_dir string -- nothing more, no reach into
+    with the *given* texture_dir string -- nothing more, no reach into
     another resolver's private state (the review's ruling against the old
-    `getattr(resolver, "_override_dir", None)` design)."""
+    `getattr(resolver, "_texture_dir", None)` design)."""
     import PyAitD.app.shell as main
     from pathlib import Path
     from PyAitD.render.asset_resolver import AssetResolver
@@ -594,16 +594,16 @@ def test_resolver_for_wraps_new_assets_with_the_given_override_dir():
     resolver = main._resolver_for("assets-marker", "/custom/override")
     assert isinstance(resolver, AssetResolver)
     assert resolver._assets == "assets-marker"
-    assert resolver._override_dir == Path("/custom/override")
+    assert resolver._texture_dir == Path("/custom/override")
 
     none_resolver = main._resolver_for("assets-marker", None)
-    assert none_resolver._override_dir is None
+    assert none_resolver._texture_dir is None
 
 
-def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeypatch, profile):
+def test_hero_branch_builds_its_resolver_from_the_session_s_texture_dir(monkeypatch, profile):
     """The override-survives-a-hero-swap behaviour _resolver_for exists for
     (task 9 review finding 2): _hero_branch must build the new game's
-    resolver from session.settings.render.override_dir, not silently drop
+    resolver from session.settings.render.texture_dir, not silently drop
     it. No game data needed -- init_game/Floor/_take_over_play_input/
     _scene_frame are all stubbed so only the resolver-building line is
     exercised for real."""
@@ -625,7 +625,7 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeyp
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (None, []))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
 
-    settings = dc_replace(default_settings(), render=RenderOptions(override_dir="/custom/dir"))
+    settings = dc_replace(default_settings(), render=RenderOptions(texture_dir="/custom/dir"))
     session = ModalSession(settings=settings)
     session.pending_hero = 1
     # skip_intro: this test exercises only the resolver-building line with a
@@ -642,10 +642,10 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_override_dir(monkeyp
     new_resolver = result[-1]
     assert isinstance(new_resolver, AssetResolver)
     assert new_resolver._assets == "new-assets-marker"
-    assert new_resolver._override_dir == Path("/custom/dir")
+    assert new_resolver._texture_dir == Path("/custom/dir")
 
 
-def test_restart_branch_builds_its_resolver_from_the_session_s_override_dir(monkeypatch, profile):
+def test_restart_branch_builds_its_resolver_from_the_session_s_texture_dir(monkeypatch, profile):
     """Same override-survives-a-restart behaviour as the hero-swap test
     above, for _restart_branch."""
     import PyAitD.app.shell as main
@@ -665,7 +665,7 @@ def test_restart_branch_builds_its_resolver_from_the_session_s_override_dir(monk
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (None, []))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
 
-    settings = dc_replace(default_settings(), render=RenderOptions(override_dir="/another/dir"))
+    settings = dc_replace(default_settings(), render=RenderOptions(texture_dir="/another/dir"))
     session = ModalSession(settings=settings)
     old_game = SimpleNamespace(restart_requested=True)
 
@@ -675,7 +675,7 @@ def test_restart_branch_builds_its_resolver_from_the_session_s_override_dir(monk
     new_resolver = result[-1]
     assert isinstance(new_resolver, AssetResolver)
     assert new_resolver._assets == "restarted-assets-marker"
-    assert new_resolver._override_dir == Path("/another/dir")
+    assert new_resolver._texture_dir == Path("/another/dir")
 
 
 class _FakeAssets:

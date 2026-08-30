@@ -6,8 +6,8 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 import numpy as np
 
-from PyAitD.render import background_export as be
-from tools import export_backgrounds as xb
+from PyAitD.render import texture_export as be
+from tools import export_textures as xb
 import pytest
 
 pytestmark = pytest.mark.tools
@@ -83,8 +83,8 @@ def test_main_exports_screens_and_manifest(tmp_path, monkeypatch):
 
 
 def test_real_screens_export_and_check_round_trip(data_dir, tmp_path):
-    from PyAitD.render import override_check as oc
-    from tools.export_backgrounds import load_assets
+    from PyAitD.render import texture_check as oc
+    from tools.export_textures import load_assets
     assets = load_assets(data_dir)
     records = xb.export_screens(assets, tmp_path, 1)
     assert len(records) == 7 and all(r["size"] == [320, 200] for r in records)

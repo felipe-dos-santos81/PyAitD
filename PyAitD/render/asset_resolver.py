@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-"""Visual asset lookup (camera backgrounds, palette, full-screen resources) with an optional user override directory.
+"""Visual asset lookup (camera backgrounds, palette, full-screen resources) with an optional user texture directory.
 
 Only load_png_rgb touches pygame; everything else is pure so headless tests
 inject a loader."""
@@ -25,28 +25,28 @@ class ImageAsset:
     is_override: bool
 
 
-def override_background_path(override_dir, floor_number, cam_idx):
-    return Path(override_dir) / "backgrounds" / f"floor{floor_number:02d}" / f"camera{cam_idx:03d}.png"
+def texture_background_path(texture_dir, floor_number, cam_idx):
+    return Path(texture_dir) / "backgrounds" / f"floor{floor_number:02d}" / f"camera{cam_idx:03d}.png"
 
 
-def override_alt_background_path(override_dir, floor_number, cam_idx):
-    return Path(override_dir) / "alt_backgrounds" / f"floor{floor_number:02d}" / f"camera{cam_idx:03d}.png"
+def texture_alt_background_path(texture_dir, floor_number, cam_idx):
+    return Path(texture_dir) / "alt_backgrounds" / f"floor{floor_number:02d}" / f"camera{cam_idx:03d}.png"
 
 
-def override_palette_path(override_dir):
-    return Path(override_dir) / "palette.png"
+def texture_palette_path(texture_dir):
+    return Path(texture_dir) / "palette.png"
 
 
-def override_screen_path(override_dir, entry):
+def texture_screen_path(texture_dir, entry):
     # Full-screen ITD_RESS resources (title, character select, story, letter,
-    # book, notebook, dead end). Mirrored by background_export.screen_rel_path.
-    return Path(override_dir) / "screens" / f"ress{entry:02d}.png"
+    # book, notebook, dead end). Mirrored by texture_export.screen_rel_path.
+    return Path(texture_dir) / "screens" / f"ress{entry:02d}.png"
 
 
-def override_body_material_path(override_dir, num):
+def texture_body_material_path(texture_dir, num):
     # Per-body material remaps, applied on top of the committed default
     # table. Same shape as PyAitD/render/materials.json.
-    return Path(override_dir) / "bodies" / f"body{num:03d}.json"
+    return Path(texture_dir) / "bodies" / f"body{num:03d}.json"
 
 
 def load_json(path):
@@ -67,9 +67,9 @@ def _validate_body_override(data):
 
 
 class AssetResolver:
-    def __init__(self, assets, override_dir=None, *, load_png=load_png_rgb):
+    def __init__(self, assets, texture_dir=None, *, load_png=load_png_rgb):
         self._assets = assets
-        self._override_dir = Path(override_dir) if override_dir else None
+        self._texture_dir = Path(texture_dir) if texture_dir else None
         self._load_png = load_png
         self._cache = {}
         self._lights = {}
@@ -89,8 +89,8 @@ class AssetResolver:
         once, lands in `failures`, and leaves the default. Memoised per body."""
         if num not in self._material_tables:
             table = default_table()
-            if self._override_dir is not None:
-                data = self._override(override_body_material_path(self._override_dir, num),
+            if self._texture_dir is not None:
+                data = self._override(texture_body_material_path(self._texture_dir, num),
                                       _validate_body_override, load=load_json)
                 if data is not None:
                     table = table.remapped(parse_assignments(data))
@@ -111,8 +111,8 @@ class AssetResolver:
         materials too, and vice versa."""
         if num not in self._refinements:
             crease = CREASE_DEG
-            if self._override_dir is not None:
-                data = self._override(override_body_material_path(self._override_dir, num),
+            if self._texture_dir is not None:
+                data = self._override(texture_body_material_path(self._texture_dir, num),
                                       _validate_body_override, load=load_json)
                 if data is not None:
                     value = parse_crease(data)
@@ -123,7 +123,7 @@ class AssetResolver:
 
     def _override(self, path, validate, load=None):
         load = self._load_png if load is None else load
-        if self._override_dir is None or path in self.failures:
+        if self._texture_dir is None or path in self.failures:
             return None
         if path in self._cache:
             return self._cache[path]
@@ -144,16 +144,16 @@ class AssetResolver:
         return loaded
 
     def background(self, floor, cam_idx, *, killed_sorcerer=False):
-        if killed_sorcerer and self._override_dir is not None:
+        if killed_sorcerer and self._texture_dir is not None:
             pixels = self._override(
-                override_alt_background_path(self._override_dir, floor.number, cam_idx),
+                texture_alt_background_path(self._texture_dir, floor.number, cam_idx),
                 _require_rgb,
             )
             if pixels is not None:
                 return ImageAsset(pixels.astype(np.uint8, copy=False), True)
-        if self._override_dir is not None:
+        if self._texture_dir is not None:
             pixels = self._override(
-                override_background_path(self._override_dir, floor.number, cam_idx),
+                texture_background_path(self._texture_dir, floor.number, cam_idx),
                 _require_rgb,
             )
             if pixels is not None:
@@ -161,8 +161,8 @@ class AssetResolver:
         return ImageAsset(floor.camera_image(cam_idx), False)
 
     def palette(self, floor):
-        if self._override_dir is not None:
-            pixels = self._override(override_palette_path(self._override_dir), _require_palette)
+        if self._texture_dir is not None:
+            pixels = self._override(texture_palette_path(self._texture_dir), _require_palette)
             if pixels is not None:
                 return np.ascontiguousarray(pixels[0, :256, :3]).astype(np.uint8)
         return floor.palette
@@ -205,8 +205,8 @@ class AssetResolver:
         return self._plates[key]
 
     def resource_screen(self, entry):
-        if self._override_dir is not None:
-            pixels = self._override(override_screen_path(self._override_dir, entry), _require_rgb)
+        if self._texture_dir is not None:
+            pixels = self._override(texture_screen_path(self._texture_dir, entry), _require_rgb)
             if pixels is not None:
                 return ImageAsset(pixels.astype(np.uint8, copy=False), True)
         return ImageAsset(self._assets.resource_screen(entry), False)

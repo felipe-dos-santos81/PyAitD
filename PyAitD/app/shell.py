@@ -119,7 +119,7 @@ def parse_args(argv):
         help="how much of the plate's tone, grain and softness the actors take on: "
              "0 draws them straight over it, 1-3 composite at half, full and one-and-a-half strength")
     p.add_argument(
-        "--overrides", type=pathlib.Path, default=None, help="asset override directory",
+        "--textures", type=pathlib.Path, default=None, help="asset texture directory",
     )
     p.add_argument(
         "--skip-intro", action="store_true",
@@ -155,8 +155,8 @@ def apply_render_overrides(settings, args):
         payload["shadows"] = args.shadows
     if args.integration is not None:
         payload["integration"] = args.integration
-    if args.overrides is not None:
-        payload["override_dir"] = str(args.overrides)
+    if args.textures is not None:
+        payload["texture_dir"] = str(args.textures)
     render, _error = validate_render_options(payload)
     return replace(settings, render=render)
 
@@ -166,7 +166,7 @@ def load_runtime_session(path):
     # are validated later by configure_session_input, once the Renderer owns
     # the initialized pygame runtime.
     settings, error = load_settings(path)
-    # Captured before main() applies any --render-* / --overrides CLI flags
+    # Captured before main() applies any --render-* / --textures CLI flags
     # to session.settings: this is the on-disk baseline a later save must
     # not let a session-only CLI override clobber. See
     # _save_session_settings and apply_render_overrides.
@@ -233,14 +233,14 @@ def _scene_frame(game, floor, renderer, resolver):
     return renderer.compose_scene(frame), draw_list
 
 
-def _resolver_for(assets, override_dir):
+def _resolver_for(assets, texture_dir):
     # A hero swap or restart replaces `game` (and so `game.assets`): the old
     # resolver's cache is keyed off the old assets object and must not be
-    # reused, but the override directory it was configured with still
-    # applies to the new game. `override_dir` is the public
-    # `session.settings.render.override_dir` value -- never read off another
+    # reused, but the texture directory it was configured with still
+    # applies to the new game. `texture_dir` is the public
+    # `session.settings.render.texture_dir` value -- never read off another
     # resolver's private state.
-    return AssetResolver(assets, override_dir)
+    return AssetResolver(assets, texture_dir)
 
 
 def inventory_hud_available(game):
@@ -631,7 +631,7 @@ def _route_game_over_command(game, session, modal_command):
 
 # The only render.RenderOptions fields the CONFIG menu can actually change
 # (SystemMenuPage.GRAPHICS's Scale/Shading/Filter/Lighting/Shadows/AA/Realism/Smoothing/Integration
-# rows, via GRAPHICS_CYCLES in ui.reduce_system_menu). `override_dir` has no menu row at
+# rows, via GRAPHICS_CYCLES in ui.reduce_system_menu). `texture_dir` has no menu row at
 # all, so it is never in this set and a save can never pick it up from the
 # in-memory, possibly CLI-set, session.settings.render.
 _MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism", "smoothing", "shadows", "integration")
@@ -647,7 +647,7 @@ def _persisted_render(session):
     Without this, saving *any* setting (even one unrelated to rendering,
     like Sticky Action) would write session.settings.render wholesale --
     and that field already carries whatever apply_render_overrides baked in
-    from argv at boot, CLI-only override_dir included. apply_render_overrides'
+    from argv at boot, CLI-only texture_dir included. apply_render_overrides'
     docstring promises those overrides are session-only; this is what keeps
     that promise true past the first save.
     """
@@ -1163,7 +1163,7 @@ def _boot_hero(game, renderer, session, input_buffer, hero, *, cutscene):
     # same line init_game's own staging (game_start) relies on below.
     new_game.num_camera = new_game.new_num_camera
     new_game.flag_init_view = 0
-    new_resolver = _resolver_for(new_game.assets, session.settings.render.override_dir)
+    new_resolver = _resolver_for(new_game.assets, session.settings.render.texture_dir)
     scene_frame, draw_list = _scene_frame(new_game, new_floor, renderer, new_resolver)
     return (
         new_game, new_floor, new_session, input_buffer, 0,
@@ -1217,7 +1217,7 @@ def _restart_branch(game, renderer, session, input_buffer=None):
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return (None, None, None, None, 0, [], None, None, None, 2, None)
-    override_dir = session.settings.render.override_dir
+    texture_dir = session.settings.render.texture_dir
     game = new_game
     floor = new_floor
     session = replacement_session(session)
@@ -1228,7 +1228,7 @@ def _restart_branch(game, renderer, session, input_buffer=None):
     hover = None
     game.num_camera = game.new_num_camera
     game.flag_init_view = 0
-    new_resolver = _resolver_for(game.assets, override_dir)
+    new_resolver = _resolver_for(game.assets, texture_dir)
     scene_frame, draw_list = _scene_frame(game, floor, renderer, new_resolver)
     last = pygame.time.get_ticks()
     return (
@@ -1250,7 +1250,7 @@ def run(game, trace_path=None, session=None, resolver=None):
     renderer = Renderer(session.settings.render)
     if renderer.fallback_notice and session.settings_error is None:
         session.settings_error = renderer.fallback_notice
-    resolver = resolver or AssetResolver(game.assets, session.settings.render.override_dir)
+    resolver = resolver or AssetResolver(game.assets, session.settings.render.texture_dir)
     clock = pygame.time.Clock()
     input_buffer = InputBuffer()
     configure_session_input(session, input_buffer)

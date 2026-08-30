@@ -495,8 +495,8 @@ def test_game_over_not_ready_is_identity_on_the_canvas():
     assert ready_painter.to_frame().shape == (200, 320, 4)
 
 
-from PyAitD.render.asset_resolver import AssetResolver, override_screen_path
-from PyAitD.render import background_export as be
+from PyAitD.render.asset_resolver import AssetResolver, texture_screen_path
+from PyAitD.render import texture_export as be
 
 
 def test_character_layout_portraits_come_from_the_export_guide_rects():
@@ -506,7 +506,7 @@ def test_character_layout_portraits_come_from_the_export_guide_rects():
 def test_character_select_uses_a_screen_override_outside_the_portraits(data_dir, profile, tmp_path):
     pygame.font.init()
     game = init_game(data_dir, profile)
-    path = override_screen_path(tmp_path, 10)
+    path = texture_screen_path(tmp_path, 10)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"png")
     plate = np.zeros((400, 640, 3), np.uint8)

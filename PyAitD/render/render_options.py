@@ -42,7 +42,7 @@ class RenderOptions:
     scale: int = 4
     shading: str = "smooth"
     background_filter: str = "bilinear"
-    override_dir: str | None = None
+    texture_dir: str | None = None
     lighting: str = "scene"
     msaa: int = 4
     realism: str = "enhanced"
@@ -55,7 +55,7 @@ class RenderOptions:
             "scale": self.scale,
             "shading": self.shading,
             "background_filter": self.background_filter,
-            "override_dir": self.override_dir,
+            "texture_dir": self.texture_dir,
             "lighting": self.lighting,
             "msaa": self.msaa,
             "realism": self.realism,
@@ -84,10 +84,10 @@ def validate_render_options(payload):
     if background_filter not in BACKGROUND_FILTERS:
         errors.append(f"background_filter must be one of {', '.join(BACKGROUND_FILTERS)}")
         background_filter = defaults.background_filter
-    override_dir = payload.get("override_dir")
-    if override_dir is not None and (not isinstance(override_dir, str) or not override_dir):
-        errors.append("override_dir must be null or a non-empty string")
-        override_dir = None
+    texture_dir = payload.get("texture_dir")
+    if texture_dir is not None and (not isinstance(texture_dir, str) or not texture_dir):
+        errors.append("texture_dir must be null or a non-empty string")
+        texture_dir = None
     lighting = payload.get("lighting")
     if lighting not in LIGHTING_MODES:
         errors.append(f"lighting must be one of {', '.join(LIGHTING_MODES)}")
@@ -123,7 +123,7 @@ def validate_render_options(payload):
     if not (type(integration) is int and integration in INTEGRATION_LEVELS):
         errors.append(f"integration must be one of {', '.join(str(v) for v in INTEGRATION_LEVELS)}")
         integration = defaults.integration
-    options = RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism, smoothing, shadows, integration)
+    options = RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration)
     return options, ("; ".join(errors) or None)
 
 

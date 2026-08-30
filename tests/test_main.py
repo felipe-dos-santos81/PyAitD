@@ -225,7 +225,7 @@ def test_make_run_uses_shell_by_default_and_floor_zero_only_when_explicit():
     explicit_run = next(line for line in explicit.splitlines() if " -m PyAitD " in line)
     assert "--floor" not in plain_run
     assert '--floor "0"' in explicit_run
-    assert '--overrides "data/aitd1/overrides"' in plain_run
+    assert '--textures "data/aitd1/textures"' in plain_run
 
 
 def test_unknown_pygame_key_falls_back_to_defaults_with_a_path_named_notice(tmp_path):
@@ -261,10 +261,10 @@ def test_unknown_pygame_key_falls_back_to_defaults_with_a_path_named_notice(tmp_
 def test_render_cli_flags_override_settings_for_the_session():
     from PyAitD.app.shell import apply_render_overrides, parse_args
     from PyAitD.app.config import default_settings
-    args = parse_args(["--render-scale", "2", "--shading", "flat", "--overrides", "/tmp/ov"])
+    args = parse_args(["--render-scale", "2", "--shading", "flat", "--textures", "/tmp/ov"])
     settings = apply_render_overrides(default_settings(), args)
     assert (settings.render.scale, settings.render.shading, settings.render.background_filter,
-            settings.render.override_dir) == (2, "flat", "bilinear", "/tmp/ov")
+            settings.render.texture_dir) == (2, "flat", "bilinear", "/tmp/ov")
     assert apply_render_overrides(default_settings(), parse_args([])) == default_settings()
     assert apply_render_overrides(default_settings(), parse_args(["--render-scale", "50"])).render.scale == 8
 
@@ -286,8 +286,8 @@ def test_each_render_flag_overrides_only_its_own_field():
     filter_only = apply_render_overrides(base, parse_args(["--background-filter", "xbr"]))
     assert filter_only == replace(base, render=replace(base.render, background_filter="xbr"))
 
-    overrides_only = apply_render_overrides(base, parse_args(["--overrides", "/tmp/only-ov"]))
-    assert overrides_only == replace(base, render=replace(base.render, override_dir="/tmp/only-ov"))
+    overrides_only = apply_render_overrides(base, parse_args(["--textures", "/tmp/only-ov"]))
+    assert overrides_only == replace(base, render=replace(base.render, texture_dir="/tmp/only-ov"))
 
 
 def test_smoothing_flag_overrides_only_its_own_field():
@@ -335,7 +335,7 @@ def test_render_cli_flags_default_to_none_meaning_keep_the_settings_value():
     assert args.render_scale is None
     assert args.shading is None
     assert args.background_filter is None
-    assert args.overrides is None
+    assert args.textures is None
 
 
 def test_render_cli_overrides_do_not_persist_to_the_settings_file(tmp_path):
@@ -365,7 +365,7 @@ def test_render_cli_overrides_do_not_persist_to_the_settings_file(tmp_path):
 
 def test_config_menu_save_does_not_persist_untouched_cli_render_overrides(tmp_path):
     """Finding 2's full repro: launch with CLI render overrides --
-    including --overrides, which has no CONFIG menu row at all -- open the
+    including --textures, which has no CONFIG menu row at all -- open the
     CONFIG menu, touch only Sticky Action (nothing render-related), and
     leave. The settings file on disk afterward must show the *original*
     render values, not argv's: this is asserted on the settings file's
@@ -393,13 +393,13 @@ def test_config_menu_save_does_not_persist_untouched_cli_render_overrides(tmp_pa
     settings_file.write_text(json.dumps(original_payload), encoding="utf-8")
 
     session = load_runtime_session(settings_file)
-    overrides_dir = str(tmp_path / "my-hd-pack")
+    textures_dir = str(tmp_path / "my-hd-pack")
     args = parse_args([
-        "--render-scale", "7", "--shading", "flat", "--overrides", overrides_dir,
+        "--render-scale", "7", "--shading", "flat", "--textures", textures_dir,
     ])
     session.settings = apply_render_overrides(session.settings, args)
     assert (session.settings.render.scale, session.settings.render.shading,
-            session.settings.render.override_dir) == (7, "flat", overrides_dir)
+            session.settings.render.texture_dir) == (7, "flat", textures_dir)
 
     input_buffer = InputBuffer()
     game = SimpleNamespace(close_modal=lambda: None)
@@ -413,11 +413,11 @@ def test_config_menu_save_does_not_persist_untouched_cli_render_overrides(tmp_pa
     on_disk = json.loads(settings_file.read_text(encoding="utf-8"))
     assert on_disk["sticky_action"] is True  # the one thing actually changed
     assert on_disk["render"] == default_settings().render.to_payload()
-    assert on_disk["render"]["override_dir"] is None
+    assert on_disk["render"]["texture_dir"] is None
 
     # The CLI overrides stay in effect in memory for the rest of this run.
     assert session.settings.render.scale == 7
-    assert session.settings.render.override_dir == overrides_dir
+    assert session.settings.render.texture_dir == textures_dir
 
 
 def test_config_menu_save_persists_a_render_field_the_player_actually_cycled(tmp_path):
@@ -448,8 +448,8 @@ def test_config_menu_save_persists_a_render_field_the_player_actually_cycled(tmp
     settings_file.write_text(json.dumps(original_payload), encoding="utf-8")
 
     session = load_runtime_session(settings_file)
-    overrides_dir = str(tmp_path / "cli-only")
-    args = parse_args(["--overrides", overrides_dir])
+    textures_dir = str(tmp_path / "cli-only")
+    args = parse_args(["--textures", textures_dir])
     session.settings = apply_render_overrides(session.settings, args)
 
     input_buffer = InputBuffer()
@@ -465,8 +465,8 @@ def test_config_menu_save_persists_a_render_field_the_player_actually_cycled(tmp
     on_disk = json.loads(settings_file.read_text(encoding="utf-8"))
     # The explicitly-cycled field persists...
     assert on_disk["render"]["shading"] == cycle_shading(default_settings().render).shading
-    # ...but the untouched CLI-only override_dir still does not leak in.
-    assert on_disk["render"]["override_dir"] is None
+    # ...but the untouched CLI-only texture_dir still does not leak in.
+    assert on_disk["render"]["texture_dir"] is None
     assert on_disk["render"]["scale"] == default_settings().render.scale
 
 
@@ -517,7 +517,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(profil
     )
     monkeypatch.setattr(
         main, "AssetResolver",
-        lambda assets, override_dir=None, **kw: resolver_calls.append(override_dir) or object(),
+        lambda assets, texture_dir=None, **kw: resolver_calls.append(texture_dir) or object(),
     )
     monkeypatch.setattr(main, "play_tick", lambda *args: True)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
@@ -530,7 +530,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(profil
         main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
     )
 
-    overrides_dir = str(tmp_path / "ov")
+    textures_dir = str(tmp_path / "ov")
     # The stub Renderer above skips the pygame.init() a real Renderer would
     # do before configure_session_input's key-binding validation reaches
     # pygame.key.key_code -- without it that call warns.
@@ -538,7 +538,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(profil
     try:
         exit_code = main.main([
             "--data", str(tmp_path), "--floor", "0",
-            "--render-scale", "2", "--shading", "flat", "--overrides", overrides_dir,
+            "--render-scale", "2", "--shading", "flat", "--textures", textures_dir,
         ])
     finally:
         pygame.quit()
@@ -547,7 +547,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(profil
     assert exit_code == 0
     assert renderer_options and renderer_options[0].scale == 2
     assert renderer_options[0].shading == "flat"
-    assert resolver_calls == [overrides_dir]
+    assert resolver_calls == [textures_dir]
 
 
 def test_shadows_flag_overrides_only_its_own_field():

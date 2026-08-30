@@ -3,7 +3,7 @@ import hashlib
 
 import numpy as np
 
-from PyAitD.render import background_export as be
+from PyAitD.render import texture_export as be
 import pytest
 
 pytestmark = pytest.mark.render
@@ -116,8 +116,8 @@ def test_export_manifest_envelope():
 
 
 def test_rel_paths_match_asset_resolver_layout(tmp_path):
-    from PyAitD.render.asset_resolver import override_background_path
-    assert (tmp_path / be.background_rel_path(5, 12)) == override_background_path(tmp_path, 5, 12)
+    from PyAitD.render.asset_resolver import texture_background_path
+    assert (tmp_path / be.background_rel_path(5, 12)) == texture_background_path(tmp_path, 5, 12)
     assert be.guide_rel_path(5, 12) == "guides/floor05/camera012.png"
 
 
@@ -242,11 +242,11 @@ def test_guide_overlay_real_camera_matches_integer_projection(data_dir, profile)
 
 
 def test_screen_paths_mirror_the_resolver_layout():
-    from PyAitD.render.asset_resolver import override_screen_path
+    from PyAitD.render.asset_resolver import texture_screen_path
     import pathlib
     assert be.screen_rel_path(10) == "screens/ress10.png"
     assert be.screen_guide_rel_path(10) == "guides/screens/ress10.png"
-    assert pathlib.Path("/x") / be.screen_rel_path(6) == override_screen_path("/x", 6)
+    assert pathlib.Path("/x") / be.screen_rel_path(6) == texture_screen_path("/x", 6)
 
 
 def test_screen_entries_and_guides_are_consistent():
@@ -345,14 +345,14 @@ def test_records_carry_layout_paths():
 
 
 def test_alt_background_rel_path_mirrors_resolver(tmp_path):
-    from PyAitD.render import background_export as be
-    from PyAitD.render.asset_resolver import override_alt_background_path
-    assert (tmp_path / be.alt_background_rel_path(7, 0)) == override_alt_background_path(tmp_path, 7, 0)
+    from PyAitD.render import texture_export as be
+    from PyAitD.render.asset_resolver import texture_alt_background_path
+    assert (tmp_path / be.alt_background_rel_path(7, 0)) == texture_alt_background_path(tmp_path, 7, 0)
     assert be.alt_background_rel_path(6, 5) == "alt_backgrounds/floor06/camera005.png"
 
 
 def test_alt_manifest_record_fields():
-    from PyAitD.render import background_export as be
+    from PyAitD.render import texture_export as be
     from tests.stub_floor import StubFloor, checker_pixels
     px = checker_pixels()
     rec = be.alt_manifest_record(StubFloor(number=7), 0, px, 15)
@@ -364,7 +364,7 @@ def test_alt_manifest_record_fields():
 
 
 def test_export_manifest_schema3_carries_alt_cameras():
-    from PyAitD.render import background_export as be
+    from PyAitD.render import texture_export as be
     from tests.stub_floor import StubFloor, checker_pixels
     rec = be.manifest_record(StubFloor(number=6), 0, checker_pixels())
     alt = be.alt_manifest_record(StubFloor(number=7), 0, checker_pixels(), 15)
@@ -377,7 +377,7 @@ def test_export_manifest_schema3_carries_alt_cameras():
 
 def test_alt_background_rel_path_and_manifest_record_match_asset_resolver_layout():
     import json
-    from PyAitD.render import background_export as be
+    from PyAitD.render import texture_export as be
     from tests.stub_floor import StubFloor, checker_pixels
     rec = be.alt_manifest_record(StubFloor(number=6), 8, checker_pixels(), 19)
     json.dumps(rec)  # serialisable

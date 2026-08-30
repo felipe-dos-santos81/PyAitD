@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from PyAitD.render.asset_resolver import (
-    AssetResolver, ImageAsset, load_png_rgb, override_background_path, override_palette_path,
+    AssetResolver, ImageAsset, load_png_rgb, texture_background_path, texture_palette_path,
 )
 
 pytestmark = pytest.mark.render
@@ -19,14 +19,14 @@ def _floor(number=3):
 
 
 def test_paths_follow_the_convention(tmp_path):
-    assert override_background_path(tmp_path, 3, 12) == tmp_path / "backgrounds" / "floor03" / "camera012.png"
-    assert override_palette_path(tmp_path) == tmp_path / "palette.png"
+    assert texture_background_path(tmp_path, 3, 12) == tmp_path / "backgrounds" / "floor03" / "camera012.png"
+    assert texture_palette_path(tmp_path) == tmp_path / "palette.png"
 
 
-def test_override_alt_background_path(tmp_path):
-    from PyAitD.render.asset_resolver import override_alt_background_path
-    from PyAitD.render.background_export import alt_background_rel_path
-    assert tmp_path / alt_background_rel_path(7, 0) == override_alt_background_path(tmp_path, 7, 0)
+def test_texture_alt_background_path(tmp_path):
+    from PyAitD.render.asset_resolver import texture_alt_background_path
+    from PyAitD.render.texture_export import alt_background_rel_path
+    assert tmp_path / alt_background_rel_path(7, 0) == texture_alt_background_path(tmp_path, 7, 0)
 
 
 def test_background_prefers_alt_when_killed(tmp_path, monkeypatch):
@@ -61,14 +61,14 @@ def test_background_prefers_alt_when_killed(tmp_path, monkeypatch):
     assert tmp_path / "alt_backgrounds/floor07/camera000.png" in r2.failures
 
 
-def test_no_override_dir_returns_original():
+def test_no_texture_dir_returns_original():
     resolver = AssetResolver(SimpleNamespace(body=lambda n: n), None)
     asset = resolver.background(_floor(), 0)
     assert isinstance(asset, ImageAsset) and not asset.is_override and asset.pixels.shape == (200, 320, 3)
     assert resolver.body(5) == 5
 
 
-def test_override_dir_set_but_file_absent_falls_back_silently(tmp_path, caplog):
+def test_texture_dir_set_but_file_absent_falls_back_silently(tmp_path, caplog):
     def fail_if_called(p):
         raise AssertionError("load_png must not be called when the override file is absent")
     resolver = AssetResolver(None, tmp_path, load_png=fail_if_called)
@@ -80,7 +80,7 @@ def test_override_dir_set_but_file_absent_falls_back_silently(tmp_path, caplog):
 
 
 def test_override_png_is_used_at_any_size(tmp_path):
-    path = override_background_path(tmp_path, 3, 0)
+    path = texture_background_path(tmp_path, 3, 0)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"png")
     big = np.zeros((800, 1280, 3), dtype=np.uint8)
@@ -90,7 +90,7 @@ def test_override_png_is_used_at_any_size(tmp_path):
 
 
 def test_unreadable_override_logs_once_and_falls_back(tmp_path, caplog):
-    path = override_background_path(tmp_path, 3, 0)
+    path = texture_background_path(tmp_path, 3, 0)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"bad")
     def boom(p):
@@ -105,7 +105,7 @@ def test_unreadable_override_logs_once_and_falls_back(tmp_path, caplog):
 
 
 def test_palette_override_must_be_256_wide(tmp_path):
-    override_palette_path(tmp_path).write_bytes(b"png")
+    texture_palette_path(tmp_path).write_bytes(b"png")
     resolver = AssetResolver(None, tmp_path, load_png=lambda p: np.ones((1, 256, 3), dtype=np.uint8))
     assert resolver.palette(_floor()).shape == (256, 3) and resolver.palette(_floor())[0].tolist() == [1, 1, 1]
     resolver = AssetResolver(None, tmp_path, load_png=lambda p: np.ones((1, 16, 3), dtype=np.uint8))
@@ -113,7 +113,7 @@ def test_palette_override_must_be_256_wide(tmp_path):
 
 
 def test_greyscale_override_is_rejected_logged_and_falls_back(tmp_path, caplog):
-    path = override_background_path(tmp_path, 3, 0)
+    path = texture_background_path(tmp_path, 3, 0)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"grey")
     greyscale = np.zeros((200, 320), dtype=np.uint8)  # ndim == 2, no channel axis
@@ -126,7 +126,7 @@ def test_greyscale_override_is_rejected_logged_and_falls_back(tmp_path, caplog):
 
 
 def test_rgba_override_is_rejected_logged_and_falls_back(tmp_path, caplog):
-    path = override_background_path(tmp_path, 3, 0)
+    path = texture_background_path(tmp_path, 3, 0)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"rgba")
     rgba = np.zeros((200, 320, 4), dtype=np.uint8)  # 4 channels, not the required 3
@@ -144,7 +144,7 @@ def test_enormous_override_is_rejected_logged_and_falls_back(tmp_path, caplog):
     # GL_MAX_TEXTURE_SIZE than this host's -- a crash the moment the player
     # enters that camera. _require_rgb rejects it here instead, with a clear
     # message, well before it ever reaches GL.
-    path = override_background_path(tmp_path, 3, 0)
+    path = texture_background_path(tmp_path, 3, 0)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"huge")
     enormous = np.zeros((9000, 320, 3), dtype=np.uint8)
@@ -176,7 +176,7 @@ def test_load_png_rgb_axis_order_and_dtype(tmp_path):
     assert arr[height - 1, 0].tolist() == [5, 250, 100]
 
 
-from PyAitD.render.asset_resolver import override_screen_path
+from PyAitD.render.asset_resolver import texture_screen_path
 
 
 def _assets():
@@ -185,11 +185,11 @@ def _assets():
 
 
 def test_screen_path_follows_the_convention(tmp_path):
-    assert override_screen_path(tmp_path, 10) == tmp_path / "screens" / "ress10.png"
-    assert override_screen_path(tmp_path, 6) == tmp_path / "screens" / "ress06.png"
+    assert texture_screen_path(tmp_path, 10) == tmp_path / "screens" / "ress10.png"
+    assert texture_screen_path(tmp_path, 6) == tmp_path / "screens" / "ress06.png"
 
 
-def test_resource_screen_without_override_dir_returns_original():
+def test_resource_screen_without_texture_dir_returns_original():
     asset = AssetResolver(_assets(), None).resource_screen(10)
     assert isinstance(asset, ImageAsset) and not asset.is_override
     assert asset.pixels.shape == (200, 320, 3) and asset.pixels[0, 0, 0] == 9
@@ -205,7 +205,7 @@ def test_resource_screen_absent_override_falls_back_silently(tmp_path, caplog):
 
 
 def test_resource_screen_override_is_used_at_any_size_and_cached(tmp_path):
-    path = override_screen_path(tmp_path, 14)
+    path = texture_screen_path(tmp_path, 14)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"png")
     big = np.zeros((400, 640, 3), dtype=np.uint8)
@@ -218,7 +218,7 @@ def test_resource_screen_override_is_used_at_any_size_and_cached(tmp_path):
 
 
 def test_resource_screen_invalid_override_warns_once_and_falls_back(tmp_path, caplog):
-    path = override_screen_path(tmp_path, 13)
+    path = texture_screen_path(tmp_path, 13)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"png")
     resolver = AssetResolver(_assets(), tmp_path, load_png=lambda p: np.zeros((10, 10), dtype=np.uint8))
@@ -253,8 +253,8 @@ def test_light_is_estimated_once_per_camera():
 
 
 def test_light_follows_an_override_background(tmp_path):
-    from PyAitD.render.asset_resolver import override_background_path
-    path = override_background_path(tmp_path, 3, 0)
+    from PyAitD.render.asset_resolver import texture_background_path
+    path = texture_background_path(tmp_path, 3, 0)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"")                   # content comes from the stub loader below
     bright_left = np.zeros((200, 320, 3), np.uint8)
@@ -287,8 +287,8 @@ def test_plate_is_estimated_once_per_camera():
 
 
 def test_plate_follows_an_override_background(tmp_path):
-    from PyAitD.render.asset_resolver import override_background_path
-    path = override_background_path(tmp_path, 3, 0)
+    from PyAitD.render.asset_resolver import texture_background_path
+    path = texture_background_path(tmp_path, 3, 0)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"")                   # content comes from the stub loader below
     bright = np.full((200, 320, 3), 200, np.uint8)
@@ -321,14 +321,14 @@ def test_geometry_ao_bakes_once_per_body():
 
 
 def test_body_material_path_follows_the_convention(tmp_path):
-    from PyAitD.render.asset_resolver import override_body_material_path
-    assert override_body_material_path(tmp_path, 7) == tmp_path / "bodies" / "body007.json"
+    from PyAitD.render.asset_resolver import texture_body_material_path
+    assert texture_body_material_path(tmp_path, 7) == tmp_path / "bodies" / "body007.json"
 
 
 def test_material_table_follows_a_per_body_override(tmp_path):
-    from PyAitD.render.asset_resolver import override_body_material_path
+    from PyAitD.render.asset_resolver import texture_body_material_path
     from PyAitD.render.materials import default_table
-    path = override_body_material_path(tmp_path, 7)
+    path = texture_body_material_path(tmp_path, 7)
     path.parent.mkdir(parents=True)
     path.write_text('{"indices": {"5": "metal"}, "ramps": [{"lo": 40, "hi": 41, "class": "glass"}]}')
     resolver = AssetResolver(SimpleNamespace(body=lambda n: n), tmp_path)
@@ -346,9 +346,9 @@ def test_missing_body_override_is_silent(tmp_path, caplog):
 
 
 def test_invalid_body_override_logs_once_and_falls_back(tmp_path, caplog):
-    from PyAitD.render.asset_resolver import override_body_material_path
+    from PyAitD.render.asset_resolver import texture_body_material_path
     from PyAitD.render.materials import default_table
-    path = override_body_material_path(tmp_path, 2)
+    path = texture_body_material_path(tmp_path, 2)
     path.parent.mkdir(parents=True)
     path.write_text('{"indices": {"5": "velvet"}}')
     resolver = AssetResolver(SimpleNamespace(body=lambda n: n), tmp_path)
@@ -382,8 +382,8 @@ def test_refinement_plans_once_per_body():
 
 
 def test_refinement_follows_a_per_body_crease_override(tmp_path):
-    from PyAitD.render.asset_resolver import override_body_material_path
-    path = override_body_material_path(tmp_path, 7)
+    from PyAitD.render.asset_resolver import texture_body_material_path
+    path = texture_body_material_path(tmp_path, 7)
     path.parent.mkdir(parents=True)
     path.write_text('{"crease": 45, "indices": {"5": "metal"}}')
     resolver = AssetResolver(SimpleNamespace(body=lambda n: _triangle_body()), tmp_path)
@@ -393,9 +393,9 @@ def test_refinement_follows_a_per_body_crease_override(tmp_path):
 
 
 def test_an_invalid_crease_rejects_the_whole_body_file_once(tmp_path, caplog):
-    from PyAitD.render.asset_resolver import override_body_material_path
+    from PyAitD.render.asset_resolver import texture_body_material_path
     from PyAitD.render.materials import default_table
-    path = override_body_material_path(tmp_path, 2)
+    path = texture_body_material_path(tmp_path, 2)
     path.parent.mkdir(parents=True)
     path.write_text('{"crease": "soft", "indices": {"5": "metal"}}')
     resolver = AssetResolver(SimpleNamespace(body=lambda n: _triangle_body()), tmp_path)

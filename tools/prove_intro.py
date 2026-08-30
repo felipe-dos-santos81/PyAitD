@@ -25,7 +25,7 @@ from PyAitD.app.ui import InputBuffer, ReadingResult
 from PyAitD.games.aitd1.profile import AITD1
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from tools.export_backgrounds import save_png  # noqa: E402
+from tools.export_textures import save_png  # noqa: E402
 
 MAX_TICKS = 8000
 

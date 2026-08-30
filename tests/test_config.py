@@ -183,7 +183,7 @@ def test_v2_render_field_falls_back_per_field_with_notice(tmp_path):
     payload = valid_payload()
     payload["schema"] = 2
     payload["render"] = {"scale": 2, "shading": "neon", "background_filter": "nearest",
-                         "override_dir": None}
+                         "texture_dir": None}
     path = tmp_path / "settings.json"
     path.write_text(json.dumps(payload))
     settings, error = load_settings(path)
@@ -199,7 +199,7 @@ def test_save_writes_schema_2_with_render(tmp_path):
     payload = json.loads(path.read_text())
     assert payload["schema"] == SCHEMA
     assert payload["render"] == {"scale": 3, "shading": "flat",
-                                 "background_filter": "xbr", "override_dir": None,
+                                 "background_filter": "xbr", "texture_dir": None,
                                  "lighting": "scene", "msaa": 4, "realism": "enhanced",
                                  "smoothing": 2, "shadows": "soft", "integration": 2}
     assert load_settings(path) == (settings, None)

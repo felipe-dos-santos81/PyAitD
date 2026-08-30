@@ -8,19 +8,19 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 - FITD reference: `/Users/felipe.dos.santos/code/theirs/FITD/FitdLib/` (authoritative for all game logic)
 - Game data: `data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK`
 - Python 3.12, `.venv/`; deps: pygame-ce, moderngl, numpy, pytest — no more.
-  `tools/regenerate_backgrounds.py` reaches Gemini through the `agy` CLI
+  `tools/bootstrap_materials.py` reaches Gemini through the `agy` CLI
   (`subprocess`), so the one external service costs no Python dependency
 - Version 0.5.0 (`pyproject.toml`); GPL-2.0-only
 
 ## Commands
 
 ```bash
-make run                     # play (windowed) through character selection; floor=0 for the attic debug bypass, trace=/tmp/t.log writes per-opcode LIFE trace; overrides=DIR defaults to data/aitd1/overrides
+make run                     # play (windowed) through character selection; floor=0 for the attic debug bypass, trace=/tmp/t.log writes per-opcode LIFE trace; textures=DIR defaults to data/aitd1/textures
 make run-combat               # play the supported floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
 make run-mouse-combat         # deterministic object-38 mouse combat proof start (hero=0 Carnby, hero=1 Emily)
 make test                     # whole pytest suite, headless — authoritative gate
 make test-engine              # simulation, LIFE VM, formats, actors, anim, tracks, collision, navmesh, picking, opcodes
-make test-render              # scene, geometry, both backends, asset resolution, override export/check
+make test-render              # scene, geometry, both backends, asset resolution, texture export/check
 make test-shell                # event pump, settings, CLI, UI screens and modals
 make test-tools                # the standalone scripts under tools/
 make test-meta                 # the repo's own rules (package layering, test grouping)
@@ -29,10 +29,9 @@ make proof-mouse               # navmesh for every camera-visible room, every fl
 make proof-combat              # venue, real enemy damage, player arms, game over (needs game data)
 make proof-graphics            # attic + combat fixtures at every shading mode, plus flat-mesh, hard-shadow, un-composited and over-composited pairs, -> docs/graphics-proof/ (needs GL + game data)
 make proof-intro               # opening cutscene: headless gate + one GL render per visited camera
-make export-backgrounds      # originals + 5 KILLED_SORCERER alts + palette + guides + manifest schema 3 -> data/aitd1/overrides (out=, floors=, scale=, force=1, screens=0 to skip)
-make check-overrides         # validate an override dir as the game loads it (overrides=DIR, proof=1 side-by-sides: bases, alts -alt.png, screens)
-make regenerate-backgrounds  # Gemini describe+render+verify data/aitd1/overrides (incl. 5 alts sharing base guides) -> data/aitd1/overrides-ai (dry=1, floors=, style=, force=1, attempts=3, gate_scale=1.0); rejects drifted plates; needs the `agy` CLI on PATH
-make run overrides=DIR       # play with a different override directory (e.g. data/aitd1/overrides-ai); overrides= plays the originals
+make export-textures         # originals + 5 KILLED_SORCERER alts + palette + guides + manifest schema 3 -> data/aitd1/textures (out=, floors=, scale=, force=1, screens=0 to skip)
+make check-textures          # validate a texture dir as the game loads it (textures=DIR, proof=1 side-by-sides: bases, alts -alt.png, screens)
+make run textures=DIR        # play with a different texture directory; textures= plays the originals
 ```
 
 The nine legacy `prove-*` names remain as aliases of the targets above --
@@ -56,12 +55,12 @@ below for what pins each alias to the files it historically ran.
 | M4a1 | Shell: character select, system menu, remappable controls, sticky Action, settings persistence, settings notice overlay | done — automated gates green (`make prove-shell`); the windowed pass is attested by the mouse accessibility hardening proof, which supersedes the pending rows in `docs/m4a1-shell-proof.md` |
 | Mouse hold-to-push | Held approach/engage for scripted movable furniture | done — automated gates green; windowed pass attested via the hardening proof, superseding `docs/mouse-hold-push-proof.md` |
 | Mouse accessibility hardening | Effective targets, optional pure hover, physical/touch parity, target precedence, atomic modal takeover, exhaustive contract gate | done — automated gates green and user-attested windowed standard-mouse/macOS-Accessibility-Keyboard passes for Emily and Carnby (`docs/mouse-accessibility-hardening-proof.md`) — re-attestation pending: held pointer follow made PLAY movement press-and-hold, so the dwell-click / Accessibility Keyboard attestation no longer covers walking or approaching objects (`docs/superpowers/specs/2026-08-26-held-pointer-follow-design.md`) |
-| Enhanced graphics scene layer | Higher-resolution actor rendering, per-vertex shading, GPU mask erasure, background upscale filters, asset override directory, GL fallback | automated gates green; windowed attestation pending (`docs/enhanced-graphics-proof.md`) |
+| Enhanced graphics scene layer | Higher-resolution actor rendering, per-vertex shading, GPU mask erasure, background upscale filters, asset texture directory, GL fallback | automated gates green; windowed attestation pending (`docs/enhanced-graphics-proof.md`) |
 | Smooth actor geometry | GPU PN tessellation behind `smoothing`, crease-aware corner normals, tessellated shadow, Graphics sub-page | automated gates green; windowed attestation pending (`docs/smooth-geometry-proof.md`) |
 | Soft shadows (roadmap F) | Contact-hardening penumbra, one gathered shadow pass, light-view shadow map for self/inter-actor shadowing, `shadows` knob | automated gates green; windowed attestation pending (`docs/soft-shadows-proof.md`) |
 | Plate integration (roadmap G) | Actors resolved into their own layer and composited back through the plate's softness, tone curve and grain, graded by an `integration` level 0-3 that defaults to 2 (the full match) | automated gates green; windowed attestation pending (`docs/plate-integration-proof.md`) |
 | Materials v2 (roadmap H) | Derivative bump so `detail` is relief and not dirt, a warm skin terminator, real emissive, a normalised specular lobe, the 23 used palette ramps hand-reviewed, and the class table retuned against the fixtures | automated gates green; windowed attestation pending (`docs/materials-v2-proof.md`) |
-| AI background regeneration | Export originals + structure guides + manifest, validate override dirs as the game loads them, optional Gemini describe+render+verify (offline gate + vision judge, retry, reject-on-drift) regeneration | done — `make export-backgrounds` / `check-overrides` / `regenerate-backgrounds`; `docs/ai-background-regeneration.md` |
+| Texture export + check | Export originals + structure guides + manifest for an external texture tool, validate texture dirs as the game loads them | done — `make export-textures` / `check-textures` (regeneration itself moved to an external tool) |
 | Engine package reorganization | engine / render / games / app split + GameProfile | done — `tests/test_layering.py` |
 | M4a2 / M4b / M4c | Save/load, audio + sequences, ending/completability | next (plans drafted under `docs/superpowers/plans/2026-08-24-m4*`) |
 
@@ -95,9 +94,9 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `render/refine.py` | `plan_refinement(body) -> Refinement`, `corner_normals`, `subpatch(level)`, `evaluate`: rest-pose orientation, creases and smoothing groups for the GPU tessellation, and the numpy twin of the shader; pygame/GL-free |
 | `render/geometry.py` | `pose_geometry(..., ao=None) -> BodyGeometry`: float posed vertices, per-vertex normals, rest-pose vertices, baked AO, triangulated/line/point/sphere primitives, shared with `skel.pose_vertices` so pose can never disagree, crease-aware per-corner normals and straight-edge flags when handed a refinement |
 | `engine/mask_geometry.py` | Mask polygons in 320x200 screen space plus their trigger rects, parsed once from the existing mask data |
-| `render/asset_resolver.py` | `AssetResolver(assets, override_dir=None)`: background/palette/light lookup, per-body material table (with `bodies/body<NNN>.json` override) and AO bake, checking an optional override directory first and falling back to the original asset, tessellation plan (with the same file's `crease`) |
+| `render/asset_resolver.py` | `AssetResolver(assets, texture_dir=None)`: background/palette/light lookup, per-body material table (with `bodies/body<NNN>.json` override) and AO bake, checking an optional texture directory first and falling back to the original asset, tessellation plan (with the same file's `crease`) |
 | `render/lighting.py` | `estimate_light(pixels) -> SceneLight`, `shading_terms`, `project_to_plane`: a per-camera light read off the background image, and the ground-plane projection the shadow pass uses; pygame/GL-free. `light_view_matrix`, `soften`: the orthographic light view every actor's shadow map is rendered from, and the numpy twin of the penumbra blur |
-| `render/render_options.py` | `RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism, smoothing, shadows, integration)`: validation, clamping, menu-cycle helpers, and the `INTEGRATION_STRENGTHS` the composite multiplies by; pygame/GL-free |
+| `render/render_options.py` | `RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration)`: validation, clamping, menu-cycle helpers, and the `INTEGRATION_STRENGTHS` the composite multiplies by; pygame/GL-free |
 | `render/render_gl.py` | `GLBackend(ctx, options)`: ModernGL pipeline, per-actor depth, GPU mask-texture erasure, shading modes, estimated scene lighting, projected ground shadows, per-material surface response, multisampling, background filtering, instanced PN tessellation of actors and their shadows, gathered contact-hardening soft shadows and a light-view shadow map behind `shadows` |
 | `render/glsl.py` | Every GLSL source as a plain string; no imports, no logic |
 | `render/render_soft.py` | `SoftwareBackend`: numpy/pygame compositor over the logical projection, used headless and as the GL-failure fallback |
@@ -110,11 +109,11 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `engine/navigate.py` | Mouse follower: NavIntent -> one tick of steering + mirrored joyd |
 | `games/aitd1/mouse_contract.py` | Pygame-free declaration of current player capabilities, per-mode one-button routes, and reviewed legacy command replacements (`KEYBOARD_ONLY_DECISIONS` is empty: remap capture has a clickable key picker) |
 | `engine/text.py` | Pure parsers for system texts and book/letter token streams (readable items) |
-| `render/background_export.py` | Pure export description: per-camera original background, depth-culled structure guide geometry, manifest records (layout shared with `asset_resolver.override_background_path`) |
-| `render/override_check.py` | Pure validation of an override directory exactly as `AssetResolver` would load it; structural manifest checks |
+| `render/texture_export.py` | Pure export description: per-camera original background, depth-culled structure guide geometry, manifest records (layout shared with `asset_resolver.texture_background_path`) |
+| `render/texture_check.py` | Pure validation of a texture directory exactly as `AssetResolver` would load it; structural manifest checks |
 | `app/config.py` | Pygame-free settings schema (v1), platform settings path, validated load, atomic save |
 | `app/shell.py` | The process shell formerly in `__main__.py`; `__main__.py` is now a one-line re-export |
-| `tools/` | CLI proofs and pipelines: `prove_mouse`, `prove_combat`, `prove_graphics`, `export_backgrounds`, `check_overrides`, `regenerate_backgrounds` (the only module that talks to an AI service; PNG encoding lives here, not in `PyAitD/`), `bootstrap_materials` (survey/label/emit/check of the material table; its label stage reaches Gemini through `regenerate_backgrounds.agy_structured`) |
+| `tools/` | CLI proofs and pipelines: `prove_mouse`, `prove_combat`, `prove_graphics`, `export_textures`, `check_textures`, `bootstrap_materials` (survey/label/emit/check of the material table; its label stage is the only module that talks to an AI service, reaching Gemini through its own `agy_structured`; PNG encoding lives here, not in `PyAitD/`) |
 
 ## Fidelity notes (hard-won)
 
@@ -320,37 +319,30 @@ action runner.
 - Focused proof: `make prove-mouse-only`; evidence:
   `docs/mouse-hold-push-proof.md`.
 
-## AI background regeneration boundary
+## Texture export boundary
 
-- `background_export.py` and `override_check.py` are pure like `scene.py`;
-  `tools/export_backgrounds.py` and `tools/check_overrides.py` do the PNG I/O.
-  The export layout is `asset_resolver.override_background_path`'s and
-  `override_alt_background_path`'s
+- `texture_export.py` and `texture_check.py` are pure like `scene.py`;
+  `tools/export_textures.py` and `tools/check_textures.py` do the PNG I/O.
+  The export layout is `asset_resolver.texture_background_path`'s and
+  `texture_alt_background_path`'s
   (`DIR/backgrounds/floor<NN>/camera<NNN>.png` +
   `DIR/alt_backgrounds/floor<NN>/camera<NNN>.png` (5 KILLED_SORCERER road alts,
   shared `guides/`) + `DIR/palette.png` + `DIR/screens/ressNN.png`) — change
   all or neither. `manifest.json` (schema 3) merges across `--force` floor
   subsets and is written atomically.
-- `screens/ressNN.png` overrides full-screen resources; `app/ui.screen_surface`
+- `screens/ressNN.png` replaces full-screen resources; `app/ui.screen_surface`
   scales them to 320x200 at composite time.
-- `tools/regenerate_backgrounds.py` reads an export dir, asks Gemini for a
-  description then an image per camera (backgrounds, then the 5
-  `alt_backgrounds/` alts sharing the base guides, then `screens/`), fits
-  the result to 1280x800, gates it offline (`tools/plate_check.py`:
-  correlation, per-region edge recall, guide-colour leak), has the text
-  model judge it against the inventory, retries with corrections, rejects
-  drift, and writes `data/aitd1/overrides-ai` plus `prompts.json` (a
-  resumable prompt cache saved after every camera, keys are
-  `floorNN/cameraNNN`, `alt_backgrounds/floorNN/cameraNNN` and
-  `screens/ressNN`). It reaches Gemini by invoking the `agy` CLI through
-  `subprocess.run` and imports no SDK; the tests monkeypatch
-  `subprocess.run`, and `tests/test_layering.py` pins the boundary.
-- Output dirs `overrides/` and `overrides-ai/` are git-ignored; a missing
-  override file — or a missing override directory entirely — falls back
+- Regeneration itself lives outside this repo: `make export-textures` writes
+  the contract (originals, guides, layout sidecars, manifest) and
+  `make check-textures` validates the result exactly the way the game loads
+  it. The guide geometry comes from `layout_segments`, so the guide pixels
+  and any external gate agree by construction.
+- Output dirs `textures/` (and legacy `overrides*/`) are git-ignored; a
+  missing texture file — or a missing texture directory entirely — falls back
   silently, a corrupt one warns and falls back. `make run` points at
-  `data/aitd1/overrides` by default, so that fallback is the normal path on a
+  `data/aitd1/textures` by default, so that fallback is the normal path on a
   fresh clone.
-- Evidence: `docs/ai-background-regeneration.md`; spec/plan under
+- Spec/plan for the original in-repo pipeline:
   `docs/superpowers/*/2026-08-25-{ai,gemini}-background-regeneration*`.
 
 ## Opening cutscene boundary

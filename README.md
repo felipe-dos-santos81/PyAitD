@@ -22,7 +22,7 @@ PyAitD/engine/   simulation ported from FITD — no pygame, no GL, no game const
 PyAitD/render/   frame description → pixels (GL and software backends)
 PyAitD/games/    per-game GameProfile + opcode handlers; aitd1/ is the only game
 PyAitD/app/      window, event pump, settings, CLI
-tools/           proofs, exporters, the AI regeneration script
+tools/           proofs, texture exporters, the materials bootstrap
 ```
 
 `render/` and `games/` import only `engine/`; `engine/` imports none of the
@@ -33,15 +33,15 @@ code goes and how to split a module; `CONTEXT.md` maps every file.
 
 ```bash
 make run                # boots into character selection (floor=0 bypasses it for debugging)
-make run overrides=     # same, but with the original 320x200 backgrounds
+make run textures=      # same, but with the original 320x200 backgrounds
 make run-combat         # floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
 ```
 
-`make run` loads replacement backgrounds from `data/aitd1/overrides` by
+`make run` loads replacement textures from `data/aitd1/textures` by
 default. That directory is git-ignored and this repo never ships it: if it is
 absent, or a camera is missing from it, the game falls back to the original
-asset silently. Point elsewhere with `overrides=DIR`, or pass an empty
-`overrides=` to disable overrides for the run.
+asset silently. Point elsewhere with `textures=DIR`, or pass an empty
+`textures=` to disable replacement textures for the run.
 
 Pick Emily or Carnby by mouse or keyboard, then play. Mouse (default): press
 and hold the left button — the hero walks toward the pointer and keeps
@@ -83,7 +83,7 @@ and real relief, lit by a derivative bump that fades out before it can
 alias; skin also gets a warm terminator, and a flame's palette ramp
 renders as emissive whatever the light does — from a palette-index table
 in `PyAitD/render/materials.json`, which `make bootstrap-materials`
-regenerates and an override directory can remap per body under
+regenerates and a texture directory can remap per body under
 `DIR/bodies/body<NNN>.json` (re-running the bootstrap without the hand
 labels each ramp's `note` records silently reintroduces the survey's
 heuristic and vision-model guesses in place of the reviewed class —
@@ -108,15 +108,15 @@ room's own — so the actors sit inside the room rather than on top of it. 2 is 
 default, 1 does half of it, 3 half again as much; 0 is the previous
 single-target path, which draws the bodies straight over the plate. The
 option's original `off` and `on` still parse as 0 and 2),
-and `--overrides DIR` (a user-supplied replacement asset directory; this repo
-still ships no game data — `make run` passes `data/aitd1/overrides` unless you
-override or clear `overrides=`). An override directory holds
+and `--textures DIR` (a user-supplied replacement asset directory; this repo
+still ships no game data — `make run` passes `data/aitd1/textures` unless you
+point or clear `textures=`). A texture directory holds
 `DIR/backgrounds/floor<NN>/camera<NNN>.png` (any size) per camera and
 `DIR/palette.png` (256 pixels wide) for the palette, and `DIR/bodies/body<NNN>.json`
-(a per-body material remap and, optionally, its `crease` threshold); a missing override file
+(a per-body material remap and, optionally, its `crease` threshold); a missing texture file
 falls back to the original asset silently, while one that exists but fails
 to load logs a warning and falls back — the game never crashes on a bad
-override. CLI flags apply only to the current session and are not persisted;
+texture file. CLI flags apply only to the current session and are not persisted;
 the Graphics page's rows persist like every other setting.
 If no GL 3.3 context is available, rendering falls back to the software
 backend at scale 1 with a settings notice; the game always runs.
@@ -127,23 +127,20 @@ its text stays sharp at any window size. It is authored in 320x200
 coordinates regardless, which is what keeps mouse targets and what you see
 in step.
 
-To regenerate the backgrounds with an external AI tool, `make
-export-backgrounds` writes the originals plus structure guides, a layout
-sidecar per camera (the guide's geometry as JSON, used to describe and verify
-the scene) and a manifest into `data/aitd1/overrides` (git-ignored; `out=DIR` to choose another), and `make check-overrides`
-validates the results the way the game loads them. `make regenerate-backgrounds`
-(optional; needs the `agy` CLI on `PATH`; per camera it asks for a structured
-inventory, dictates the image call, and verifies every attempt with an offline
-gate plus a vision judge, rejecting plates that move or change objects) does
-the regeneration with Gemini into `data/aitd1/overrides-ai` (git-ignored, resumable; `dry=1` lists work). See
-[docs/ai-background-regeneration.md](docs/ai-background-regeneration.md).
+To regenerate the backgrounds with an external tool, `make export-textures`
+writes the originals plus structure guides, a layout sidecar per camera (the
+guide's geometry as JSON, used to describe and verify the scene) and a
+manifest (`manifest.json`) into `data/aitd1/textures` (git-ignored; `out=DIR`
+to choose another), and `make check-textures` validates the results the way
+the game loads them. The regeneration itself happens outside this repo;
+`make run textures=DIR` plays the game against the directory.
 
 ## Tests
 
 ```bash
 make test                          # whole pytest suite, headless (real game data where available)
 make test-engine                   # simulation, LIFE VM, formats, actors, anim, tracks, collision, navmesh, picking, opcodes
-make test-render                   # scene, geometry, both backends, asset resolution, override export/check
+make test-render                   # scene, geometry, both backends, asset resolution, texture export/check
 make test-shell                    # event pump, settings, CLI, UI screens and modals
 make test-tools                    # the standalone scripts under tools/
 make test-meta                     # the repo's own rules (package layering, test grouping)
@@ -152,8 +149,7 @@ make proof-mouse                   # navmesh coverage for every camera-visible r
 make proof-combat                  # combat venue proof: real enemy damage, player arms, game over (needs game data)
 make proof-graphics                # render attic + combat fixtures at every shading mode, plus flat-mesh and hard-shadow pairs, to docs/graphics-proof/ (needs GL + game data)
 make proof-intro                   # opening cutscene: headless gate + one GL render per visited camera
-make check-overrides proof=1       # validate data/aitd1/overrides (or overrides=DIR); side-by-sides to docs/graphics-proof/overrides/
-make regenerate-backgrounds dry=1  # list cameras the Gemini regeneration would process; no API calls
+make check-textures proof=1        # validate data/aitd1/textures (or textures=DIR); side-by-sides to docs/graphics-proof/textures/
 ```
 
 The nine legacy `prove-*` names (`prove`, `prove-m3b`, `prove-shell`,
@@ -177,7 +173,7 @@ M1 data layer, M2 actors, M3a LIFE script VM, M3b interaction, M3c combat,
 M3d/M3e mouse-only input (including held scenery pushing), M4a1 shell
 (character select, system menu, remappable controls, settings persistence),
 and the enhanced graphics scene layer (integer-scaled internal render target,
-per-vertex shading, filtered backgrounds, override assets) are done: the game
+per-vertex shading, filtered backgrounds, texture assets) are done: the game
 boots into an asset-faithful character selector and the attic is fully
 interactive by mouse or keyboard. Next: M4a2 save/load, M4b audio/sequences,
 M4c ending.

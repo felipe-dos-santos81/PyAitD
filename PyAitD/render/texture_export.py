@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
-"""Export the original camera backgrounds for external (AI) regeneration.
+"""Export the original camera backgrounds for the external texture tool.
 
 Pure numpy: no pygame, no moderngl. PNG encoding lives in
-tools/export_backgrounds.py. See docs/ai-background-regeneration.md. Guide
+tools/export_textures.py. Guide
 overlay PNGs are drawn from `.json` layout sidecars (layout_geometry /
 screen_layout via layout_segments), which are written alongside them.
 """
@@ -67,8 +67,8 @@ LEGEND = {"red": "masks", "blue": "collision", "green": "walkable"}
 
 
 def background_rel_path(floor_number, cam_idx):
-    # Must stay identical to asset_resolver.override_background_path's tail:
-    # the export directory is used directly as --overrides DIR.
+    # Must stay identical to asset_resolver.texture_background_path's tail:
+    # the export directory is used directly as --textures DIR.
     return f"backgrounds/floor{floor_number:02d}/camera{cam_idx:03d}.png"
 
 
@@ -234,8 +234,8 @@ def layout_segments(layout):
     """Every segment a guide draws for `layout`, in 320x200 pixel space:
     masks and walkable polygons closed, collision boxes along _BOX_EDGES,
     blit rects around their inclusive corners. Edges touching a None
-    vertex are skipped. Shared by guide_overlay/screen_guide (scaled) and
-    tools/plate_check.guide_lines (unscaled)."""
+    vertex are skipped. Drawn by guide_overlay and screen_guide at guide
+    scale."""
     segs = []
     for poly in layout.get("masks", ()):
         segs.extend(_edges_of(poly, _ring_edges(len(poly))))
@@ -305,7 +305,7 @@ COLOR_BLIT = COLOR_COLLISION   # blue: "the engine draws over this"
 
 
 def screen_rel_path(entry):
-    # Must stay identical to asset_resolver.override_screen_path's tail.
+    # Must stay identical to asset_resolver.texture_screen_path's tail.
     return f"screens/ress{entry:02d}.png"
 
 

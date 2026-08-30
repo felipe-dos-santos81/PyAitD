@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-only
-"""Check an override directory the way the game loads it.
+"""Check a texture directory the way the game loads it.
 
-    check_overrides.py DATA DIR [--floors 0-7] [--proof OUT]
+    check_textures.py DATA DIR [--floors 0-7] [--proof OUT]
 
 Prints one line per invalid/aspect/size finding and a per-floor coverage
 summary (when DIR/manifest.json exists). Exit 1 on any `invalid` or
 `aspect` finding -- those would be silently ignored or stretched in-game.
---proof renders original|override side by side through the GL backend at
-scale 4 to OUT (default docs/graphics-proof/overrides/, git-ignored).
+--proof renders original|texture side by side through the GL backend at
+scale 4 to OUT (default docs/graphics-proof/textures/, git-ignored).
 """
 import argparse
 import json
@@ -16,10 +16,10 @@ import sys
 
 import numpy as np
 
-from PyAitD.render.asset_resolver import AssetResolver, override_alt_background_path
-from PyAitD.render.background_export import SCREEN_ENTRIES, SUPPORTED_SCHEMAS
-from PyAitD.render.override_check import (
-    alt_coverage, check_alt_backgrounds, check_bodies, check_overrides, check_screens, coverage, has_errors,
+from PyAitD.render.asset_resolver import AssetResolver, texture_alt_background_path
+from PyAitD.render.texture_export import SCREEN_ENTRIES, SUPPORTED_SCHEMAS
+from PyAitD.render.texture_check import (
+    alt_coverage, check_alt_backgrounds, check_bodies, check_screens, check_textures, coverage, has_errors,
     screen_coverage, summarize,
 )
 from PyAitD.engine.pak import PakError
@@ -27,14 +27,14 @@ from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import RenderOptions
 from PyAitD.render.scene import CameraView, FrameDescription
 from PyAitD.engine.world import CameraState
-# Run as a script (`python tools/check_overrides.py`), sys.path[0] is tools/,
+# Run as a script (`python tools/check_textures.py`), sys.path[0] is tools/,
 # not the repo root, so the sibling module is only reachable through the
 # package when the root is added explicitly.
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from tools.export_backgrounds import load_assets, load_floor, parse_floors, save_png  # noqa: E402
+from tools.export_textures import load_assets, load_floor, parse_floors, save_png  # noqa: E402
 
-DEFAULT_PROOF_DIR = pathlib.Path("docs/graphics-proof/overrides")
+DEFAULT_PROOF_DIR = pathlib.Path("docs/graphics-proof/textures")
 
 
 def create_context():
@@ -54,18 +54,18 @@ def _plate(ctx, floor, cam_idx, asset, scale):
         backend.release()
 
 
-def render_proof(ctx, floor, cam_idx, override_dir, out_dir, scale=4, save=save_png, *, killed_sorcerer=False):
-    """original | override for one camera, or None if no loadable override.
+def render_proof(ctx, floor, cam_idx, texture_dir, out_dir, scale=4, save=save_png, *, killed_sorcerer=False):
+    """original | texture for one camera, or None if no loadable texture.
 
     When `killed_sorcerer` is True, the alt_backgrounds path is checked via
     `resolver.background(..., killed_sorcerer=True)` and the output filename
     is suffixed with ``-alt`` to avoid colliding with the base proof."""
-    resolver = AssetResolver(None, override_dir)
+    resolver = AssetResolver(None, texture_dir)
     override = resolver.background(floor, cam_idx, killed_sorcerer=killed_sorcerer)
     if not override.is_override:
         return None
     if killed_sorcerer:
-        alt_path = override_alt_background_path(override_dir, floor.number, cam_idx)
+        alt_path = texture_alt_background_path(texture_dir, floor.number, cam_idx)
         if alt_path in resolver.failures or not alt_path.is_file():
             return None
     original = AssetResolver(None, None).background(floor, cam_idx)
@@ -77,11 +77,11 @@ def render_proof(ctx, floor, cam_idx, override_dir, out_dir, scale=4, save=save_
     return path
 
 
-def render_screen_proof(assets, entry, override_dir, out_dir, save=save_png):
-    """original | override for one screen, both fitted to 320x200 x4 by
+def render_screen_proof(assets, entry, texture_dir, out_dir, save=save_png):
+    """original | texture for one screen, both fitted to 320x200 x4 by
     nearest repeat (no GL needed)."""
-    from PyAitD.render.background_export import nearest_upscale
-    resolver = AssetResolver(assets, override_dir)
+    from PyAitD.render.texture_export import nearest_upscale
+    resolver = AssetResolver(assets, texture_dir)
     override = resolver.resource_screen(entry)
     if not override.is_override:
         return None
@@ -100,10 +100,10 @@ def render_screen_proof(assets, entry, override_dir, out_dir, save=save_png):
 def _parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("data", type=pathlib.Path)
-    p.add_argument("overrides", type=pathlib.Path)
+    p.add_argument("textures", type=pathlib.Path)
     p.add_argument("--floors", default="0-7")
     p.add_argument("--proof", type=pathlib.Path, nargs="?", const=DEFAULT_PROOF_DIR, default=None,
-                    help=f"render original|override proofs to this directory (default {DEFAULT_PROOF_DIR})")
+                    help=f"render original|texture proofs to this directory (default {DEFAULT_PROOF_DIR})")
     return p.parse_args(argv)
 
 
@@ -112,8 +112,8 @@ def main(argv=None):
     if not args.data.is_dir():
         print(f"error: game data directory not found: {args.data}", file=sys.stderr)
         return 2
-    if not args.overrides.is_dir():
-        print(f"error: override directory not found: {args.overrides}", file=sys.stderr)
+    if not args.textures.is_dir():
+        print(f"error: texture directory not found: {args.textures}", file=sys.stderr)
         return 2
     try:
         numbers = parse_floors(args.floors)
@@ -121,7 +121,7 @@ def main(argv=None):
         print(f"error: bad --floors {args.floors!r}", file=sys.stderr)
         return 2
     manifest = None
-    manifest_path = args.overrides / "manifest.json"
+    manifest_path = args.textures / "manifest.json"
     if manifest_path.is_file():
         try:
             manifest = json.loads(manifest_path.read_text())
@@ -146,22 +146,22 @@ def main(argv=None):
     except (PakError, FileNotFoundError, OSError, ValueError) as exc:
         print(f"warning: screens skipped: {exc}", file=sys.stderr)
 
-    findings = check_overrides(args.overrides, floors, manifest)
-    findings = findings + check_alt_backgrounds(args.overrides, floors, manifest)
-    findings = findings + check_bodies(args.overrides)
-    cov = coverage(args.overrides, floors, manifest) if manifest is not None else None
-    alt_cov = alt_coverage(args.overrides, floors, manifest) if manifest is not None else None
+    findings = check_textures(args.textures, floors, manifest)
+    findings = findings + check_alt_backgrounds(args.textures, floors, manifest)
+    findings = findings + check_bodies(args.textures)
+    cov = coverage(args.textures, floors, manifest) if manifest is not None else None
+    alt_cov = alt_coverage(args.textures, floors, manifest) if manifest is not None else None
     screen_cov = None
     if assets is not None:
-        findings = findings + check_screens(args.overrides, assets)
+        findings = findings + check_screens(args.textures, assets)
         if manifest is not None:
-            screen_cov = screen_coverage(args.overrides, assets, manifest)
+            screen_cov = screen_coverage(args.textures, assets, manifest)
     print(summarize(findings, cov, screen_cov, alt_cov))
 
     if args.proof is not None:
         if assets is not None:
             for entry in SCREEN_ENTRIES:
-                path = render_screen_proof(assets, entry, args.overrides, args.proof)
+                path = render_screen_proof(assets, entry, args.textures, args.proof)
                 if path is not None:
                     print(path)
         try:
@@ -172,7 +172,7 @@ def main(argv=None):
             try:
                 for floor in floors:
                     for cam_idx in range(len(floor.cameras)):
-                        path = render_proof(ctx, floor, cam_idx, args.overrides, args.proof)
+                        path = render_proof(ctx, floor, cam_idx, args.textures, args.proof)
                         if path is not None:
                             print(path)
                 # alt_backgrounds proofs via killed_sorcerer flag
@@ -191,7 +191,7 @@ def main(argv=None):
                     floor = floor_by_number.get(fnum)
                     if floor is None or cidx >= len(floor.cameras):
                         continue
-                    path = render_proof(ctx, floor, cidx, args.overrides, args.proof, killed_sorcerer=True)
+                    path = render_proof(ctx, floor, cidx, args.textures, args.proof, killed_sorcerer=True)
                     if path is not None:
                         print(path)
             finally:

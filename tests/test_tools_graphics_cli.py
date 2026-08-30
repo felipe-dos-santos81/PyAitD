@@ -7,11 +7,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from PyAitD.render.asset_resolver import load_png_rgb, override_screen_path
-from PyAitD.render import background_export as be
+from PyAitD.render.asset_resolver import load_png_rgb, texture_screen_path
+from PyAitD.render import texture_export as be
 from tests.stub_floor import StubFloor, checker_pixels
-from tools import check_overrides as co
-from tools import export_backgrounds as xb
+from tools import check_textures as co
+from tools import export_textures as xb
 
 pytestmark = pytest.mark.tools
 
@@ -123,9 +123,9 @@ def test_main_force_subset_keeps_other_floors_in_manifest(tmp_path, monkeypatch,
 
 def test_makefile_and_gitignore_mention_export():
     mk = open("Makefile").read()
-    assert "export-backgrounds:" in mk and "export-backgrounds" in mk.split(".PHONY:")[1].split("\n")[0]
-    assert "tools/export_backgrounds.py" in mk
-    assert "docs/graphics-proof/overrides/" in open(".gitignore").read()
+    assert "export-textures:" in mk and "export-textures" in mk.split(".PHONY:")[1].split("\n")[0]
+    assert "tools/export_textures.py" in mk
+    assert "docs/graphics-proof/textures/" in open(".gitignore").read()
 
 
 def test_check_main_round_trip_reports_zero_regenerated(tmp_path, monkeypatch, capsys):
@@ -188,7 +188,7 @@ def test_render_screen_proof_writes_side_by_side_and_resizes_mismatched_override
     assets = SimpleNamespace(resource_screen=lambda entry: original)
     ov = tmp_path / "ov"
     override = checker_pixels(9)[:100, :160]                # deliberately not 4x the original (800x1280)
-    path = override_screen_path(ov, 10)
+    path = texture_screen_path(ov, 10)
     path.parent.mkdir(parents=True)
     xb.save_png(path, override)
 
@@ -212,15 +212,15 @@ def test_check_main_proof_without_gl_prints_notice(tmp_path, monkeypatch, capsys
     assert "proof skipped" in capsys.readouterr().err
 
 
-def test_makefile_mentions_check_and_run_overrides():
+def test_makefile_mentions_check_and_run_textures():
     mk = open("Makefile").read()
-    assert "check-overrides:" in mk and "tools/check_overrides.py" in mk
+    assert "check-textures:" in mk and "tools/check_textures.py" in mk
     run_target = mk.split("\nrun:")[1].split("\n\n")[0]
-    assert "--overrides" in run_target and "$(overrides)" in run_target
+    assert "--textures" in run_target and "$(textures)" in run_target
 
 
-def test_exported_originals_render_pixel_identical_through_override_path(data_dir, profile, tmp_path):
-    """DIR straight from export, used as --overrides, changes nothing."""
+def test_exported_originals_render_pixel_identical_through_the_texture_dir(data_dir, profile, tmp_path):
+    """DIR straight from export, used as --textures, changes nothing."""
     from PyAitD.engine.floor import Floor
     from PyAitD.render.asset_resolver import AssetResolver
     out = tmp_path / "ov"
@@ -241,21 +241,19 @@ def test_exported_originals_render_pixel_identical_through_override_path(data_di
 
 
 def test_docs_reference_the_workflow():
-    doc = open("docs/ai-background-regeneration.md").read()
-    for needle in ("make export-backgrounds", "make check-overrides", "--overrides", "manifest.json",
-                   "red", "blue", "green", "invalid", "aspect", "size", "missing", "16:10"):
+    doc = open("README.md").read()
+    for needle in ("make export-textures", "make check-textures", "manifest.json"):
         assert needle in doc, needle
-    assert "ai-background-regeneration.md" in open("README.md").read()
-    assert "make export-backgrounds" in open("AGENTS.md").read()
+    assert "make export-textures" in open("AGENTS.md").read()
 
 
-def test_check_overrides_runs_as_a_plain_script(tmp_path):
-    """`make check-overrides` invokes tools/check_overrides.py as a script, so
-    sys.path[0] is tools/ and `tools.export_backgrounds` must still import."""
+def test_check_textures_runs_as_a_plain_script(tmp_path):
+    """`make check-textures` invokes tools/check_textures.py as a script, so
+    sys.path[0] is tools/ and `tools.export_textures` must still import."""
     import subprocess
     import sys
     proc = subprocess.run(
-        [sys.executable, "tools/check_overrides.py", str(tmp_path / "nope"), str(tmp_path)],
+        [sys.executable, "tools/check_textures.py", str(tmp_path / "nope"), str(tmp_path)],
         capture_output=True, text=True, env={**os.environ, "SDL_VIDEODRIVER": "dummy"},
     )
     assert proc.returncode == 2, proc.stderr
