@@ -92,35 +92,62 @@ which class an index *is*: `PyAitD/render/materials.json` is untouched.
 
 The review is Task 4's and is already committed; this section is the
 durable record of it, because the survey it was made against is
-git-ignored (below). All 23 ramps any body uses, with the class the
-emitter would have produced immediately before the review and the class
-the review decided:
+git-ignored (below). All 23 ramps any body uses, with the class actually
+committed to `PyAitD/render/materials.json` immediately before the review
+(`git show d878fc7^:PyAitD/render/materials.json`, since `d878fc7` is the
+review commit) and the class the review decided:
 
 | Ramp | Before | After | |
 |---|---|---|---|
-| 0–1 | stone | **matte** | changed |
-| 2–3 | cloth | **metal** | changed |
-| 14 | matte | **emissive** | changed |
+| 0–1 | matte | matte | confirmed |
+| 2–3 | metal | metal | confirmed |
+| 14 | emissive | emissive | confirmed |
 | 15–31 | hair | **skin** | changed |
 | 32–47 | skin | skin | confirmed |
 | 48–63 | wood | **matte** | changed |
 | 64–68 | leather | **stone** | changed |
-| 69–74 | cloth | **leather** | changed |
+| 69–74 | skin | **leather** | changed |
 | 75–79 | matte | **cloth** | changed |
 | 80–95 | matte | matte | confirmed |
 | 96–107 | metal | **cloth** | changed |
 | 108–111 | metal | **cloth** | changed |
 | 112–127 | metal | **skin** | changed |
 | 128–143 | wood | **leather** | changed |
-| 144–159 | matte | **skin** | changed |
+| 144–159 | cloth | **skin** | changed |
 | 160–175 | cloth | cloth | confirmed |
 | 176–191 | hair | **metal** | changed |
-| 192–197 | matte | **cloth** | changed |
-| 198–201 | matte | **wood** | changed |
-| 202–204 | matte | **metal** | changed |
-| 205–207 | matte | **wood** | changed |
-| 208–217 | matte | **cloth** | changed |
+| 192–197 | cloth | cloth | confirmed |
+| 198–201 | skin | **wood** | changed |
+| 202–204 | metal | metal | confirmed |
+| 205–207 | cloth | **wood** | changed |
+| 208–217 | skin | **cloth** | changed |
 | 218–223 | matte | **cloth** | changed |
+
+15 changed across 152 palette indices, 8 confirmed (0–1, 2–3, 14, 32–47,
+80–95, 160–175, 192–197, 202–204) — the number the emitted diff below
+already gives, now agreeing with this table. An earlier draft of this
+table transcribed the survey's `heuristic:` guess into the "Before"
+column for ten rows (0–1, 2–3, 14, 69–74, 144–159, 192–197, 198–201,
+202–204, 205–207, 208–217) instead of the class that was actually
+committed at that point in git; five of those ten (0–1, 2–3, 14, 192–197,
+202–204) were consequently marked **changed** when the committed class
+never moved. The table above is derived straight from the two commits,
+not transcribed from the survey.
+
+**"Confirmed" means two different things in this document, and they are
+not the same set.** The table's confirmed/changed column above answers
+"did the committed `class` value move between the two commits" — 8 did
+not. Two paragraphs below, "ten of the thirteen ramps the review
+confirmed" answers a different question: "did the human's final decision
+agree with the *heuristic* guess (not the vision guess, and not the
+committed value)" — thirteen ramps do (15–31, 32–47, 48–63, 64–68, 75–79,
+80–95, 96–107, 108–111, 112–127, 128–143, 160–175, 176–191, 218–223). The
+two sets overlap only at 32–47, 80–95 and 160–175, where the committed
+value, the vision guess and the heuristic guess all already agreed with
+the human. The other ten ramps in the "heuristic-agreed" thirteen needed
+an explicit `label` because their *committed* value was still the stale
+vision guess, not the heuristic the human actually agreed with — which is
+exactly the paragraph below.
 
 **Who decided.** A human, ramp by ramp, over the rendered ramp swatches
 and the bodies that use them. The two automated inputs — a heuristic on
@@ -336,8 +363,8 @@ weave legible as colour while letting relief carry the shape.
 |---|---|---|---|---|
 | skin | specular | 0.15 | 0.16 | lobe normalisation (÷0.955). Nothing else: skin already read smooth. |
 | cloth | specular | 0.05 | 0.10 | lobe normalisation (÷0.478). Cloth's lobe is broad, so the normalisation made it *dimmer*; this restores it. |
-| cloth | detail | 0.08 | 0.14 | Traded against the colour hatch. The preset's halving would otherwise have taken the weave's colour amplitude from ±0.08 to ±0.04 and the relief with it; 0.14 puts the colour back near where it was while giving the relief 1.75x the slope. Rendered at 0.20 as well; that read as ribbing rather than drape. |
-| cloth | detail_scale | 12 | 48 | Traded against how fine the fabric reads. At 12 one weave cell was 2.4 px on Carnby — aliasing, and the source of the crosshatch. 48 puts it at ~11 px. 32 was rendered as well and read as finer ribbing rather than drape. |
+| cloth | detail | 0.08 | 0.14 | Traded against the colour hatch. The preset's halving would otherwise have taken the weave's colour amplitude from ±0.08 to ±0.04 — the relief is untouched by that halving (`relief = m1.x * m1.y * dn` is scaled by `preset_c.x`, not by `PRESETS["enhanced"].detail`, which only reaches the colour multiply; `PyAitD/render/materials.py:82-84` has this right) — and 0.14 puts the colour back near where it was while giving the relief 1.75x the slope. Rendered at 0.20 as well; that read as ribbing rather than drape. |
+| cloth | detail_scale | 12 | 48 | Traded against how fine the fabric reads. At the shipped ~4.9 FITD units/px on Carnby (below), one weave cell was 12/4.9 ≈ 2.4 px — aliasing, and the source of the crosshatch. 48 puts it at 48/4.9 ≈ 9.8 px. 32 was rendered as well and read as finer ribbing rather than drape. |
 | leather | specular | 0.35 | 0.12 | lobe normalisation (÷2.865). This is the single largest correction in the column and it is what took leather's brightest pixel from 217 to 131. |
 | hair | specular | 0.3 | 0.19 | lobe normalisation (÷1.592). **Unverifiable by eye — no ramp is hair.** |
 | hair | detail_scale | 8 | 80 | Rule, not eye. Streak stretches the noise coordinate by 4, so at 8 one pixel covered 1.8 to 10.9 sampled cells at scale 1 and 0.63 to 5.1 at scale 4 — past the fade's half-cell everywhere, at every distance and every scale. Hair shipped relief that could not be resolved anywhere. 80 is the ~20x-stretch floor (below). |
@@ -360,9 +387,11 @@ and `bump`; every `metallic` and every `rim`; `skin`'s `sss`.
 Task 3 added Blinn-Phong's `(gloss + 8) / 8pi`, but the whole column had
 been chosen by eye against the *un*normalised lobe. The factor is a
 per-class constant, so dividing each entry by its own factor reproduces
-the pre-Task-3 rendering exactly, pixel for pixel, and leaves the column
-meaning "the fraction of the key this surface reflects" rather than "how
-bright its peak happens to be":
+the pre-Task-3 rendering to within the two decimal places the shipped
+table is rounded to (skin's exact quotient is 0.1571, shipped as 0.16;
+cloth's is 0.1047, shipped as 0.10) -- not exactly, pixel for pixel -- and
+leaves the column meaning "the fraction of the key this surface reflects"
+rather than "how bright its peak happens to be":
 
 | class | roughness | gloss | (gloss+8)/8pi | old | new |
 |---|---|---|---|---|---|
@@ -451,11 +480,18 @@ not: those zeros are an artefact of the fixture. `_facing_square` is a
 constant-`z` plane, the weave is `sin(2 pi x) sin(2 pi z)`, and every `z`
 that table sampled (150, 600, 2400, 6000) is an exact multiple of half a
 12-unit cell, so `sin(2 pi z / 12)` is exactly zero and the whole weave
-vanishes. Re-measured three units off (z=153, 603, 2403, 6003) the old
-`cloth` moves 11 levels at z=153 and 3 at z=603. Every measurement in
-this document uses the offset distances. `hair` and `metal` were genuinely
-inert; `cloth` was not, and its `detail_scale` was widened for the
-aliasing the fixture *did* show, not for the inertness it did not have.
+vanishes. Re-measured three units off (z=153, 603, 2403, 6003) at `scale`
+1 -- the automated tests' regime, not the shipped default -- the old
+`cloth` (`detail_scale` 12, before this task's retune) moves 10 levels at
+z=153 and 3 at z=603. At `scale` 4 the same offset frames move
+substantially more: 14 levels at both z=153 and z=603, which is the old
+`detail_scale`'s aliasing, not resolvable relief, and is in the same
+neighbourhood as this task's own fix report's 13-at-z=603-at-scale-4 (a
+separate, independent measurement of the same effect). Every measurement
+in the "Measured: what each class's relief actually does" tables below
+states which scale it uses. `hair` and `metal` were genuinely inert;
+`cloth` was not, and its `detail_scale` was widened for the aliasing the
+fixture *did* show, not for the inertness it did not have.
 
 ### metal: the criterion that had to be traded
 

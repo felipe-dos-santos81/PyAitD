@@ -1025,18 +1025,24 @@ def test_metal_is_brighter_than_matte_under_enhanced(gl_ctx):
     # contributes nothing measurable. The whole of the margin below comes
     # from the *non*-metallic part, scaled by `metal.specular`. So raising
     # `metal.metallic` toward 1.0 shrinks the measured delta (it fails
-    # somewhere above ~0.9) and lowering `metal.specular` shrinks it too --
+    # above ~0.843, measured below) and lowering `metal.specular` shrinks it too --
     # and in both cases the failure would read as if the specular term had
     # broken. It has not; the test simply cannot see a highlight that has
     # been tinted entirely into a clamped channel. Re-tune against a
     # desaturated palette entry before touching either constant.
     #
-    # Task 3's normalised lobe multiplies metal's highlight by
-    # (362 + 8) / 8pi = 14.7 and takes the centre pixel to (255, 255, 255):
-    # the margin was 62 when the paragraph above was written and is 510
-    # now, and the metallic crossing has moved from ~0.9 to ~0.993. The
-    # argument is unchanged -- what is visible is still the non-metallic
-    # part, on the two channels red does not clamp.
+    # After the Task 5 retune (metal at roughness 0.4 / specular 0.15 /
+    # bump 0.08) this fixture's centre pixel is matte (255, 0, 0) vs.
+    # metal (255, 20, 20): a margin of 40 against the 30 this assertion
+    # requires -- not the 510 an earlier draft of this comment claimed.
+    # Sweeping `metal.metallic` alone (specular and roughness held at
+    # their shipped values) finds the margin falls in lockstep -- 0.80:40,
+    # 0.85:30 (fails), 0.87:26 -- and crosses the 30-margin bound between
+    # 0.842 (margin 32, passes) and 0.843 (margin 30, fails). The argument
+    # is unchanged -- what is visible is still the non-metallic part, on
+    # the two channels red does not clamp -- but the headroom above that
+    # crossing from the shipped metallic (0.8) is about 0.04, not the
+    # ~0.19 the old ~0.993 figure implied.
     backend = _enhanced_backend(gl_ctx)
     tri = _facing_tri(600.0, 1, (0.0, 0.0, -1.0))
     backend.draw(_lit_frame([_material_actor(0, tri, _table_of("matte"))], (0.0, 0.0, -1.0)))

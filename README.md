@@ -84,8 +84,12 @@ alias; skin also gets a warm terminator, and a flame's palette ramp
 renders as emissive whatever the light does — from a palette-index table
 in `PyAitD/render/materials.json`, which `make bootstrap-materials`
 regenerates and an override directory can remap per body under
-`DIR/bodies/body<NNN>.json`; `docs/materials-v2-proof.md` records the
-per-class numbers and what each was traded against),
+`DIR/bodies/body<NNN>.json` (re-running the bootstrap without the hand
+labels each ramp's `note` records silently reintroduces the survey's
+heuristic and vision-model guesses in place of the reviewed class —
+`docs/materials-v2-proof.md`'s Known limitations covers this); that
+document records the per-class numbers and what each was traded
+against),
 `--smoothing {0,1,2,3}` (GPU mesh smoothing: `0` draws the flat 1992 mesh,
 `1`–`3` round every body with 4/16/64 curved sub-triangles per face, keeping
 edges sharper than 80° — overridable per body with a `"crease"` degrees key
