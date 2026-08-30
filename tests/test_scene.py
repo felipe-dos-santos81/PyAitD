@@ -643,3 +643,39 @@ def test_actor_draw_zv_does_not_alias_the_live_mutable_actor_zv():
     live_zv[0] = 9999
     live_zv.append(1234)
     assert actor_draw.zv == (10, 20, 0, 0, 30, 40)
+
+
+def test_frame_description_plate_defaults_to_neutral():
+    from PyAitD.render.plate import NEUTRAL_PLATE
+    frame = FrameDescription(
+        None, ImageAsset(np.zeros((200, 320, 3), np.uint8), False),
+        np.zeros((256, 3), np.uint8), (), (),
+    )
+    assert frame.plate is NEUTRAL_PLATE
+
+
+def test_build_frame_carries_the_resolvers_plate(data_dir, profile):
+    game, floor = _boot(data_dir, profile)
+    resolver = AssetResolver(game.assets)
+    frame, _ = build_frame(game, floor, resolver)
+    room = floor.rooms[game.current_room]
+    cam_idx = room.camera_indices[game.num_camera]
+    assert frame.plate is resolver.plate(floor, cam_idx)
+
+
+def test_build_frame_falls_back_to_the_neutral_plate_for_a_resolver_without_one(
+        data_dir, profile):
+    # Stub resolvers in this file implement only what they use. A missing
+    # `plate` must not be an AttributeError mid-frame.
+    from PyAitD.render.plate import NEUTRAL_PLATE
+    game, floor = _boot(data_dir, profile)
+    real = AssetResolver(game.assets)
+
+    class NoPlate:
+        def __getattr__(self, name):
+            if name == "plate":
+                raise AttributeError(name)
+            return getattr(real, name)
+
+    frame, _ = build_frame(game, floor, NoPlate())
+    assert frame.plate is NEUTRAL_PLATE

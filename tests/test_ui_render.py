@@ -806,6 +806,7 @@ def test_graphics_labels_match_the_cycles_one_per_row():
     assert len(SMOOTHING_LABELS) == len(SMOOTHING_LEVELS)
     assert labels[0] == "Scale: 4x" and labels[4] == "Shadows: Soft"
     assert labels[6] == "Realism: Enhanced" and labels[7] == "Smoothing: Medium"
+    assert labels[8] == "Integration: On"
 
 
 def test_configuration_page_ends_with_graphics_then_back(monkeypatch):

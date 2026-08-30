@@ -561,3 +561,17 @@ def test_shadows_flag_overrides_only_its_own_field():
     assert only == replace(base, render=replace(base.render, shadows="hard"))
     with pytest.raises(SystemExit):
         parse_args(["--shadows", "blurry"])   # argparse choices reject it
+
+
+def test_integration_flag_overrides_only_its_own_field():
+    from dataclasses import replace
+
+    from PyAitD.app.shell import apply_render_overrides, parse_args
+    from PyAitD.app.config import default_settings
+
+    base = default_settings()
+    assert apply_render_overrides(base, parse_args([])) == base
+    only = apply_render_overrides(base, parse_args(["--integration", "on"]))
+    assert only == replace(base, render=replace(base.render, integration="on"))
+    with pytest.raises(SystemExit):
+        parse_args(["--integration", "sometimes"])   # argparse choices reject it

@@ -66,7 +66,7 @@ click on any large button. Found objects open a Take/Leave prompt; inventory
 exposes the object's own actions; letters and books are readable; pictures
 play full-screen.
 
-The in-game Configuration screen's Graphics page, and nine CLI flags for a
+The in-game Configuration screen's Graphics page, and ten CLI flags for a
 single session, control the enhanced renderer: `--render-scale N` (1-8, the
 internal render resolution as a multiple of 320x200), `--shading
 {flat,lambert,smooth}` (the per-actor shading model: where surface normals
@@ -98,6 +98,14 @@ in `DIR/bodies/body<NNN>.json`),
 gives every shadow a penumbra that hardens where the actor meets the ground,
 composites every actor's shadow once before any body is drawn, and lets
 limbs and actors shadow each other through a light-view depth map),
+`--integration {off,on}` (`on` resolves the bodies into their own layer and
+composites them back through the room's own picture — softened or pixelated
+to the plate's cell, lifted to the room's black, pulled to its white, and
+grained at the plate's *displayed* amplitude — the source dither scaled by
+whatever the background filter actually leaves at the cell size, not the
+dither the plate image was stored with — so the actors sit inside the room
+rather than on top of it; `off` is the previous single-target path, which
+draws the bodies straight over the plate),
 and `--overrides DIR` (a user-supplied replacement asset directory; this repo
 still ships no game data — `make run` passes `data/aitd1/overrides` unless you
 override or clear `overrides=`). An override directory holds

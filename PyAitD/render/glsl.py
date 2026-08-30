@@ -489,3 +489,97 @@ void main() {
     f_color = vec4(min(cover, 1.0), 1.0 - reach / float(r_max), 0.0, 0.0);
 }
 """
+COMPOSITE_FSH = """
+#version 330
+// The one full-target pass that puts the actor layer back onto the plate.
+//
+// The actor layer is premultiplied: its shader writes alpha 1, so a
+// multisample resolve of covered and uncovered samples yields colour
+// already scaled by coverage, which is exactly what "over" wants. At
+// msaa = 0 alpha is 0 or 1 and this is `plate` or `rgb` with no arithmetic
+// in between -- byte-exact against drawing the body straight onto the
+// plate, which is the identity `integration=on` has to hold.
+//
+// Sampling is done on the premultiplied values throughout: blurring colour
+// and coverage together is what keeps a soft edge from bleeding the
+// interior's colour outward into fully transparent pixels.
+uniform sampler2D plate_tex; uniform sampler2D actor_tex;
+uniform int radius;        // Gaussian half-width in target pixels; 0 = one tap
+uniform float inv_sigma2;  // 1 / (2 sigma^2); unread when radius is 0
+uniform float cell;        // one plate pixel, in target pixels
+uniform int pixelate;      // 1 under `nearest`: fetch per plate cell
+uniform vec3 plate_black;   // the room's floor, 0..1 linear RGB
+uniform vec3 plate_white;   // the room's ceiling
+uniform float plate_grain;  // RMS luma residual of the plate's own dither, as
+                            // *displayed*: estimate_plate's source-resolution
+                            // measurement times plate.grain_retention
+out vec4 f_color;
+
+// Meet the plate exactly at the extremes: at luma 0 the toe adds the whole
+// of `plate_black`, at luma 1 the shoulder subtracts the whole of
+// `1 - plate_white`. The quartic confines both to the ends -- at luma 0.5
+// only 1/16 of the offset applies -- so this lifts the actor's darks into
+// the room without flattening its midtones.
+const float TOE = 1.0;
+const float SHOULDER = 1.0;
+// hash - 0.5 is uniform on [-0.5, 0.5], whose RMS is 1/sqrt(12). Scaling
+// by sqrt(12) makes the composited residual's RMS equal `plate_grain` --
+// which is the RMS estimate_plate measured off the plate. Not a taste
+// constant: it is what "the plate's own amplitude" resolves to.
+const float GAIN = 3.4641016;
+const vec3 REC709 = vec3(0.2126, 0.7152, 0.0722);
+
+// Hoskins' hash11 on a vec2 seed: no sin(), which GPUs implement to wildly
+// different precision at large arguments. Seeded on the screen cell alone,
+// so the noise sits still like the plate's dither instead of crawling.
+float hash21(vec2 v) {
+    vec3 p = fract(vec3(v.xyx) * 0.1031);
+    p += dot(p, p.yzx + 33.33);
+    return fract((p.x + p.y) * p.z);
+}
+
+vec4 sample_actor(ivec2 p, ivec2 size) {
+    if (pixelate != 0) {
+        // The centre of the plate cell this pixel falls in, so a blocky
+        // plate gets blocky actors on the same grid.
+        vec2 c = (floor(vec2(p) / cell) + 0.5) * cell;
+        return texelFetch(actor_tex, clamp(ivec2(c), ivec2(0), size - 1), 0);
+    }
+    if (radius <= 0) return texelFetch(actor_tex, p, 0);
+    vec4 sum = vec4(0.0);
+    float total = 0.0;
+    // `radius` is a uniform, so this is uniform control flow and the tap
+    // count is the same for every pixel of the frame. Edge-clamped rather
+    // than skipped, and normalised by the weight actually accumulated, so
+    // the border neither darkens nor loses coverage.
+    for (int dy = -radius; dy <= radius; dy++) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            ivec2 q = clamp(p + ivec2(dx, dy), ivec2(0), size - 1);
+            float w = exp(-float(dx * dx + dy * dy) * inv_sigma2);
+            sum += texelFetch(actor_tex, q, 0) * w;
+            total += w;
+        }
+    }
+    return sum / total;
+}
+
+void main() {
+    ivec2 p = ivec2(gl_FragCoord.xy);
+    vec4 a = sample_actor(p, textureSize(actor_tex, 0));
+    vec3 plate = texelFetch(plate_tex, p, 0).rgb;
+    vec3 c = vec3(0.0);
+    if (a.a > 0.0) {
+        c = a.rgb / a.a;                        // unpremultiply to tone-match
+        float luma = dot(c, REC709);
+        float toe = (1.0 - luma) * (1.0 - luma);
+        toe *= toe;                             // (1 - luma)^4
+        float shoulder = luma * luma;
+        shoulder *= shoulder;                   // luma^4
+        c += plate_black * (toe * TOE);
+        c -= (vec3(1.0) - plate_white) * (shoulder * SHOULDER);
+        c += plate_grain * (hash21(floor(gl_FragCoord.xy / cell)) - 0.5) * GAIN;
+        c = clamp(c, 0.0, 1.0);
+    }
+    f_color = vec4(plate * (1.0 - a.a) + c * a.a, 1.0);
+}
+"""

@@ -117,7 +117,7 @@ def test_configuration_graphics_row_opens_the_graphics_page():
 def test_graphics_rows_cycle_render_options():
     from PyAitD.app.ui import GRAPHICS_CYCLES, GRAPHICS_ROWS, graphics_row_count
     from PyAitD.render.render_options import RenderOptions
-    assert GRAPHICS_ROWS == 8 and len(GRAPHICS_CYCLES) == GRAPHICS_ROWS
+    assert GRAPHICS_ROWS == 9 and len(GRAPHICS_CYCLES) == GRAPHICS_ROWS
     assert graphics_row_count() == GRAPHICS_ROWS + 1
     settings = default_settings()
     state = SystemMenuPresenter(page=SystemMenuPage.GRAPHICS, cursor=0)
@@ -137,6 +137,12 @@ def test_graphics_rows_cycle_render_options():
     state.cursor = 7
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(smoothing=3)
     assert state.page is SystemMenuPage.GRAPHICS  # a cycle never leaves the page
+
+
+def test_the_integration_row_cycles_from_the_graphics_page():
+    from PyAitD.app.ui import GRAPHICS_CYCLES
+    from PyAitD.render.render_options import cycle_integration
+    assert GRAPHICS_CYCLES[8] is cycle_integration
 
 
 def test_graphics_back_and_cancel_return_to_the_graphics_row_saving():

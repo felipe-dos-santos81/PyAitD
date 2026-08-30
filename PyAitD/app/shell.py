@@ -20,8 +20,8 @@ from PyAitD.engine.pak import PakError
 from PyAitD.engine.playworld import TICK_MS, play_tick
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import (
-    BACKGROUND_FILTERS, LIGHTING_MODES, MSAA_LEVELS, REALISM_MODES, SHADING_MODES, SHADOW_MODES,
-    SMOOTHING_LEVELS, validate_render_options,
+    BACKGROUND_FILTERS, INTEGRATION_MODES, LIGHTING_MODES, MSAA_LEVELS, REALISM_MODES, SHADING_MODES,
+    SHADOW_MODES, SMOOTHING_LEVELS, validate_render_options,
 )
 from PyAitD.games import load_profile
 from PyAitD.render.scene import build_frame
@@ -97,6 +97,9 @@ def parse_args(argv):
              "one gathered pass, and bodies shadowing themselves and each other",
     )
     p.add_argument(
+        "--integration", choices=INTEGRATION_MODES, default=None,
+        help="composite actors through the plate's tone, grain and softness")
+    p.add_argument(
         "--overrides", type=pathlib.Path, default=None, help="asset override directory",
     )
     p.add_argument(
@@ -131,6 +134,8 @@ def apply_render_overrides(settings, args):
         payload["smoothing"] = args.smoothing
     if args.shadows is not None:
         payload["shadows"] = args.shadows
+    if args.integration is not None:
+        payload["integration"] = args.integration
     if args.overrides is not None:
         payload["override_dir"] = str(args.overrides)
     render, _error = validate_render_options(payload)
@@ -606,11 +611,11 @@ def _route_game_over_command(game, session, modal_command):
 
 
 # The only render.RenderOptions fields the CONFIG menu can actually change
-# (SystemMenuPage.GRAPHICS's Scale/Shading/Filter/Lighting/Shadows/AA/Realism/Smoothing
+# (SystemMenuPage.GRAPHICS's Scale/Shading/Filter/Lighting/Shadows/AA/Realism/Smoothing/Integration
 # rows, via GRAPHICS_CYCLES in ui.reduce_system_menu). `override_dir` has no menu row at
 # all, so it is never in this set and a save can never pick it up from the
 # in-memory, possibly CLI-set, session.settings.render.
-_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism", "smoothing", "shadows")
+_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism", "smoothing", "shadows", "integration")
 
 
 def _persisted_render(session):

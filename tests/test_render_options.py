@@ -39,12 +39,12 @@ def test_valid_payload_round_trips():
 def test_each_invalid_field_falls_back_alone():
     options, error = validate_render_options(
         {"scale": 99, "shading": "smooth", "background_filter": "bilinear", "override_dir": None,
-         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft"})
+         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on"})
     assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0)  # clamped, not rejected
     assert error is None
     options, error = validate_render_options(
         {"scale": "x", "shading": "neon", "background_filter": "bilinear", "override_dir": 3,
-         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft"})
+         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on"})
     assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0)
     assert "scale" in error and "shading" in error and "override_dir" in error
 
@@ -123,3 +123,25 @@ def test_invalid_shadows_falls_back_alone():
         payload["shadows"] = bad
         options, error = validate_render_options(payload)
         assert options == RenderOptions() and "shadows" in error, bad
+
+
+def test_integration_defaults_to_on_and_cycles():
+    from PyAitD.render.render_options import INTEGRATION_MODES, cycle_integration
+    options = RenderOptions()
+    assert INTEGRATION_MODES == ("off", "on")
+    assert options.integration == "on"
+    assert cycle_integration(options).integration == "off"
+    assert cycle_integration(RenderOptions(integration="off")).integration == "on"
+
+
+def test_an_unknown_integration_clamps_to_the_default_with_an_error():
+    options, error = validate_render_options({**RenderOptions().to_payload(),
+                                              "integration": "sometimes"})
+    assert options.integration == RenderOptions().integration
+    assert "integration must be one of off, on" in error
+
+
+def test_integration_round_trips_through_the_payload():
+    payload = RenderOptions(integration="on").to_payload()
+    assert payload["integration"] == "on"
+    assert validate_render_options(payload)[0].integration == "on"

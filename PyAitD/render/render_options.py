@@ -17,6 +17,12 @@ SMOOTHING_LEVELS = (0, 1, 2, 3)   # 2**level segments per edge; 0 draws the flat
 # lets bodies shadow themselves and each other. Both under lighting="scene"
 # only; "fixed" casts nothing either way.
 SHADOW_MODES = ("hard", "soft")
+# off: today's single-target path -- bodies drawn straight over the plate,
+# at the internal resolution, with the plate's tone and dither ignored.
+# on: bodies resolved into their own RGBA layer and composited back through
+# the plate's softness, tone curve and grain. Under lighting="scene" only;
+# "fixed" runs the single-target path either way.
+INTEGRATION_MODES = ("off", "on")
 
 
 @dataclass(frozen=True)
@@ -30,6 +36,7 @@ class RenderOptions:
     realism: str = "enhanced"
     smoothing: int = 2
     shadows: str = "soft"
+    integration: str = "on"
 
     def to_payload(self):
         return {
@@ -42,6 +49,7 @@ class RenderOptions:
             "realism": self.realism,
             "smoothing": self.smoothing,
             "shadows": self.shadows,
+            "integration": self.integration,
         }
 
 
@@ -91,7 +99,11 @@ def validate_render_options(payload):
     if shadows not in SHADOW_MODES:
         errors.append(f"shadows must be one of {', '.join(SHADOW_MODES)}")
         shadows = defaults.shadows
-    options = RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism, smoothing, shadows)
+    integration = payload.get("integration")
+    if integration not in INTEGRATION_MODES:
+        errors.append(f"integration must be one of {', '.join(INTEGRATION_MODES)}")
+        integration = defaults.integration
+    options = RenderOptions(scale, shading, background_filter, override_dir, lighting, msaa, realism, smoothing, shadows, integration)
     return options, ("; ".join(errors) or None)
 
 
@@ -132,3 +144,7 @@ def cycle_smoothing(options):
 
 def cycle_shadows(options):
     return replace(options, shadows=_cycle(SHADOW_MODES, options.shadows))
+
+
+def cycle_integration(options):
+    return replace(options, integration=_cycle(INTEGRATION_MODES, options.integration))

@@ -111,7 +111,10 @@ def test_black_and_white_are_the_percentile_means_by_construction():
 
 
 def test_a_uniform_plate_has_zero_grain():
-    assert estimate_plate(np.full((64, 64, 3), 77, np.uint8)).grain == 0.0
+    # Not `== 0.0`: the 3x3 mean of nine identical floats is the same value
+    # only up to rounding, so a uniform plate's residual is ~1e-17, not a
+    # hard zero. NEUTRAL_PLATE's exact 0.0 is a literal, not this.
+    assert estimate_plate(np.full((64, 64, 3), 77, np.uint8)).grain < 1e-12
 
 
 def test_a_checkerboard_carries_its_dither_amplitude():
@@ -128,14 +131,14 @@ def test_an_all_black_plate_is_total():
     profile = estimate_plate(np.zeros((32, 32, 3), np.uint8))
     assert profile.black == pytest.approx((0.0, 0.0, 0.0))
     assert profile.white == pytest.approx((0.0, 0.0, 0.0))
-    assert profile.grain == 0.0
+    assert profile.grain == 0.0        # every term is exactly zero here
 
 
 def test_an_all_white_plate_is_total():
     profile = estimate_plate(np.full((32, 32, 3), 255, np.uint8))
     assert profile.black == pytest.approx((1.0, 1.0, 1.0))
     assert profile.white == pytest.approx((1.0, 1.0, 1.0))
-    assert profile.grain == 0.0
+    assert profile.grain < 1e-12       # float rounding, not a hard zero
 
 
 def test_the_neutral_plate_is_the_identity_profile():
@@ -988,9 +991,13 @@ def _edge_transition_width(rgb, row):
 
 
 def _edge_frame(plate):
+    # `_actor`, not `_standing_actor`: its zv puts the ground plane on the
+    # horizon, so the shadow pass rasterises nothing. A real ground shadow
+    # lands on the *plate* layer at target resolution -- it is neither
+    # softened nor pixelated -- and would confound both measurements below.
     return FrameDescription(
         _view(), ImageAsset(plate, False), _palette(),
-        (_standing_actor(0, _tri_geometry(600.0, 1), 400.0),), (),
+        (_actor(0, _tri_geometry(600.0, 1)),), (),
         _scene_light((0.0, -1.0, 0.0)))
 
 
@@ -1168,13 +1175,6 @@ git commit -m "feat: soften or pixelate the actor layer to the plate's grid"
 Append to `tests/test_render_gl.py`:
 
 ```python
-def _profiled_frame(plate_pixels, profile, colour=1):
-    from PyAitD.render.scene import FrameDescription as FD
-    return FD(_view(), ImageAsset(plate_pixels, False), _palette(),
-              (_standing_actor(0, _tri_geometry(600.0, colour), 400.0),), (),
-              _scene_light((0.0, -1.0, 0.0)), profile)
-
-
 def _composited_centre(gl_ctx, profile, palette=None, colour=1, plate_value=0):
     """The composited pixel at the centre of one flat, fully-lit triangle,
     under `profile`. Everything except the profile is held fixed, so two
@@ -1220,35 +1220,51 @@ def test_the_shoulder_pulls_a_white_actor_to_the_rooms_ceiling(gl_ctx):
     assert pulled.max() == pytest.approx(204, abs=2)   # 255 * 0.8
 
 
-def test_grain_is_still_and_confined_to_the_actor(gl_ctx):
+def _grey_grain_render(gl_ctx, grain):
+    """One flat mid-grey triangle over a flat plate, at `grain`.
+
+    Mid-grey and realism="classic" together: the actor's composited value
+    lands near 128, so a +-0.5 * grain * GAIN excursion (about +-35 at
+    grain 0.08) neither clips at 255 nor floors at 0. Measuring the noise
+    on a saturated channel would clip half of it and halve the RMS."""
     from PyAitD.render.plate import PlateProfile
-    profile = PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), 0.08)
-    plate = np.full((200, 320, 3), 120, np.uint8)
-    backend = GLBackend(gl_ctx, _integration_options(integration="on"))
-    frame = _profiled_frame(plate, profile)
+    from PyAitD.render.scene import FrameDescription as FD
+    palette = np.zeros((256, 3), np.uint8)
+    palette[1] = (128, 128, 128)
+    frame = FD(_view(), ImageAsset(np.full((200, 320, 3), 120, np.uint8), False), palette,
+               (_actor(0, _tri_geometry(600.0, 1)),), (),
+               _scene_light((0.0, 0.0, -1.0)),
+               PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), grain))
+    backend = GLBackend(gl_ctx, RenderOptions(
+        scale=1, shading="smooth", lighting="scene", msaa=0,
+        realism="classic", integration="on"))
     backend.draw(frame)
-    first = backend.read_rgb().copy()
-    backend.draw(frame)
-    second = backend.read_rgb().copy()
+    out = backend.read_rgb().copy()
     backend.release()
-    assert np.array_equal(first, second)          # hashed on the screen cell: it sits still
-    assert np.array_equal(first[10, 10], [120, 120, 120])   # outside the actor: untouched
+    return out
+
+
+def test_grain_is_still_and_confined_to_the_actor(gl_ctx):
+    quiet = _grey_grain_render(gl_ctx, 0.0)
+    first = _grey_grain_render(gl_ctx, 0.08)
+    second = _grey_grain_render(gl_ctx, 0.08)
+    # Hashed on the screen cell alone, so it sits still like the plate's
+    # own dither rather than crawling between frames.
+    assert np.array_equal(first, second)
+    # Zero where the actor is not: the noise lives inside the `a > 0` branch.
+    outside = first != quiet
+    assert not outside[10, 10].any()
+    assert outside.any(), "grain never moved a pixel at all"
 
 
 def test_grain_lands_at_the_plates_own_amplitude(gl_ctx):
     # GAIN is sqrt(12) precisely so the composited residual's RMS equals
     # `grain`. Measured as the difference between two otherwise identical
     # renders, which isolates the noise from the actor's own shading.
-    from PyAitD.render.plate import PlateProfile
-    plate = np.full((200, 320, 3), 120, np.uint8)
-    outs = []
-    for grain in (0.0, 0.08):
-        backend = GLBackend(gl_ctx, _integration_options(integration="on"))
-        backend.draw(_profiled_frame(plate, PlateProfile((0.0,) * 3, (1.0,) * 3, grain)))
-        outs.append(backend.read_rgb().astype(float))
-        backend.release()
+    quiet = _grey_grain_render(gl_ctx, 0.0).astype(float)
+    noisy = _grey_grain_render(gl_ctx, 0.08).astype(float)
     # A patch well inside the triangle (see _centre's note on its extent).
-    patch = (outs[1] - outs[0])[60:100, 110:150, 0]
+    patch = (noisy - quiet)[60:100, 110:150, 0]
     assert patch.std() == pytest.approx(0.08 * 255, rel=0.25)
 ```
 

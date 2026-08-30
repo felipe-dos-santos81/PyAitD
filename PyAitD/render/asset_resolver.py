@@ -13,6 +13,7 @@ import numpy as np
 from PyAitD.render.lighting import estimate_light
 from PyAitD.render.materials import default_table, parse_assignments
 from PyAitD.render.occlusion import bake_vertex_ao
+from PyAitD.render.plate import estimate_plate
 from PyAitD.render.refine import CREASE_DEG, parse_crease, plan_refinement
 
 log = logging.getLogger("PyAitD.engine.assets")
@@ -72,6 +73,7 @@ class AssetResolver:
         self._load_png = load_png
         self._cache = {}
         self._lights = {}
+        self._plates = {}
         self._material_tables = {}
         self._aos = {}
         self._refinements = {}
@@ -185,6 +187,22 @@ class AssetResolver:
                 self.background(floor, cam_idx, killed_sorcerer=killed_sorcerer).pixels
             )
         return self._lights[key]
+
+    def plate(self, floor, cam_idx, *, killed_sorcerer=False):
+        """The PlateProfile for a camera, estimated from whatever background
+        that camera actually resolves to -- read through the same
+        `background()` call `light()` uses, so an override plate is profiled
+        from the override.
+
+        Memoised per (floor number, camera, killed_sorcerer) exactly like
+        `light`, and for exactly the same reason: a camera's tone and grain
+        are properties of a static image."""
+        key = (floor.number, cam_idx, killed_sorcerer)
+        if key not in self._plates:
+            self._plates[key] = estimate_plate(
+                self.background(floor, cam_idx, killed_sorcerer=killed_sorcerer).pixels
+            )
+        return self._plates[key]
 
     def resource_screen(self, entry):
         if self._override_dir is not None:

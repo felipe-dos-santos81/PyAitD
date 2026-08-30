@@ -264,6 +264,39 @@ def test_light_follows_an_override_background(tmp_path):
     assert light.direction[0] < 0           # estimated from the override, not the flat original
 
 
+def test_plate_is_estimated_once_per_camera():
+    calls = []
+
+    class CountingFloor:
+        number = 3
+        palette = np.zeros((256, 3), dtype=np.uint8)
+
+        def camera_image(self, idx):
+            calls.append(idx)
+            plate = np.zeros((200, 320, 3), np.uint8)
+            plate[:40] = 255
+            return plate
+
+    floor = CountingFloor()
+    resolver = AssetResolver(SimpleNamespace(body=lambda n: n), None)
+    first = resolver.plate(floor, 0)
+    second = resolver.plate(floor, 0)
+    assert first is second
+    assert calls == [0]                     # one decode, one estimate
+    assert first.white[0] > first.black[0]  # estimated, not the neutral default
+
+
+def test_plate_follows_an_override_background(tmp_path):
+    from PyAitD.render.asset_resolver import override_background_path
+    path = override_background_path(tmp_path, 3, 0)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"")                   # content comes from the stub loader below
+    bright = np.full((200, 320, 3), 200, np.uint8)
+    resolver = AssetResolver(None, tmp_path, load_png=lambda p: bright)
+    # _floor()'s own plate is flat black; the override's is flat 200.
+    assert resolver.plate(_floor(), 0).white[0] == pytest.approx(200 / 255)
+
+
 def test_material_table_is_the_default_and_memoised():
     from PyAitD.render.materials import default_table
     resolver = AssetResolver(SimpleNamespace(body=lambda n: n), None)

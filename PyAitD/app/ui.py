@@ -17,13 +17,13 @@ from PyAitD.render.background_export import (
     PORTRAIT_RECTS, READING_CLOSE_RECT, READING_NEXT_RECT, READING_PREV_RECT,
 )
 from PyAitD.render.render_options import (
-    RenderOptions, cycle_filter, cycle_lighting, cycle_msaa, cycle_realism, cycle_scale, cycle_shading,
-    cycle_shadows, cycle_smoothing,
+    RenderOptions, cycle_filter, cycle_integration, cycle_lighting, cycle_msaa, cycle_realism, cycle_scale,
+    cycle_shading, cycle_shadows, cycle_smoothing,
 )
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.text import BookToken
 
-GRAPHICS_ROWS = 8          # rows on the Graphics page above Back, in GRAPHICS_CYCLES order
+GRAPHICS_ROWS = 9          # rows on the Graphics page above Back, in GRAPHICS_CYCLES order
 
 
 def config_row_count():
@@ -397,7 +397,7 @@ def reduce_character_select(state, command):
 # the same order, and tests pin that the two never drift apart.
 GRAPHICS_CYCLES = (
     cycle_scale, cycle_shading, cycle_filter, cycle_lighting, cycle_shadows,
-    cycle_msaa, cycle_realism, cycle_smoothing,
+    cycle_msaa, cycle_realism, cycle_smoothing, cycle_integration,
 )
 
 
@@ -1202,6 +1202,7 @@ def graphics_labels(render):
         f"AA: up to {render.msaa}x" if render.msaa else "AA: Off",
         f"Realism: {render.realism.title()}",
         f"Smoothing: {SMOOTHING_LABELS[render.smoothing]}",
+        f"Integration: {render.integration.title()}",
     ]
 
 

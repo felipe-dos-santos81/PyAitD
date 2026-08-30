@@ -15,6 +15,7 @@ from PyAitD.engine.cos_table import sin_cos
 from PyAitD.render.geometry import BodyGeometry, pose_geometry
 from PyAitD.render.lighting import LEGACY_LIGHT, SceneLight
 from PyAitD.render.materials import MaterialTable, default_table
+from PyAitD.render.plate import NEUTRAL_PLATE, PlateProfile
 from PyAitD.engine.mask_geometry import MaskDraw
 from PyAitD.engine.picking import actor_bbox
 from PyAitD.engine.skel import RenderResult, skin
@@ -115,6 +116,7 @@ class FrameDescription:
     actors: tuple[ActorDraw, ...]
     masks: tuple[MaskDraw, ...]
     light: SceneLight = LEGACY_LIGHT
+    plate: PlateProfile = NEUTRAL_PLATE
 
 
 def mask_applies_to_actor(mask, actor_room, zv):
@@ -157,6 +159,23 @@ def _light(resolver, floor, cam_idx, killed):
         if "killed_sorcerer" not in str(exc):
             raise
         return resolver.light(floor, cam_idx)
+
+
+def _plate(resolver, floor, cam_idx, killed):
+    """The camera's PlateProfile, or NEUTRAL_PLATE when the resolver has no
+    `plate` at all: several stub resolvers in the test suite implement only
+    the methods they use, and a neutral profile composites as an identity,
+    so a frame built from one renders exactly as it does today. The
+    TypeError branch is the same `killed_sorcerer` fallback `_light` uses."""
+    getter = getattr(resolver, "plate", None)
+    if getter is None:
+        return NEUTRAL_PLATE
+    try:
+        return getter(floor, cam_idx, killed_sorcerer=killed)
+    except TypeError as exc:
+        if "killed_sorcerer" not in str(exc):
+            raise
+        return getter(floor, cam_idx)
 
 
 def build_frame(game, floor, resolver):
@@ -205,5 +224,6 @@ def build_frame(game, floor, resolver):
         tuple(actors),
         masks,
         _light(resolver, floor, cam_idx, killed),
+        _plate(resolver, floor, cam_idx, killed),
     )
     return frame, draw_list
