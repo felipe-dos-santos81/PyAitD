@@ -419,14 +419,23 @@ def test_story_click_confirms_the_selected_portrait_not_the_click_side(
 def test_replacement_session_carries_only_application_settings(tmp_path):
     settings = Settings(default_settings().bindings, True)
     old = ModalSession(settings=settings, settings_path=tmp_path / "settings.json",
-                       settings_error="named error", settings_dirty=True)
+                       settings_error="named error", settings_dirty=True,
+                       save_directory=tmp_path / "saves")
     old.character.choice = 1
     old.character.hover = 0
     old.system_menu.hover = 2
+    old.quick_save_requested = True
+    old.pending_load = {"schema": 1}
+    old.runtime_error = "boom"
     new = replacement_session(old)
     assert (new.settings, new.settings_path, new.settings_error, new.settings_dirty) == (
         settings, old.settings_path, "named error", True,
     )
+    assert new.save_directory == tmp_path / "saves"
+    # persistence transients never cross a replacement
+    assert new.quick_save_requested is False
+    assert new.pending_load is None
+    assert new.runtime_error is None
     assert new.character == CharacterSelectPresenter()
     assert new.system_menu == SystemMenuPresenter()
 

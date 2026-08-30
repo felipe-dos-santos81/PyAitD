@@ -911,3 +911,202 @@ def test_journey_a_keypress_skips_the_opening(data_dir, profile, monkeypatch):
     _run_shell(monkeypatch, game, session, next_events, observe_tick=observe_tick)
     assert 7 in floors and floors[-1] == 0
     assert game.mode is not GameMode.GAME_OVER
+
+
+# ── M4a2 task 6: save policy and the atomic load replacement ────────────────
+
+
+def _menu_session(tmp_path, game):
+    """A session at an already-open system menu: reset_for has run, exactly
+    as route_command runs it when PLAY's CANCEL opens the menu."""
+    session = ModalSession(save_directory=tmp_path)
+    session.reset_for(game.active_modal)
+    return session
+
+
+def _save_events():
+    return [
+        _left_click(SystemMenuLayout.MAIN_ROWS[1].center),   # Save
+        _left_click(SystemMenuLayout.SAVE_ROWS[0].center),   # Manual Slot
+        _left_click(SystemMenuLayout.SAVE_ROWS[1].center),   # Back
+    ]
+
+
+def _load_events():
+    return [
+        _left_click(SystemMenuLayout.MAIN_ROWS[2].center),   # Load
+        _left_click(SystemMenuLayout.LOAD_ROWS[0].center),   # Manual Slot
+    ]
+
+
+def test_save_then_load_restores_the_saved_progress(data_dir, profile, monkeypatch, tmp_path):
+    game = init_game(data_dir, profile)
+    game.open_modal(OpenSystemMenu())
+    session = _menu_session(tmp_path, game)
+    live = {"game": game}
+
+    def observe(game_arg, floor_arg, buffer_arg):
+        live["game"] = game_arg
+        # the first tick entry after the load click sees the restored world
+        # before play_tick can change it
+        if state["loaded"] and "restored_v4" not in state:
+            state["restored_v4"] = game_arg.vars[4]
+        return real_play_tick(game_arg, floor_arg, buffer_arg)
+
+    state = {"frames": 0, "saved_v4": None, "loaded": False}
+
+    def next_events():
+        state["frames"] += 1
+        assert state["frames"] < 20, "save/load journey exceeded its budget"
+        if state["frames"] == 1:
+            return _save_events()
+        if state["frames"] == 2:
+            assert (tmp_path / "save-manual.json").exists()
+            state["saved_v4"] = json.loads(
+                (tmp_path / "save-manual.json").read_text(encoding="utf-8"),
+            )["game"]["vars"][4]
+            live["game"].vars[4] = state["saved_v4"] + 99
+            state["loaded"] = True
+            return _load_events()
+        if state["frames"] == 3:
+            # the replacement's own frame never ticks (its branch continues);
+            # this frame's tick is the first to see the restored world
+            return []
+        if state["frames"] == 4:
+            assert state["restored_v4"] == state["saved_v4"], \
+                "the load restored the pre-mutation world"
+            return [_quit()]
+        return []
+
+    _run_shell(monkeypatch, game, session, next_events, observe_tick=observe)
+    assert live["game"].mode is GameMode.PLAY, "the load lands in PLAY, menu gone"
+
+
+def test_quick_save_commits_only_after_a_play_tick(data_dir, profile, monkeypatch, tmp_path):
+    game = init_game(data_dir, profile)
+    game.open_modal(OpenSystemMenu())
+    session = _menu_session(tmp_path, game)
+    slot = tmp_path / "save-quick.json"
+    ticks_after_request_saw_no_file = []
+
+    def observe(game_arg, floor_arg, buffer_arg):
+        if session.quick_save_requested:
+            ticks_after_request_saw_no_file.append(not slot.exists())
+        return real_play_tick(game_arg, floor_arg, buffer_arg)
+
+    state = {"frames": 0}
+
+    def next_events():
+        state["frames"] += 1
+        assert state["frames"] < 20, "quick-save journey exceeded its budget"
+        if state["frames"] == 1:
+            return [_left_click(SystemMenuLayout.MAIN_ROWS[3].center)]   # Quick Save
+        if state["frames"] == 2:
+            assert game.mode is GameMode.PLAY, "Quick Save closed the menu"
+            assert slot.exists(), "the deferred write landed at the stable tick"
+            assert session.quick_save_requested is False
+            return [_quit()]
+        return []
+
+    _run_shell(monkeypatch, game, session, next_events, observe_tick=observe)
+    assert ticks_after_request_saw_no_file == [True], \
+        "the commit follows the first tick after the request, never precedes it"
+
+
+def test_load_errors_dismiss_without_mode_change(data_dir, profile, monkeypatch, tmp_path):
+    game = init_game(data_dir, profile)
+    game.open_modal(OpenSystemMenu())
+    session = _menu_session(tmp_path, game)
+    (tmp_path / "save-manual.json").write_text("{ corrupt", encoding="utf-8")
+    state = {"frames": 0}
+
+    def next_events():
+        state["frames"] += 1
+        assert state["frames"] < 20, "load-error journey exceeded its budget"
+        if state["frames"] == 1:
+            return _load_events()
+        if state["frames"] == 2:
+            assert session.runtime_error is not None
+            assert "save-manual.json" in session.runtime_error
+            assert game.mode is GameMode.SYSTEM_MENU
+            assert session.system_menu.page is SystemMenuPage.LOAD
+            return [_left_click(SettingsNoticeLayout.DISMISS.center)]
+        if state["frames"] == 3:
+            assert session.runtime_error is None
+            assert game.mode is GameMode.SYSTEM_MENU
+            assert session.system_menu.page is SystemMenuPage.LOAD
+            return [_left_click(SystemMenuLayout.LOAD_ROWS[2].center)]   # Back
+        if state["frames"] == 4:
+            assert session.system_menu.page is SystemMenuPage.MAIN
+            return [_quit()]
+        return []
+
+    _run_shell(monkeypatch, game, session, next_events)
+
+
+def test_manual_save_refuses_while_a_script_continuation_is_pending(
+    data_dir, profile, monkeypatch, tmp_path,
+):
+    game = init_game(data_dir, profile)
+    game.open_modal(OpenSystemMenu())
+    game.life_stack.append(object())
+    session = _menu_session(tmp_path, game)
+    state = {"frames": 0}
+
+    def next_events():
+        state["frames"] += 1
+        assert state["frames"] < 20, "refusal journey exceeded its budget"
+        if state["frames"] == 1:
+            # no Back click here: the journey stays on the SAVE page so the
+            # refusal notice dismisses back onto the page that raised it
+            return [
+                _left_click(SystemMenuLayout.MAIN_ROWS[1].center),   # Save
+                _left_click(SystemMenuLayout.SAVE_ROWS[0].center),   # Manual Slot
+            ]
+        if state["frames"] == 2:
+            assert not (tmp_path / "save-manual.json").exists()
+            assert "script" in session.runtime_error
+            assert game.mode is GameMode.SYSTEM_MENU
+            assert session.system_menu.page is SystemMenuPage.SAVE
+            return [_left_click(SettingsNoticeLayout.DISMISS.center)]
+        if state["frames"] == 3:
+            assert session.runtime_error is None
+            assert session.system_menu.page is SystemMenuPage.SAVE
+            return [_quit()]
+        return []
+
+    _run_shell(monkeypatch, game, session, next_events)
+
+
+def test_load_clears_transient_pointer_state(data_dir, profile, monkeypatch, tmp_path):
+    import PyAitD.app.config as config
+    import PyAitD.engine.save as save_module
+    game = init_game(data_dir, profile)
+    game.open_modal(OpenSystemMenu())
+    session = _menu_session(tmp_path, game)
+    payload = save_module.snapshot_game(game, config.settings_payload(session.settings))
+    live = {}
+
+    def observe(game_arg, floor_arg, buffer_arg):
+        live["buffer"] = buffer_arg
+        return real_play_tick(game_arg, floor_arg, buffer_arg)
+
+    state = {"frames": 0}
+
+    def next_events():
+        state["frames"] += 1
+        assert state["frames"] < 20, "clean-load journey exceeded its budget"
+        if state["frames"] == 1:
+            session.pending_load = payload
+            return []
+        if state["frames"] == 2:
+            assert session.pending_load is None, "the staged payload was consumed"
+            return []
+        if state["frames"] == 3:
+            buffer = live["buffer"]
+            assert buffer is not None, "the replacement game ticked with its new buffer"
+            assert (buffer.held_joyd, buffer.action_held, buffer.pointer_held) == (0, False, False)
+            return [_quit()]
+        return []
+
+    _run_shell(monkeypatch, game, session, next_events, observe_tick=observe)

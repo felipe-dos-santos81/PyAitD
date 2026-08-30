@@ -10,11 +10,17 @@ import sys
 import pygame
 
 from PyAitD.render.asset_resolver import AssetResolver
-from PyAitD.app.config import default_settings, load_settings, save_settings, settings_path
+from PyAitD.app.config import (
+    default_settings, load_settings, save_settings, settings_path,
+    settings_payload, validate_settings,
+)
 from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenStartupMenu, ShowTitle
 from PyAitD.engine.game import enter_floor_start, init_game
 from PyAitD.engine.life import Trace
 from PyAitD.engine.pak import PakError
+from PyAitD.engine.save import (
+    SaveError, read_slot, restore_game, save_dir, slot_path, snapshot_game, write_slot,
+)
 # imported by name, not module-qualified: run() reads play_tick as a module
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.engine.playworld import TICK_MS, play_tick
@@ -122,6 +128,10 @@ def parse_args(argv):
         "--textures", type=pathlib.Path, default=None, help="asset texture directory",
     )
     p.add_argument(
+        "--save-dir", type=pathlib.Path, default=None,
+        help="save slot directory (default: beside the settings file)",
+    )
+    p.add_argument(
         "--skip-intro", action="store_true",
         help="development convenience, not FITD behaviour: boot the attic "
              "directly after character select (skips the floor-7 opening)",
@@ -161,7 +171,7 @@ def apply_render_overrides(settings, args):
     return replace(settings, render=render)
 
 
-def load_runtime_session(path):
+def load_runtime_session(path, save_directory=None):
     # JSON-only boot step: no pygame initialization here -- pygame key names
     # are validated later by configure_session_input, once the Renderer owns
     # the initialized pygame runtime.
@@ -173,6 +183,7 @@ def load_runtime_session(path):
     return ModalSession(
         settings=settings, settings_path=path, settings_error=error,
         disk_render=settings.render,
+        save_directory=save_dir() if save_directory is None else save_directory,
     )
 
 
@@ -200,6 +211,7 @@ def replacement_session(session):
         render_touched=session.render_touched,
         booted_via_menu=session.booted_via_menu,
         skip_intro=session.skip_intro,
+        save_directory=session.save_directory,
     )
 
 
@@ -673,6 +685,109 @@ def _save_session_settings(session):
     return True
 
 
+def _available_slots(session):
+    """The slot kinds a LOAD page may offer: a missing file disables its
+    row, a present one enables it (a corrupt file still loads-then-fails
+    through the visible error route)."""
+    if session.save_directory is None:
+        return frozenset()
+    return frozenset(
+        kind for kind in ("manual", "quick")
+        if slot_path(session.save_directory, kind).exists()
+    )
+
+
+def _write_save(game, session, kind):
+    """Snapshot and write one slot; failures surface as the dismissible
+    runtime notice and never touch the live game."""
+    if session.save_directory is None:
+        session.runtime_error = "Could not save: no save directory is configured"
+        return
+    settings_to_save = replace(session.settings, render=_persisted_render(session))
+    payload = snapshot_game(game, settings_payload(settings_to_save))
+    error = write_slot(slot_path(session.save_directory, kind), payload)
+    if error is not None:
+        session.runtime_error = error
+
+
+def _manual_save(game, session, kind):
+    # Allowed only at a stable system-menu boundary: while a LIFE
+    # continuation or a platform effect is queued the world is mid-script,
+    # and a snapshot of it would restore into that mid-script state.
+    if game.life_stack or game.immediate_effects:
+        session.runtime_error = "Could not save: a script is still running"
+        return
+    _write_save(game, session, kind)
+
+
+def _request_quick_save(session):
+    # Quick Save closes the menu (the result carries close=True) and defers
+    # the write to the first stable end-of-PLAY-tick boundary; run() owns
+    # the commit so the snapshot can never land mid-tick.
+    session.quick_save_requested = True
+
+
+def _commit_quick_save(game, session):
+    session.quick_save_requested = False
+    _write_save(game, session, "quick")
+
+
+def _request_load(game, session, kind):
+    """Read and validate the slot; a good payload stages the atomic
+    replacement run() performs on this same frame. A bad one leaves the
+    live game untouched and raises the dismissible notice."""
+    if session.save_directory is None:
+        session.runtime_error = "Could not load: no save directory is configured"
+        return
+    payload, error = read_slot(
+        slot_path(session.save_directory, kind), game._data_dir, game.profile,
+    )
+    if error is not None:
+        session.runtime_error = error
+        return
+    session.pending_load = payload
+
+
+def _load_branch(game, renderer, session, input_buffer=None):
+    """The atomic load replacement: rebuild the game from the staged payload
+    and hand run() every loop local that referenced the old game, exactly
+    like _restart_branch. A failure consumes the payload, raises the notice,
+    and leaves the menu (and everything else) untouched."""
+    if session.pending_load is None:
+        return None
+    payload = session.pending_load
+    session.pending_load = None
+    _take_over_play_input(game, session, input_buffer)
+    trace = game.trace
+    try:
+        new_game, settings_dict = restore_game(game._data_dir, game.profile, payload)
+        settings, _render_error = validate_settings(settings_dict)
+        new_floor = new_game.load_floor(new_game.current_floor)
+    except (PakError, SaveError, ValueError) as exc:
+        session.runtime_error = f"Could not load save: {exc}"
+        return None
+    texture_dir = session.settings.render.texture_dir
+    game = new_game
+    game.trace = trace
+    floor = new_floor
+    session = replacement_session(session)
+    session.settings = settings
+    input_buffer = InputBuffer()
+    configure_session_input(session, input_buffer)
+    accumulator = 0
+    draw_list = []
+    hover = None
+    game.num_camera = game.new_num_camera
+    game.flag_init_view = 0
+    new_resolver = _resolver_for(game.assets, texture_dir)
+    scene_frame, draw_list = _scene_frame(game, floor, renderer, new_resolver)
+    last = pygame.time.get_ticks()
+    return (
+        game, floor, session, input_buffer, accumulator,
+        draw_list, hover, scene_frame, last, 0, new_resolver,
+    )
+
+
 def _apply_system_result(game, session, input_buffer, result, renderer=None):
     if result is None:
         return True
@@ -698,6 +813,12 @@ def _apply_system_result(game, session, input_buffer, result, renderer=None):
     saved = _save_session_settings(session) if result.save else True
     if result.quit and not saved:
         return True
+    if result.save_slot is not None:
+        _manual_save(game, session, result.save_slot)
+    if result.quick_save:
+        _request_quick_save(session)
+    if result.load_slot is not None:
+        _request_load(game, session, result.load_slot)
     if result.close:
         reset_input(input_buffer)
         game.close_modal()
@@ -794,6 +915,7 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
         route_hover(game, session, None)
         result = reduce_system_menu(
             session.system_menu, modal_command, session.settings,
+            _available_slots(session),
         )
         return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
 
@@ -911,6 +1033,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
         session.system_menu.cursor = hit
         result = reduce_system_menu(
             session.system_menu, Command.ACCEPT, session.settings,
+            _available_slots(session),
         )
         if session.system_menu.page is not old_page:
             session.system_menu.hover = None
@@ -1080,7 +1203,8 @@ def render_active_mode(game, session, renderer, resolver=None):
     # value, so the dispatch ends in a single return: a new modal that forgot
     # its own `return painter` would otherwise hand run() a None to present.
     if isinstance(effect, OpenSystemMenu):
-        render_system_menu(painter, session.system_menu, session.settings, game.assets)
+        render_system_menu(painter, session.system_menu, session.settings, game.assets,
+                           _available_slots(session))
     elif isinstance(effect, ChooseCharacter):
         # the selector owns the whole frame; the staged PLAY scene is never shown
         render_character_select(painter, session.character, game.assets, resolver)
@@ -1287,13 +1411,16 @@ def run(game, trace_path=None, session=None, resolver=None):
             if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
                 logical_pos = renderer.window_to_logical(event.pos)
             if (event.type == pygame.MOUSEBUTTONDOWN and event.button == 1
-                    and session.settings_error is not None and logical_pos is not None
+                    and (session.settings_error is not None
+                         or session.runtime_error is not None)
+                    and logical_pos is not None
                     and hit_test_settings_notice(logical_pos)):
                 # the notice's Dismiss gets first refusal over every other
                 # route -- including the cutscene skip below -- so a click on
                 # it during the opening clears only the error, never the
                 # mode/effect underneath and never the cutscene itself.
                 session.settings_error = None
+                session.runtime_error = None
                 continue
             if session.cutscene and (
                 event.type == pygame.KEYDOWN
@@ -1354,11 +1481,13 @@ def run(game, trace_path=None, session=None, resolver=None):
                 # is ever weakened (e.g. a caller feeding input_buffer.commands
                 # directly, as some tests do).
                 pass
-            elif (session.settings_error is not None
+            elif ((session.settings_error is not None
+                   or session.runtime_error is not None)
                     and command in (Command.ACCEPT, Command.OPEN_INVENTORY)):
                 # same first refusal as the Dismiss click: ACCEPT and
                 # OPEN_INVENTORY dismiss the notice instead of reaching the mode
                 session.settings_error = None
+                session.runtime_error = None
             else:
                 running = route_command(
                     game, session, command, input_buffer, renderer=renderer,
@@ -1368,6 +1497,8 @@ def run(game, trace_path=None, session=None, resolver=None):
             replaced = _cutscene_end_branch(game, renderer, session, input_buffer)
         if replaced is None:
             replaced = _restart_branch(game, renderer, session, input_buffer)
+        if replaced is None:
+            replaced = _load_branch(game, renderer, session, input_buffer)
         if replaced is not None:
             (
                 new_game, new_floor, new_session, new_input_buffer,
@@ -1395,8 +1526,10 @@ def run(game, trace_path=None, session=None, resolver=None):
             continue
         if game.mode is GameMode.PLAY:
             accumulator += elapsed
+            ticked = False
             while accumulator >= TICK_MS and game.mode is GameMode.PLAY:
                 play_tick(game, floor, input_buffer)
+                ticked = True
                 for actor_idx in _hit_actor_ids(game):
                     hit_feedback_deadlines[actor_idx] = now + HIT_FEEDBACK_MS
                 if game.mode is not GameMode.PLAY:
@@ -1408,6 +1541,14 @@ def run(game, trace_path=None, session=None, resolver=None):
                     # survives and the next frame re-resolves the held
                     # pointer against the new one, still hand or not
                     _rebase_follow(game, input_buffer)
+            if (ticked and session.quick_save_requested
+                    and game.mode is GameMode.PLAY
+                    and not game.life_stack and not game.immediate_effects):
+                # the deferred Quick Save commits at the first stable
+                # end-of-tick boundary: a tick really ran after the request,
+                # PLAY is still active, no LIFE continuation, no platform
+                # effects queued
+                _commit_quick_save(game, session)
             if game.num_camera != -1:
                 scene_frame, draw_list = _scene_frame(game, floor, renderer, resolver)
             # after the ticks and the scene refresh, so a moved pointer
@@ -1460,8 +1601,10 @@ def run(game, trace_path=None, session=None, resolver=None):
             keyboard_mode=play_keyboard,
         )
         # the settings notice is mode-independent: after the HUD and before
-        # the software cursor, so its Dismiss target is visually topmost
-        render_settings_notice(painter, session.settings_error)
+        # the software cursor, so its Dismiss target is visually topmost.
+        # Persistence errors share the surface and its one large Dismiss
+        # target (a settings error wins the slot: it names the boot file).
+        render_settings_notice(painter, session.settings_error or session.runtime_error)
         pygame.mouse.set_visible(not software_cursor and not play_keyboard)
         if software_cursor:
             kind = _play_cursor_kind(
@@ -1527,7 +1670,7 @@ def main(argv=None):
         # (route_mouse dispatched before reset_for while route_command reset
         # first, silently swallowing the title screen's first click).
         game.open_modal(ShowTitle())
-    session = load_runtime_session(settings_path())
+    session = load_runtime_session(settings_path(), save_directory=args.save_dir)
     # Session-only: this replaces session.settings in memory, but
     # session.disk_render (captured above, before this call) stays the
     # on-disk baseline -- so even a later save triggered by an unrelated
