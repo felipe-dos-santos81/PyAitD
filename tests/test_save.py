@@ -376,3 +376,116 @@ def test_validate_rejects_bad_anim_player_entries(data_dir, profile):
     }
     with pytest.raises(SaveError, match=r"anim_players\[3\]\.anim_step"):
         validate_snapshot(payload, data_dir, profile)
+
+
+# ── task 4: atomic manual and quick slot storage ────────────────────────────
+
+import PyAitD.engine.save as save_module
+from PyAitD.app.config import settings_path
+from PyAitD.engine.save import read_slot, save_dir, slot_path, write_slot
+
+
+def test_save_dir_sits_beside_the_settings_path(tmp_path):
+    for platform in ("darwin", "linux"):
+        assert save_dir(platform=platform, home=tmp_path).parent == \
+            settings_path(platform=platform, home=tmp_path).parent
+    assert save_dir(platform="darwin", home=tmp_path) == \
+        tmp_path / "Library" / "Application Support" / "PyAitD" / "saves"
+    assert save_dir(platform="linux", home=tmp_path) == \
+        tmp_path / ".config" / "pyaitd" / "saves"
+
+
+def test_slot_path_names_and_kinds(tmp_path):
+    assert slot_path(tmp_path, "manual") == tmp_path / "save-manual.json"
+    assert slot_path(tmp_path, "quick") == tmp_path / "save-quick.json"
+    with pytest.raises(ValueError):
+        slot_path(tmp_path, "auto")
+
+
+def test_write_and_read_slot_round_trip(data_dir, profile, tmp_path):
+    payload = _snapshot(data_dir, profile)
+    slot = slot_path(tmp_path, "manual")
+    assert write_slot(slot, payload) is None
+    raw = slot.read_text(encoding="utf-8")
+    assert raw == json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    loaded, error = read_slot(slot, data_dir, profile)
+    assert error is None
+    assert loaded == payload
+
+
+def test_read_missing_slot_is_not_an_error(tmp_path, data_dir, profile):
+    assert read_slot(slot_path(tmp_path, "manual"), data_dir, profile) == (None, None)
+
+
+def test_read_malformed_slot_reports_an_error(tmp_path, data_dir, profile):
+    slot = slot_path(tmp_path, "manual")
+    slot.write_text("{truncated", encoding="utf-8")
+    loaded, error = read_slot(slot, data_dir, profile)
+    assert loaded is None
+    assert "save-manual.json" in error
+
+
+def test_read_incompatible_slot_reports_an_error(tmp_path, data_dir, profile):
+    payload = _snapshot(data_dir, profile)
+    payload["source"]["digest"] = "0" * 64
+    slot = slot_path(tmp_path, "quick")
+    assert write_slot(slot, payload) is None
+    loaded, error = read_slot(slot, data_dir, profile)
+    assert loaded is None
+    assert "identity" in error
+
+
+def test_write_to_an_impossible_path_reports_an_error(data_dir, profile, tmp_path):
+    payload = _snapshot(data_dir, profile)
+    impossible = tmp_path / "not-a-dir.json" / "save-manual.json"
+    impossible.parent.write_text("a file, not a directory", encoding="utf-8")
+    error = write_slot(impossible, payload)
+    assert error and "save-manual.json" in error
+
+
+def _written_slot(data_dir, profile, tmp_path):
+    payload = _snapshot(data_dir, profile)
+    slot = slot_path(tmp_path, "manual")
+    assert write_slot(slot, payload) is None
+    return payload, slot, slot.read_bytes()
+
+
+def _assert_failure_left_nothing_behind(tmp_path, slot, before):
+    assert slot.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == [slot.name]
+
+
+def test_dump_failure_keeps_the_prior_slot(data_dir, profile, tmp_path, monkeypatch):
+    _, slot, before = _written_slot(data_dir, profile, tmp_path)
+
+    def boom(*args, **kwargs):
+        raise OSError("simulated dump failure")
+
+    monkeypatch.setattr(save_module.json, "dump", boom)
+    error = write_slot(slot, _snapshot(data_dir, profile))
+    assert error and "save-manual.json" in error
+    _assert_failure_left_nothing_behind(tmp_path, slot, before)
+
+
+def test_fsync_failure_keeps_the_prior_slot(data_dir, profile, tmp_path, monkeypatch):
+    _, slot, before = _written_slot(data_dir, profile, tmp_path)
+
+    def boom(fd):
+        raise OSError("simulated fsync failure")
+
+    monkeypatch.setattr(save_module.os, "fsync", boom)
+    error = write_slot(slot, _snapshot(data_dir, profile))
+    assert error and "save-manual.json" in error
+    _assert_failure_left_nothing_behind(tmp_path, slot, before)
+
+
+def test_replace_failure_keeps_the_prior_slot(data_dir, profile, tmp_path, monkeypatch):
+    _, slot, before = _written_slot(data_dir, profile, tmp_path)
+
+    def boom(src, dst):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(save_module.os, "replace", boom)
+    error = write_slot(slot, _snapshot(data_dir, profile))
+    assert error and "save-manual.json" in error
+    _assert_failure_left_nothing_behind(tmp_path, slot, before)

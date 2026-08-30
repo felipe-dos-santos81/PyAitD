@@ -4,7 +4,11 @@ validation before anything may touch a live game. Settings ride through as
 an opaque JSON-ready dict -- app/config.validate_settings owns them, so this
 module never imports the app layer."""
 import hashlib
+import json
+import os
 import pathlib
+import sys
+import tempfile
 from dataclasses import fields as dataclass_fields
 
 from PyAitD import __version__
@@ -63,6 +67,65 @@ def source_identity(data_dir, profile, hero):
     for name in archives:
         digest.update((pathlib.Path(data_dir) / name).read_bytes())
     return {"profile": profile.name, "archives": archives, "digest": digest.hexdigest()}
+
+
+def save_dir(*, platform=None, home=None):
+    """The slot directory, beside the settings file app/config writes."""
+    platform = sys.platform if platform is None else platform
+    home = pathlib.Path.home() if home is None else pathlib.Path(home)
+    if platform == "darwin":
+        return home / "Library" / "Application Support" / "PyAitD" / "saves"
+    return home / ".config" / "pyaitd" / "saves"
+
+
+def slot_path(directory, kind):
+    if kind not in ("manual", "quick"):
+        raise ValueError(f"slot kind must be 'manual' or 'quick', got {kind!r}")
+    return pathlib.Path(directory) / f"save-{kind}.json"
+
+
+def write_slot(path, payload):
+    """Atomically write the payload: a same-directory temp file, flush +
+    fsync, then os.replace. Returns None, or a visible error string; a
+    failure never touches an existing slot and leaves no temp file behind."""
+    path = pathlib.Path(path)
+    temporary = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, raw_name = tempfile.mkstemp(
+            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp",
+        )
+        temporary = pathlib.Path(raw_name)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, sort_keys=True, separators=(",", ":"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        return None
+    except (OSError, ValueError, TypeError) as exc:
+        return f"Could not save {path.name}: {exc}"
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def read_slot(path, data_dir, profile):
+    """Return (payload, None) on success, (None, None) when the slot does
+    not exist, and (None, error) for a corrupt or incompatible one."""
+    path = pathlib.Path(path)
+    if not path.exists():
+        return None, None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return None, f"Could not load {path.name}: {exc}"
+    try:
+        return validate_snapshot(payload, data_dir, profile), None
+    except SaveError as exc:
+        return None, f"Could not load {path.name}: {exc}"
 
 
 def snapshot_game(game, settings):
