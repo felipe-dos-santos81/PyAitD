@@ -39,28 +39,40 @@ colour multiply, which now shares the height field's own noise sample.
 
 ```
 $ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m pytest tests/test_materials.py tests/test_render_gl.py tests/test_bootstrap_materials.py tests/test_layering.py -q
-154 passed in 5.92s
+156 passed in 6.44s
 ```
 
 ```
 $ make test
-1431 passed, 2 skipped, 1 xfailed, 26 warnings in 52.18s
+1433 passed, 2 skipped, 1 xfailed, 26 warnings in 52.42s
 ```
 
-1429 before this task + the two new pure tests = 1431; 26 warnings, none
-new.
+1429 before the retune + its two new pure tests = 1431, and the review
+fix wave (recorded throughout this document) took that to 1433: three
+tests added, one one-off folded into a stronger loop. 26 warnings
+throughout, none new.
 
 ```
 $ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m pytest tests/test_render_gl.py -q -k "golden or classic or fixed"
-5 passed, 83 deselected in 0.36s
+5 passed, 85 deselected in 0.67s
 ```
 
-Those five are the identity net, unmodified by this task:
+Those five are the identity net:
 `test_classic_realism_matches_the_pre_materials_golden` (the committed
-`scene_lit_classic.npy`, byte-compared), `test_classic_ignores_the_material_table`,
+`scene_lit_classic.npy`, byte-compared),
+`test_classic_renders_every_material_class_like_matte`,
 `test_fixed_lighting_is_unchanged_by_the_scene_light`,
 `test_fixed_lighting_casts_no_shadow`,
-`test_fixed_lighting_ignores_the_shadows_option`. A retune of
+`test_fixed_lighting_ignores_the_shadows_option`. The second of those is
+the fix wave's replacement for `test_classic_ignores_the_material_table`,
+which compared `matte` against `metal` and nothing else: the loop compares
+**every** class in `CLASS_PRESETS` against `matte`, on the swept-normal
+quad — the one fixture that reaches the terminator, the rim, the specular
+lobe and a non-degenerate bump facet at once — with a control that each
+class *does* differ from matte under `enhanced`. The sss term's classic
+identity, which nothing previously pinned, is pinned by it; so is
+`emissive`'s, which had been asserted separately inside the emissive test
+and is no longer duplicated there. A retune of
 `CLASS_PRESETS` *cannot* move `classic` — every material term is written
 `1 + strength * ...` or `mix(x, y, strength)` with `PRESETS["classic"]` all
 zeros — so these passing is a check that nothing structural leaked, not
@@ -76,6 +88,30 @@ The two tests this task added, both pure (`tests/test_materials.py`):
 - `test_only_emissive_emits` — `emissive` replaces a fragment's whole
   colour, so a stray non-zero anywhere in the table would take a body out
   of the lighting entirely.
+
+The review fix wave added three more:
+
+- `test_a_key_shadowed_face_takes_no_warm_terminator`
+  (`tests/test_render_gl.py`) — the `vis` gate on the terminator, below.
+  Deep in the umbra all four shadow taps read 0, so the mix factor is
+  exactly 0 and the claim is an equality, not a bound; the unoccluded
+  render of the same patch of the same receiver is the control. Removing
+  ` * vis` from the shader fails it on the shadowed half
+  (`0.098 <= 0.001`) while every other test in the file stays green,
+  which is the mutation check.
+- `test_classic_renders_every_material_class_like_matte` — the
+  all-classes loop above, which replaced the matte-vs-metal one-off.
+- `test_view_matrix_is_camera_matrixs_view_half` — pure, no GL context.
+  `render_gl.view_matrix` had no test at all, and its only consumer cannot
+  detect it being wrong: the distance fade reads `fwidth(nc)` rather than
+  `v_view`, and `k = abs(det) / length(cross(sx, sy))` is invariant to a
+  uniform scale on `v_view`, so a transposed rotation or a scale error
+  would tilt or deepen relief on every actor with the whole suite still
+  green. `camera_matrix` and `view_matrix` now build from one shared
+  `_view_factors` (byte-identical `camera_matrix` output over 400 random
+  cameras, so the golden cannot move), and the test recombines the halves
+  through the split-out `projection_matrix` across 50 rotated cameras,
+  with a transposed block and a 1.001 scale as its own mutations.
 
 The binding pre-existing gates that this retune had to stay inside:
 `test_metal_is_brighter_than_matte_under_enhanced` (see "metal" below —
@@ -234,7 +270,11 @@ rendering the fixture once per class with that class forced to
 
 **`wood`, `emissive`, `hair` and `glass` are not observable on either
 fixture.** Their numbers below were set by rule and by measurement, never
-by eye, and this document does not claim otherwise.
+by eye, and this document does not claim otherwise. Not for the same
+reason, though, and the difference matters: `hair` and `glass` are
+unreachable from the shipped table at all, while `wood` and `emissive`
+are live in the game and merely absent from these two frames. Known
+limitations separates the two.
 
 Measured over each class's own pixels, before and after the retune (`max`
 is the brightest channel value any pixel of that class reaches, `clip` is
@@ -493,6 +533,49 @@ states which scale it uses. `hair` and `metal` were genuinely inert;
 `cloth` was not, and its `detail_scale` was widened for the aliasing the
 fixture *did* show, not for the inertness it did not have.
 
+### skin keeps a `detail` of 0.15, where the spec said none
+
+The spec's relief paragraph ends: *"The colour multiply survives as albedo
+variation at a fraction of its strength: wood keeps a tonal streak, skin
+gets none."* Skin ships `detail = 0.15`. **The line was not followed, and
+this is the record of why rather than a value left un-retuned.**
+
+`detail` is not the colour multiply's field. One noise sample feeds both
+terms — `relief = m1.x * m1.y * dn` and `grain = 1 + preset_b.y * m1.x *
+dn` — so `m1.x` (`detail`) is their *shared* amplitude, and the only
+per-term levers are `bump` for the relief and `PRESETS["enhanced"].detail`
+for the colour, which is global. Setting skin's `detail` to 0 would
+therefore not give skin "no colour streak"; it would delete skin's relief
+outright, since `bump = 0.3` multiplies the same `m1.x`. That relief is
+the pore-scale texture on the second-most-used class in the table —
+Carnby's face and hands — and it is the whole point of the bump work.
+Honouring the sentence literally would need a second field
+(a `detail_colour` beside `detail`), which is a table-schema change, not a
+retune.
+
+What the sentence asks for is met by degree instead, and it is measured.
+On a 200-grey camera-facing square at the shipped
+`PRESETS["enhanced"].detail` of 0.5, with each class's `bump` forced to 0
+so that only the colour multiply is left, the swing the multiply
+contributes is:
+
+| class | `detail` | mean \|Δ\| | max \|Δ\| |
+|---|---|---|---|
+| wood | 0.35 | 6.8 | 23 |
+| stone | 0.30 | 7.2 | 19 |
+| hair | 0.30 | 5.3 | 18 |
+| leather | 0.20 | 4.8 | 13 |
+| metal | 0.20 | 4.8 | 12 |
+| **skin** | **0.15** | **2.8** | **10** |
+| cloth | 0.14 | 0.0 | 0 |
+
+Skin's tonal variation is about 40% of wood's, and every class except
+cloth carries more. (Cloth's zero is its own fixture artefact — a 48-unit
+weave cell on this square puts both renders on the same phase of the
+`sin * sin` pattern — not a claim that cloth has no colour streak.)
+**"Skin gets none" is not what ships; "skin gets the least of any class
+that has relief" is.**
+
 ### metal: the criterion that had to be traded
 
 Relief and a tight highlight are in direct opposition, and metal has both.
@@ -525,6 +608,60 @@ a region — the claim "metal is brighter than matte" survives that, the
 single-pixel measurement does not survive relief — rather than raise the
 bump against the current gate.
 
+## The warm terminator is gated by the key's visibility
+
+**A defect in the spec, found in whole-branch review and fixed here.**
+`docs/superpowers/specs/2026-08-29-actor-realism-roadmap-design.md` gave
+the terminator as
+
+```
+base *= mix(vec3(1.0), SSS_TINT, preset_c.y * m2.y * 4.0 * wrapped * (1.0 - wrapped));
+```
+
+and the implementation matched it character for character. It has no
+`vis`. `base` folds the shadow map's key visibility into the key's share
+and `spec` is multiplied by it, but `wrapped` is the *geometric*
+half-Lambert wrap and shadowing does not touch it — so a skin fragment
+standing fully inside another actor's key shadow still took the whole warm
+tint. A lit terminator, painted across an unlit face. It went unnoticed
+because it needs two sub-projects at once: nothing shadows an actor under
+`shadows=hard`, where `vis` is exactly 1.0, and this sub-project was built
+and measured before it composed with the soft-shadow one.
+
+The shipped line multiplies the mix factor by `vis`. Subsurface scattering
+is key light that entered the surface; where the shadow map says no key
+arrives, there is nothing to scatter. The spec has been corrected in place
+so the next reader of the spec is not misled.
+
+**Measured, in the shipped default configuration** (`realism=enhanced`,
+`shadows=soft`, `smoothing=2`, both `tools/prove_graphics` fixtures, the
+same frame rendered with and without the gate):
+
+| fixture | scale | pixels changed | max Δ | mean Δ over those px |
+|---|---|---|---|---|
+| attic | 4 (the shipped default) | 5,337 / 1,024,000 | 8 | 1.5 |
+| attic | 1 | 361 / 64,000 | 6 | 1.4 |
+| combat | 4 | 1,568 / 1,024,000 | 3 | 1.4 |
+| combat | 1 | 98 / 64,000 | 2 | 1.4 |
+
+Every changed pixel moves the same way — the gate only ever *removes*
+warmth, and no pixel's red channel rises — which is what the term's sign
+requires: `SSS_TINT` is (1.0, 0.82, 0.74), so removing it can only give
+green and blue back. The affected pixels are `skin`, the second-most-used
+class in the table (18,021 attic pixels, Carnby's face and hands, and the
+lantern's chimney).
+
+Classic identity is unaffected — `preset_c.y` is 0 under `classic`, so the
+factor is 0 whatever `vis` is — and that is checked rather than assumed:
+the golden, the three `lighting="fixed"` tests and the new all-classes
+classic loop all pass unchanged.
+
+**`rim` has the same gap and keeps it.** It is multiplied by `preset_a.y`
+and by nothing else, so a silhouette edge in full key shadow still takes
+its fresnel. That predates this branch and is deliberately out of scope
+here; it is the natural companion to this fix and is named in the
+limitations below.
+
 ## Known limitations
 
 - **Derivative bump is per 2x2 quad.** `dFdx`/`dFdy` are constant across a
@@ -554,8 +691,43 @@ bump against the current gate.
 - **Anisotropy and plate reflections were dropped** as not worth their
   cost at this scale. Metal's broader lobe is the stand-in for the first;
   there is no stand-in for the second.
-- **`glass` and `hair` are untested against anything real.** No ramp uses
-  them, so their presets are reasoned, not observed.
+- **Two different kinds of "not observed", and they carry different
+  risk.** The shipped `default_table()` classifies the 256 palette indices
+  as: matte 76, skin 65, cloth 59, leather 22, metal 21, wood 7, stone 5,
+  emissive 1 — and no hair, no glass.
+  - ***Unreachable in this data:*** `glass` and `hair`. No index resolves
+    to either, so nothing in the shipped game can render through them and
+    their presets are reasoned rather than observed. Tuning them blind
+    costs nothing until a per-body override
+    (`DIR/bodies/body<NNN>.json`) asks for one, at which point their
+    numbers get their first real test.
+  - ***Reachable but unobserved:*** `wood` (7 indices — 198–201 and
+    205–207, the cabinet/coffin) and `emissive` (ramp 14, the flame).
+    These are **live in the shipped game** and merely absent from the two
+    `make proof-graphics` fixtures, so no human has ever seen either one
+    render. That is the riskier half, and `emissive` is the riskiest thing
+    in the table: it replaces a fragment's colour outright — the only term
+    that does — and its whole visual claim rests on
+    `test_an_emissive_surface_renders_its_palette_colour` on a synthetic
+    grey square. `wood` now has a manual attestation row of its own below,
+    beside the flame's.
+- **`rim` is not gated by the key's visibility.** The terminator now is
+  (see the section above); `rim` still is not, so a silhouette edge
+  standing in another actor's key shadow takes its full fresnel. It
+  predates this branch, which is why it was left alone here, and it is the
+  natural companion to the terminator fix.
+- **`test_metal_is_brighter_than_matte_under_enhanced` is a one-pixel
+  fixture setting metal's art direction, and that is the next task.** The
+  bound that capped metal's `bump` at 0.08 is a single pixel at the exact
+  lobe centre ("metal: the criterion that had to be traded", above). The
+  claim it makes — metal is brighter than matte — survives being measured
+  over a region; the single-pixel measurement does not survive relief,
+  because relief scatters the highlight rather than spending it (the
+  region's peak is 31 at every bump value tested). Widening that probe to
+  a region and re-tuning metal's bump against it needs its own
+  measurements and its own render pass, so it was deliberately left out of
+  the review fix wave. It is the next step for metal, and nothing else in
+  the table is waiting on it.
 - **The `smoothstep(0.0, 0.25, |cos|)` ramp width** — how far off its own
   facet a shading normal has to be before the bump comes back to full
   strength — is still a chosen constant that no measurement pins. Nothing
@@ -571,6 +743,8 @@ bump against the current gate.
 | Nothing shimmers, crawls or fizzes on the hero as he walks away at `--render-scale 4` | pending |
 | Nothing shimmers on the hero at `--render-scale 1` and at `--render-scale 8` | pending |
 | A lit flame body (ramp 14) stays bright when the room's key turns away from it | pending |
+| The wood cabinet/coffin (palette indices 198–201, 205–207) reads as streaked wood with a soft highlight, not as flat colour — it is live in the game and in neither proof fixture, so this row is the only check it has | pending |
+| Carnby's face keeps its warm terminator in open light and loses it where another actor's shadow falls across him — no warm band on a shadowed face | pending |
 | `--realism classic` looks exactly as it did before this branch, in the window as well as in the golden | pending |
 | The floor-5 combat venue's monsters read as leather/skin rather than as one flat colour | pending |
 | No material change costs a playable frame rate at scale 4 or 8 | pending |

@@ -341,10 +341,19 @@ exactly 1.0 or 0.0 by the same construction as before.
 
 - **Skin.** Today's Half-Lambert is already a fully wrapped diffuse, so
   skin gets no extra wrap; it gets a warm terminator:
-  `base *= mix(vec3(1.0), SSS_TINT, preset_c.y * m2.y * 4.0 * wrapped *
+  `base *= mix(vec3(1.0), SSS_TINT, preset_c.y * m2.y * vis * 4.0 * wrapped *
   (1.0 - wrapped))`, peaking at the light/shade boundary and vanishing on
   the fully lit and fully unlit sides. `SSS_TINT` is one constant,
-  initially (1.0, 0.82, 0.74).
+  initially (1.0, 0.82, 0.74). The `vis` factor is a **correction to this
+  spec, made while implementing it**: as first written the formula had no
+  `vis`, so a face standing fully inside another actor's key shadow still
+  took the whole warm tint — `wrapped` is the geometric wrap and the
+  shadow map does not touch it. Subsurface scattering is key light that
+  entered the surface, so it has to be gated by the key's visibility
+  exactly as `base`'s key share and `spec` already are. Measured on the
+  shipped default (`realism=enhanced`, `shadows=soft`) before the gate
+  went in; see `docs/materials-v2-proof.md`. (`rim` has the same gap and
+  is deliberately left alone: it predates sub-project H.)
 - **Emissive.** `f_color.rgb = mix(shaded, v_color, preset_c.z * m2.z)`,
   so ramp 14 renders its palette colour whatever the light does.
 - **Specular normalisation.** Blinn-Phong gains `(gloss + 8) / (8π)`, so

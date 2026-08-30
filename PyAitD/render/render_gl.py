@@ -172,6 +172,44 @@ def rotation_matrix(state):
     return m
 
 
+def _view_factors(state):
+    """The (rotate, translate) pair, float64 and unrounded, that both
+    `camera_matrix` and `view_matrix` are built from.
+
+    One copy of the camera's rotation-and-translation convention, because
+    there is no test that can catch the two drifting apart from downstream:
+    `view_matrix`'s only consumer is the bump's `dFdx(v_view)`/`dFdy(v_view)`,
+    and `k = abs(det) / length(cross(sx, sy))` is invariant to a uniform
+    scale on `v_view` while the distance fade reads `fwidth(nc)` rather than
+    `v_view` at all -- so a transposed rotation or a scale error would tilt
+    or deepen relief with every existing assertion still passing.
+    `test_view_matrix_is_camera_matrixs_view_half` pins the relationship
+    from the outside as well."""
+    translate = np.eye(4)
+    translate[:3, 3] = (-state.x, -state.y, -state.z)
+    rotate = np.eye(4)
+    rotate[:3, :3] = rotation_matrix(state)
+    return rotate, translate
+
+
+def projection_matrix(state):
+    """`camera_matrix`'s projection half: the clip-space projection times the
+    `depth = z + focal1` shift, before the world -> camera transform.
+
+    Split out so a test can recombine the two halves; `camera_matrix` still
+    evaluates exactly `((proj @ shift) @ rotate) @ translate`, which is what
+    left-associativity always gave it, so the golden cannot move."""
+    proj = np.array([
+        [state.focal2 / SCREEN_CENTER_X, 0, 0, 0],
+        [0, -state.focal3 / SCREEN_CENTER_Y, 0, 0],
+        [0, 0, _DEPTH_A, _DEPTH_B],
+        [0, 0, 1.0, 0],
+    ])
+    shift = np.eye(4)
+    shift[2, 3] = state.focal1  # depth = z + focal1 becomes the clip w
+    return proj @ shift
+
+
 def camera_matrix(view, scale):
     """(4,4) float32 view-projection matrix: world-homogeneous @ m.T gives
     clip space (row-vector convention, matching the parity test).
@@ -182,20 +220,8 @@ def camera_matrix(view, scale):
     resolution is applied later by the GL viewport, not by this matrix.
     """
     state = view.state
-    rot = rotation_matrix(state)
-    translate = np.eye(4)
-    translate[:3, 3] = (-state.x, -state.y, -state.z)
-    rotate = np.eye(4)
-    rotate[:3, :3] = rot
-    proj = np.array([
-        [state.focal2 / SCREEN_CENTER_X, 0, 0, 0],
-        [0, -state.focal3 / SCREEN_CENTER_Y, 0, 0],
-        [0, 0, _DEPTH_A, _DEPTH_B],
-        [0, 0, 1.0, 0],
-    ])
-    shift = np.eye(4)
-    shift[2, 3] = state.focal1  # depth = z + focal1 becomes the clip w
-    m = proj @ shift @ rotate @ translate
+    rotate, translate = _view_factors(state)
+    m = projection_matrix(state) @ rotate @ translate
     return m.astype(np.float32)
 
 
@@ -206,13 +232,10 @@ def view_matrix(view):
     The fragment shader needs a camera-space *position* to take screen-space
     derivatives of (Mikkelsen's bump needs dP/dx and dP/dy, not a direction),
     and `rot` is rotation only -- it cannot carry the camera's translation.
-    Kept next to `camera_matrix` because the two must agree: a change to the
-    camera's rotation or translation convention has to land in both."""
-    state = view.state
-    translate = np.eye(4)
-    translate[:3, 3] = (-state.x, -state.y, -state.z)
-    rotate = np.eye(4)
-    rotate[:3, :3] = rotation_matrix(state)
+    Built from the same `_view_factors` as `camera_matrix`, so the two cannot
+    disagree about the convention; they are still separate functions because
+    the shader wants the view half alone."""
+    rotate, translate = _view_factors(view.state)
     return (rotate @ translate).astype(np.float32)
 
 

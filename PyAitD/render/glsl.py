@@ -153,15 +153,21 @@ void main() {
     // position instead of a tangent frame. FITD bodies carry no UVs and no
     // tangents, so this is the only bump that is available at all.
     //
-    // Every derivative is taken here, at top level. dFdx/dFdy/fwidth are
-    // undefined inside non-uniform control flow, and both `relief` and
-    // `m2.x` come from texture-dependent values -- so the *branch* below
-    // tests preset_c.x, a uniform, and only the assignment to `n` sits
-    // inside it. That branch is also what keeps realism=classic
-    // byte-exact: unguarded, the line would still evaluate normalize(n)
-    // with a zero perturbation, which is n mathematically but not
-    // bit-for-bit. (`relief` is the height field; the half vector below is
-    // already called `h`.)
+    // Every derivative this bump needs is taken here, at top level -- but
+    // the rule is narrower than "at top level". dFdx/dFdy/fwidth are
+    // undefined inside *non-uniform* control flow only, and the one branch
+    // below tests preset_c.x, a uniform, so the whole block would be legal
+    // inside it. What genuinely has to stay out here is `nc`, `dn` and
+    // `relief`: the grain colour multiply at the end of main reads `dn`
+    // unconditionally. Everything after them -- sx, sy, r1, r2, det, dh,
+    // grad, fw, fade, ref, k, surf_grad -- feeds the guarded assignment
+    // and nothing else, so sinking it into the branch is a legitimate
+    // optimisation, not a correctness bug; this comment does not forbid
+    // it. The branch itself is what keeps realism=classic byte-exact:
+    // unguarded, the line would still evaluate normalize(n) with a zero
+    // perturbation, which is n mathematically but not bit-for-bit.
+    // (`relief` is the height field; the half vector below is already
+    // called `h`.)
     vec4 m2 = texelFetch(material_tex, ivec2(index, 2), 0);
     // One coordinate, one sample, read by all three consumers: the height
     // here, the fade below and the surviving grain colour multiply at the
@@ -231,10 +237,21 @@ void main() {
     // a shadowed limb falls to the room's fill colour and never to black.
     vec3 base = v_color * (fill_tint + key_tint * wrapped * wrapped * vis);
     // Peaks at the light/shade boundary (wrapped 0.5, where 4x(1-x) is 1)
-    // and vanishes on both the fully lit and the fully unlit side. Under
-    // classic preset_c.y is 0, mix(a, b, 0) is exactly a, and base is
-    // untouched.
-    base *= mix(vec3(1.0), SSS_TINT, preset_c.y * m2.y * 4.0 * wrapped * (1.0 - wrapped));
+    // and vanishes on both the fully lit and the fully unlit side.
+    //
+    // Gated by `vis`, like the key's own share in `base`: subsurface
+    // scattering is key light that entered the surface, so where the
+    // shadow map says no key arrives there is nothing to scatter, and a
+    // warm terminator across a face standing in another actor's shadow is
+    // backwards. `wrapped` is the *geometric* wrap and shadowing does not
+    // touch it, so without this factor a fully key-shadowed skin fragment
+    // still took the full tint. (`rim` has the same gap and keeps it: it
+    // predates this term and is out of scope here.)
+    //
+    // Under classic preset_c.y is 0, mix(a, b, 0) is exactly a, and base
+    // is untouched whatever `vis` is; under shadows=hard `vis` is exactly
+    // 1.0, so this is the same expression it was.
+    base *= mix(vec3(1.0), SSS_TINT, preset_c.y * m2.y * vis * 4.0 * wrapped * (1.0 - wrapped));
 
     vec3 view = vec3(0.0, 0.0, -1.0);                 // from the surface toward the viewer
     vec3 h = normalize(l + view);

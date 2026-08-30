@@ -81,24 +81,48 @@ was written. The tessellation itself is attested separately, in
 
 ## Known limitations
 
-- **Nothing in the game is classified `glass`.** The attic window panes and
-  the lantern's glass chimney land on ramps `materials.json` classifies as
-  `cloth`, and the vision pass did not correct it: no ramp anywhere in the
-  shipped table is `glass`. A `glass` preset exists in `CLASS_PRESETS` (low
-  roughness, high specular, strong rim) and the table simply never reaches
-  it, so those surfaces shade as fabric. The remedy is the documented
-  hand-label loop: set `"label": "glass"` on the ramp in
-  `data/aitd1/materials-survey/survey.json` and re-run
-  `make bootstrap-materials`, whose survey stage carries hand labels forward
-  before the table is re-emitted.
-- **The shipped classification is largely an unreviewed model answer.** Of
-  the 23 palette ramps that any body actually uses, the vision pass
-  overrode the heuristic on 20 and agreed with it on 3. Nothing in the
-  committed table has yet been checked by a human against the game's own
-  art; the `note` on each row records both the heuristic's answer and the
-  model's so a reviewer can see where they disagreed. The 32 ramps no body
-  uses are not emitted at all — `parse_table`'s implicit `matte` default
-  already covers them.
+Two of the limitations below were **written on 2026-08-28 and superseded
+on 2026-08-29** by the materials v2 branch, which carried out the very
+hand review this document said had not happened. Each is left in place
+with what was true then and what is true now, in the way the
+`-flatmesh` attestation row in `docs/smooth-geometry-proof.md` records its
+own supersession.
+
+- **Nothing in the game is classified `glass` — and that is now a finding,
+  not a gap.** *Then:* the attic window panes and the lantern's glass
+  chimney landed on ramps `materials.json` classified as `cloth`, the
+  vision pass did not correct it, and the remedy looked like a hand-label
+  pass over those ramps. *Now, after the review
+  (`docs/materials-v2-proof.md`, "Glass does not exist in this data"):*
+  **no ramp among the 23 that any body uses reads as glass**, and the
+  chimney was reviewed to `skin`, not `cloth`. The window is largely
+  pre-rendered plate rather than body geometry — the striping across its
+  panes is present under `realism=classic` too — so the survey, which
+  walks bodies, never sees it at all; the panes that *are* geometry read
+  `cloth`. A `glass` preset still exists in `CLASS_PRESETS` (low
+  roughness, high specular, strong rim) and the shipped table still never
+  reaches it. What changed is the remedy: not "re-run the survey and hope",
+  but a per-body override (`DIR/bodies/body<NNN>.json`) for a body that
+  genuinely wants it. `hair` is absent for the same reason.
+- **The shipped classification was an unreviewed model answer; it is not
+  one now.** *Then:* of the 23 palette ramps that any body actually uses,
+  the vision pass overrode the heuristic on 20 and agreed with it on 3,
+  and nothing in the committed table had been checked by a human against
+  the game's own art. *Now:* it has. A human reviewed all 23 ramps one at
+  a time against the survey's rendered swatches and the bodies that use
+  them; the outcome — 15 class values changed across 152 palette indices —
+  is what ships, `docs/materials-v2-proof.md`'s "The ramp review" is the
+  durable ramp-by-ramp record, and `tests/test_bootstrap_materials.py`'s
+  `REVIEWED_RAMPS` pins the resulting per-index mapping. **Read the
+  committed table as a human decision, not as disposable model output.**
+  A bare `make bootstrap-materials` re-emit, without the survey's `label`
+  fields, silently reinstates the model's guesses — which is exactly what
+  the review found had already happened to ten ramps — and `REVIEWED_RAMPS`
+  is the net that fails when it does. The `note` on each row still records
+  the heuristic's answer, the model's and the human's (`label:`), so the
+  disagreements stay readable. The 32 ramps no body uses are still not
+  emitted at all — `parse_table`'s implicit `matte` default already covers
+  them.
 - **Escape hatches, if the classification is wrong for you.** `enhanced` is
   user-toggleable at runtime from the Graphics page's Realism row (moved
   there from CONFIG by the smooth actor geometry branch) and at launch with
