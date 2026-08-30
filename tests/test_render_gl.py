@@ -2558,6 +2558,43 @@ def test_the_shoulder_pulls_a_white_actor_to_the_rooms_ceiling(gl_ctx):
     assert pulled.max() == pytest.approx(204, abs=2)   # 255 * 0.8
 
 
+def test_the_toes_shape_tracks_the_quartic_and_rec709_weights(gl_ctx):
+    # The two endpoint tests above cannot tell the quartic from a square,
+    # or Rec.709 luma from flat 1/3 weights: at luma 0 (colour=0) and luma 1
+    # (a 255 entry), (1 - luma)^n and luma^n are both exactly 1 for any n,
+    # and luma itself is 0 or 1 no matter which weights compute it. Only a
+    # midtone actually exercises the exponent and the weighting -- this
+    # test measures the toe's lift there, on two colours, against a plate
+    # whose white is neutral so only the toe is active.
+    from PyAitD.render.plate import NEUTRAL_PLATE, PlateProfile
+    black = (30 / 255, 20 / 255, 20 / 255)
+    profile = PlateProfile(black, (1.0, 1.0, 1.0), 0.0)
+
+    # Mid-grey (128, 128, 128): Rec.709 luma is (0.2126+0.7152+0.0722) *
+    # 128/255 == 128/255 == 0.50196. The quartic toe predicts a red lift of
+    # 30 * (1 - 0.50196)^4 == 30 * 0.49804^4 == 1.8458 counts. A square
+    # (i.e. `toe *= toe;` deleted) would instead predict
+    # 30 * 0.49804^2 == 7.4413 counts -- 4x more, well past the tolerance.
+    grey = np.zeros((256, 3), np.uint8)
+    grey[1] = (128, 128, 128)
+    grey_flat = _composited_centre(gl_ctx, NEUTRAL_PLATE, palette=grey)
+    grey_lifted = _composited_centre(gl_ctx, profile, palette=grey)
+    grey_lift = int(grey_lifted[0]) - int(grey_flat[0])
+    assert grey_lift == pytest.approx(1.8458, abs=1)
+
+    # Saturated green (0, 200, 0): Rec.709 luma is 0.7152 * 200/255 ==
+    # 0.56094, predicting a red lift of 30 * (1 - 0.56094)^4 ==
+    # 30 * 0.43906^4 == 1.1148 counts. Flat 1/3 weights would instead see
+    # luma (1/3) * 200/255 == 0.26144 and predict
+    # 30 * 0.73856^4 == 8.9263 counts -- again far past the tolerance.
+    green = np.zeros((256, 3), np.uint8)
+    green[1] = (0, 200, 0)
+    green_flat = _composited_centre(gl_ctx, NEUTRAL_PLATE, palette=green)
+    green_lifted = _composited_centre(gl_ctx, profile, palette=green)
+    green_lift = int(green_lifted[0]) - int(green_flat[0])
+    assert green_lift == pytest.approx(1.1148, abs=1)
+
+
 def _grey_grain_render(gl_ctx, grain):
     """One flat mid-grey triangle over a flat plate, at `grain`.
 
