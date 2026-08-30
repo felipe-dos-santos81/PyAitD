@@ -16,7 +16,7 @@ textures ?= data/aitd1/textures
 # the mixer from opening a device on machines that have one.
 HEADLESS = SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy
 
-.PHONY: help install run run-combat run-mouse-combat test test-engine test-render test-shell test-tools test-meta test-journey proof-mouse proof-combat proof-graphics proof-intro prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro export-textures check-textures bootstrap-materials clean
+.PHONY: help install run run-combat run-mouse-combat test test-engine test-render test-shell test-tools test-meta test-journey proof-mouse proof-combat proof-graphics proof-intro prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro prove-persistence export-textures check-textures bootstrap-materials clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -87,6 +87,9 @@ proof-graphics: install ## Graphics proof: attic + combat fixtures at scale 4 pe
 
 proof-intro: install ## Opening cutscene proof: headless run to CutsceneFinished + one GL render per visited camera to docs/intro-proof/
 	$(HEADLESS) $(PYTHON) -m pytest tests/test_intro.py -q && $(PYTHON) tools/prove_intro.py "$(data)"
+
+prove-persistence: install ## M4a2 persistence gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract
+	$(HEADLESS) $(PYTHON) -m pytest tests/test_save.py tests/test_game_rng.py tests/test_ui_reducers.py tests/test_ui_mouse.py tests/test_ui_render.py tests/test_runtime_modes.py tests/test_shell_journeys.py tests/test_mouse_only.py tests/test_main.py tests/test_config.py -q
 
 # ── Legacy milestone gate names, kept so the proof docs keep working ─────────
 # Each alias runs a superset of the files it historically ran; the superset

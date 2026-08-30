@@ -489,3 +489,48 @@ def test_replace_failure_keeps_the_prior_slot(data_dir, profile, tmp_path, monke
     error = write_slot(slot, _snapshot(data_dir, profile))
     assert error and "save-manual.json" in error
     _assert_failure_left_nothing_behind(tmp_path, slot, before)
+
+
+# ── task 7: clean-process restoration proof ─────────────────────────────────
+
+
+def test_clean_process_restores_the_identical_world(data_dir, profile, tmp_path):
+    """The whole point of the atomic replacement: a fresh interpreter that
+    only has the slot file and the game data rebuilds the identical world --
+    the writer's mutated state, its RNG stream, and the settings block."""
+    import subprocess
+    import sys
+
+    game = _game(data_dir, profile)
+    game.timer = 1234
+    game.action = 0x2000
+    game.vars[5] = 4242
+    game.cvars[10] = 701
+    game.actors[0].beta = 123
+    game.world_objects[3].beta = 512
+    game.inventory_table[0][0] = 2
+    game.inventory_count[0] = 1
+    game.messages[0] = TimedMessage(5, age=3)
+    game.floor_start = FloorStart(5, 4, -7800, -4010, -1000, 0)
+    game.rng.seed(77)
+    game.rng.randrange(100)
+    payload = snapshot_game(game, SETTINGS)
+    slot = slot_path(tmp_path, "manual")
+    assert write_slot(slot, payload) is None
+
+    script = f"""
+import json, pathlib
+from PyAitD.engine.save import read_slot, restore_game, snapshot_game
+from PyAitD.games import load_profile
+profile = load_profile("aitd1")
+payload, error = read_slot(pathlib.Path({str(slot)!r}), pathlib.Path({str(data_dir)!r}), profile)
+assert error is None, error
+restored, settings = restore_game(pathlib.Path({str(data_dir)!r}), profile, payload)
+print(json.dumps({{"world": snapshot_game(restored, settings), "draw": restored.rng.randrange(1000)}}))
+"""
+    out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    checkpoint = json.loads(out.stdout)
+    assert checkpoint["world"] == payload
+    # the restored RNG draws exactly what the writer's stream draws next
+    assert checkpoint["draw"] == game.rng.randrange(1000)
