@@ -970,10 +970,12 @@ GOLDEN = pathlib.Path(__file__).parent / "golden" / "scene_lit_classic.npy"
 
 
 def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
-    # smoothing=0 and shadows="hard" name the legacy paths explicitly: the
-    # golden predates tessellation and the gathered soft-shadow pass
+    # smoothing=0, shadows="hard" and integration="off" name the legacy
+    # paths explicitly: the golden predates tessellation, the gathered
+    # soft-shadow pass and the plate composite.
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
-                                              realism="classic", smoothing=0, shadows="hard"))
+                                              realism="classic", smoothing=0, shadows="hard",
+                                              integration="off"))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
@@ -1632,9 +1634,10 @@ def _overlap_frame(with_caster):
                             _palette(), actors, (), light)
 
 
-def _render_overlap(gl_ctx, shadows, frame):
+def _render_overlap(gl_ctx, shadows, frame, integration="off"):
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
-                                              realism="classic", smoothing=2, shadows=shadows))
+                                              realism="classic", smoothing=2, shadows=shadows,
+                                              integration=integration))
     backend.draw(frame)
     out = backend.read_rgb().astype(int)
     backend.release()
@@ -1645,7 +1648,12 @@ def test_a_gathered_shadow_never_darkens_an_earlier_actor(gl_ctx):
     # The per-actor composite is a full-target multiply with no depth: a
     # nearer actor's shadow, composited after a farther body was drawn,
     # paints over that body. Gathering every cast before any body is drawn
-    # is what `soft` fixes; `hard` keeps the artefact verbatim.
+    # is what `soft` fixes; `hard` keeps the artefact verbatim -- under
+    # `integration="off"`, which `_render_overlap` now names explicitly.
+    # Under `integration="on"` the hard casts have to reach the plate layer,
+    # so they too run before any body and the artefact goes with them; the
+    # last assertion below pins that difference rather than leaving it to
+    # the proof document.
     square_only = _overlap_frame(False)
     caster_only = FrameDescription(square_only.camera, square_only.background, square_only.palette,
                                    (_overlap_frame(True).actors[1],), (), square_only.light)
@@ -1663,6 +1671,12 @@ def test_a_gathered_shadow_never_darkens_an_earlier_actor(gl_ctx):
     wrong = np.any(paired_hard != solo_hard, axis=2) & body
     assert wrong.sum() > 100                                           # hard: the sphere's shadow lands on the square
     assert np.array_equal(paired_soft[body], solo_soft[body])          # soft: the body is untouched
+    # hard + integration="on": the casts run ahead of the bodies too, so the
+    # artefact is gone here as well. Deliberate, and a behaviour difference
+    # from `off` -- see docs/plate-integration-proof.md's known limitations.
+    solo_on = _render_overlap(gl_ctx, "hard", square_only, integration="on")
+    paired_on = _render_overlap(gl_ctx, "hard", _overlap_frame(True), integration="on")
+    assert np.array_equal(paired_on[body], solo_on[body])
 
 
 def test_two_soft_casters_darken_a_pixel_once(gl_ctx):

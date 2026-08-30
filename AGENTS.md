@@ -150,7 +150,15 @@ a rule — add the test with the rule.
   shared decode caches — read them, never write. `refine` is pure numpy: the
   tessellation plan, the per-corner normals and the numpy twin of `_TESS_VSH`
   that the transform-feedback test pins the GPU against — change the formula
-  in both or neither. `glsl` is strings only — every GLSL source the backend
+  in both or neither. `plate` is pure numpy too: `PlateProfile`,
+  `estimate_plate` and `softness` — what the room's own picture says about
+  its black, its white, its dither and its cell size, read off the
+  background image and consumed only by the composite. Under
+  `integration="on"` (the default) `render_gl` splits the frame into a
+  plate layer and an actor layer, resolves each, and composites the second
+  back through the first in one full-target pass (`COMPOSITE_FSH`);
+  `integration="off"` keeps the single-target path.
+  `glsl` is strings only — every GLSL source the backend
   compiles, no imports (`test_layering` pins it). `lighting.soften` is the numpy
   twin of the penumbra blur (`SHADOW_BLUR_FSH`), pinned like
   `refine.evaluate` — change the formula in both or neither. The twin

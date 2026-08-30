@@ -36,7 +36,7 @@ class RenderOptions:
     realism: str = "enhanced"
     smoothing: int = 2
     shadows: str = "soft"
-    integration: str = "off"
+    integration: str = "on"
 
     def to_payload(self):
         return {

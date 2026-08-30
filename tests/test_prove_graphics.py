@@ -25,6 +25,13 @@ def test_render_fixture_produces_scaled_frames(data_dir, gl_ctx):
     assert not np.array_equal(rgb, hard)   # the default softens the shadows, and it shows
 
 
+def test_the_default_composites_and_nocomposite_does_not(gl_ctx, data_dir):
+    rgb = render_fixture(data_dir, "attic", scale=2, shading="smooth", ctx=gl_ctx)
+    plain = render_fixture(data_dir, "attic", scale=2, shading="smooth", ctx=gl_ctx,
+                           integration="off")
+    assert not np.array_equal(rgb, plain)   # the default composites, and it shows
+
+
 def test_parse_args_defaults():
     args = _parse_args(["some/data/dir"])
     assert args.data == pathlib.Path("some/data/dir")
@@ -41,16 +48,22 @@ def test_parse_args_overrides():
 def test_output_paths_cover_every_combination_plus_the_twins():
     from PyAitD.render.render_options import RenderOptions
     paths = output_paths("docs/graphics-proof")
-    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 2 * len(FIXTURES)
+    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 3 * len(FIXTURES)
     default = RenderOptions()
-    names = {(name, mode, realism, level, shadows) for name, mode, realism, level, shadows, _ in paths}
-    expected = {(n, m, r, default.smoothing, default.shadows)
+    names = {(name, mode, realism, level, shadows, integration)
+             for name, mode, realism, level, shadows, integration, _ in paths}
+    expected = {(n, m, r, default.smoothing, default.shadows, default.integration)
                 for n in FIXTURES for m in SHADING_MODES for r in REALISM_MODES}
-    expected |= {(n, "smooth", "enhanced", 0, default.shadows) for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, "hard") for n in FIXTURES}
+    expected |= {(n, "smooth", "enhanced", 0, default.shadows, default.integration) for n in FIXTURES}
+    expected |= {(n, "smooth", "enhanced", default.smoothing, "hard", default.integration)
+                 for n in FIXTURES}
+    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, "off")
+                 for n in FIXTURES}
     assert names == expected
-    for name, mode, realism, level, shadows, path in paths:
-        suffix = "-flatmesh" if level == 0 else "-hardshadow" if shadows == "hard" else ""
+    for name, mode, realism, level, shadows, integration, path in paths:
+        suffix = ("-flatmesh" if level == 0
+                  else "-hardshadow" if shadows == "hard"
+                  else "-nocomposite" if integration == "off" else "")
         assert path == pathlib.Path("docs/graphics-proof") / f"{name}-{mode}-{realism}{suffix}.png"
 
 
@@ -60,6 +73,8 @@ def test_parse_args_smoothing_and_shadows_default_to_the_render_defaults():
     assert _parse_args(["d", "--smoothing", "0"]).smoothing == 0
     assert _parse_args(["d"]).shadows == RenderOptions().shadows
     assert _parse_args(["d", "--shadows", "hard"]).shadows == "hard"
+    assert _parse_args(["d"]).integration == RenderOptions().integration
+    assert _parse_args(["d", "--integration", "off"]).integration == "off"
 
 
 def test_main_exits_2_when_data_directory_is_absent(tmp_path, capsys):
@@ -87,4 +102,5 @@ def test_render_fixture_is_importable_with_the_documented_signature():
     # positional args in a later edit, without needing GL or game data.
     import inspect
     params = list(inspect.signature(render_fixture).parameters)
-    assert params == ["data_dir", "name", "scale", "shading", "ctx", "realism", "smoothing", "shadows"]
+    assert params == ["data_dir", "name", "scale", "shading", "ctx", "realism", "smoothing",
+                      "shadows", "integration"]
