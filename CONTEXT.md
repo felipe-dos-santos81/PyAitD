@@ -27,7 +27,7 @@ make test-meta                 # the repo's own rules (package layering, test gr
 make test-journey              # real run() event pump and long real-data simulations
 make proof-mouse               # navmesh for every camera-visible room, every floor (needs game data)
 make proof-combat              # venue, real enemy damage, player arms, game over (needs game data)
-make proof-graphics            # attic + combat fixtures at every shading mode, plus flat-mesh and hard-shadow pairs, -> docs/graphics-proof/ (needs GL + game data)
+make proof-graphics            # attic + combat fixtures at every shading mode, plus flat-mesh, hard-shadow, un-composited and over-composited pairs, -> docs/graphics-proof/ (needs GL + game data)
 make proof-intro               # opening cutscene: headless gate + one GL render per visited camera
 make export-backgrounds      # originals + 5 KILLED_SORCERER alts + palette + guides + manifest schema 3 -> data/aitd1/overrides (out=, floors=, scale=, force=1, screens=0 to skip)
 make check-overrides         # validate an override dir as the game loads it (overrides=DIR, proof=1 side-by-sides: bases, alts -alt.png, screens)

@@ -25,6 +25,15 @@ def test_render_fixture_produces_scaled_frames(data_dir, gl_ctx):
     assert not np.array_equal(rgb, hard)   # the default softens the shadows, and it shows
 
 
+def test_the_strong_twin_composites_harder_than_the_default(gl_ctx, data_dir):
+    # The `-strong` render is the only place the proof shows a level above
+    # the default, so it has to actually differ from it.
+    full = render_fixture(data_dir, "attic", scale=2, shading="smooth", ctx=gl_ctx)
+    strong = render_fixture(data_dir, "attic", scale=2, shading="smooth", ctx=gl_ctx,
+                            integration=3)
+    assert not np.array_equal(full, strong)
+
+
 def test_the_default_composites_and_nocomposite_does_not(gl_ctx, data_dir):
     rgb = render_fixture(data_dir, "attic", scale=2, shading="smooth", ctx=gl_ctx)
     plain = render_fixture(data_dir, "attic", scale=2, shading="smooth", ctx=gl_ctx,
@@ -48,7 +57,7 @@ def test_parse_args_overrides():
 def test_output_paths_cover_every_combination_plus_the_twins():
     from PyAitD.render.render_options import RenderOptions
     paths = output_paths("docs/graphics-proof")
-    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 3 * len(FIXTURES)
+    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 4 * len(FIXTURES)
     default = RenderOptions()
     names = {(name, mode, realism, level, shadows, integration)
              for name, mode, realism, level, shadows, integration, _ in paths}
@@ -59,11 +68,14 @@ def test_output_paths_cover_every_combination_plus_the_twins():
                  for n in FIXTURES}
     expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 0)
                  for n in FIXTURES}
+    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 3)
+                 for n in FIXTURES}
     assert names == expected
     for name, mode, realism, level, shadows, integration, path in paths:
         suffix = ("-flatmesh" if level == 0
                   else "-hardshadow" if shadows == "hard"
-                  else "-nocomposite" if integration == 0 else "")
+                  else "-nocomposite" if integration == 0
+                  else "-strong" if integration == 3 else "")
         assert path == pathlib.Path("docs/graphics-proof") / f"{name}-{mode}-{realism}{suffix}.png"
 
 
