@@ -2595,6 +2595,28 @@ def test_the_toes_shape_tracks_the_quartic_and_rec709_weights(gl_ctx):
     assert green_lift == pytest.approx(1.1148, abs=1)
 
 
+def test_the_shoulders_shape_tracks_the_quartic(gl_ctx):
+    # Mirror of the toe probe above, isolating the shoulder instead: black
+    # is neutral (the toe contributes exactly nothing) and white is 0.8, so
+    # 1 - plate_white is (0.2, 0.2, 0.2) and only the shoulder is active.
+    from PyAitD.render.plate import NEUTRAL_PLATE, PlateProfile
+    profile = PlateProfile((0.0, 0.0, 0.0), (0.8, 0.8, 0.8), 0.0)
+
+    # Mid-grey (128, 128, 128): Rec.709 luma is (0.2126+0.7152+0.0722) *
+    # 128/255 == 128/255 == 0.50196, luma^2 == 0.25196. The quartic
+    # shoulder predicts a red drop of 255 * 0.2 * 0.25196^2 ==
+    # 255 * 0.2 * 0.063486 == 3.2378 counts against the neutral render. A
+    # square (i.e. `shoulder *= shoulder;` deleted) would instead predict
+    # 255 * 0.2 * 0.25196 == 12.8502 counts -- 4x more, well past the
+    # tolerance.
+    grey = np.zeros((256, 3), np.uint8)
+    grey[1] = (128, 128, 128)
+    grey_flat = _composited_centre(gl_ctx, NEUTRAL_PLATE, palette=grey)
+    grey_pulled = _composited_centre(gl_ctx, profile, palette=grey)
+    grey_drop = int(grey_flat[0]) - int(grey_pulled[0])
+    assert grey_drop == pytest.approx(3.2378, abs=1.5)
+
+
 def _grey_grain_render(gl_ctx, grain):
     """One flat mid-grey triangle over a flat plate, at `grain`.
 
