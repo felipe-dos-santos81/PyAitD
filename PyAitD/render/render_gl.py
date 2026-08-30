@@ -1162,10 +1162,15 @@ class GLBackend:
         self._ctx.disable(moderngl.DEPTH_TEST)
         self._ctx.disable(moderngl.BLEND)
         self._fbo.color_mask = (True, True, True, True)
-        # Not redundant: moderngl applies a framebuffer's stored colour mask
-        # at `use()` time, so the assignment above only reaches the GL
-        # binding point on a second `use()` -- the same desync the per-actor
-        # loop documents after `clear()`.
+        # Defensive, not corrective: under integration="on" nothing rebinds
+        # _fbo as a render target between the assignment above and this
+        # line, so the colour mask can't actually have drifted from the GL
+        # binding point the way _target's does after `clear()` in the
+        # per-actor loop above. Kept anyway, matching that loop's habit of
+        # re-`use()`ing after every colour-mask write -- one bind per frame
+        # is cheap insurance, and the day _fbo takes on render-target duty
+        # elsewhere in this file it stops being free to assume this call is
+        # a no-op.
         self._fbo.use()
         self._plate_tex.use(location=5)
         self._actor_tex.use(location=6)

@@ -151,9 +151,12 @@ a rule — add the test with the rule.
   tessellation plan, the per-corner normals and the numpy twin of `_TESS_VSH`
   that the transform-feedback test pins the GPU against — change the formula
   in both or neither. `plate` is pure numpy too: `PlateProfile`,
-  `estimate_plate` and `softness` — what the room's own picture says about
-  its black, its white, its dither and its cell size, read off the
-  background image and consumed only by the composite. Under
+  `estimate_plate`, `softness` and `grain_retention` — what the room's own
+  picture says about its black, its white, its dither and its cell size,
+  read off the background image. Not consumed only by the composite:
+  `asset_resolver` calls `estimate_plate`, `scene` carries `PlateProfile`
+  and `NEUTRAL_PLATE` on the frame, and `render_gl` reads `softness` and
+  `grain_retention` to drive the composite. Under
   `integration="on"` (the default) `render_gl` splits the frame into a
   plate layer and an actor layer, resolves each, and composites the second
   back through the first in one full-target pass (`COMPOSITE_FSH`);

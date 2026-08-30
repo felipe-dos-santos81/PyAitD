@@ -101,7 +101,9 @@ limbs and actors shadow each other through a light-view depth map),
 `--integration {off,on}` (`on` resolves the bodies into their own layer and
 composites them back through the room's own picture — softened or pixelated
 to the plate's cell, lifted to the room's black, pulled to its white, and
-grained at the plate's own amplitude, so the actors sit inside the room
+grained at the plate's *displayed* amplitude — the source dither scaled by
+whatever the background filter actually leaves at the cell size, not the
+dither the plate image was stored with — so the actors sit inside the room
 rather than on top of it; `off` is the previous single-target path, which
 draws the bodies straight over the plate),
 and `--overrides DIR` (a user-supplied replacement asset directory; this repo

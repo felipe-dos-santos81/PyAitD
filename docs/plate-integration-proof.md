@@ -270,8 +270,8 @@ by pixel, at scale 4 (a 1280x800 frame over a 320x200 plate, so `cell` is
 combat's 8.59, on the same pixel counts: the composite touches the same
 pixels either way and moves them less far now.)
 
-The attic frame draws 10 actors, covering 88,589 pixels. Of the 76,124
-that the composite moves, 68,267 are pixels a body was drawn on and 7,857
+The attic frame draws 10 actors, covering 88,589 pixels. Of the 76,111
+that the composite moves, 68,245 are pixels a body was drawn on and 7,866
 are not: the softening Gaussian (sigma 1.4, radius 3) carries the actor
 layer's coverage up to three pixels past each silhouette, which is exactly
 what matching the plate's edge width means and is the only way a
@@ -409,18 +409,28 @@ scale 8  all off 10.03 ms  all on 15.82 ms  ratio 1.58x
 scale 8  all off 10.20 ms  all on 16.54 ms  ratio 1.62x
 ```
 
+The spec's gate is stated against "the attic frame at those settings", and
+"those settings" — the paragraph above the budget line, in
+`docs/superpowers/specs/2026-08-29-actor-realism-roadmap-design.md` — is
+scale 4, msaa 4, smoothing 2. That is the number the gate is measured
+against:
+
 Scale 4: all-off 4.30-6.09 ms (mean 5.10), all-on 5.32-7.66 ms (mean 6.46),
 **ratio of means 1.27x**, per-run 1.09x to 1.56x — one of eight runs over
-the budget, the rest inside it. Inside budget on the ratio of means.
+the budget, the rest inside it. **Inside the spec's budget on the ratio of
+means, which is what the gate is measured against.**
 
-Scale 8: all-off 9.66-10.28 ms (mean 9.92), all-on 15.52-16.54 ms (mean
-15.86), **ratio of means 1.60x**, per-run 1.52x to 1.64x. **This is over
-the spec's 1.5x budget, and every one of the eight runs is individually
-over it.** It is not noise: the per-run spread is 1.52-1.64x, tighter than
-the margin by which it misses. Stated plainly rather than retuned away —
-neither `MAX_BLUR_RADIUS` nor `R_MAX_PER_SCALE` nor the composite's blur
-radius was touched to make this number look better. It is recorded under
-"Known limitations".
+Scale 8 is beyond what the gate requires; this task measured it anyway
+because a second, more expensive resolution is a useful stress case, not
+because the spec asks for it. Scale 8: all-off 9.66-10.28 ms (mean 9.92),
+all-on 15.52-16.54 ms (mean 15.86), **ratio of means 1.60x**, per-run
+1.52x to 1.64x. That is over 1.5x, but 1.5x is not this scale's gate — the
+spec sets its budget at scale 4, and scale 4 meets it. The spread is not
+noise: 1.52-1.64x is tighter than the margin by which the ratio clears
+1.5x. Stated plainly rather than retuned away — neither `MAX_BLUR_RADIUS`
+nor `R_MAX_PER_SCALE` nor the composite's blur radius was touched to make
+this number look better. It is recorded under "Known limitations" as a
+scale-8 number worth knowing, not as a missed gate.
 
 Where the 1.60x comes from is worth separating, because it is not mostly
 this sub-project: at scale 8 `integration` alone costs 1.17x, and
@@ -428,10 +438,9 @@ this sub-project: at scale 8 `integration` alone costs 1.17x, and
 stack is multiplicative, so soft shadows and the composite together already
 account for roughly 1.7x of raw cost against a `hard`/`off` baseline before
 `enhanced` materials are counted; the measured 1.60x is that stack against
-a *classic* baseline that is itself cheaper. G is the increment that pushed
-a stack already near the line over it, but it is not the largest term in
-it. Lowering the budget's pressure would mean revisiting F's blur, not this
-composite.
+a *classic* baseline that is itself cheaper. G contributes the smaller
+term — F's blur is the larger one. Nothing here needs retuning: the gate
+is met at the scale it is measured at.
 
 Absolute numbers, which the ratio hides: at scale 8 the fully-enabled attic
 frame renders in 15.5-16.6 ms of pure render time, about 60-64 fps, on a
@@ -521,12 +530,53 @@ composite or window present.
   retention factor bounds how much damage it can do: whatever `_grain`
   over-reads, the actor now receives only the fraction of it the room
   itself still shows.
+- **`grain_retention` returns 1.0 for `cell < 1`, and there the model errs
+  loud rather than weak.** An override plate above target resolution
+  (`cell = target_w / src_w < 1`) is minified by GL_LINEAR with no
+  mipmaps, and at an integer downscale that filter does not box-average
+  the covered texels — it bilinearly samples a fixed pair of them per
+  axis, at a coordinate that lands exactly halfway between two source
+  texels whenever the ratio is an integer. That does attenuate a genuine
+  per-texel dither, which `cell < 1`'s hardcoded 1.0 does not charge for.
+  Measured on a synthetic white-noise 1280x800 override (a real photo's
+  or AI-regenerated plate's plausible resolution) rendered at scale 1
+  (`cell` 0.25): `_grain` reads 0.0248 on the source and 0.0121 on what
+  the frame actually displays — a ~2x loss the model treats as zero. So
+  an override plate above target resolution is grained at roughly twice
+  its displayed amplitude, bounding the residual over-grain at roughly
+  2x. That is the *loud* direction, the opposite of what
+  `grain_retention`'s own docstring claims for its other rounding
+  choice ("errs toward a *weaker* grain than the plate's, which is the
+  safe direction") — that guarantee is about non-integer cells above 1,
+  and does not extend to `cell < 1`.
 - Tone matching is global to the plate, not local to the pixels around
   the actor; grain is luma-only.
 - `nearest` pixelates the actor, not its ground shadow, which stays at
   target resolution on the plate layer.
 - Softening touches the actor's interior, not just its edge, by
   `sigma <= 0.35 * cell`.
+- **`MAX_BLUR_RADIUS = 4` truncates the composite's Gaussian before it
+  reaches the radius the sigma actually calls for, at the high end of the
+  scale range.** At scale 8 over a classic plate, `sigma = 0.35 * 8 =
+  2.8`, and the formula wants `radius = ceil(2 * sigma) = 6`; the tap
+  budget caps it at 4, which is only 1.43 sigma of coverage. The gathered
+  weights are renormalised, so brightness is preserved and nothing goes
+  dark at the edge — but a Gaussian truncated at 1.43 sigma and
+  renormalised is a narrower effective kernel than the 2-sigma one the
+  model is naming, so the actor's edge comes out crisper than the plate
+  model asks for, on the order of 25%. This is precisely the setting
+  (scale 8) the manual attestation table below asks a human to judge by
+  eye, so a reader comparing that crop against the stated `sigma` should
+  know the shader is not drawing the full kernel that number implies.
+- **`cell` is derived from widths only** (`plate.softness` and
+  `plate.grain_retention` both compute `cell = target_w / src_w`, never
+  consulting height), and `asset_resolver._require_rgb` places no
+  aspect-ratio constraint on an override background while
+  `render_gl._draw_background` stretches whatever it is given to fill the
+  full target. So a non-4:3 override plate — a portrait crop, say — takes
+  both its vertical softening sigma and its vertical grain retention from
+  the horizontal ratio, which can differ arbitrarily from the vertical
+  one.
 - Cost: two resolves and one full-target composite per frame; `off` is the
   escape hatch, on the Graphics page.
 - The software backend stays uncomposited.
@@ -539,15 +589,17 @@ composite or window present.
   the composite, so at `msaa > 0` an antialiased edge can differ from
   `off` by 1/255 (measured: 1 count on 0.09% of pixels, at `cell == 1`
   where the two are otherwise identical).
-- **With F, H and G all on, the attic frame at scale 8 is over the
-  roadmap spec's 1.5x budget: 1.60x (ratio of means over 8 runs), with
-  every individual run between 1.52x and 1.64x.** At scale 4 the same
-  comparison is 1.27x, inside budget. `integration` alone is 1.12x at
-  scale 4 and 1.17x at scale 8, so the composite is not the largest term —
-  F's blur is. Nothing was retuned to close it. Both `Integration: Off`
-  and `Shadows: Hard` are rows on the Graphics page, so a player on a
-  slower machine has two escape hatches without leaving the game. See
-  "Frame time".
+- **The spec's F+H+G budget gate is measured at scale 4 — "the attic frame
+  at those settings", where those settings are scale 4, msaa 4, smoothing
+  2 — and is met there: 1.27x (ratio of means over 8 runs), inside the
+  1.5x budget.** This task additionally measured scale 8, beyond what the
+  gate requires, as a stress case: 1.60x there (ratio of means over 8
+  runs), every individual run between 1.52x and 1.64x. `integration` alone
+  is 1.12x at scale 4 and 1.17x at scale 8, so at scale 8 the composite is
+  not the largest term in the 1.60x — F's blur is. Nothing was retuned,
+  at either scale. Both `Integration: Off` and `Shadows: Hard` are rows on
+  the Graphics page, so a player on a slower machine has two escape
+  hatches without leaving the game. See "Frame time".
 
 ## Manual attestation
 
@@ -563,5 +615,5 @@ composite or window present.
 | Carnby's darks sit at the room's floor rather than at black, and a white highlight does not punch brighter than anything in the room | pending |
 | Graphics page: `Integration: On / Off` is the ninth row; 9 rows plus Back, nothing clipped; every row cycles by mouse and keyboard | pending |
 | Toggling Integration to Off in the menu changes the look live; Off looks as before | pending |
-| `--integration on` at scale 8 in the floor-5 combat venue keeps a playable frame rate. Measured, not played: 15.5-16.6 ms/frame of pure render time on the attic fixture with F, H and G all on — see "Frame time", and note that this is the configuration that is over the spec's budget | pending |
+| `--integration on` at scale 8 in the floor-5 combat venue keeps a playable frame rate. Measured, not played: 15.5-16.6 ms/frame of pure render time on the attic fixture with F, H and G all on — see "Frame time"; this is scale 8, beyond the spec's gate (which is scale 4 and is met), measured as a stress case | pending |
 | Under `--shadows hard --integration on`, no actor's shadow paints over a body in front of it, and that difference from `--integration off` looks like an improvement rather than a missing shadow | pending |

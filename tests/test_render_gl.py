@@ -2409,7 +2409,7 @@ def test_integration_on_still_resolves_msaa_into_the_same_texture(gl_ctx):
     # to the measured 1 is not the safe-looking edit it appears to be.
     #
     # The plate is upscaled to the scale=2 target resolution rather than
-    # left at 320x320 -- Task 4 softens or pixelates the actor layer to
+    # left at 320x200 -- Task 4 softens or pixelates the actor layer to
     # match a plate cell wider than a target pixel, and at cell==1 that
     # machinery is a no-op, which is what this test needs: it is about the
     # msaa resolve, not about the composite's sharpness matching.
@@ -2679,7 +2679,7 @@ def test_grain_lands_at_the_plates_own_amplitude(gl_ctx):
     noisy = _grey_grain_render(gl_ctx, 0.08).astype(float)
     # A patch well inside the triangle (see _centre's note on its extent).
     patch = (noisy - quiet)[60:100, 110:150, 0]
-    assert patch.std() == pytest.approx(0.08 * 255, rel=0.25)
+    assert patch.std() == pytest.approx(0.08 * 255, rel=0.05)
 
 
 def test_grain_lands_at_the_plates_displayed_amplitude_once_magnified(gl_ctx):
@@ -2698,7 +2698,7 @@ def test_grain_lands_at_the_plates_displayed_amplitude_once_magnified(gl_ctx):
     patch = (noisy - quiet)[240:400, 440:600, 0]
     retention = grain_retention("bilinear", (320, 200), (1280, 800))
     assert retention == pytest.approx(0.59375)
-    assert patch.std() == pytest.approx(0.08 * 255 * retention, rel=0.15)
+    assert patch.std() == pytest.approx(0.08 * 255 * retention, rel=0.05)
     # And is not the un-attenuated amplitude: 12.1 counts against 20.4, far
     # enough apart that dropping the retention factor fails here rather
     # than merely loosening a tolerance.
