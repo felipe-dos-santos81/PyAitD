@@ -180,6 +180,12 @@ class Game:
         self.next_sample = -1
         self.last_priority = -1
 
+    @property
+    def hero(self):
+        # a read view, not state: FITD keeps the chosen character in the
+        # CHOOSE_PERSO CVar (startGame backs it up and restores it)
+        return self.cvars[self.profile.cvar_index("CHOOSE_PERSO")]
+
     def load_floor(self, number):
         """The Floor loader for callers outside Game: threads self.profile so
         they need neither the profile nor self._data_dir. Uncached by design
