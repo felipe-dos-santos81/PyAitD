@@ -571,7 +571,15 @@ def test_integration_flag_overrides_only_its_own_field():
 
     base = default_settings()
     assert apply_render_overrides(base, parse_args([])) == base
-    only = apply_render_overrides(base, parse_args(["--integration", "on"]))
-    assert only == replace(base, render=replace(base.render, integration="on"))
-    with pytest.raises(SystemExit):
-        parse_args(["--integration", "sometimes"])   # argparse choices reject it
+    only = apply_render_overrides(base, parse_args(["--integration", "1"]))
+    assert only == replace(base, render=replace(base.render, integration=1))
+    for bad in ("sometimes", "4", "-1", "2.5", ""):
+        with pytest.raises(SystemExit):
+            parse_args(["--integration", bad])       # the level parser rejects it
+
+
+def test_the_integration_flag_still_takes_the_words_it_used_to():
+    from PyAitD.app.shell import parse_args
+
+    assert parse_args(["--integration", "off"]).integration == 0
+    assert parse_args(["--integration", "on"]).integration == 2

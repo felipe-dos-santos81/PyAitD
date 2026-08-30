@@ -20,7 +20,8 @@ from PyAitD.engine.pak import PakError
 from PyAitD.engine.playworld import TICK_MS, play_tick
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import (
-    BACKGROUND_FILTERS, INTEGRATION_MODES, LIGHTING_MODES, MSAA_LEVELS, REALISM_MODES, SHADING_MODES,
+    BACKGROUND_FILTERS, LIGHTING_MODES, MSAA_LEVELS, REALISM_MODES, SHADING_MODES,
+    INTEGRATION_LEVELS, LEGACY_INTEGRATION,
     SHADOW_MODES, SMOOTHING_LEVELS, validate_render_options,
 )
 from PyAitD.games import load_profile
@@ -43,6 +44,22 @@ DEFAULT_DATA = (
     / "INDARK"
 )
 HIT_FEEDBACK_MS = 250
+
+
+def _integration_level(text):
+    """An --integration level, or one of the two words the option used to
+    take. "off" and "on" keep parsing so a shell alias or script written
+    before the levels does not start failing at the argument parser."""
+    value = LEGACY_INTEGRATION.get(text, text)
+    try:
+        level = int(value)
+    except (TypeError, ValueError):
+        level = None
+    if level not in INTEGRATION_LEVELS:
+        raise argparse.ArgumentTypeError(
+            "integration must be one of "
+            f"{', '.join(str(v) for v in INTEGRATION_LEVELS)}, off or on")
+    return level
 
 
 def parse_args(argv):
@@ -97,8 +114,10 @@ def parse_args(argv):
              "one gathered pass, and bodies shadowing themselves and each other",
     )
     p.add_argument(
-        "--integration", choices=INTEGRATION_MODES, default=None,
-        help="composite actors through the plate's tone, grain and softness")
+        "--integration", type=_integration_level, default=None,
+        metavar="{0,1,2,3}",
+        help="how much of the plate's tone, grain and softness the actors take on: "
+             "0 draws them straight over it, 1-3 composite at half, full and one-and-a-half strength")
     p.add_argument(
         "--overrides", type=pathlib.Path, default=None, help="asset override directory",
     )

@@ -970,12 +970,12 @@ GOLDEN = pathlib.Path(__file__).parent / "golden" / "scene_lit_classic.npy"
 
 
 def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
-    # smoothing=0, shadows="hard" and integration="off" name the legacy
+    # smoothing=0, shadows="hard" and integration=0 name the legacy
     # paths explicitly: the golden predates tessellation, the gathered
     # soft-shadow pass and the plate composite.
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
                                               realism="classic", smoothing=0, shadows="hard",
-                                              integration="off"))
+                                              integration=0))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
@@ -1634,7 +1634,7 @@ def _overlap_frame(with_caster):
                             _palette(), actors, (), light)
 
 
-def _render_overlap(gl_ctx, shadows, frame, integration="off"):
+def _render_overlap(gl_ctx, shadows, frame, integration=0):
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
                                               realism="classic", smoothing=2, shadows=shadows,
                                               integration=integration))
@@ -1649,8 +1649,8 @@ def test_a_gathered_shadow_never_darkens_an_earlier_actor(gl_ctx):
     # nearer actor's shadow, composited after a farther body was drawn,
     # paints over that body. Gathering every cast before any body is drawn
     # is what `soft` fixes; `hard` keeps the artefact verbatim -- under
-    # `integration="off"`, which `_render_overlap` now names explicitly.
-    # Under `integration="on"` the hard casts have to reach the plate layer,
+    # `integration=0`, which `_render_overlap` now names explicitly.
+    # Under `integration=2` the hard casts have to reach the plate layer,
     # so they too run before any body and the artefact goes with them; the
     # last assertion below pins that difference rather than leaving it to
     # the proof document.
@@ -1671,11 +1671,11 @@ def test_a_gathered_shadow_never_darkens_an_earlier_actor(gl_ctx):
     wrong = np.any(paired_hard != solo_hard, axis=2) & body
     assert wrong.sum() > 100                                           # hard: the sphere's shadow lands on the square
     assert np.array_equal(paired_soft[body], solo_soft[body])          # soft: the body is untouched
-    # hard + integration="on": the casts run ahead of the bodies too, so the
+    # hard + integration=2: the casts run ahead of the bodies too, so the
     # artefact is gone here as well. Deliberate, and a behaviour difference
     # from `off` -- see docs/plate-integration-proof.md's known limitations.
-    solo_on = _render_overlap(gl_ctx, "hard", square_only, integration="on")
-    paired_on = _render_overlap(gl_ctx, "hard", _overlap_frame(True), integration="on")
+    solo_on = _render_overlap(gl_ctx, "hard", square_only, integration=2)
+    paired_on = _render_overlap(gl_ctx, "hard", _overlap_frame(True), integration=2)
     assert np.array_equal(paired_on[body], solo_on[body])
 
 
@@ -2341,13 +2341,13 @@ def _integration_options(**kw):
     return RenderOptions(**base)
 
 
-def test_integration_on_with_a_neutral_plate_reproduces_the_golden(gl_ctx):
+def test_integration_at_full_with_a_neutral_plate_reproduces_the_golden(gl_ctx):
     # The plumbing identity: `on` changes where the pixels are assembled,
     # never what they are. NEUTRAL_PLATE makes every composite term vanish
     # by construction, and msaa=0 makes coverage exactly 0 or 1.
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=1, shading="smooth", lighting="scene", msaa=0,
-        realism="classic", smoothing=0, shadows="hard", integration="on"))
+        realism="classic", smoothing=0, shadows="hard", integration=2))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
@@ -2355,7 +2355,7 @@ def test_integration_on_with_a_neutral_plate_reproduces_the_golden(gl_ctx):
 
 
 @pytest.mark.parametrize("shadows", ["hard", "soft"])
-def test_integration_on_matches_off_pixel_for_pixel_at_msaa_zero(gl_ctx, shadows):
+def test_integration_at_full_matches_off_pixel_for_pixel_at_msaa_zero(gl_ctx, shadows):
     # Not just the golden scene: a real cast shadow under both shadow modes,
     # over a plate every column of which differs. Built here rather than
     # through _lit_frame -- same actor, same light -- because that helper's
@@ -2366,11 +2366,11 @@ def test_integration_on_matches_off_pixel_for_pixel_at_msaa_zero(gl_ctx, shadows
         _view(), ImageAsset(_gradient_plate(), False), _palette(),
         (_standing_actor(0, _tri_geometry(600.0, 1), 400.0),), (),
         SceneLight((0.3, -0.6, -0.7), (1.0, 1.0, 1.0), (0.2, 0.2, 0.2), 1.0))
-    off = GLBackend(gl_ctx, _integration_options(shadows=shadows, integration="off"))
+    off = GLBackend(gl_ctx, _integration_options(shadows=shadows, integration=0))
     off.draw(frame)
     expected = off.read_rgb().copy()
     off.release()
-    on = GLBackend(gl_ctx, _integration_options(shadows=shadows, integration="on"))
+    on = GLBackend(gl_ctx, _integration_options(shadows=shadows, integration=2))
     on.draw(frame)
     got = on.read_rgb().copy()
     on.release()
@@ -2381,18 +2381,18 @@ def test_integration_leaves_fixed_lighting_untouched(gl_ctx):
     # `integration` applies under lighting="scene" only.
     actor = _actor(0, _facing_tri(600.0, 1, (0.0, 0.0, -1.0)))
     off = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="fixed",
-                                          integration="off"))
+                                          integration=0))
     off.draw(_frame([actor]))
     expected = off.read_rgb().copy()
     off.release()
     on = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="fixed",
-                                         integration="on"))
+                                         integration=2))
     on.draw(_frame([actor]))
     assert np.array_equal(on.read_rgb(), expected)
     on.release()
 
 
-def test_integration_on_still_resolves_msaa_into_the_same_texture(gl_ctx):
+def test_integration_at_full_still_resolves_msaa_into_the_same_texture(gl_ctx):
     # The two shapes below cannot tell a correct composite from one whose
     # output is thrown away -- appending the single-target resolve to the
     # end of _composite() overwrites the composited frame with the stale
@@ -2420,21 +2420,21 @@ def test_integration_on_still_resolves_msaa_into_the_same_texture(gl_ctx):
         (_standing_actor(0, _tri_geometry(600.0, 1), 400.0),), (),
         SceneLight((0.3, -0.6, -0.7), (1.0, 1.0, 1.0), (0.2, 0.2, 0.2), 1.0))
     backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
-                                              msaa=4, integration="on"))
+                                              msaa=4, integration=2))
     backend.draw(frame)
     on = backend.read_rgb().copy()
     assert on.shape == (400, 640, 3)
     assert backend.thumbnail().shape == (200, 320, 3)
     backend.release()
     direct = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
-                                             msaa=4, integration="off"))
+                                             msaa=4, integration=0))
     direct.draw(frame)
     off = direct.read_rgb().copy()
     direct.release()
     assert np.abs(on.astype(int) - off.astype(int)).max() <= 2
 
 
-def test_integration_on_still_darkens_the_ground_under_a_hard_shadow(gl_ctx):
+def test_integration_at_full_still_darkens_the_ground_under_a_hard_shadow(gl_ctx):
     # The hard cast moved ahead of the bodies to reach the plate layer; it
     # must still land on the plate.
     #
@@ -2447,7 +2447,7 @@ def test_integration_on_still_darkens_the_ground_under_a_hard_shadow(gl_ctx):
     # than against a colour written down here.
     plate = _gradient_plate()
     baseline = _plain_background(gl_ctx, plate, shadows="hard")
-    backend = GLBackend(gl_ctx, _integration_options(shadows="hard", integration="on"))
+    backend = GLBackend(gl_ctx, _integration_options(shadows="hard", integration=2))
     backend.draw(FrameDescription(
         _view(), ImageAsset(plate, False), _palette(),
         (_standing_actor(0, _tri_geometry(600.0, 1), 400.0),), (),
@@ -2487,15 +2487,31 @@ def test_bilinear_softening_widens_an_actor_edge(gl_ctx):
     # to match, and its edge ramp gets wider than the hard `off` one.
     plate = np.zeros((200, 320, 3), np.uint8)
     frame = _edge_frame(plate)
+    widths = _edge_widths(gl_ctx, frame, (0, 2))
+    assert widths[2] > widths[0]
+
+
+def _edge_widths(gl_ctx, frame, levels, background_filter="bilinear"):
+    """The actor's edge-ramp width at each integration level, everything
+    else held fixed."""
     widths = {}
-    for integration in ("off", "on"):
+    for level in levels:
         backend = GLBackend(gl_ctx, RenderOptions(
             scale=4, shading="smooth", lighting="scene", msaa=0,
-            background_filter="bilinear", integration=integration))
+            background_filter=background_filter, integration=level))
         backend.draw(frame)
-        widths[integration] = _edge_transition_width(backend.read_rgb(), 400)
+        widths[level] = _edge_transition_width(backend.read_rgb(), 400)
         backend.release()
-    assert widths["on"] > widths["off"]
+    return widths
+
+
+def test_a_lower_integration_level_softens_the_actor_edge_less(gl_ctx):
+    # softness is scaled by the level's strength before the blur radius is
+    # derived from it, so the edge ramp narrows toward the hard `off` one as
+    # the level drops and widens past `full` at the top.
+    widths = _edge_widths(gl_ctx, _edge_frame(np.zeros((200, 320, 3), np.uint8)),
+                          (0, 1, 2, 3))
+    assert widths[0] < widths[1] < widths[2] < widths[3]
 
 
 def test_nearest_pixelates_the_actor_to_the_plate_grid(gl_ctx):
@@ -2504,7 +2520,7 @@ def test_nearest_pixelates_the_actor_to_the_plate_grid(gl_ctx):
     plate = np.full((200, 320, 3), 90, np.uint8)
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=4, shading="smooth", lighting="scene", msaa=0,
-        background_filter="nearest", integration="on"))
+        background_filter="nearest", integration=2))
     backend.draw(_edge_frame(plate))
     out = backend.read_rgb()
     backend.release()
@@ -2516,21 +2532,22 @@ def test_nothing_is_softened_when_the_plate_is_already_target_resolution(gl_ctx)
     # cell == 1: an override plate at the target size. Still the identity.
     frame = _edge_frame(np.zeros((200, 320, 3), np.uint8))
     off = GLBackend(gl_ctx, _integration_options(background_filter="bilinear",
-                                                 integration="off"))
+                                                 integration=0))
     off.draw(frame)
     expected = off.read_rgb().copy()
     off.release()
     on = GLBackend(gl_ctx, _integration_options(background_filter="bilinear",
-                                                integration="on"))
+                                                integration=2))
     on.draw(frame)
     assert np.array_equal(on.read_rgb(), expected)
     on.release()
 
 
-def _composited_centre(gl_ctx, profile, palette=None, colour=1, plate_value=0):
+def _composited_centre(gl_ctx, profile, palette=None, colour=1, plate_value=0,
+                       integration=2):
     """The composited pixel at the centre of one flat, fully-lit triangle,
-    under `profile`. Everything except the profile is held fixed, so two
-    calls differ only by what the tone curve did."""
+    under `profile`. Everything except the profile and the integration level
+    is held fixed, so two calls differ only by what the tone curve did."""
     from PyAitD.render.scene import FrameDescription as FD
     palette = _palette() if palette is None else palette
     plate = np.full((200, 320, 3), plate_value, np.uint8)
@@ -2539,7 +2556,7 @@ def _composited_centre(gl_ctx, profile, palette=None, colour=1, plate_value=0):
                _scene_light((0.0, 0.0, -1.0)), profile)
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=1, shading="smooth", lighting="scene", msaa=0,
-        realism="classic", integration="on"))
+        realism="classic", integration=integration))
     backend.draw(frame)
     got = _centre(backend.read_rgb())
     backend.release()
@@ -2631,7 +2648,7 @@ def test_the_shoulders_shape_tracks_the_quartic(gl_ctx):
     assert grey_drop == pytest.approx(3.2378, abs=1.5)
 
 
-def _grey_grain_render(gl_ctx, grain, scale=1):
+def _grey_grain_render(gl_ctx, grain, scale=1, integration=2):
     """One flat mid-grey triangle over a flat plate, at `grain`.
 
     Mid-grey and realism="classic" together: the actor's composited value
@@ -2651,7 +2668,7 @@ def _grey_grain_render(gl_ctx, grain, scale=1):
                PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), grain))
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=scale, shading="smooth", lighting="scene", msaa=0,
-        realism="classic", integration="on"))
+        realism="classic", integration=integration))
     backend.draw(frame)
     out = backend.read_rgb().copy()
     backend.release()
@@ -2703,3 +2720,46 @@ def test_grain_lands_at_the_plates_displayed_amplitude_once_magnified(gl_ctx):
     # enough apart that dropping the retention factor fails here rather
     # than merely loosening a tolerance.
     assert patch.std() < 0.08 * 255 * 0.8
+
+
+def test_the_toe_scales_with_the_integration_level(gl_ctx):
+    # The level's strength multiplies the toe offset, so at a black actor --
+    # where the whole of the difference is the toe -- the lift is exactly
+    # half the room's floor at 1, the whole of it at 2, and half again as
+    # much at 3. Read against the same NEUTRAL_PLATE flat as the toe test
+    # above, and at a floor low enough that 1.5x cannot clip.
+    from PyAitD.render.plate import PlateProfile
+    black = (60 / 255, 40 / 255, 40 / 255)
+    profile = PlateProfile(black, (1.0, 1.0, 1.0), 0.0)
+    lifted = {level: list(_composited_centre(gl_ctx, profile, colour=0, integration=level))
+              for level in (1, 2, 3)}
+    assert lifted[2] == pytest.approx([60, 40, 40], abs=1)
+    assert lifted[1] == pytest.approx([30, 20, 20], abs=1)
+    assert lifted[3] == pytest.approx([90, 60, 60], abs=1)
+
+
+def test_the_grain_scales_with_the_integration_level(gl_ctx):
+    # Same measurement as test_grain_lands_at_the_plates_own_amplitude, one
+    # level down and one up: the composited residual's RMS is the plate's
+    # own amplitude times the level's strength.
+    quiet = _grey_grain_render(gl_ctx, 0.0).astype(float)
+    patch = (slice(60, 100), slice(110, 150), 0)
+    for level, strength in ((1, 0.5), (2, 1.0), (3, 1.5)):
+        noisy = _grey_grain_render(gl_ctx, 0.08, integration=level).astype(float)
+        assert (noisy - quiet)[patch].std() == pytest.approx(0.08 * 255 * strength, rel=0.05), level
+
+
+def test_nearest_pixelates_at_every_level_that_composites(gl_ctx):
+    # `pixelate` is which plate cell a pixel falls in, not an amount, so it
+    # is binary: every level that composites at all puts the actor on the
+    # plate's grid, and strength grades only the tone and the grain.
+    plate = np.full((200, 320, 3), 90, np.uint8)
+    for level in (1, 2, 3):
+        backend = GLBackend(gl_ctx, RenderOptions(
+            scale=4, shading="smooth", lighting="scene", msaa=0,
+            background_filter="nearest", integration=level))
+        backend.draw(_edge_frame(plate))
+        out = backend.read_rgb()
+        backend.release()
+        cells = out.reshape(200, 4, 320, 4, 3)
+        assert (cells.max(axis=(1, 3)) == cells.min(axis=(1, 3))).all(), level

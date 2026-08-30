@@ -498,7 +498,8 @@ COMPOSITE_FSH = """
 // already scaled by coverage, which is exactly what "over" wants. At
 // msaa = 0 alpha is 0 or 1 and this is `plate` or `rgb` with no arithmetic
 // in between -- byte-exact against drawing the body straight onto the
-// plate, which is the identity `integration=on` has to hold.
+// plate, which is the identity every composing integration level has
+// to hold against level 0.
 //
 // Sampling is done on the premultiplied values throughout: blurring colour
 // and coverage together is what keeps a soft edge from bleeding the
@@ -513,6 +514,15 @@ uniform vec3 plate_white;   // the room's ceiling
 uniform float plate_grain;  // RMS luma residual of the plate's own dither, as
                             // *displayed*: estimate_plate's source-resolution
                             // measurement times plate.grain_retention
+uniform float strength;     // the integration level's multiplier, applied to
+                            // the toe, the shoulder and the grain alike. The
+                            // fourth term, softness, is scaled on the CPU
+                            // instead -- `radius` and `inv_sigma2` are
+                            // derived from sigma there, so there is nothing
+                            // left here to scale. 1.0 is the full match this
+                            // pass shipped as; `pixelate` is deliberately
+                            // ungraded, being which cell a pixel falls in
+                            // rather than an amount of anything.
 out vec4 f_color;
 
 // Meet the plate exactly at the extremes: at luma 0 the toe adds the whole
@@ -575,9 +585,9 @@ void main() {
         toe *= toe;                             // (1 - luma)^4
         float shoulder = luma * luma;
         shoulder *= shoulder;                   // luma^4
-        c += plate_black * (toe * TOE);
-        c -= (vec3(1.0) - plate_white) * (shoulder * SHOULDER);
-        c += plate_grain * (hash21(floor(gl_FragCoord.xy / cell)) - 0.5) * GAIN;
+        c += plate_black * (toe * TOE * strength);
+        c -= (vec3(1.0) - plate_white) * (shoulder * SHOULDER * strength);
+        c += plate_grain * strength * (hash21(floor(gl_FragCoord.xy / cell)) - 0.5) * GAIN;
         c = clamp(c, 0.0, 1.0);
     }
     f_color = vec4(plate * (1.0 - a.a) + c * a.a, 1.0);

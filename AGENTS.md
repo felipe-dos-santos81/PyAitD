@@ -157,10 +157,16 @@ a rule — add the test with the rule.
   `asset_resolver` calls `estimate_plate`, `scene` carries `PlateProfile`
   and `NEUTRAL_PLATE` on the frame, and `render_gl` reads `softness` and
   `grain_retention` to drive the composite. Under
-  `integration="on"` (the default) `render_gl` splits the frame into a
-  plate layer and an actor layer, resolves each, and composites the second
-  back through the first in one full-target pass (`COMPOSITE_FSH`);
-  `integration="off"` keeps the single-target path.
+  any `integration` level above 0 (2 is the default) `render_gl` splits the
+  frame into a plate layer and an actor layer, resolves each, and composites
+  the second back through the first in one full-target pass
+  (`COMPOSITE_FSH`); `integration=0` keeps the single-target path. The level
+  indexes `render_options.INTEGRATION_STRENGTHS`, and that strength scales
+  the toe, the shoulder and the grain in the shader and the softness sigma
+  in `_composite` before the blur radius is derived from it — four terms,
+  one multiplier, so level 2 is 1.0 and reproduces the composite this pass
+  shipped as, pixel for pixel. `pixelate` is deliberately outside it: which
+  plate cell a pixel falls in has no half-measure.
   `glsl` is strings only — every GLSL source the backend
   compiles, no imports (`test_layering` pins it). `lighting.soften` is the numpy
   twin of the penumbra blur (`SHADOW_BLUR_FSH`), pinned like

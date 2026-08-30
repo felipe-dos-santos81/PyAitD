@@ -797,16 +797,29 @@ def test_graphics_page_rows_fit_the_screen_and_do_not_overlap():
 
 def test_graphics_labels_match_the_cycles_one_per_row():
     from PyAitD.app.ui import GRAPHICS_CYCLES, GRAPHICS_ROWS, SMOOTHING_LABELS, graphics_labels
-    from PyAitD.render.render_options import SMOOTHING_LEVELS
+    from PyAitD.render.render_options import (
+        INTEGRATION_LABELS, INTEGRATION_LEVELS, SMOOTHING_LEVELS)
     labels = graphics_labels(default_settings().render)
     assert len(labels) == GRAPHICS_ROWS == len(GRAPHICS_CYCLES)
-    # every other row's label is total over its option; the Smoothing row
-    # indexes a tuple, so a level with no label would IndexError (or, below
-    # zero, silently wrap) instead of drawing
+    # every other row's label is total over its option; the Smoothing and
+    # Integration rows index a tuple, so a level with no label would
+    # IndexError (or, below zero, silently wrap) instead of drawing
     assert len(SMOOTHING_LABELS) == len(SMOOTHING_LEVELS)
+    assert len(INTEGRATION_LABELS) == len(INTEGRATION_LEVELS)
     assert labels[0] == "Scale: 4x" and labels[4] == "Shadows: Soft"
     assert labels[6] == "Realism: Enhanced" and labels[7] == "Smoothing: Medium"
-    assert labels[8] == "Integration: On"
+    assert labels[8] == "Integration: Full"
+
+
+def test_every_integration_level_draws_its_own_row_label():
+    from dataclasses import replace
+
+    from PyAitD.app.ui import graphics_labels
+    render = default_settings().render
+    drawn = [graphics_labels(replace(render, integration=level))[8]
+             for level in (0, 1, 2, 3)]
+    assert drawn == ["Integration: Off", "Integration: Subtle",
+                     "Integration: Full", "Integration: Strong"]
 
 
 def test_configuration_page_ends_with_graphics_then_back(monkeypatch):

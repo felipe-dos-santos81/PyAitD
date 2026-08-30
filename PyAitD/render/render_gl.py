@@ -43,6 +43,7 @@ from PyAitD.render.lighting import (_clamp_downward, light_view_matrix, project_
                                     shading_terms, shadow_opacity, SHADOW_MAP_SIZE)
 from PyAitD.render.materials import PALETTE_SIZE, PRESETS
 from PyAitD.render.plate import grain_retention, softness
+from PyAitD.render.render_options import INTEGRATION_STRENGTHS
 from PyAitD.render.refine import subpatch
 from PyAitD.render.render_options import SMOOTHING_LEVELS
 from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
@@ -457,7 +458,7 @@ class GLBackend:
                     color_attachments=[self._ms_color], depth_attachment=self._ms_depth)
             self._target = self._ms_fbo or self._fbo
 
-            # The two halves integration="on" splits the frame into. Both
+            # The two halves a non-zero integration splits the frame into. Both
             # are the target's own size and format, so a resolve into either
             # is the same copy_framebuffer the single-target path already
             # does. _actor_fbo shares `_depth` with `_fbo` rather than
@@ -527,7 +528,7 @@ class GLBackend:
     def release(self):
         # `self._target` is intentionally absent: it aliases `self._ms_fbo`,
         # `self._fbo`, `self._plate_fbo` or `self._actor_fbo` depending on
-        # the integration mode and the frame phase, and each of those is
+        # the integration level and the frame phase, and each of those is
         # released below under its own name. Releasing it a second time
         # through `self._target` would be a double-release of the same GL
         # object.
@@ -607,7 +608,7 @@ class GLBackend:
         level = self._options.smoothing
         # Under lighting="scene" only: `fixed` runs the single-target path
         # byte for byte whatever `integration` says.
-        integrate = scene_lit and self._options.integration == "on"
+        integrate = scene_lit and self._options.integration > 0
         self._target = (self._ms_fbo or self._plate_fbo) if integrate \
             else (self._ms_fbo or self._fbo)
         self._target.use()
@@ -1135,14 +1136,24 @@ class GLBackend:
     def _composite(self, frame):
         """The actor layer back onto the plate layer, into `.texture`."""
         src_h, src_w = frame.background.pixels.shape[:2]
+        strength = INTEGRATION_STRENGTHS[self._options.integration]
         sigma, cell, pixelate = softness(
             self._options.background_filter, (src_w, src_h), self.size)
+        # Scaled here rather than in the shader because `radius` and
+        # `inv_sigma2` are both derived from sigma on this side: a lower
+        # level buys a narrower blur and fewer taps with it, and a higher
+        # one widens until MAX_BLUR_RADIUS caps the window.
+        sigma *= strength
         radius = 0 if sigma <= 0.0 else min(MAX_BLUR_RADIUS, int(math.ceil(2.0 * sigma)))
         self._composite_prog["radius"].value = radius
         self._composite_prog["inv_sigma2"].value = (
             0.0 if sigma <= 0.0 else 1.0 / (2.0 * sigma * sigma))
         self._composite_prog["cell"].value = float(cell)
+        # Ungraded on purpose: `pixelate` names which plate cell a pixel
+        # falls in, which has no half-measure -- an actor at half a grid is
+        # on no grid at all. Every level that composites pixelates alike.
         self._composite_prog["pixelate"].value = 1 if pixelate else 0
+        self._composite_prog["strength"].value = strength
         self._composite_prog["plate_black"].value = tuple(float(v) for v in frame.plate.black)
         self._composite_prog["plate_white"].value = tuple(float(v) for v in frame.plate.white)
         # `frame.plate.grain` is the dither of the *source* 320x200 image;
@@ -1162,7 +1173,7 @@ class GLBackend:
         self._ctx.disable(moderngl.DEPTH_TEST)
         self._ctx.disable(moderngl.BLEND)
         self._fbo.color_mask = (True, True, True, True)
-        # Defensive, not corrective: under integration="on" nothing rebinds
+        # Defensive, not corrective: with the composite running nothing rebinds
         # _fbo as a render target between the assignment above and this
         # line, so the colour mask can't actually have drifted from the GL
         # binding point the way _target's does after `clear()` in the
