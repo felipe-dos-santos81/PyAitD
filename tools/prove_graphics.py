@@ -14,8 +14,9 @@ This repo never ships game data, so the PNGs are never committed --
 `docs/graphics-proof/` keeps only a `.gitkeep`. See
 `docs/graphics-realism-proof.md` for the manual attestation the twelve
 per-mode renders feed, `docs/smooth-geometry-proof.md` for the one the two
-`-flatmesh` files feed, and `docs/soft-shadows-proof.md` for the one the
-two `-hardshadow` files feed.
+`-flatmesh` files feed, `docs/soft-shadows-proof.md` for the one the
+two `-hardshadow` files feed, and `docs/materials-v2-proof.md` for the
+per-material-class one the `-enhanced` renders feed.
 """
 import argparse
 import pathlib

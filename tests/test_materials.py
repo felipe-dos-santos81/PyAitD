@@ -129,3 +129,30 @@ def test_classic_zeroes_every_preset_field_including_the_new_ones():
     assert (classic.spec, classic.rim, classic.ao) == (0.0, 0.0, 0.0)
     assert (classic.contact, classic.detail, classic.hemisphere) == (0.0, 0.0, 0.0)
     assert (classic.bump, classic.sss, classic.emissive) == (0.0, 0.0, 0.0)
+
+
+# ---- the retune (materials v2, task 5)
+
+
+def test_every_class_keeps_its_parameters_in_range_after_the_retune():
+    # The retune moved every specular value and three detail_scales at
+    # once. `Material.__post_init__` only guards bump/sss/emissive and the
+    # positive detail_scale, so a fat-fingered specular of 1.5 or a
+    # negative rim would ship: the shader multiplies each of these by a
+    # preset strength and a lighting term, and outside 0..1 they stop
+    # being a fraction of anything.
+    for name, material in CLASS_PRESETS.items():
+        for field in ("roughness", "specular", "metallic", "rim", "detail", "bump", "sss", "emissive"):
+            value = getattr(material, field)
+            assert 0.0 <= value <= 1.0, f"{name}.{field} = {value}"
+        assert material.detail_scale > 0.0, name
+
+
+def test_only_emissive_emits():
+    # `emissive` replaces a fragment's whole colour -- mix(shaded, v_color,
+    # preset_c.z * m2.z) is exactly v_color at 1.0 -- so it is the one
+    # parameter a stray non-zero would take a body completely out of the
+    # lighting. Ramp 14's flames are the only thing in the reviewed table
+    # that asked for it.
+    emitting = {n for n, m in CLASS_PRESETS.items() if m.emissive > 0.0}
+    assert emitting == {"emissive"}
