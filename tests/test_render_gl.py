@@ -2511,3 +2511,96 @@ def test_nothing_is_softened_when_the_plate_is_already_target_resolution(gl_ctx)
     on.draw(frame)
     assert np.array_equal(on.read_rgb(), expected)
     on.release()
+
+
+def _composited_centre(gl_ctx, profile, palette=None, colour=1, plate_value=0):
+    """The composited pixel at the centre of one flat, fully-lit triangle,
+    under `profile`. Everything except the profile is held fixed, so two
+    calls differ only by what the tone curve did."""
+    from PyAitD.render.scene import FrameDescription as FD
+    palette = _palette() if palette is None else palette
+    plate = np.full((200, 320, 3), plate_value, np.uint8)
+    frame = FD(_view(), ImageAsset(plate, False), palette,
+               (_standing_actor(0, _tri_geometry(600.0, colour), 400.0),), (),
+               _scene_light((0.0, 0.0, -1.0)), profile)
+    backend = GLBackend(gl_ctx, RenderOptions(
+        scale=1, shading="smooth", lighting="scene", msaa=0,
+        realism="classic", integration="on"))
+    backend.draw(frame)
+    got = _centre(backend.read_rgb())
+    backend.release()
+    return got
+
+
+def test_the_toe_lifts_a_black_actor_to_the_rooms_floor(gl_ctx):
+    # palette index 0 is black, and realism="classic" zeroes the specular
+    # and rim terms, so the actor's own colour really is (0, 0, 0): the
+    # whole of the difference below is the toe.
+    from PyAitD.render.plate import NEUTRAL_PLATE, PlateProfile
+    black = (30 / 255, 20 / 255, 20 / 255)
+    flat = _composited_centre(gl_ctx, NEUTRAL_PLATE, colour=0)
+    lifted = _composited_centre(gl_ctx, PlateProfile(black, (1.0, 1.0, 1.0), 0.0), colour=0)
+    assert list(flat) == [0, 0, 0]
+    assert list(lifted) == pytest.approx([30, 20, 20], abs=1)
+
+
+def test_the_shoulder_pulls_a_white_actor_to_the_rooms_ceiling(gl_ctx):
+    # A white palette entry on a triangle facing the light head-on: the
+    # neutral render saturates, and the 0.8 ceiling has to pull it down.
+    from PyAitD.render.plate import NEUTRAL_PLATE, PlateProfile
+    palette = np.zeros((256, 3), np.uint8)
+    palette[1] = (255, 255, 255)
+    flat = _composited_centre(gl_ctx, NEUTRAL_PLATE, palette=palette)
+    pulled = _composited_centre(
+        gl_ctx, PlateProfile((0.0, 0.0, 0.0), (0.8, 0.8, 0.8), 0.0), palette=palette)
+    assert flat.max() == 255
+    assert pulled.max() < 255
+    assert pulled.max() == pytest.approx(204, abs=2)   # 255 * 0.8
+
+
+def _grey_grain_render(gl_ctx, grain):
+    """One flat mid-grey triangle over a flat plate, at `grain`.
+
+    Mid-grey and realism="classic" together: the actor's composited value
+    lands near 128, so a +-0.5 * grain * GAIN excursion (about +-35 at
+    grain 0.08) neither clips at 255 nor floors at 0. Measuring the noise
+    on a saturated channel would clip half of it and halve the RMS."""
+    from PyAitD.render.plate import PlateProfile
+    from PyAitD.render.scene import FrameDescription as FD
+    palette = np.zeros((256, 3), np.uint8)
+    palette[1] = (128, 128, 128)
+    frame = FD(_view(), ImageAsset(np.full((200, 320, 3), 120, np.uint8), False), palette,
+               (_actor(0, _tri_geometry(600.0, 1)),), (),
+               _scene_light((0.0, 0.0, -1.0)),
+               PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), grain))
+    backend = GLBackend(gl_ctx, RenderOptions(
+        scale=1, shading="smooth", lighting="scene", msaa=0,
+        realism="classic", integration="on"))
+    backend.draw(frame)
+    out = backend.read_rgb().copy()
+    backend.release()
+    return out
+
+
+def test_grain_is_still_and_confined_to_the_actor(gl_ctx):
+    quiet = _grey_grain_render(gl_ctx, 0.0)
+    first = _grey_grain_render(gl_ctx, 0.08)
+    second = _grey_grain_render(gl_ctx, 0.08)
+    # Hashed on the screen cell alone, so it sits still like the plate's
+    # own dither rather than crawling between frames.
+    assert np.array_equal(first, second)
+    # Zero where the actor is not: the noise lives inside the `a > 0` branch.
+    outside = first != quiet
+    assert not outside[10, 10].any()
+    assert outside.any(), "grain never moved a pixel at all"
+
+
+def test_grain_lands_at_the_plates_own_amplitude(gl_ctx):
+    # GAIN is sqrt(12) precisely so the composited residual's RMS equals
+    # `grain`. Measured as the difference between two otherwise identical
+    # renders, which isolates the noise from the actor's own shading.
+    quiet = _grey_grain_render(gl_ctx, 0.0).astype(float)
+    noisy = _grey_grain_render(gl_ctx, 0.08).astype(float)
+    # A patch well inside the triangle (see _centre's note on its extent).
+    patch = (noisy - quiet)[60:100, 110:150, 0]
+    assert patch.std() == pytest.approx(0.08 * 255, rel=0.25)

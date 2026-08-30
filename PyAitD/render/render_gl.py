@@ -1143,6 +1143,9 @@ class GLBackend:
             0.0 if sigma <= 0.0 else 1.0 / (2.0 * sigma * sigma))
         self._composite_prog["cell"].value = float(cell)
         self._composite_prog["pixelate"].value = 1 if pixelate else 0
+        self._composite_prog["plate_black"].value = tuple(float(v) for v in frame.plate.black)
+        self._composite_prog["plate_white"].value = tuple(float(v) for v in frame.plate.white)
+        self._composite_prog["plate_grain"].value = float(frame.plate.grain)
         self._fbo.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
