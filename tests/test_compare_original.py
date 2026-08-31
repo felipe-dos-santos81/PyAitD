@@ -37,3 +37,12 @@ def test_parse_compare_args_defaults_to_the_bundled_data():
     args = _mod().parse_compare_args([])
     assert args.data.name == "INDARK"
     assert args.hero == 0
+
+
+def test_the_bundle_keeps_the_disc_images_beside_indark(data_dir):
+    # The orchestrator's startup check (and the conf's imgmount, which reads
+    # GAME.INS off the mounted C: after `c:`) both rely on the real bundle
+    # keeping the DOS disc images beside INDARK/ — not at the Resources root,
+    # where an earlier check looked. Pinned from the shipped data.
+    assert (data_dir.parent / "GAME.INS").exists()
+    assert (data_dir.parent / "GAME.GOG").exists()

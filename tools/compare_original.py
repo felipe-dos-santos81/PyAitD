@@ -112,9 +112,14 @@ def main(argv=None):
     for name in ("INDARK.EXE",):
         if not (args.data / name).exists():
             sys.exit(f"error: {args.data / name} missing: not the DOS data dir?")
-    resources = args.data.parent.parent
-    if not (resources / "game").is_dir() or not (resources / "GAME.INS").exists():
-        sys.exit(f"error: {resources} does not look like the bundle Resources dir")
+    # The bundle keeps the disc images beside INDARK/ — the mounted C: the
+    # conf's imgmount reads GAME.INS from after `c:` — not at the Resources
+    # root (pinned from the real bundle by tests/test_compare_original.py).
+    game_dir = args.data.parent
+    for name in ("GAME.INS", "GAME.GOG"):
+        if not (game_dir / name).exists():
+            sys.exit(f"error: {game_dir / name} missing: not the bundle game dir?")
+    resources = game_dir.parent
     print("note: the terminal needs macOS Accessibility permission to post "
           "keys; grant it in System Settings if the original ignores input")
 
