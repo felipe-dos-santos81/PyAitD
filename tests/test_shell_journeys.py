@@ -95,7 +95,7 @@ def _observe_input_snapshots(monkeypatch):
         real_apply(game, buffer)
         snapshots.append((game.local_joyd, game.local_click, game.action))
 
-    monkeypatch.setattr(playworld, "apply_play_input", spy)
+    monkeypatch.setattr(playworld.tick, "apply_play_input", spy)
     return snapshots
 
 
@@ -394,7 +394,7 @@ def test_menu_entry_and_exit_never_replay_held_input(data_dir, profile, monkeypa
             "tick": (game_arg.local_joyd, game_arg.local_click, game_arg.action),
         })
 
-    monkeypatch.setattr(playworld, "apply_play_input", observe)
+    monkeypatch.setattr(playworld.tick, "apply_play_input", observe)
 
     def next_events():
         state["frames"] += 1

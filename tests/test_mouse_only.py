@@ -602,7 +602,7 @@ def test_mouse_journey_one_click_attack_swings_the_held_saber(data_dir, profile,
     geometry_renderer = _HeadlessRenderer()
 
     observed = {"states": set(), "hit": None, "target_box": None}
-    original_gere_frappe = playworld_module.gere_frappe
+    original_gere_frappe = playworld_module.passes.gere_frappe
 
     def observe_action(g, actor_idx):
         actor = g.actors[actor_idx]
@@ -613,7 +613,7 @@ def test_mouse_journey_one_click_attack_swings_the_held_saber(data_dir, profile,
             observed["hit"] = (enemy.hit_by, enemy.hit_force)
         return result
 
-    monkeypatch.setattr(playworld_module, "gere_frappe", observe_action)
+    monkeypatch.setattr(playworld_module.passes, "gere_frappe", observe_action)
     state = {"step": "hud", "frames": 0}
 
     def next_events():

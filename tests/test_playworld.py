@@ -521,10 +521,10 @@ def test_anim_pass_refreshes_before_anim_and_strikes_after_dec(monkeypatch, data
     game.actors[idx].anim_action_type = WAIT_FRAPPE_ANIM
     game.actors[idx].hot_point_id = 0
     calls = []
-    monkeypatch.setattr("PyAitD.engine.script.playworld.refresh_hot_point", lambda *args: calls.append("hot"))
-    monkeypatch.setattr("PyAitD.engine.script.playworld.gere_anim", lambda *args: calls.append("anim"))
-    monkeypatch.setattr("PyAitD.engine.script.playworld.gere_dec", lambda *args: calls.append("dec"))
-    monkeypatch.setattr("PyAitD.engine.script.playworld.gere_frappe", lambda *args: calls.append("hit"))
+    monkeypatch.setattr("PyAitD.engine.script.playworld.passes.refresh_hot_point", lambda *args: calls.append("hot"))
+    monkeypatch.setattr("PyAitD.engine.script.playworld.passes.gere_anim", lambda *args: calls.append("anim"))
+    monkeypatch.setattr("PyAitD.engine.script.playworld.passes.gere_dec", lambda *args: calls.append("dec"))
+    monkeypatch.setattr("PyAitD.engine.script.playworld.passes.gere_frappe", lambda *args: calls.append("hit"))
     _anim_pass(game)
     assert calls[:4] == ["hot", "anim", "dec", "hit"]
 

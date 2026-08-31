@@ -28,8 +28,8 @@ def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, profile
             current.flag_game_over = 1
         return True
 
-    monkeypatch.setattr(playworld, "run_life", fake_run_life)
-    monkeypatch.setattr(playworld, "life_gate", lambda actor: actor.index_in_world >= 0)
+    monkeypatch.setattr(playworld.tick, "run_life", fake_run_life)
+    monkeypatch.setattr(playworld.tick, "life_gate", lambda actor: actor.index_in_world >= 0)
     assert play_tick(game, floor, InputBuffer()) is False
     assert seen == live
     assert game.flag_game_over == 0
@@ -101,8 +101,8 @@ def test_game_over_during_a_cutscene_is_cutscene_finished(data_dir, profile, mon
     game = init_game(data_dir, profile)
     game.allow_system_menu = False      # PlayWorld(allowSystemMenu=0): mainLoop.cpp:185 break, not death
     floor = game.load_floor(game.current_floor)
-    monkeypatch.setattr(playworld, "run_life", lambda current, frame: setattr(current, "flag_game_over", 1) or True)
-    monkeypatch.setattr(playworld, "life_gate", lambda actor: actor.index_in_world >= 0)
+    monkeypatch.setattr(playworld.tick, "run_life", lambda current, frame: setattr(current, "flag_game_over", 1) or True)
+    monkeypatch.setattr(playworld.tick, "life_gate", lambda actor: actor.index_in_world >= 0)
     assert play_tick(game, floor, InputBuffer()) is False
     assert game.active_modal == CutsceneFinished() and game.mode is GameMode.CUTSCENE_END
     assert game.flag_game_over == 0
