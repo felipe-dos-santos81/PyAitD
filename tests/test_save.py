@@ -44,7 +44,7 @@ def test_engine_version_matches_pyproject():
 def test_snapshot_root_keys_pinned(data_dir, profile):
     payload = _snapshot(data_dir, profile)
     assert set(payload) == ROOT_KEYS
-    assert payload["schema"] == SCHEMA == 1
+    assert payload["schema"] == SCHEMA == 2
     assert payload["engine_version"] == __version__
     assert payload["hero"] == 0
 
@@ -157,7 +157,7 @@ def test_validate_round_trip_json(data_dir, profile):
 
 def test_validate_rejects_unknown_schema(data_dir, profile):
     payload = _snapshot(data_dir, profile)
-    payload["schema"] = 2
+    payload["schema"] = 3
     with pytest.raises(SaveError, match=r"schema"):
         validate_snapshot(payload, data_dir, profile)
 

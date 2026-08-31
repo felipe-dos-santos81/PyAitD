@@ -363,16 +363,19 @@ class WorldObject:
     track_mode: int
     track_number: int
     position_in_track: int
+    mark: int = 0
 
 
-def parse_objets(raw):
-    # FITD LoadWorld (main.cpp:1005): u16 count + fixed 26-s16 records, flags |= 0x20
+def parse_objets(raw, *, has_mark):
+    # FITD LoadWorld (main.cpp:1005): u16 count + fixed s16 records, flags |= 0x20;
+    # AITD2+ appends a trailing mark s16 per record (main.cpp:1117-1121).
     count = _u16(raw, 0)
     p = 2
     out = []
+    fmt, size = ("<27h", 54) if has_mark else ("<26h", 52)
     for _ in range(count):
-        values = list(struct.unpack_from("<26h", raw, p))
-        p += 52
+        values = list(struct.unpack_from(fmt, raw, p))
+        p += size
         values[2] |= 0x20
         out.append(WorldObject(*values))
     return out

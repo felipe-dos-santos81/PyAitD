@@ -17,7 +17,7 @@ from PyAitD.engine.script.effects import TimedMessage
 from PyAitD.engine.data.formats import WorldObject, parse_defines, parse_objets, parse_vars
 from PyAitD.engine.script.game import NUM_MAX_OBJECT, Actor, FloorStart, init_game
 
-SCHEMA = 1
+SCHEMA = 2
 
 ROOT_KEYS = (
     "schema", "engine_version", "source", "hero", "game", "actors",
@@ -178,7 +178,7 @@ def validate_snapshot(payload, data_dir, profile):
     _validate_source(payload["source"], data_dir, profile, hero)
     _validate_state(payload["game"], data_dir, profile)
     _validate_actors(payload["actors"])
-    _validate_world_objects(payload["world_objects"], data_dir)
+    _validate_world_objects(payload["world_objects"], data_dir, profile.world_object_has_mark)
     _validate_anim_players(payload["anim_players"])
     _validate_inventory(payload["inventory"])
     _validate_messages(payload["messages"])
@@ -371,8 +371,8 @@ def _validate_actors(actors):
                 _require_int(value[key], f"{path}.{name}.{key}")
 
 
-def _validate_world_objects(world_objects, data_dir):
-    expected = len(parse_objets((pathlib.Path(data_dir) / "OBJETS.ITD").read_bytes()))
+def _validate_world_objects(world_objects, data_dir, has_mark):
+    expected = len(parse_objets((pathlib.Path(data_dir) / "OBJETS.ITD").read_bytes(), has_mark=has_mark))
     if not isinstance(world_objects, list) or len(world_objects) != expected:
         count = len(world_objects) if isinstance(world_objects, list) else type(world_objects).__name__
         _fail("world_objects", f"expected {expected} world objects, got {count}")

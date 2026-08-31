@@ -10,7 +10,7 @@ pytestmark = pytest.mark.engine
 def test_objets_golden(data_dir):
     raw = (pathlib.Path(data_dir) / "OBJETS.ITD").read_bytes()
     assert len(raw) == 15186
-    objs = parse_objets(raw)
+    objs = parse_objets(raw, has_mark=False)
     assert len(objs) == 292
     o = objs[0]
     assert (o.obj_index, o.body, o.type_zv, o.found_body, o.found_name) == (-1, 0, 3, -1, -1)
@@ -19,6 +19,7 @@ def test_objets_golden(data_dir):
     assert (o.stage, o.room, o.life_mode, o.life, o.anim) == (0, 0, 1, 0, -1)
     assert (o.track_mode, o.track_number, o.position_in_track) == (0, -1, 20)
     assert o.flags & 0x20  # loader ORs 0x20 into every record
+    assert all(obj.mark == 0 for obj in objs)  # AITD1 records carry no mark
 
 
 def test_vars_golden(data_dir):

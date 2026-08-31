@@ -31,7 +31,7 @@ def test_all_tracks_fetch(data_dir, profile):
 
 def test_all_tables_parse(data_dir):
     d = pathlib.Path(data_dir)
-    assert len(parse_objets((d / "OBJETS.ITD").read_bytes())) == 292
+    assert len(parse_objets((d / "OBJETS.ITD").read_bytes(), has_mark=False)) == 292
     assert len(parse_vars((d / "VARS.ITD").read_bytes())) == 207
     assert len(parse_defines((d / "DEFINES.ITD").read_bytes(), big_endian=True)) == 45
     assert len(parse_priority((d / "PRIORITY.ITD").read_bytes())) == 50

@@ -111,7 +111,7 @@ class Game:
         self._data_dir = data_dir
         self._rooms_by_floor = {}
         self.assets = Assets(data_dir, profile, hero=hero)
-        self.world_objects = parse_objets((data_dir / "OBJETS.ITD").read_bytes())
+        self.world_objects = parse_objets((data_dir / "OBJETS.ITD").read_bytes(), has_mark=profile.world_object_has_mark)
         self.actors = [Actor() for _ in range(NUM_MAX_OBJECT)]
         self.cvars = parse_defines((data_dir / "DEFINES.ITD").read_bytes(), big_endian=profile.defines_big_endian)
         self.cvars[profile.cvar_index("CHOOSE_PERSO")] = hero  # startGame backs up and restores it
