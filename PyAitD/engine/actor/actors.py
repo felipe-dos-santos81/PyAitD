@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Actor state, hard-col collision helpers (FITD ports)."""
 
-from PyAitD.engine.anim import AnimPlayer
+from PyAitD.engine.actor.anim import AnimPlayer
 from PyAitD.engine.game import AF_BOXIFY, AF_DRAWABLE, AF_ANIMATED
 from PyAitD.engine.space.realvalue import evaluate_real, init_real_value
 from PyAitD.engine.space.world import adjust_zv_between_rooms, cdiv as _cdiv, rotate_step
@@ -250,7 +250,7 @@ def gere_anim(game, actor_idx):
                 # anim.cpp:654-660: one-shot anim wrapped with no pending anim:
                 # clear ANIM_UNINTERRUPTABLE, restart same anim as ANIM_REPEAT
                 a.anim_type &= ~2
-                from PyAitD.engine.anim import init_anim
+                from PyAitD.engine.actor.anim import init_anim
                 init_anim(a, a.anim_info, 1, -1)
         a.world_x += a.step_x
         a.room_x += a.step_x

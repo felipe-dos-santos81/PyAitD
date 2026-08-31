@@ -6,7 +6,7 @@ import numpy as np
 import pygame
 import pytest
 
-from PyAitD.engine.anim_action import (
+from PyAitD.engine.actor.anim_action import (
     FRAPPE_OK, HANDLED_ACTIONS, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME,
 )
 from PyAitD.render.asset_resolver import AssetResolver

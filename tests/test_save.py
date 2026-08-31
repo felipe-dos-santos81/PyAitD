@@ -249,7 +249,7 @@ def test_validate_rejects_corrupt_rng_state(data_dir, profile):
 
 # ── task 3: animation state and fresh-game restoration ──────────────────────
 
-from PyAitD.engine.actors import anim_player_for
+from PyAitD.engine.actor.actors import anim_player_for
 from PyAitD.engine.effects import TimedMessage
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import FloorStart

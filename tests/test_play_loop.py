@@ -701,7 +701,7 @@ def test_gere_anim_walk_step(data_dir, profile):
     # (0, 0, 4); each keyframe commit moves the actor +4 in X (beta 0x300:
     # walkStep outputs crossed, animMoveZ = cos*step, animMoveX = -sin*step).
     # First tick is bp=0 (inter), so the first commit lands on tick 21.
-    from PyAitD.engine.actors import gere_anim
+    from PyAitD.engine.actor.actors import gere_anim
     from PyAitD.engine.data.formats import Animation, Frame
 
     game = init_game(data_dir, profile, hero=0)
@@ -728,7 +728,7 @@ def test_gere_anim_walk_step(data_dir, profile):
 def test_gere_anim_one_shot_rearm(data_dir, profile):
     # FITD anim.cpp:654-660: one-shot (non-repeat) anim wrap with no pending
     # anim clears ANIM_UNINTERRUPTABLE and restarts the anim as ANIM_REPEAT
-    from PyAitD.engine.actors import gere_anim
+    from PyAitD.engine.actor.actors import gere_anim
     from PyAitD.engine.data.formats import Animation, Frame
 
     game = init_game(data_dir, profile, hero=0)
@@ -752,7 +752,7 @@ def test_gere_anim_one_shot_rearm(data_dir, profile):
 
 def test_depth_sort_far_first():
     # FITD sortActorList: farther actors draw first (painter's algorithm)
-    from PyAitD.engine.actors import sort_actor_indices
+    from PyAitD.engine.actor.actors import sort_actor_indices
     from PyAitD.engine.game import Actor, Game
     game = Game.__new__(Game)
     game.actors = [Actor(index_in_world=-1) for _ in range(4)]
@@ -765,7 +765,7 @@ def test_depth_sort_far_first():
 
 def test_depth_sort_y_bands():
     # different y bands: compare translateY - 2000 - y (no XZ overlap logic)
-    from PyAitD.engine.actors import sort_actor_indices
+    from PyAitD.engine.actor.actors import sort_actor_indices
     from PyAitD.engine.game import Actor, Game
     game = Game.__new__(Game)
     game.actors = [Actor(index_in_world=-1) for _ in range(4)]
@@ -1181,7 +1181,7 @@ def _real_draw_list_entry(game, floor, actor_idx):
     """The (actor, screen bbox) pair _scene_frame would produce, without a
     Renderer: the same skin() call, the same picking.actor_bbox."""
     from PyAitD.engine.picking import actor_bbox
-    from PyAitD.engine.skel import skin
+    from PyAitD.engine.actor.skel import skin
     from PyAitD.engine.space.world import CameraState
     room = floor.rooms[game.current_room]
     camera = floor.cameras[room.camera_indices[game.num_camera]]

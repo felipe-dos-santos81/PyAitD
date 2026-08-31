@@ -2,15 +2,15 @@
 """Melee hot-point timing and hit publication (FITD animAction.cpp GereFrappe)."""
 import pytest
 
-from PyAitD.engine.actors import anim_player_for
-from PyAitD.engine.anim_action import (
+from PyAitD.engine.actor.actors import anim_player_for
+from PyAitD.engine.actor.anim_action import (
     DO_TIR, FRAPPE_OK, HIT_OBJECT, THROW_OBJECT, WAIT_ANIM_THROW, WAIT_FRAME_THROW,
     WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, WAIT_TIR_ANIM, check_line_projection_with_actors,
     gere_frappe, refresh_hot_point, throw_stopped_at,
 )
 from PyAitD.engine.data.formats import Zone
 from PyAitD.engine.game import AF_ANIMATED, AF_BOXIFY, AF_MOVABLE, AF_SPECIAL, init_game
-from PyAitD.engine.skel import hot_point as skel_hot_point
+from PyAitD.engine.actor.skel import hot_point as skel_hot_point
 
 pytestmark = pytest.mark.engine
 
@@ -62,7 +62,7 @@ def test_frappe_ok_mismatch_still_hit_tests(monkeypatch, data_dir, profile):
     attacker.anim_action_anim = attacker.anim + 1
     attacker.anim_action_param = 50
     attacker.hit_force = 10
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", lambda *args: (victim_idx,))
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_object_col", lambda *args: (victim_idx,))
     gere_frappe(game, attacker_idx)
     assert attacker.anim_action_type == 0
     assert attacker.hit == victim_idx
@@ -74,7 +74,7 @@ def test_melee_stops_at_first_animated_victim(monkeypatch, data_dir, profile):
     game, attacker_idx, first_idx, second_idx = _live_actors(data_dir, profile, 3)
     game.actors[first_idx].object_type |= AF_ANIMATED
     monkeypatch.setattr(
-        "PyAitD.engine.anim_action.check_object_col", lambda *args: (first_idx, second_idx)
+        "PyAitD.engine.actor.anim_action.check_object_col", lambda *args: (first_idx, second_idx)
     )
     game.actors[attacker_idx].anim_action_type = FRAPPE_OK
     game.actors[attacker_idx].anim_action_param = 100
@@ -132,7 +132,7 @@ def test_frappe_ok_builds_the_expected_strike_cube(monkeypatch, data_dir, profil
         captured["zv"] = zv
         return (victim_idx,)
 
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", capturing_check_object_col)
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_object_col", capturing_check_object_col)
     gere_frappe(game, attacker_idx)
 
     # x = 1000 + 10 + 1 = 1011, y = 2000 + 20 + 2 = 2022, z = 3000 + 30 + 3 = 3033,
@@ -217,7 +217,7 @@ def test_throw_setup_activates_released_object_then_launches(data_dir, profile, 
     thrower.anim_action_param = object_idx
     thrower.hot_point[:] = [0, 0, 0]
 
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *args: [])
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", lambda *args: [])
     # init_game's own spawn pass already leaves flag_genere_aff_list == 1
     # (it just spawned the whole stage), so reset it here — otherwise the
     # assertion below would pass even if activation never touched the flag.
@@ -246,7 +246,7 @@ def test_wait_anim_throw_stays_put_until_animation_matches(monkeypatch, data_dir
     thrower.anim_action_anim = thrower.anim + 1  # deliberate mismatch
 
     calls = []
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *a: calls.append(a) or [])
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", lambda *a: calls.append(a) or [])
 
     gere_frappe(game, thrower_idx)
 
@@ -279,7 +279,7 @@ def test_prepare_throw_builds_the_expected_obstruction_cube(monkeypatch, data_di
         captured["hard_cols"] = hard_cols
         return []
 
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", capturing_check_hard_col)
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", capturing_check_hard_col)
 
     gere_frappe(game, thrower_idx)
 
@@ -304,7 +304,7 @@ def test_prepare_throw_waits_for_frame_before_arming(monkeypatch, data_dir, prof
     thrower.anim_action_param = object_idx
     game.flag_genere_aff_list = 0
 
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *a: [])
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", lambda *a: [])
 
     gere_frappe(game, thrower_idx)
 
@@ -328,11 +328,11 @@ def test_prepare_throw_obstructed_reverts_placement(monkeypatch, data_dir, profi
     original_x, original_y, original_z = world.x, world.y, world.z
     game.flag_genere_aff_list = 0
 
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *a: ["blocked"])
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", lambda *a: ["blocked"])
 
     calls = []
     monkeypatch.setattr(
-        "PyAitD.engine.anim_action.put_at_objet",
+        "PyAitD.engine.actor.anim_action.put_at_objet",
         lambda game_arg, obj_idx, put_at_idx: calls.append((game_arg, obj_idx, put_at_idx)),
     )
 
@@ -454,7 +454,7 @@ def test_fire_sweep_preserves_no_hard_collision_termination(monkeypatch, data_di
     # entries. This is FITD's verified (if counterintuitive) behaviour, not
     # a raycast-until-blocked convention to "correct".
     game, shooter_idx, victim_idx = _live_actors(data_dir, profile, 2)
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *args: [])
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", lambda *args: [])
     result = check_line_projection_with_actors(game, shooter_idx, 0, 0, 0, 0, 0, 50)
     assert result[0] == -1
     assert result[1:] == (0, 0, 0)
@@ -473,7 +473,7 @@ def test_fire_sweep_returns_first_live_non_special_slot(monkeypatch, data_dir, p
     for idx, other in enumerate(game.actors):
         if idx not in (shooter_idx, first_idx, second_idx):
             other.index_in_world = -1
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *args: [object()])
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", lambda *args: [object()])
     game.actors[first_idx].object_type |= AF_SPECIAL
     # Adversarial setup: give the shooter and the AF_SPECIAL actor the same
     # overlapping zv as second_idx, so each of them WOULD be returned if its
@@ -540,7 +540,7 @@ def test_fire_sweep_adjusts_zv_across_rooms_before_intersecting(monkeypatch, dat
     victim.room = 1
     victim.zv = [900, 1100, -100, 100, -100, 100]
 
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *args: [object()])
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", lambda *args: [object()])
 
     captured = {}
 
@@ -551,7 +551,7 @@ def test_fire_sweep_adjusts_zv_across_rooms_before_intersecting(monkeypatch, dat
         captured["zv"] = list(zv)
         return [900, 1100, -100, 100, -100, 100]
 
-    monkeypatch.setattr("PyAitD.engine.anim_action.adjust_zv_between_rooms", fake_adjust)
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.adjust_zv_between_rooms", fake_adjust)
 
     hit, x, y, z = check_line_projection_with_actors(
         game, shooter_idx, 0, 0, -100, 0, shooter.room, 50,
@@ -609,7 +609,7 @@ def test_do_tir_hit_updates_hotpoint_and_publishes_hit(monkeypatch, data_dir, pr
         captured["args"] = (actor_idx_arg, x, y, z, beta, room, param)
         return (victim_idx, 1111, 2222, 3333)
 
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_line_projection_with_actors", fake_sweep)
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_line_projection_with_actors", fake_sweep)
 
     gere_frappe(game, actor_idx)
 
@@ -631,7 +631,7 @@ def test_do_tir_miss_resets_without_publishing_hit(monkeypatch, data_dir, profil
     actor.hit = -1
 
     monkeypatch.setattr(
-        "PyAitD.engine.anim_action.check_line_projection_with_actors",
+        "PyAitD.engine.actor.anim_action.check_line_projection_with_actors",
         lambda *args: (-1, 999, 999, 999),
     )
 
@@ -660,7 +660,7 @@ def _thrown_game(data_dir, profile):
 def test_throw_stopped_at_searches_back_and_commits_found_state(monkeypatch, data_dir, profile):
     game, actor_idx = _thrown_game(data_dir, profile)
     checks = iter(([object()], [object()], []))
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *args: next(checks))
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", lambda *args: next(checks))
     throw_stopped_at(game, actor_idx, 1000, 2000)
     actor = game.actors[actor_idx]
     world = game.world_objects[actor.index_in_world]
@@ -697,7 +697,7 @@ def test_throw_stopped_at_raises_y_band_until_reachable(monkeypatch, data_dir, p
         captured.append(list(zv))
         return next(responses)
 
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", fake_check_hard_col)
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", fake_check_hard_col)
 
     throw_stopped_at(game, actor_idx, 1000, 2000)
 
@@ -711,7 +711,7 @@ def test_in_flight_ignores_original_thrower(monkeypatch, data_dir, profile):
     thrown = game.actors[actor_idx]
     original_world = game.world_objects[thrown.index_in_world].alpha
     original_actor = game.world_objects[original_world].obj_index
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", lambda *args: (original_actor,))
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_object_col", lambda *args: (original_actor,))
     gere_frappe(game, actor_idx)
     assert thrown.hit == -1
 
@@ -736,11 +736,11 @@ def test_in_flight_thrower_branch_short_circuits_after_publishing_earlier_hit(mo
         and a.index_in_world not in (original_world, game.cvars[11])
     )
     monkeypatch.setattr(
-        "PyAitD.engine.anim_action.check_object_col",
+        "PyAitD.engine.actor.anim_action.check_object_col",
         lambda *args: (victim_idx, original_actor),
     )
     calls = []
-    monkeypatch.setattr("PyAitD.engine.anim_action.throw_stopped_at", lambda *a: calls.append(a))
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.throw_stopped_at", lambda *a: calls.append(a))
 
     gere_frappe(game, actor_idx)
 
@@ -767,7 +767,7 @@ def test_in_flight_reflects_from_reverse_object(monkeypatch, data_dir, profile):
     game.actors[reverse_world_actor].index_in_world = reverse_world
 
     reverse_actor = game.world_objects[reverse_world].obj_index
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", lambda *args: (reverse_actor,))
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_object_col", lambda *args: (reverse_actor,))
     beta = game.actors[actor_idx].beta
     gere_frappe(game, actor_idx)
     assert game.actors[actor_idx].beta == beta + 0x200
@@ -801,7 +801,7 @@ def test_in_flight_reflection_reverts_xz_but_keeps_actual_y(monkeypatch, data_di
     game.world_objects[reverse_world].obj_index = reverse_world_actor
     game.actors[reverse_world_actor].index_in_world = reverse_world
     monkeypatch.setattr(
-        "PyAitD.engine.anim_action.check_object_col", lambda *args: (reverse_world_actor,),
+        "PyAitD.engine.actor.anim_action.check_object_col", lambda *args: (reverse_world_actor,),
     )
 
     gere_frappe(game, actor_idx)
@@ -826,7 +826,7 @@ def test_in_flight_hot_point_cleared_on_ordinary_hit(monkeypatch, data_dir, prof
         and i != actor_idx
         and a.index_in_world not in (world.alpha, game.cvars[11])
     )
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", lambda *args: (victim_idx,))
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_object_col", lambda *args: (victim_idx,))
 
     gere_frappe(game, actor_idx)
 
@@ -841,7 +841,7 @@ def test_in_flight_hot_point_cleared_when_thrower_ignored(monkeypatch, data_dir,
     thrown.hot_point[:] = [4, 5, 6]
     original_world = game.world_objects[thrown.index_in_world].alpha
     original_actor = game.world_objects[original_world].obj_index
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", lambda *args: (original_actor,))
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_object_col", lambda *args: (original_actor,))
 
     gere_frappe(game, actor_idx)
 
@@ -860,9 +860,9 @@ def test_in_flight_publishes_hit_and_stops_when_ordinary_victim(monkeypatch, dat
         and i != actor_idx
         and a.index_in_world not in (world.alpha, game.cvars[11])
     )
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", lambda *args: (victim_idx,))
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_object_col", lambda *args: (victim_idx,))
     calls = []
-    monkeypatch.setattr("PyAitD.engine.anim_action.throw_stopped_at", lambda *a: calls.append(a))
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.throw_stopped_at", lambda *a: calls.append(a))
 
     gere_frappe(game, actor_idx)
 
@@ -884,9 +884,9 @@ def test_in_flight_stops_at_first_containing_zone_type_0_or_10(zone_type, monkey
     # exact point is guaranteed to be the first containing zone found.
     zone = Zone(old_x - 10, old_x + 10, old_y - 10, old_y + 10, old_z - 10, old_z + 10, zone_type, 0)
     room.sce_zones.insert(0, zone)
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", lambda *args: ())
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_object_col", lambda *args: ())
     calls = []
-    monkeypatch.setattr("PyAitD.engine.anim_action.throw_stopped_at", lambda *a: calls.append(a))
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.throw_stopped_at", lambda *a: calls.append(a))
     try:
         gere_frappe(game, actor_idx)
     finally:
@@ -911,10 +911,10 @@ def test_in_flight_zone_type_gate_is_load_bearing(monkeypatch, data_dir, profile
     # Loose actor ZV so the sweep's natural exit fires on the very first
     # iteration once the zone/hard-col branches decline to stop it.
     thrown.zv = [old_x - 50, old_x + 50, old_y - 50, old_y + 50, old_z - 50, old_z + 50]
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", lambda *args: ())
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *args: [])
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_object_col", lambda *args: ())
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", lambda *args: [])
     calls = []
-    monkeypatch.setattr("PyAitD.engine.anim_action.throw_stopped_at", lambda *a: calls.append(a))
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.throw_stopped_at", lambda *a: calls.append(a))
     try:
         gere_frappe(game, actor_idx)
     finally:
@@ -931,11 +931,11 @@ def test_in_flight_hard_collision_stops_and_clears_hot_point(monkeypatch, data_d
     thrown.hot_point[:] = [7, 8, 9]
     world = game.world_objects[thrown.index_in_world]
     old_x, old_z = world.x, world.z
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", lambda *args: ())
-    monkeypatch.setattr("PyAitD.engine.anim_action.point_in_zone", lambda *args: False)
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *args: [object()])
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_object_col", lambda *args: ())
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.point_in_zone", lambda *args: False)
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", lambda *args: [object()])
     calls = []
-    monkeypatch.setattr("PyAitD.engine.anim_action.throw_stopped_at", lambda *a: calls.append(a))
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.throw_stopped_at", lambda *a: calls.append(a))
 
     gere_frappe(game, actor_idx)
 
@@ -954,9 +954,9 @@ def test_in_flight_commits_actual_position_when_sweep_rejoins_actor_zv(monkeypat
     # centre (the object's own last committed position), so the sweep
     # exits on iteration 1 and must commit the *actual* (stepped) position.
     thrown.zv = [old_x - 50, old_x + 50, old_y - 50, old_y + 50, old_z - 50, old_z + 50]
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_object_col", lambda *args: ())
-    monkeypatch.setattr("PyAitD.engine.anim_action.point_in_zone", lambda *args: False)
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *args: [])
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_object_col", lambda *args: ())
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.point_in_zone", lambda *args: False)
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", lambda *args: [])
 
     gere_frappe(game, actor_idx)
 
@@ -979,11 +979,11 @@ def test_in_flight_sweep_continues_until_it_rejoins_actor_zv(monkeypatch, data_d
 
     calls = []
     monkeypatch.setattr(
-        "PyAitD.engine.anim_action.check_object_col",
+        "PyAitD.engine.actor.anim_action.check_object_col",
         lambda *args: calls.append(args) or (),
     )
-    monkeypatch.setattr("PyAitD.engine.anim_action.point_in_zone", lambda *args: False)
-    monkeypatch.setattr("PyAitD.engine.anim_action.check_hard_col", lambda *args: [])
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.point_in_zone", lambda *args: False)
+    monkeypatch.setattr("PyAitD.engine.actor.anim_action.check_hard_col", lambda *args: [])
 
     gere_frappe(game, actor_idx)
 

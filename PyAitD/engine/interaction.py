@@ -359,7 +359,7 @@ def choose_inventory_action(game, object_idx, action_text_id):
 
 
 def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z):
-    from PyAitD.engine.actors import check_hard_col, check_object_col, gere_collision
+    from PyAitD.engine.actor.actors import check_hard_col, check_object_col, gere_collision
     from PyAitD.engine.game import AF_ANIMATED, AF_BOXIFY, AF_FOUNDABLE, AF_MOVABLE
 
     actor = game.actors[actor_idx]
@@ -490,7 +490,7 @@ def cancel_nav_intent(game):
     hero_idx = game.current_camera_target_actor
     if hero_idx == -1:
         return
-    from PyAitD.engine.anim import init_anim
+    from PyAitD.engine.actor.anim import init_anim
     hero = game.actors[hero_idx]
     hero.speed = 0
     hero.direction = 0
@@ -528,9 +528,9 @@ def attack_in_hand(game, target_actor_idx):
     action input (mainLoop.cpp:87-101), which the caller arms on the returned
     True; explicit Throw stays reachable only from the inventory row itself.
     """
-    # Imported lazily so tests can monkeypatch PyAitD.engine.tracks.face_toward and
+    # Imported lazily so tests can monkeypatch PyAitD.engine.actor.tracks.face_toward and
     # this module stays free of track-system imports at module load time.
-    from PyAitD.engine.tracks import face_toward
+    from PyAitD.engine.actor.tracks import face_toward
 
     if not is_combat_target(game, target_actor_idx) or not can_strike(game):
         return False

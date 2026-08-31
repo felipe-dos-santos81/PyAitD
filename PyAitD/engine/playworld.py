@@ -5,8 +5,8 @@ Imports no pygame, ModernGL or Renderer, so one 50 Hz logic step can be
 advanced without a window. Callers still reach `ui.py` for an InputBuffer;
 freeing that needs InputBuffer moved out of the presentation layer.
 """
-from PyAitD.engine.actors import gere_anim
-from PyAitD.engine.anim_action import gere_frappe, refresh_hot_point
+from PyAitD.engine.actor.actors import gere_anim
+from PyAitD.engine.actor.anim_action import gere_frappe, refresh_hot_point
 from PyAitD.engine.effects import CutsceneFinished, GameMode, GameOver, InputMode, LifeFrame
 from PyAitD.engine.data.formats import parse_cover_zones
 from PyAitD.engine.game import (
@@ -84,7 +84,7 @@ def _refresh_held_target(game, hero, mesh):
         PLAYER_PUSH_ANIM, cancel_nav_intent, hold_action_approach,
         is_hold_action_target,
     )
-    from PyAitD.engine.anim import init_anim
+    from PyAitD.engine.actor.anim import init_anim
 
     intent = game.nav_intent
     world_idx = intent.target_object_idx

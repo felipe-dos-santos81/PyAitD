@@ -3,7 +3,7 @@
 
 import pytest
 
-from PyAitD.engine.anim_action import WAIT_FRAPPE_ANIM
+from PyAitD.engine.actor.anim_action import WAIT_FRAPPE_ANIM
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.interaction import PLAYER_PUSH_ANIM
@@ -353,7 +353,7 @@ def test_stationary_target_does_not_replan_away_the_approach_stall(data_dir, pro
 
 
 def test_active_push_suppresses_the_verified_pending_walk_request(data_dir, profile):
-    from PyAitD.engine.anim import ANIM_REPEAT
+    from PyAitD.engine.actor.anim import ANIM_REPEAT
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -374,7 +374,7 @@ def test_active_push_suppresses_the_verified_pending_walk_request(data_dir, prof
 
 
 def test_active_push_preserves_an_unrelated_uninterruptible_animation_request(data_dir, profile):
-    from PyAitD.engine.anim import ANIM_UNINTERRUPTABLE
+    from PyAitD.engine.actor.anim import ANIM_UNINTERRUPTABLE
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -644,7 +644,7 @@ def test_held_push_on_the_rocking_horse_never_wedges_the_hero(data_dir, profile)
     # type-9 hard col. A held push that steers diagonally at its centre
     # slides along the horse's face into that hard col; once inside,
     # gere_collision zeroes every step and the hero can never walk again.
-    from PyAitD.engine.actors import check_hard_col
+    from PyAitD.engine.actor.actors import check_hard_col
     from PyAitD.engine.interaction import apply_click_intent, hold_action_approach
     from PyAitD.engine.navmesh import agent_extent, nearest_walkable
 

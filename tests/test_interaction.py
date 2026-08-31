@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from PyAitD.engine.actors import check_object_col
+from PyAitD.engine.actor.actors import check_object_col
 from PyAitD.engine import interaction
 from PyAitD.engine.effects import NavIntent, ShowFound
 from PyAitD.engine.data.floor import Floor
@@ -50,7 +50,7 @@ def test_attack_stops_faces_without_selecting_throw(data_dir, profile, monkeypat
     game.nav_decision = object()
     faced = []
     monkeypatch.setattr(
-        "PyAitD.engine.tracks.face_toward",
+        "PyAitD.engine.actor.tracks.face_toward",
         lambda actor, x, z: faced.append((actor, x, z)),
     )
     monkeypatch.setattr(
@@ -298,7 +298,7 @@ def test_cancel_held_intent_stops_and_rearms_stand_idempotently(data_dir, profil
 def test_cancel_held_intent_forces_one_coherent_stand_request(
         data_dir, profile, protected_request,
 ):
-    from PyAitD.engine.anim import ANIM_REPEAT, ANIM_UNINTERRUPTABLE
+    from PyAitD.engine.actor.anim import ANIM_REPEAT, ANIM_UNINTERRUPTABLE
 
     game = init_game(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]

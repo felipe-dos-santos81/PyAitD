@@ -198,7 +198,7 @@ def contact_sheet(body, palette, highlight=None):
     from PyAitD.render.asset_resolver import ImageAsset
     from PyAitD.render.render_soft import SoftwareBackend
     from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
-    from PyAitD.engine.skel import skin
+    from PyAitD.engine.actor.skel import skin
     from PyAitD.engine.space.world import CameraState
     pal = np.array(palette, dtype=np.uint8, copy=True)
     if highlight is not None:

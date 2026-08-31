@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.engine.anim import patch_inter_angle, patch_inter_step
+from PyAitD.engine.actor.anim import patch_inter_angle, patch_inter_step
 import pytest
 
 pytestmark = pytest.mark.engine
@@ -30,7 +30,7 @@ def test_patch_step():
 def test_init_anim_lives_in_the_engine():
     # engine modules (actors, interaction, playworld) call init_anim; it must
     # not live in the game-specific opcode module or the engine would import games
-    from PyAitD.engine.anim import ANIM_REPEAT, ANIM_UNINTERRUPTABLE, init_anim
+    from PyAitD.engine.actor.anim import ANIM_REPEAT, ANIM_UNINTERRUPTABLE, init_anim
     from PyAitD.engine.game import AF_ANIMATED, Actor
     actor = Actor()
     assert init_anim(actor, 3, ANIM_REPEAT, -1) == 1

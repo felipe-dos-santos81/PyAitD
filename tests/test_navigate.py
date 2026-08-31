@@ -5,7 +5,7 @@ from PyAitD.engine.game import Actor
 from PyAitD.engine.navigate import (
     ARRIVE_DISTANCE, GIVE_UP_ARRIVE_DISTANCE, STALL_TICKS, decide,
 )
-from PyAitD.engine.tracks import cap_objet
+from PyAitD.engine.actor.tracks import cap_objet
 
 import pytest
 
@@ -132,7 +132,7 @@ def test_the_mirrored_joyd_turns_beta_the_way_mode_4_does():
     # tracks._process_track_mouse applies) and the mirrored joyd fed through
     # mode 1's gere_manual_rot must drive beta in the same direction. Before the
     # polarity fix these ran exactly opposite (+123 vs -123 over 30 ticks).
-    from PyAitD.engine.tracks import _turn_toward, gere_manual_rot
+    from PyAitD.engine.actor.tracks import _turn_toward, gere_manual_rot
 
     for target in ((9000, 0), (-9000, 0), (5000, 5000), (-5000, 5000)):
         intent = NavIntent(target[0], target[1], 0, waypoints=[target])

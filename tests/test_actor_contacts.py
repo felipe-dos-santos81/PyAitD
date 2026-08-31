@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from types import SimpleNamespace
 
-from PyAitD.engine.actors import check_object_col
+from PyAitD.engine.actor.actors import check_object_col
 from PyAitD.engine.game import AF_FOUNDABLE, AF_MOVABLE, init_game
 from PyAitD.engine.interaction import resolve_actor_contacts
 import pytest

@@ -10,7 +10,7 @@ the same _turn_toward the engine's follow mode uses.
 from PyAitD.engine.effects import NavDecision
 from PyAitD.engine.navmesh import find_path
 from PyAitD.engine.space.realvalue import give_distance_2d
-from PyAitD.engine.tracks import cap_objet, get_room_link
+from PyAitD.engine.actor.tracks import cap_objet, get_room_link
 from PyAitD.engine.space.world import cdiv
 
 ARRIVE_DISTANCE = 400    # tracks.DISTANCE_TO_POINT_TRESSHOLD [sic], same units

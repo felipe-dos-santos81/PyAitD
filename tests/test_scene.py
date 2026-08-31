@@ -7,7 +7,7 @@ from PyAitD.engine.data.formats import Body, Camera, Group, Room
 from PyAitD.engine.game import init_game
 from PyAitD.engine.data.mask_geometry import MaskDraw
 from PyAitD.render.scene import CameraView, FrameDescription, build_frame, mask_applies_to_actor
-from PyAitD.engine.skel import skin
+from PyAitD.engine.actor.skel import skin
 from PyAitD.engine.space.world import CameraState
 import pytest
 
@@ -23,7 +23,7 @@ def _boot(data_dir, profile):
 
 def _legacy_scene(game, floor):
     """The pre-layer _scene_frame body: what draw_list and actor order were."""
-    from PyAitD.engine.actors import anim_player_for, sort_actor_indices
+    from PyAitD.engine.actor.actors import anim_player_for, sort_actor_indices
     from PyAitD.engine.picking import actor_bbox
     room = floor.rooms[game.current_room]
     cam = floor.cameras[room.camera_indices[game.num_camera]]
@@ -398,7 +398,7 @@ def _legacy_stub_scene(game, floor, resolver):
     # to a resolver instead of game.assets -- used as the ground truth for
     # draw_list, matching how the brief's own data_dir test compares against
     # _legacy_scene above.
-    from PyAitD.engine.actors import anim_player_for, sort_actor_indices
+    from PyAitD.engine.actor.actors import anim_player_for, sort_actor_indices
     from PyAitD.engine.picking import actor_bbox
     room = floor.rooms[game.current_room]
     cam_idx = room.camera_indices[game.num_camera]
@@ -472,10 +472,10 @@ def test_build_frame_assembles_frame_description_from_stubs(monkeypatch):
 
     # build_frame (scene.py) bound its own module-level `anim_player_for`
     # name at import time, so it must be patched directly; _legacy_stub_scene
-    # re-imports from PyAitD.engine.actors on every call, so patching the source
+    # re-imports from PyAitD.engine.actor.actors on every call, so patching the source
     # module's attribute is enough for it to pick up the fake too.
     monkeypatch.setattr("PyAitD.render.scene.anim_player_for", fake_anim_player_for)
-    monkeypatch.setattr("PyAitD.engine.actors.anim_player_for", fake_anim_player_for)
+    monkeypatch.setattr("PyAitD.engine.actor.actors.anim_player_for", fake_anim_player_for)
 
     frame, draw_list = build_frame(game, floor, resolver)
 

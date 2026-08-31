@@ -496,7 +496,7 @@ def put_at_objet(game, obj_idx, obj_idx_to_put_at):
 
 def activate_world_object(game, world_idx):
     """Initialize one staged world object, or return its existing actor."""
-    from PyAitD.engine.tracks import init_deplacement
+    from PyAitD.engine.actor.tracks import init_deplacement
 
     obj = game.world_objects[world_idx]
     if obj.obj_index != -1:

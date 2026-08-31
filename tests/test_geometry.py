@@ -4,7 +4,7 @@ import pytest
 
 from PyAitD.engine.data.formats import Body, Group, Primitive
 from PyAitD.render.geometry import BodyGeometry, icosphere, pose_geometry, vertex_groups
-from PyAitD.engine.skel import pose_vertices
+from PyAitD.engine.actor.skel import pose_vertices
 
 pytestmark = pytest.mark.render
 
