@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from PyAitD.engine.effects import GameMode
+from PyAitD.engine.script.effects import GameMode
 
 
 class PlayerCapability(Enum):

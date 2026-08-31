@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
 from PyAitD.engine.data.floor import Floor
-from PyAitD.engine.game import init_game
+from PyAitD.engine.script.game import init_game
 from PyAitD.engine.nav.navmesh import COVER_SCALE, cover_polys
 from PyAitD.engine.nav.picking import pick_floor, pick_floor_any_room, pick_floor_in_room, project_floor_point
 from PyAitD.engine.space.world import CameraState

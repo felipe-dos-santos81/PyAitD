@@ -2,7 +2,7 @@
 from PyAitD.engine.space.realvalue import (
     eval_chrono, give_distance_2d, init_real_value, start_chrono, update_actor_rotation,
 )
-from PyAitD.engine.game import Actor, RealValue
+from PyAitD.engine.script.game import Actor, RealValue
 import pytest
 
 pytestmark = pytest.mark.engine

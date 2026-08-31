@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from PyAitD.app.config import Control, REMAPPABLE_CONTROLS, default_settings
-from PyAitD.engine.effects import FoundResult
+from PyAitD.engine.script.effects import FoundResult
 from PyAitD.app.ui import (
     CharacterPhase, CharacterSelectPresenter, CharacterSelectResult, Command,
     FoundPresenter, InventoryPresenter, SystemMenuPage,

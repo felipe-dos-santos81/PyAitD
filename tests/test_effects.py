@@ -3,11 +3,11 @@ from collections import deque
 
 import pytest
 
-from PyAitD.engine.effects import (
+from PyAitD.engine.script.effects import (
     AddMessage, BeginTake, ChooseCharacter, GameMode, LifeFrame, OpenSystemMenu,
     NavIntent, ShowFound,
 )
-from PyAitD.engine.game import init_game
+from PyAitD.engine.script.game import init_game
 
 pytestmark = pytest.mark.engine
 
@@ -60,12 +60,12 @@ def test_shell_effects_use_the_existing_modal_mode_mapping(data_dir, profile, ef
 
 
 def test_startup_effects_map_to_their_modes():
-    from PyAitD.engine.effects import GameMode, MODAL_MODE, OpenStartupMenu, ShowTitle
+    from PyAitD.engine.script.effects import GameMode, MODAL_MODE, OpenStartupMenu, ShowTitle
     assert MODAL_MODE[ShowTitle] is GameMode.TITLE
     assert MODAL_MODE[OpenStartupMenu] is GameMode.STARTUP_MENU
     assert ShowTitle() == ShowTitle() and OpenStartupMenu() == OpenStartupMenu()
 
 
 def test_cutscene_finished_maps_to_its_mode():
-    from PyAitD.engine.effects import CutsceneFinished, GameMode, MODAL_MODE
+    from PyAitD.engine.script.effects import CutsceneFinished, GameMode, MODAL_MODE
     assert MODAL_MODE[CutsceneFinished] is GameMode.CUTSCENE_END

@@ -2,7 +2,7 @@
 
 from PyAitD.engine.actor.actors import cube_intersect
 from PyAitD.engine.data.floor import Floor
-from PyAitD.engine.game import init_game
+from PyAitD.engine.script.game import init_game
 from PyAitD.engine.nav.navmesh import COVER_SCALE, GRID_STEP, agent_extent, build_cover_grid, build_room_mesh, cover_polys
 from PyAitD.engine.space.world import is_in_poly
 

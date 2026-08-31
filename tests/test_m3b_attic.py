@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.engine.playworld import play_tick
-from PyAitD.engine.effects import FoundResult, OpenInventory
+from PyAitD.engine.script.playworld import play_tick
+from PyAitD.engine.script.effects import FoundResult, OpenInventory
 from PyAitD.engine.data.floor import Floor
-from PyAitD.engine.game import init_game
-from PyAitD.engine.interaction import (
+from PyAitD.engine.script.game import init_game
+from PyAitD.engine.script.interaction import (
     apply_found_result, apply_inventory_result, inventory_actions,
     inventory_items, request_found,
 )

@@ -42,9 +42,9 @@ def test_headless_boot_ticks(data_dir, profile):
     # play_tick the game runs — playworld is pygame/GL-free, so CI needs no
     # window. Fails (not skips) if boot breaks or the intro produces no trace.
     from PyAitD.engine.data.floor import Floor
-    from PyAitD.engine.game import init_game
-    from PyAitD.engine.life import Trace
-    from PyAitD.engine.playworld import play_tick
+    from PyAitD.engine.script.game import init_game
+    from PyAitD.engine.script.life import Trace
+    from PyAitD.engine.script.playworld import play_tick
     from PyAitD.app.ui import InputBuffer
 
     trace_path = "/tmp/m3a_trace.log"

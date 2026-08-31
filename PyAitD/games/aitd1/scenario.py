@@ -3,7 +3,7 @@
 object 222 (an enemy). Pinned so manual play, integration tests, and the
 headless proof tool share a single "immediately be in combat" entry point
 instead of each hand-rolling their own floor transition."""
-from PyAitD.engine.game import FloorStart, enter_floor_start, relocate_actor
+from PyAitD.engine.script.game import FloorStart, enter_floor_start, relocate_actor
 
 COMBAT_VENUE = FloorStart(5, 4, -7800, -4010, -1000, 0)
 
@@ -19,7 +19,7 @@ def enter_combat_venue(game):
 
 def enter_mouse_combat_fixture(game):
     """Deterministic object-38 lane for automated and manual mouse proof."""
-    from PyAitD.engine.interaction import _finish_take
+    from PyAitD.engine.script.interaction import _finish_take
 
     enter_combat_venue(game)
     _finish_take(game, MOUSE_COMBAT_OBJECT)

@@ -2,11 +2,11 @@
 import pytest
 
 from PyAitD.engine.actor.actors import check_object_col
-from PyAitD.engine import interaction
-from PyAitD.engine.effects import NavIntent, ShowFound
+from PyAitD.engine.script import interaction
+from PyAitD.engine.script.effects import NavIntent, ShowFound
 from PyAitD.engine.data.floor import Floor
-from PyAitD.engine.game import AF_ANIMATED, init_game, AF_FOUNDABLE
-from PyAitD.engine.interaction import (
+from PyAitD.engine.script.game import AF_ANIMATED, init_game, AF_FOUNDABLE
+from PyAitD.engine.script.interaction import (
     COMBAT_ACTIONS, _finish_take, apply_click_intent, attack_in_hand,
     cancel_nav_intent, choose_inventory_action, combat_action_for,
     dispatch_nav_arrival, inventory_actions, inventory_items, inventory_weight,
@@ -54,7 +54,7 @@ def test_attack_stops_faces_without_selecting_throw(data_dir, profile, monkeypat
         lambda actor, x, z: faced.append((actor, x, z)),
     )
     monkeypatch.setattr(
-        "PyAitD.engine.interaction.choose_inventory_action",
+        "PyAitD.engine.script.interaction.choose_inventory_action",
         lambda *args: (_ for _ in ()).throw(
             AssertionError("a target click must not choose an inventory action"),
         ),
@@ -89,7 +89,7 @@ def test_invalid_attack_is_a_mutation_free_no_op(data_dir, profile, monkeypatch)
     game.nav_intent = NavIntent(100, 200, hero.room)
     before = (hero.beta, hero.speed, game.nav_intent, game.nav_decision)
     monkeypatch.setattr(
-        "PyAitD.engine.interaction.choose_inventory_action",
+        "PyAitD.engine.script.interaction.choose_inventory_action",
         lambda *args: (_ for _ in ()).throw(AssertionError("must not delegate")),
     )
     assert attack_in_hand(game, target_idx) is False
@@ -207,7 +207,7 @@ def test_inventory_choice_sets_action_and_in_hand_before_found_life(data_dir, pr
     _finish_take(game, 10)
     game.world_objects[10].found_flag |= 1 << 2
     called = []
-    monkeypatch.setattr("PyAitD.engine.interaction.execute_found_life", lambda g, i, **kw: called.append(i) or True)
+    monkeypatch.setattr("PyAitD.engine.script.interaction.execute_found_life", lambda g, i, **kw: called.append(i) or True)
     assert choose_inventory_action(game, 10, 25) is True
     assert game.in_hand_table[0] == 10
     assert game.action == 1 << 2

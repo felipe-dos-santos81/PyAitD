@@ -16,11 +16,11 @@ from PyAitD.app.shell import _auto_dismiss_picture, restart_session, route_mouse
 from PyAitD.engine.actor.anim_action import (
     DO_TIR, FRAPPE_OK, THROW_OBJECT, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, gere_frappe,
 )
-from PyAitD.engine.effects import GameMode, GameOver
+from PyAitD.engine.script.effects import GameMode, GameOver
 from PyAitD.engine.data.floor import Floor
-from PyAitD.engine.game import AF_ANIMATED, init_game, relocate_actor
-from PyAitD.engine.life import process_life
-from PyAitD.engine.playworld import TICK_MS, play_tick
+from PyAitD.engine.script.game import AF_ANIMATED, init_game, relocate_actor
+from PyAitD.engine.script.life import process_life
+from PyAitD.engine.script.playworld import TICK_MS, play_tick
 from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.app.ui import InputBuffer, ModalSession, UIPainter, render_game_over, transparent_canvas
 
@@ -241,8 +241,8 @@ def test_armed_melee_survives_a_hot_point_group_the_body_does_not_have(
     that raises there kills the game on every armed swing. Driven through
     play_tick, which is the only path that reaches refresh_hot_point.
     """
-    from PyAitD.engine.effects import InputMode
-    from PyAitD.engine.interaction import _finish_take, sync_player_track_mode
+    from PyAitD.engine.script.effects import InputMode
+    from PyAitD.engine.script.interaction import _finish_take, sync_player_track_mode
 
     game, floor, enemy_idx = _venue(data_dir, profile)
     game.current_floor_data = floor

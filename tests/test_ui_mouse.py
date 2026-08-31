@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pygame
 
-from PyAitD.engine.effects import FoundResult
+from PyAitD.engine.script.effects import FoundResult
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
     InventoryPresenter, ModalLayout, PlayLayout, ReadingResult,

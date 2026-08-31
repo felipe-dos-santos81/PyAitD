@@ -2,7 +2,7 @@
 import pytest
 
 from PyAitD.engine.data.formats import Body, Group, Primitive
-from PyAitD.engine.game import init_game
+from PyAitD.engine.script.game import init_game
 from PyAitD.engine.actor.skel import hot_point, pose_vertices, skin
 from PyAitD.engine.space.world import CameraState
 

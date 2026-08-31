@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
-from PyAitD.engine.effects import NavIntent
-from PyAitD.engine.game import Actor
+from PyAitD.engine.script.effects import NavIntent
+from PyAitD.engine.script.game import Actor
 from PyAitD.engine.nav.navigate import (
     ARRIVE_DISTANCE, GIVE_UP_ARRIVE_DISTANCE, STALL_TICKS, decide,
 )

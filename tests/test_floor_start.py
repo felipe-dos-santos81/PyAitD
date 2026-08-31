@@ -2,9 +2,9 @@
 import struct
 
 from PyAitD.engine.data.floor import Floor
-from PyAitD.engine.game import FloorStart, enter_floor_start, init_game, relocate_actor, start_game
-from PyAitD.engine.life import process_life
-from PyAitD.engine.playworld import play_tick
+from PyAitD.engine.script.game import FloorStart, enter_floor_start, init_game, relocate_actor, start_game
+from PyAitD.engine.script.life import process_life
+from PyAitD.engine.script.playworld import play_tick
 from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.app.ui import InputBuffer
 import pytest
@@ -41,7 +41,7 @@ def test_relocate_actor_rebases_zv_and_zeroes_steps(data_dir, profile):
 
 
 def test_enter_floor_start_applies_transition_postconditions(data_dir, profile, monkeypatch):
-    import PyAitD.engine.game as game_module
+    import PyAitD.engine.script.game as game_module
     game = init_game(data_dir, profile)
     calls = []
     real_spawn = game_module.spawn_stage_actors

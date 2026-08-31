@@ -3,9 +3,9 @@ import struct
 
 import pytest
 
-from PyAitD.engine.eval_var import eval_var
-from PyAitD.engine.game import init_game
-from PyAitD.engine.life import VM
+from PyAitD.engine.script.eval_var import eval_var
+from PyAitD.engine.script.game import init_game
+from PyAitD.engine.script.life import VM
 
 pytestmark = pytest.mark.engine
 
@@ -235,7 +235,7 @@ def test_posrel_not_in_floor(data_dir, profile):
 
 
 def test_adjust_zv_room_shift(data_dir, profile):
-    from PyAitD.engine.eval_var import _adjust_zv
+    from PyAitD.engine.script.eval_var import _adjust_zv
 
     game = init_game(data_dir, profile, hero=0)
     rooms = game.rooms_of_floor(game.current_floor)

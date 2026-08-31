@@ -30,7 +30,7 @@ from dataclasses import replace
 import numpy as np
 
 from PyAitD.render.asset_resolver import AssetResolver
-from PyAitD.engine.game import init_game
+from PyAitD.engine.script.game import init_game
 from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import (
     INTEGRATION_LEVELS, REALISM_MODES, SHADING_MODES, SHADOW_MODES, SMOOTHING_LEVELS,

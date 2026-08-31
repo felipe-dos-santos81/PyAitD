@@ -7,16 +7,16 @@ freeing that needs InputBuffer moved out of the presentation layer.
 """
 from PyAitD.engine.actor.actors import gere_anim
 from PyAitD.engine.actor.anim_action import gere_frappe, refresh_hot_point
-from PyAitD.engine.effects import CutsceneFinished, GameMode, GameOver, InputMode, LifeFrame
+from PyAitD.engine.script.effects import CutsceneFinished, GameMode, GameOver, InputMode, LifeFrame
 from PyAitD.engine.data.formats import parse_cover_zones
-from PyAitD.engine.game import (
+from PyAitD.engine.script.game import (
     AF_ANIMATED, AF_TRIGGER, change_salle, game_step_tick, spawn_stage_actors,
 )
-from PyAitD.engine.interaction import (
+from PyAitD.engine.script.interaction import (
     advance_messages, dispatch_nav_arrival, drain_immediate_effects, execute_found_life,
     gere_dec, run_life, sync_player_track_mode,
 )
-from PyAitD.engine.life import life_gate
+from PyAitD.engine.script.life import life_gate
 from PyAitD.engine.nav.navigate import WAYPOINT_DISTANCE, decide
 from PyAitD.engine.nav.navmesh import agent_extent, find_path, nearest_walkable
 from PyAitD.engine.space.world import find_best_camera, is_in_poly
@@ -61,7 +61,7 @@ def _push_into_target(game):
     arrival at the object's own point dispatches normally, so the push always
     terminates in a dispatch, a modal, or the stall give-up.
     """
-    from PyAitD.engine.game import AF_FOUNDABLE
+    from PyAitD.engine.script.game import AF_FOUNDABLE
     intent = game.nav_intent
     if intent.target_object_idx == -1:
         return False
@@ -80,7 +80,7 @@ def _push_into_target(game):
 
 
 def _refresh_held_target(game, hero, mesh):
-    from PyAitD.engine.interaction import (
+    from PyAitD.engine.script.interaction import (
         PLAYER_PUSH_ANIM, cancel_nav_intent, hold_action_approach,
         is_hold_action_target,
     )
@@ -273,7 +273,7 @@ def _apply_mouse_attack(game, input_buffer):
     the caller until the melee animation completes -- automatically, and
     bounded, so the player never has to hold or time a button.
     """
-    from PyAitD.engine.interaction import can_strike, is_combat_target
+    from PyAitD.engine.script.interaction import can_strike, is_combat_target
 
     target_idx = input_buffer.mouse_attack_target
     if target_idx is None:
@@ -316,7 +316,7 @@ def _apply_mouse_input(game, input_buffer):
         game.nav_decision = None
         game.local_joyd = 0
         return
-    from PyAitD.engine.interaction import cancel_nav_intent
+    from PyAitD.engine.script.interaction import cancel_nav_intent
     if not input_buffer.focused or not input_buffer.pointer_held:
         # Held pointer follow: every intent is hold-bound, plain walks
         # included. Enforced here, at the tick where FITD reads input, so a

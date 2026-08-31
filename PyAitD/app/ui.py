@@ -12,7 +12,7 @@ import pygame
 from PyAitD.app.config import (
     Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
 )
-from PyAitD.engine.effects import ChooseCharacter, FoundResult, OpenStartupMenu, OpenSystemMenu, ShowTitle
+from PyAitD.engine.script.effects import ChooseCharacter, FoundResult, OpenStartupMenu, OpenSystemMenu, ShowTitle
 from PyAitD.render.texture_export import (
     PORTRAIT_RECTS, READING_CLOSE_RECT, READING_NEXT_RECT, READING_PREV_RECT,
 )

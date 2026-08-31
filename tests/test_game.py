@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from PyAitD.engine.game import NUM_MAX_OBJECT, Game, init_game, game_step_tick, spawn_stage_actors
+from PyAitD.engine.script.game import NUM_MAX_OBJECT, Game, init_game, game_step_tick, spawn_stage_actors
 
 pytestmark = pytest.mark.engine
 
@@ -89,8 +89,8 @@ def test_spawn_does_not_touch_found_flag(data_dir, profile):
 
 
 def test_activate_world_object_initializes_one_released_item(data_dir, profile):
-    from PyAitD.engine.game import activate_world_object
-    from PyAitD.engine.interaction import _finish_take
+    from PyAitD.engine.script.game import activate_world_object
+    from PyAitD.engine.script.interaction import _finish_take
 
     game = init_game(data_dir, profile)
     _finish_take(game, 38)
@@ -122,7 +122,7 @@ def test_both_heroes_share_fitd_initial_state_except_cvar_and_archives(data_dir,
 
 
 def test_game_carries_its_profile_and_sets_choose_perso_by_name(data_dir, profile):
-    from PyAitD.engine.game import Game
+    from PyAitD.engine.script.game import Game
     game = Game(data_dir, profile, hero=1)
     assert game.profile is profile
     assert game.cvars[profile.cvar_index("CHOOSE_PERSO")] == 1

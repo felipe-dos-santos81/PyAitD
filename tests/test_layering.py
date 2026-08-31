@@ -163,7 +163,7 @@ PRESENTATION_FREE = (
      " — the mesh must stay importable without the presentation layer so it can build headless"),
     ("PyAitD.engine.nav.picking", PRESENTATION,
      " — picking is pure math and must not need a window; the shell passes it logical coordinates"),
-    ("PyAitD.engine.playworld,PyAitD.engine.actor.anim_action", PRESENTATION,
+    ("PyAitD.engine.script.playworld,PyAitD.engine.actor.anim_action", PRESENTATION,
      " — the tick must stay importable without the presentation layer so it can run headless"),
     ("PyAitD.games.aitd1.mouse_contract", PRESENTATION, ""),
     # app/config is allowed the rest of the presentation layer; it must only

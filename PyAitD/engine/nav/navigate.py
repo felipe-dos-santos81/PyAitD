@@ -7,7 +7,7 @@ joystick through evalVar 0x13 and must not see a dead stick while the player
 is walking), and once by tracks._process_track_mouse, which applies it through
 the same _turn_toward the engine's follow mode uses.
 """
-from PyAitD.engine.effects import NavDecision
+from PyAitD.engine.script.effects import NavDecision
 from PyAitD.engine.nav.navmesh import find_path
 from PyAitD.engine.space.realvalue import give_distance_2d
 from PyAitD.engine.actor.tracks import cap_objet, get_room_link

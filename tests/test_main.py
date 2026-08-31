@@ -8,7 +8,7 @@ import pytest
 
 from PyAitD.app.shell import parse_args
 from PyAitD.app.config import default_settings
-from PyAitD.engine.effects import ShowTitle
+from PyAitD.engine.script.effects import ShowTitle
 from tests.conftest import painter_from_frame
 
 pytestmark = pytest.mark.shell
@@ -65,7 +65,7 @@ def test_main_skip_intro_produces_a_session_whose_hero_boot_is_not_a_cutscene(mo
     session = captured["session"]
     assert session.skip_intro is True
 
-    from PyAitD.engine.game import init_game
+    from PyAitD.engine.script.game import init_game
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
@@ -534,7 +534,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(profil
 
     import PyAitD.app.shell as main
     from PyAitD.app import ui
-    from PyAitD.engine.effects import GameMode, InputMode
+    from PyAitD.engine.script.effects import GameMode, InputMode
 
     game = SimpleNamespace(
         _data_dir=tmp_path, current_floor=0, trace=None, mode=GameMode.PLAY,

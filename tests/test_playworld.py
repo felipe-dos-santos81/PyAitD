@@ -5,9 +5,9 @@ import pytest
 
 from PyAitD.engine.actor.anim_action import WAIT_FRAPPE_ANIM
 from PyAitD.engine.data.floor import Floor
-from PyAitD.engine.game import init_game
-from PyAitD.engine.interaction import PLAYER_PUSH_ANIM
-from PyAitD.engine.playworld import _anim_pass, play_tick
+from PyAitD.engine.script.game import init_game
+from PyAitD.engine.script.interaction import PLAYER_PUSH_ANIM
+from PyAitD.engine.script.playworld import _anim_pass, play_tick
 from PyAitD.app.ui import InputBuffer
 
 pytestmark = pytest.mark.engine
@@ -27,9 +27,9 @@ def test_play_tick_advances_the_world_without_a_display(data_dir, profile):
     assert game.flag_game_over == 0
 
 
-from PyAitD.engine.effects import GameMode, InputMode, NavIntent
+from PyAitD.engine.script.effects import GameMode, InputMode, NavIntent
 from PyAitD.engine.nav.navmesh import agent_extent
-from PyAitD.engine.playworld import apply_play_input
+from PyAitD.engine.script.playworld import apply_play_input
 from tests.conftest import held_pointer
 
 
@@ -126,7 +126,7 @@ def test_held_intent_cancels_when_release_is_observed(data_dir, profile):
 def test_held_intent_cancels_when_the_live_target_is_invalid(
         data_dir, profile, engaged, invalidation,
 ):
-    from PyAitD.engine.interaction import hold_action_approach
+    from PyAitD.engine.script.interaction import hold_action_approach
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -161,7 +161,7 @@ def test_held_intent_cancels_when_the_live_target_is_invalid(
 def test_latched_world_target_cancels_if_slot_points_at_another_eligible_actor(
         data_dir, profile, engaged,
 ):
-    from PyAitD.engine.interaction import hold_action_approach, is_hold_action_target
+    from PyAitD.engine.script.interaction import hold_action_approach, is_hold_action_target
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -190,7 +190,7 @@ def test_latched_world_target_cancels_if_slot_points_at_another_eligible_actor(
 def test_held_intent_cancels_an_out_of_range_actor_world_backlink(
         data_dir, profile, engaged,
 ):
-    from PyAitD.engine.interaction import hold_action_approach
+    from PyAitD.engine.script.interaction import hold_action_approach
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -221,7 +221,7 @@ def test_held_intent_cancels_an_out_of_range_actor_world_backlink(
 def test_held_intent_cancels_when_hero_and_target_leave_the_route_origin_together(
         data_dir, profile, monkeypatch, engaged, transition,
 ):
-    from PyAitD.engine.interaction import apply_click_intent, hold_action_approach
+    from PyAitD.engine.script.interaction import apply_click_intent, hold_action_approach
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -262,7 +262,7 @@ def test_held_intent_cancels_when_hero_and_target_leave_the_route_origin_togethe
 
 
 def test_approach_replans_after_its_snapshotted_target_moves(data_dir, profile):
-    from PyAitD.engine.interaction import hold_action_approach
+    from PyAitD.engine.script.interaction import hold_action_approach
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -308,7 +308,7 @@ def test_approach_replans_after_its_snapshotted_target_moves(data_dir, profile):
 
 
 def test_stationary_target_does_not_replan_away_the_approach_stall(data_dir, profile):
-    from PyAitD.engine.interaction import hold_action_approach
+    from PyAitD.engine.script.interaction import hold_action_approach
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -419,8 +419,8 @@ def test_stale_off_route_collision_witness_does_not_redirect_contact(data_dir, p
 
 @pytest.mark.parametrize("hero_id", (0, 1))
 def test_real_wardrobe_moves_only_after_life_enables_it(data_dir, profile, hero_id):
-    from PyAitD.engine.game import AF_MOVABLE
-    from PyAitD.engine.interaction import hold_action_approach
+    from PyAitD.engine.script.game import AF_MOVABLE
+    from PyAitD.engine.script.interaction import hold_action_approach
 
     game = init_game(data_dir, profile, hero=hero_id)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -521,17 +521,17 @@ def test_anim_pass_refreshes_before_anim_and_strikes_after_dec(monkeypatch, data
     game.actors[idx].anim_action_type = WAIT_FRAPPE_ANIM
     game.actors[idx].hot_point_id = 0
     calls = []
-    monkeypatch.setattr("PyAitD.engine.playworld.refresh_hot_point", lambda *args: calls.append("hot"))
-    monkeypatch.setattr("PyAitD.engine.playworld.gere_anim", lambda *args: calls.append("anim"))
-    monkeypatch.setattr("PyAitD.engine.playworld.gere_dec", lambda *args: calls.append("dec"))
-    monkeypatch.setattr("PyAitD.engine.playworld.gere_frappe", lambda *args: calls.append("hit"))
+    monkeypatch.setattr("PyAitD.engine.script.playworld.refresh_hot_point", lambda *args: calls.append("hot"))
+    monkeypatch.setattr("PyAitD.engine.script.playworld.gere_anim", lambda *args: calls.append("anim"))
+    monkeypatch.setattr("PyAitD.engine.script.playworld.gere_dec", lambda *args: calls.append("dec"))
+    monkeypatch.setattr("PyAitD.engine.script.playworld.gere_frappe", lambda *args: calls.append("hit"))
     _anim_pass(game)
     assert calls[:4] == ["hot", "anim", "dec", "hit"]
 
 
 def _latched_attack(data_dir, profile):
     """A mouse-mode game whose InputBuffer holds an accepted target click."""
-    from PyAitD.engine.interaction import _finish_take
+    from PyAitD.engine.script.interaction import _finish_take
     from PyAitD.games.aitd1.scenario import enter_mouse_combat_fixture
 
     game = init_game(data_dir, profile, hero=0)
@@ -588,7 +588,7 @@ def test_a_latched_click_ends_when_the_strike_animation_completes(data_dir, prof
 def test_a_latched_click_gives_up_at_its_safety_budget(data_dir, profile):
     # A LIFE that never returns the hero to idle must not leave the mouse
     # holding a virtual button forever.
-    from PyAitD.engine.playworld import MOUSE_ATTACK_TICK_BUDGET
+    from PyAitD.engine.script.playworld import MOUSE_ATTACK_TICK_BUDGET
 
     game, buf, _enemy_idx = _latched_attack(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]
@@ -645,7 +645,7 @@ def test_held_push_on_the_rocking_horse_never_wedges_the_hero(data_dir, profile)
     # slides along the horse's face into that hard col; once inside,
     # gere_collision zeroes every step and the hero can never walk again.
     from PyAitD.engine.actor.actors import check_hard_col
-    from PyAitD.engine.interaction import apply_click_intent, hold_action_approach
+    from PyAitD.engine.script.interaction import apply_click_intent, hold_action_approach
     from PyAitD.engine.nav.navmesh import agent_extent, nearest_walkable
 
     game = init_game(data_dir, profile)

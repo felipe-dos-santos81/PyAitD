@@ -9,7 +9,7 @@ from PyAitD.engine.actor.anim_action import (
     gere_frappe, refresh_hot_point, throw_stopped_at,
 )
 from PyAitD.engine.data.formats import Zone
-from PyAitD.engine.game import AF_ANIMATED, AF_BOXIFY, AF_MOVABLE, AF_SPECIAL, init_game
+from PyAitD.engine.script.game import AF_ANIMATED, AF_BOXIFY, AF_MOVABLE, AF_SPECIAL, init_game
 from PyAitD.engine.actor.skel import hot_point as skel_hot_point
 
 pytestmark = pytest.mark.engine

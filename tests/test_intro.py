@@ -4,9 +4,9 @@ golden ticks pinned from the 2026-08-26 headless spike."""
 import pytest
 
 from PyAitD.engine.data.floor import Floor
-from PyAitD.engine.game import init_game, start_game
-from PyAitD.engine.interaction import apply_reading_result
-from PyAitD.engine.playworld import play_tick
+from PyAitD.engine.script.game import init_game, start_game
+from PyAitD.engine.script.interaction import apply_reading_result
+from PyAitD.engine.script.playworld import play_tick
 from PyAitD.app.ui import InputBuffer, ReadingResult
 
 pytestmark = [pytest.mark.engine, pytest.mark.journey]
@@ -59,7 +59,7 @@ END_TICK = 7293
 
 
 def test_intro_runs_to_cutscene_finished_at_the_pinned_ticks(data_dir, profile):
-    from PyAitD.engine.effects import CutsceneFinished
+    from PyAitD.engine.script.effects import CutsceneFinished
     game, floor = boot_intro(data_dir, profile)
     game.allow_system_menu = False
     last, floor, events = run_intro(

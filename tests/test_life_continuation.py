@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from PyAitD.engine.effects import AfterLife, LifeFrame, ReadText
-from PyAitD.engine.game import init_game
-from PyAitD.engine.interaction import resume_life, run_life
+from PyAitD.engine.script.effects import AfterLife, LifeFrame, ReadText
+from PyAitD.engine.script.game import init_game
+from PyAitD.engine.script.interaction import resume_life, run_life
 import pytest
 
 pytestmark = pytest.mark.engine

@@ -16,9 +16,9 @@ from PyAitD.app.config import (
     SCHEMA, Control, Settings, default_settings, replace_binding, save_settings,
 )
 from PyAitD.app.startup import StartupLayout, StartupRow, credits_page_count
-from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu, ShowTitle
-from PyAitD.engine.game import init_game
-from PyAitD.engine.playworld import play_tick as real_play_tick
+from PyAitD.engine.script.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu, ShowTitle
+from PyAitD.engine.script.game import init_game
+from PyAitD.engine.script.playworld import play_tick as real_play_tick
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, Command, InputBuffer, ModalSession,
     SettingsNoticeLayout, SystemMenuLayout, SystemMenuPage, event_to_input,
@@ -87,7 +87,7 @@ def _quit():
 def _observe_input_snapshots(monkeypatch):
     """Record the per-tick input snapshot at the apply_play_input seam: after
     the real snapshot is applied, before the rest of the tick consumes it."""
-    import PyAitD.engine.playworld as playworld
+    import PyAitD.engine.script.playworld as playworld
     snapshots = []
     real_apply = playworld.apply_play_input
 
@@ -372,7 +372,7 @@ def test_capture_consumes_the_captured_key_exclusively(data_dir, profile, monkey
 
 
 def test_menu_entry_and_exit_never_replay_held_input(data_dir, profile, monkeypatch):
-    import PyAitD.engine.playworld as playworld
+    import PyAitD.engine.script.playworld as playworld
 
     game = init_game(data_dir, profile)
     game.input_mode = InputMode.KEYBOARD
@@ -565,7 +565,7 @@ def test_death_restart_keeps_live_settings_and_drops_input_transients(
     data_dir, profile, tmp_path, monkeypatch,
 ):
     import PyAitD.app.shell as main
-    from PyAitD.engine.game import Game
+    from PyAitD.engine.script.game import Game
 
     game = init_game(data_dir, profile)
     game.restart_requested = True
@@ -1080,7 +1080,7 @@ def test_manual_save_refuses_while_a_script_continuation_is_pending(
 
 def test_load_clears_transient_pointer_state(data_dir, profile, monkeypatch, tmp_path):
     import PyAitD.app.config as config
-    import PyAitD.engine.save as save_module
+    import PyAitD.engine.script.save as save_module
     game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = _menu_session(tmp_path, game)

@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from PyAitD.engine import life
+from PyAitD.engine.script import life
 from PyAitD.games import PROFILES, load_profile
 from PyAitD.games.aitd1.profile import AITD1
 

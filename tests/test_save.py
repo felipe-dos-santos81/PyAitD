@@ -10,9 +10,9 @@ import pytest
 
 from PyAitD import __version__
 from PyAitD.engine.data.formats import WorldObject
-from PyAitD.engine.game import NUM_MAX_OBJECT, Actor
-from PyAitD.engine.game import init_game
-from PyAitD.engine.save import SCHEMA, SaveError, source_identity, snapshot_game, validate_snapshot
+from PyAitD.engine.script.game import NUM_MAX_OBJECT, Actor
+from PyAitD.engine.script.game import init_game
+from PyAitD.engine.script.save import SCHEMA, SaveError, source_identity, snapshot_game, validate_snapshot
 
 pytestmark = pytest.mark.engine
 
@@ -101,7 +101,7 @@ def test_snapshot_excludes_transient_and_cache_fields(data_dir, profile):
 
 
 def test_snapshot_floor_start_encodes_the_restart_boundary(data_dir, profile):
-    from PyAitD.engine.game import FloorStart
+    from PyAitD.engine.script.game import FloorStart
     game = _game(data_dir, profile)
     game.floor_start = FloorStart(5, 4, -7800, -4010, -1000, 0)
     assert snapshot_game(game, SETTINGS)["game"]["floor_start"] == {
@@ -250,12 +250,12 @@ def test_validate_rejects_corrupt_rng_state(data_dir, profile):
 # ── task 3: animation state and fresh-game restoration ──────────────────────
 
 from PyAitD.engine.actor.actors import anim_player_for
-from PyAitD.engine.effects import TimedMessage
+from PyAitD.engine.script.effects import TimedMessage
 from PyAitD.engine.data.floor import Floor
-from PyAitD.engine.game import FloorStart
+from PyAitD.engine.script.game import FloorStart
 from PyAitD.engine.nav.navmesh import MeshCache
-from PyAitD.engine.playworld import play_tick
-from PyAitD.engine.save import restore_game
+from PyAitD.engine.script.playworld import play_tick
+from PyAitD.engine.script.save import restore_game
 
 
 PLAYER_KEYS = {"frame", "start_tick", "prev_frame_index", "states", "anim_step", "wrapped"}
@@ -380,9 +380,9 @@ def test_validate_rejects_bad_anim_player_entries(data_dir, profile):
 
 # ── task 4: atomic manual and quick slot storage ────────────────────────────
 
-import PyAitD.engine.save as save_module
+import PyAitD.engine.script.save as save_module
 from PyAitD.app.config import settings_path
-from PyAitD.engine.save import read_slot, save_dir, slot_path, write_slot
+from PyAitD.engine.script.save import read_slot, save_dir, slot_path, write_slot
 
 
 def test_save_dir_sits_beside_the_settings_path(tmp_path):
@@ -520,7 +520,7 @@ def test_clean_process_restores_the_identical_world(data_dir, profile, tmp_path)
 
     script = f"""
 import json, pathlib
-from PyAitD.engine.save import read_slot, restore_game, snapshot_game
+from PyAitD.engine.script.save import read_slot, restore_game, snapshot_game
 from PyAitD.games import load_profile
 profile = load_profile("aitd1")
 payload, error = read_slot(pathlib.Path({str(slot)!r}), pathlib.Path({str(data_dir)!r}), profile)

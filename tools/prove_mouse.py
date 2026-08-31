@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from PyAitD.engine.game import init_game
+from PyAitD.engine.script.game import init_game
 from PyAitD.engine.nav.navmesh import agent_extent, build_room_mesh
 from PyAitD.games.aitd1.profile import AITD1
 

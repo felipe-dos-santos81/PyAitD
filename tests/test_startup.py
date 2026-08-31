@@ -10,7 +10,7 @@ from PyAitD.app.startup import (
     hit_test_startup, hit_test_title, reduce_startup_menu, reduce_title, render_startup_menu, render_title,
 )
 from PyAitD.app.ui import Command, UIPainter
-from PyAitD.engine.game import init_game
+from PyAitD.engine.script.game import init_game
 from PyAitD.render.asset_resolver import AssetResolver
 
 pytestmark = pytest.mark.shell

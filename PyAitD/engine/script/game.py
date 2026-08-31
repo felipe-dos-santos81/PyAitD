@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from itertools import product
 
 from PyAitD.engine.data.assets import Assets
-from PyAitD.engine.effects import GameMode, ImmediateEffect, InputMode, MODAL_MODE, TimedMessage
+from PyAitD.engine.script.effects import GameMode, ImmediateEffect, InputMode, MODAL_MODE, TimedMessage
 from PyAitD.engine.space.cos_table import COS_TABLE
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.data.formats import parse_defines, parse_objets, parse_vars
@@ -460,7 +460,7 @@ def delete_object(game, obj_idx):
     obj.obj_index = -1
     obj.room = -1
     obj.stage = -1
-    from PyAitD.engine.interaction import remove_from_inventory
+    from PyAitD.engine.script.interaction import remove_from_inventory
     remove_from_inventory(game, obj_idx)
 
 
@@ -490,7 +490,7 @@ def put_at_objet(game, obj_idx, obj_idx_to_put_at):
         actor.alpha, actor.beta, actor.gamma = alpha, beta, gamma
         game.world_objects[actor.index_in_world].found_flag |= 0x4000
         game.world_objects[actor.index_in_world].flags |= 0x80
-    from PyAitD.engine.interaction import remove_from_inventory
+    from PyAitD.engine.script.interaction import remove_from_inventory
     remove_from_inventory(game, obj_idx)
 
 
@@ -629,7 +629,7 @@ def game_step_tick(game):
 
 
 def init_game(data_dir, profile, hero=0):
-    from PyAitD.engine.interaction import sync_player_track_mode  # interaction imports game
+    from PyAitD.engine.script.interaction import sync_player_track_mode  # interaction imports game
     game = Game(data_dir, profile, hero=hero)
     # profile.game_start (games/base.py): the floor/room the playable start
     # boots onto directly -- NOT via start_game, which resets camera/world

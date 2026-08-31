@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Animation state machine port (FITD anim.cpp SetAnimObjet/SetInterAnimObjet)."""
 
-from PyAitD.engine.game import AF_ANIMATED
+from PyAitD.engine.script.game import AF_ANIMATED
 from PyAitD.engine.space.world import trunc_div as _trunc_div
 
 ANIM_ONCE = 0

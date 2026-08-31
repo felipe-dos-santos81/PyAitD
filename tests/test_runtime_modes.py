@@ -18,12 +18,12 @@ from PyAitD.app.config import (
     REMAPPABLE_CONTROLS, Control, Settings, default_settings, load_settings,
 )
 from PyAitD.render.render_options import RenderOptions
-from PyAitD.engine.playworld import apply_play_input
-from PyAitD.engine.effects import (
+from PyAitD.engine.script.playworld import apply_play_input
+from PyAitD.engine.script.effects import (
     ChooseCharacter, FoundResult, GameMode, GameOver, InputMode, NavDecision, NavIntent,
     OpenInventory, OpenStartupMenu, OpenSystemMenu, ReadText, ShowFound, ShowPicture, ShowTitle,
 )
-from PyAitD.engine.game import init_game
+from PyAitD.engine.script.game import init_game
 from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.app.startup import StartupLayout, StartupRow, TitlePhase, TITLE_TIMEOUT_MS
 from PyAitD.app.ui import (
@@ -123,7 +123,7 @@ def test_render_active_mode_returns_a_transparent_rgba_canvas_with_no_modal():
 def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_mutation(
     data_dir, profile, monkeypatch,
 ):
-    from PyAitD.engine.effects import OpenInventory, OpenSystemMenu, ReadText, ShowFound
+    from PyAitD.engine.script.effects import OpenInventory, OpenSystemMenu, ReadText, ShowFound
 
     game = init_game(data_dir, profile)
     session = ModalSession()
@@ -219,7 +219,7 @@ def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_
 
 def test_run_routes_motion_once_and_focus_loss_clears_the_modal_preview(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
-    from PyAitD.engine.effects import ShowFound
+    from PyAitD.engine.script.effects import ShowFound
 
     game = init_game(data_dir, profile)
     game.open_modal(ShowFound(13, False))
@@ -442,7 +442,7 @@ def test_replacement_session_carries_only_application_settings(tmp_path):
 
 def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
-    from PyAitD.engine.game import Game
+    from PyAitD.engine.script.game import Game
 
     staging = init_game(data_dir, profile)
     staging.open_modal(ChooseCharacter())
@@ -510,7 +510,7 @@ def test_hero_branch_is_inert_without_a_pending_hero(data_dir, profile):
 
 def test_restart_branch_carries_application_settings(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
-    from PyAitD.engine.game import Game
+    from PyAitD.engine.script.game import Game
 
     game = init_game(data_dir, profile, hero=1)
     game.restart_requested = True
@@ -769,7 +769,7 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, profile, mo
     # into the new modal, where OPEN_INVENTORY maps to ACCEPT (would flip the
     # inventory session into action selection).
     import PyAitD.app.shell as main
-    from PyAitD.engine.game import Game
+    from PyAitD.engine.script.game import Game
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     buffer = InputBuffer()
@@ -832,7 +832,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
         data_dir, profile, monkeypatch, effect,
 ):
     import PyAitD.app.shell as main
-    from PyAitD.engine.game import Game
+    from PyAitD.engine.script.game import Game
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
     game = init_game(data_dir, profile)
@@ -1278,7 +1278,7 @@ def test_restart_session_calls_init_game_and_enter_floor_start_once_and_builds_n
     data_dir, profile, monkeypatch,
 ):
     import PyAitD.app.shell as main
-    from PyAitD.engine.game import Game
+    from PyAitD.engine.script.game import Game
 
     old = init_game(data_dir, profile, hero=0)
     enter_combat_venue(old)
@@ -1551,7 +1551,7 @@ def test_render_active_mode_draws_title_and_menu(data_dir, profile):
 
 
 from PyAitD.app.shell import _boot_hero, _cutscene_end_branch
-from PyAitD.engine.effects import CutsceneFinished
+from PyAitD.engine.script.effects import CutsceneFinished
 
 
 class _Renderer:

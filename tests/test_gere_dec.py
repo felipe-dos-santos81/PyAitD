@@ -2,7 +2,7 @@
 from types import SimpleNamespace
 
 from PyAitD.engine.data.formats import Zone
-from PyAitD.engine.interaction import gere_dec
+from PyAitD.engine.script.interaction import gere_dec
 import pytest
 
 pytestmark = pytest.mark.engine
@@ -13,7 +13,7 @@ def room(wx, wy, wz, zones=()):
 
 
 def test_room_zone_rebases_room_coordinates_and_requests_camera_change(monkeypatch, data_dir, profile):
-    from PyAitD.engine.game import init_game
+    from PyAitD.engine.script.game import init_game
     game = init_game(data_dir, profile)
     actor_idx = game.current_camera_target_actor
     actor = game.actors[actor_idx]
@@ -31,7 +31,7 @@ def test_room_zone_rebases_room_coordinates_and_requests_camera_change(monkeypat
 
 
 def test_scenario_and_floor_life_zones_write_fitd_fields(monkeypatch, data_dir, profile):
-    from PyAitD.engine.game import init_game
+    from PyAitD.engine.script.game import init_game
     game = init_game(data_dir, profile)
     actor = game.actors[0]
     actor.room = 0

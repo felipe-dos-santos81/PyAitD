@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.engine.effects import (
+from PyAitD.engine.script.effects import (
     AddMessage, AfterLife, BeginTake, FoundResult, InputMode, LifeFrame, TimedMessage,
 )
-from PyAitD.engine.life import process_life
+from PyAitD.engine.script.life import process_life
 from PyAitD.engine.space.world import adjust_zv_between_rooms, room_delta, shifted_zv
 
 INVENTORY_SIZE = 30
@@ -163,7 +163,7 @@ def inventory_actions(game, object_idx):
 
 
 def is_combat_target(game, actor_idx):
-    from PyAitD.engine.game import AF_ANIMATED
+    from PyAitD.engine.script.game import AF_ANIMATED
     if actor_idx < 0 or actor_idx >= len(game.actors):
         return False
     if actor_idx == game.current_camera_target_actor:
@@ -173,7 +173,7 @@ def is_combat_target(game, actor_idx):
 
 
 def is_hold_action_target(game, actor_idx):
-    from PyAitD.engine.game import AF_FOUNDABLE, AF_MOVABLE
+    from PyAitD.engine.script.game import AF_FOUNDABLE, AF_MOVABLE
     if actor_idx < 0 or actor_idx >= len(game.actors):
         return False
     if actor_idx == game.current_camera_target_actor:
@@ -276,7 +276,7 @@ def can_strike(game, *, require_idle=True):
 
 
 def request_found(game, object_idx, parameter):
-    from PyAitD.engine.effects import ShowFound
+    from PyAitD.engine.script.effects import ShowFound
     if object_idx < 0:
         return None
     world = game.world_objects[object_idx]
@@ -345,7 +345,7 @@ def put_object(game, object_idx, x, y, z, room, stage, alpha, beta, gamma):
 
 
 def drop_object(game, object_idx, source_idx):
-    from PyAitD.engine.game import put_at_objet
+    from PyAitD.engine.script.game import put_at_objet
     put_at_objet(game, object_idx, source_idx)
     game.flag_genere_aff_list = 1
 
@@ -360,7 +360,7 @@ def choose_inventory_action(game, object_idx, action_text_id):
 
 def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z):
     from PyAitD.engine.actor.actors import check_hard_col, check_object_col, gere_collision
-    from PyAitD.engine.game import AF_ANIMATED, AF_BOXIFY, AF_FOUNDABLE, AF_MOVABLE
+    from PyAitD.engine.script.game import AF_ANIMATED, AF_BOXIFY, AF_FOUNDABLE, AF_MOVABLE
 
     actor = game.actors[actor_idx]
     room = game.rooms_of_floor(game.current_floor)[actor.room]
@@ -409,7 +409,7 @@ def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z
 
 
 def apply_found_result(game, result):
-    from PyAitD.engine.effects import ShowFound
+    from PyAitD.engine.script.effects import ShowFound
     effect = game.active_modal
     if not isinstance(effect, ShowFound):
         raise RuntimeError(f"found result applied to {type(effect).__name__}")
@@ -424,7 +424,7 @@ def apply_found_result(game, result):
 
 
 def apply_inventory_result(game, result):
-    from PyAitD.engine.effects import OpenInventory
+    from PyAitD.engine.script.effects import OpenInventory
     if not isinstance(game.active_modal, OpenInventory):
         raise RuntimeError(f"inventory result applied to {type(game.active_modal).__name__}")
     game.close_modal()
@@ -435,7 +435,7 @@ def apply_inventory_result(game, result):
 
 
 def apply_reading_result(game, result):
-    from PyAitD.engine.effects import ReadText, ShowPicture
+    from PyAitD.engine.script.effects import ReadText, ShowPicture
     if not isinstance(game.active_modal, (ReadText, ShowPicture)):
         raise RuntimeError(f"reading result applied to {type(game.active_modal).__name__}")
     if not result.dismissed:
@@ -454,7 +454,7 @@ def apply_click_intent(
         run=False,
 ):
     """Record where the player clicked. A new click replaces any previous one."""
-    from PyAitD.engine.effects import NavIntent
+    from PyAitD.engine.script.effects import NavIntent
     hero_idx = game.current_camera_target_actor
     origin_room = None
     if requires_hold:
@@ -562,7 +562,7 @@ def dispatch_nav_arrival(game):
     Mouse-only players still reach Action by clicking the object itself, which
     routes through the target branch below.
     """
-    from PyAitD.engine.game import AF_FOUNDABLE
+    from PyAitD.engine.script.game import AF_FOUNDABLE
     target = game.nav_arrived_target
     game.nav_arrived_target = -1
     if game.active_modal is not None:

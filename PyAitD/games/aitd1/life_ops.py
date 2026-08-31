@@ -4,9 +4,9 @@ import logging
 
 from PyAitD.engine.actor.actors import cube_intersect
 from PyAitD.engine.actor.anim import init_anim
-from PyAitD.engine.effects import AddMessage, BeginTake, ReadText, ShowPicture
-from PyAitD.engine.game import AF_ANIMATED, AF_MASK, FloorStart, _zv_cube, _zv_max, _zv_rot, relocate_actor
-from PyAitD.engine.life import eval_var, read_s16
+from PyAitD.engine.script.effects import AddMessage, BeginTake, ReadText, ShowPicture
+from PyAitD.engine.script.game import AF_ANIMATED, AF_MASK, FloorStart, _zv_cube, _zv_max, _zv_rot, relocate_actor
+from PyAitD.engine.script.life import eval_var, read_s16
 from PyAitD.engine.space.realvalue import init_real_value, update_actor_rotation
 from PyAitD.engine.actor.tracks import gere_manual_rot, init_deplacement
 from PyAitD.engine.space.world import room_delta
@@ -134,7 +134,7 @@ def op_message_value(vm):
 
 def op_found(vm):
     # life.cpp:1454: FoundObjet(id, 1)
-    from PyAitD.engine.interaction import request_found
+    from PyAitD.engine.script.interaction import request_found
     effect = request_found(vm.game, read_s16(vm), parameter=1)
     if effect is not None:
         vm.suspend(effect)
@@ -147,7 +147,7 @@ def op_life(vm):
 
 def op_delete(vm):
     # life.cpp:1362
-    from PyAitD.engine.game import delete_object
+    from PyAitD.engine.script.game import delete_object
     game = vm.game
     idx = read_s16(vm)
     delete_object(game, idx)
@@ -316,7 +316,7 @@ def op_camera_target(vm):
 
 def op_drop(vm):
     # life.cpp:1510: drop(worldIdx, worldSource)
-    from PyAitD.engine.interaction import drop_object
+    from PyAitD.engine.script.interaction import drop_object
     object_idx = eval_var(vm)
     source_idx = read_s16(vm)
     drop_object(vm.game, object_idx, source_idx)
@@ -366,7 +366,7 @@ def op_do_max_zv(vm):
 
 def op_put(vm):
     # life.cpp:1521: put(x, y, z, room, stage, alpha, beta, gamma, idx)
-    from PyAitD.engine.interaction import put_object
+    from PyAitD.engine.script.interaction import put_object
     object_idx = read_s16(vm)
     x, y, z = read_s16(vm), read_s16(vm), read_s16(vm)
     room, stage = read_s16(vm), read_s16(vm)
@@ -421,7 +421,7 @@ def op_up_coor_y(vm):
 
 def op_put_at(vm):
     # life.cpp:1565: PutAtObjet(obj1, obj2)
-    from PyAitD.engine.interaction import drop_object
+    from PyAitD.engine.script.interaction import drop_object
     drop_object(vm.game, read_s16(vm), read_s16(vm))
 
 

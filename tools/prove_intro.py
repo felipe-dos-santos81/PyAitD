@@ -14,10 +14,10 @@ import pathlib
 import sys
 
 from PyAitD.render.asset_resolver import AssetResolver
-from PyAitD.engine.effects import CutsceneFinished
-from PyAitD.engine.game import init_game, start_game
-from PyAitD.engine.interaction import apply_reading_result
-from PyAitD.engine.playworld import play_tick
+from PyAitD.engine.script.effects import CutsceneFinished
+from PyAitD.engine.script.game import init_game, start_game
+from PyAitD.engine.script.interaction import apply_reading_result
+from PyAitD.engine.script.playworld import play_tick
 from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import RenderOptions
 from PyAitD.render.scene import build_frame

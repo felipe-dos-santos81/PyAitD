@@ -7,8 +7,8 @@ import pytest
 
 from PyAitD.engine.data.assets import Assets
 from PyAitD.app.config import default_settings
-from PyAitD.engine.effects import FoundResult, ReadText, ShowFound, ShowPicture, TimedMessage
-from PyAitD.engine.game import init_game
+from PyAitD.engine.script.effects import FoundResult, ReadText, ShowFound, ShowPicture, TimedMessage
+from PyAitD.engine.script.game import init_game
 from PyAitD.engine.data.text import BookToken
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,

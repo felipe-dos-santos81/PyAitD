@@ -5,16 +5,16 @@ never mid-loop."""
 import pytest
 
 from PyAitD.app.shell import route_command, route_mouse
-from PyAitD.engine.effects import GameMode, GameOver
-from PyAitD.engine.game import init_game
-from PyAitD.engine.playworld import play_tick
+from PyAitD.engine.script.effects import GameMode, GameOver
+from PyAitD.engine.script.game import init_game
+from PyAitD.engine.script.playworld import play_tick
 from PyAitD.app.ui import Command, InputBuffer, ModalSession
 
 pytestmark = pytest.mark.engine
 
 
 def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, profile, monkeypatch):
-    import PyAitD.engine.playworld as playworld
+    import PyAitD.engine.script.playworld as playworld
 
     game = init_game(data_dir, profile)
     floor = game.load_floor(game.current_floor)
@@ -95,8 +95,8 @@ def test_game_over_click_locked_at_either_extreme_corner_rejects_restart(data_di
 
 
 def test_game_over_during_a_cutscene_is_cutscene_finished(data_dir, profile, monkeypatch):
-    from PyAitD.engine.effects import CutsceneFinished
-    import PyAitD.engine.playworld as playworld
+    from PyAitD.engine.script.effects import CutsceneFinished
+    import PyAitD.engine.script.playworld as playworld
 
     game = init_game(data_dir, profile)
     game.allow_system_menu = False      # PlayWorld(allowSystemMenu=0): mainLoop.cpp:185 break, not death

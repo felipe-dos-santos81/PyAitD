@@ -2,7 +2,7 @@
 """LIFE script VM — faithful port of FITD life.cpp processLife (AITD1)."""
 import struct
 
-from PyAitD.engine.effects import AfterLife, LifeFrame
+from PyAitD.engine.script.effects import AfterLife, LifeFrame
 from PyAitD.engine.space.realvalue import start_chrono
 
 
@@ -74,8 +74,8 @@ class Trace:
 
 
 def eval_var(vm):
-    # Full encodings port (task 6, PyAitD.engine.eval_var); lazy import avoids a cycle.
-    from PyAitD.engine.eval_var import eval_var as _full_eval_var
+    # Full encodings port (task 6, PyAitD.engine.script.eval_var); lazy import avoids a cycle.
+    from PyAitD.engine.script.eval_var import eval_var as _full_eval_var
     return _full_eval_var(vm)
 
 

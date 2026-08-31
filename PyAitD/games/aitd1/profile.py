@@ -3,7 +3,7 @@
 AITD1LifeMacroTable (AITD1.cpp:30-119), reduced dispatch, debug venues."""
 from types import MappingProxyType
 
-from PyAitD.engine import life
+from PyAitD.engine.script import life
 from PyAitD.engine.actor.tracks import process_track
 from PyAitD.games.aitd1 import life_ops as ops
 from PyAitD.games.aitd1 import scenario

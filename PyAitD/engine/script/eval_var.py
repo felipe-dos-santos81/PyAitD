@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """evalVar port (FITD evalVar.cpp:148, AITD1 path). Owner = life owner actor."""
-from PyAitD.engine.life import read_s16
+from PyAitD.engine.script.life import read_s16
 from PyAitD.engine.space.realvalue import eval_chrono
 from PyAitD.engine.space.world import adjust_zv_between_rooms
 

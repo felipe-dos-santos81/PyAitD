@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from PyAitD.engine.game import FloorStart, init_game
-from PyAitD.engine.life import process_life
+from PyAitD.engine.script.game import FloorStart, init_game
+from PyAitD.engine.script.life import process_life
 import pytest
 
 pytestmark = pytest.mark.engine

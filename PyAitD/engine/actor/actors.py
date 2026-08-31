@@ -2,7 +2,7 @@
 """Actor state, hard-col collision helpers (FITD ports)."""
 
 from PyAitD.engine.actor.anim import AnimPlayer
-from PyAitD.engine.game import AF_BOXIFY, AF_DRAWABLE, AF_ANIMATED
+from PyAitD.engine.script.game import AF_BOXIFY, AF_DRAWABLE, AF_ANIMATED
 from PyAitD.engine.space.realvalue import evaluate_real, init_real_value
 from PyAitD.engine.space.world import adjust_zv_between_rooms, cdiv as _cdiv, rotate_step
 
@@ -223,7 +223,7 @@ def gere_anim(game, actor_idx):
                     step_z = hard_col_step_z
         else:
             a.hard_col = 1 if check_hard_col(zv_local, room.hard_cols) else 0
-        from PyAitD.engine.interaction import resolve_actor_contacts
+        from PyAitD.engine.script.interaction import resolve_actor_contacts
         zv_local, step_x, step_z = resolve_actor_contacts(
             game, actor_idx, list(a.zv), zv_local, step_x, step_z,
         )

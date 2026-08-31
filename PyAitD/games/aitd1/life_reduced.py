@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Not-in-floor world-object dispatch (life.cpp:522-716, AITD1)."""
 from PyAitD.engine.actor.anim import ANIM_ONCE, ANIM_REPEAT
-from PyAitD.engine.life import eval_var, read_s16
+from PyAitD.engine.script.life import eval_var, read_s16
 
 TYPE_MASK = 0x1D1
 

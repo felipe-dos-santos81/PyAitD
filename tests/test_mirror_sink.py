@@ -58,8 +58,8 @@ def test_the_pump_tap_forwards_play_keyboard_events_only(
     import PyAitD.app.shell as main
     from PyAitD.app import ui
     from PyAitD.app.ui import ModalSession
-    from PyAitD.engine.effects import InputMode, OpenInventory
-    from PyAitD.engine.game import init_game
+    from PyAitD.engine.script.effects import InputMode, OpenInventory
+    from PyAitD.engine.script.game import init_game
 
     game = init_game(data_dir, profile)
     game.input_mode = InputMode.KEYBOARD
@@ -134,8 +134,8 @@ def test_the_pump_tap_stays_silent_in_mouse_mode(
     import PyAitD.app.shell as main
     from PyAitD.app import ui
     from PyAitD.app.ui import ModalSession
-    from PyAitD.engine.effects import InputMode
-    from PyAitD.engine.game import init_game
+    from PyAitD.engine.script.effects import InputMode
+    from PyAitD.engine.script.game import init_game
 
     game = init_game(data_dir, profile)
     game.input_mode = InputMode.MOUSE

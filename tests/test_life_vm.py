@@ -3,8 +3,8 @@ import struct
 
 import pytest
 
-from PyAitD.engine.game import init_game
-from PyAitD.engine.life import process_life, read_s16, VM
+from PyAitD.engine.script.game import init_game
+from PyAitD.engine.script.life import process_life, read_s16, VM
 
 pytestmark = pytest.mark.engine
 
@@ -211,7 +211,7 @@ class _FakeAssets:
 def test_vm_dispatches_through_the_game_profile():
     # a one-opcode profile proves the VM owns no table of its own
     from types import SimpleNamespace
-    from PyAitD.engine import life
+    from PyAitD.engine.script import life
     from PyAitD.games.base import GameProfile
     seen = []
     table = life.core_table()

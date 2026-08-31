@@ -8,8 +8,8 @@ Never touches actor.life: health lives in script vars, hit/hit_by/hit_force
 are the only fields this module writes.
 """
 from PyAitD.engine.actor.actors import anim_player_for, check_hard_col, check_object_col, cube_intersect
-from PyAitD.engine.game import AF_ANIMATED, AF_BOXIFY, AF_SPECIAL, activate_world_object, put_at_objet
-from PyAitD.engine.interaction import point_in_zone, remove_from_inventory
+from PyAitD.engine.script.game import AF_ANIMATED, AF_BOXIFY, AF_SPECIAL, activate_world_object, put_at_objet
+from PyAitD.engine.script.interaction import point_in_zone, remove_from_inventory
 from PyAitD.engine.space.realvalue import init_real_value
 from PyAitD.engine.actor.skel import hot_point
 from PyAitD.engine.space.world import adjust_zv_between_rooms, cdiv, rotate_step

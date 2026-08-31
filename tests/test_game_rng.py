@@ -6,9 +6,9 @@ import struct
 
 import pytest
 
-from PyAitD.engine.eval_var import eval_var
-from PyAitD.engine.game import init_game
-from PyAitD.engine.life import VM
+from PyAitD.engine.script.eval_var import eval_var
+from PyAitD.engine.script.game import init_game
+from PyAitD.engine.script.life import VM
 
 pytestmark = pytest.mark.engine
 

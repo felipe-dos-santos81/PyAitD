@@ -4,7 +4,7 @@ import numpy as np
 from PyAitD.render.asset_resolver import AssetResolver, ImageAsset
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.data.formats import Body, Camera, Group, Room
-from PyAitD.engine.game import init_game
+from PyAitD.engine.script.game import init_game
 from PyAitD.engine.data.mask_geometry import MaskDraw
 from PyAitD.render.scene import CameraView, FrameDescription, build_frame, mask_applies_to_actor
 from PyAitD.engine.actor.skel import skin

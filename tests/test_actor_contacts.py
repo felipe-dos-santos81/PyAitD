@@ -2,8 +2,8 @@
 from types import SimpleNamespace
 
 from PyAitD.engine.actor.actors import check_object_col
-from PyAitD.engine.game import AF_FOUNDABLE, AF_MOVABLE, init_game
-from PyAitD.engine.interaction import resolve_actor_contacts
+from PyAitD.engine.script.game import AF_FOUNDABLE, AF_MOVABLE, init_game
+from PyAitD.engine.script.interaction import resolve_actor_contacts
 import pytest
 
 pytestmark = pytest.mark.engine
