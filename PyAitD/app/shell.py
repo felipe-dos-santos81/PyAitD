@@ -4,6 +4,7 @@ routing, one presentation per frame — freeze-proof replacement for FITD's
 nested blocking modal loops (mainLoop.cpp:41-281)."""
 import argparse
 from dataclasses import replace
+import os
 import pathlib
 import sys
 
@@ -31,6 +32,7 @@ from PyAitD.render.render_options import (
     SHADOW_MODES, SMOOTHING_LEVELS, validate_render_options,
 )
 from PyAitD.games import load_profile
+from PyAitD.games.aitd1.mirror import MIRROR_KEYCODES
 from PyAitD.render.scene import build_frame
 from PyAitD.app.ui import (
     Command, DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, UIPainter, configure_input,
@@ -135,6 +137,11 @@ def parse_args(argv):
         "--skip-intro", action="store_true",
         help="development convenience, not FITD behaviour: boot the attic "
              "directly after character select (skips the floor-7 opening)",
+    )
+    p.add_argument(
+        "--mirror", action="store_true",
+        help="forward consumed PLAY keyboard input to the live-mirror helper "
+             "(set up by tools/compare_original.py)",
     )
     return p.parse_args(argv)
 
@@ -1361,7 +1368,7 @@ def _restart_branch(game, renderer, session, input_buffer=None):
     )
 
 
-def run(game, trace_path=None, session=None, resolver=None):
+def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
     # M3b play loop: one event pump, fixed-step PLAY ticks, one present/frame
     try:
         floor = game.load_floor(game.current_floor)
@@ -1442,6 +1449,18 @@ def run(game, trace_path=None, session=None, resolver=None):
                 session.skip_cutscene = True
                 continue
             running = event_to_input(event, input_buffer, logical_pos) and running
+            if (mirror_sink is not None
+                    and event.type in (pygame.KEYDOWN, pygame.KEYUP)
+                    and not bool(getattr(event, "repeat", False))
+                    and game.mode is GameMode.PLAY
+                    and game.active_modal is None
+                    and game.input_mode is InputMode.KEYBOARD):
+                control = input_buffer.bindings.get(event.key)
+                if control is not None and control.name in MIRROR_KEYCODES:
+                    if event.type == pygame.KEYDOWN:
+                        mirror_sink.key_down(control.name)
+                    else:
+                        mirror_sink.key_up(control.name)
             _cancel_pointer_invalidation(game, event, input_buffer)
             if event.type == pygame.MOUSEMOTION:
                 hover = input_buffer.pointer_pos
@@ -1679,4 +1698,27 @@ def main(argv=None):
     # _save_session_settings / _persisted_render.
     session.settings = apply_render_overrides(session.settings, args)
     session.skip_intro = args.skip_intro
-    return run(game, args.trace, session=session)
+    mirror_sink = None
+    if args.mirror:
+        fd = os.environ.get("PYAITD_MIRROR_FD")
+        pid = os.environ.get("PYAITD_MIRROR_PID")
+        if fd is not None and pid is not None:
+            from PyAitD.app.mirror import MirrorSink
+            stream = os.fdopen(int(fd), "w", encoding="ascii", buffering=1)
+            noted = []
+
+            def write_line(line):
+                # The helper is a separate process and can die mid-session;
+                # a dead pipe must degrade the port, never crash the run
+                # loop. Note once on stderr, then no-op.
+                if noted:
+                    return
+                try:
+                    stream.write(line + "\n")
+                except OSError:
+                    noted.append(True)
+                    print("note: the mirror helper died; key forwarding "
+                          "is disabled for this session", file=sys.stderr)
+
+            mirror_sink = MirrorSink(write_line, int(pid))
+    return run(game, args.trace, session=session, mirror_sink=mirror_sink)

@@ -51,7 +51,7 @@ def test_main_skip_intro_produces_a_session_whose_hero_boot_is_not_a_cutscene(mo
 
     captured = {}
 
-    def fake_run(game, trace, session=None):
+    def fake_run(game, trace, session=None, mirror_sink=None):
         captured["session"] = session
         return 0
 
@@ -88,7 +88,7 @@ def test_normal_main_opens_the_title_before_run(monkeypatch, tmp_path):
     seen = []
     monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
     monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
-    monkeypatch.setattr(main, "run", lambda g, trace, session=None: seen.append((g, session)) or 0)
+    monkeypatch.setattr(main, "run", lambda g, trace, session=None, mirror_sink=None: seen.append((g, session)) or 0)
     assert main.main(["--data", str(tmp_path)]) == 0
     assert isinstance(game.active_modal, ShowTitle)
     assert seen and seen[0][0] is game
@@ -110,7 +110,7 @@ def test_explicit_debug_starts_bypass_character_selection(monkeypatch, tmp_path,
     monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(
         main, "run",
-        lambda value, trace, session=None: seen.append((value, session)) or 0,
+        lambda value, trace, session=None, mirror_sink=None: seen.append((value, session)) or 0,
     )
     assert main.main([*args, "--data", str(tmp_path)]) == 0
     assert game.active_modal is None
@@ -161,7 +161,7 @@ def test_main_combat_venue_calls_enter_combat_venue_once_before_run(monkeypatch,
         }),
     )
     monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
-    monkeypatch.setattr(main, "run", lambda g, trace, session=None: calls.append(("run", g)))
+    monkeypatch.setattr(main, "run", lambda g, trace, session=None, mirror_sink=None: calls.append(("run", g)))
 
     main.main(["--combat-venue", "--data", str(tmp_path)])
 
@@ -197,7 +197,7 @@ def test_main_mouse_combat_fixture_uses_the_requested_hero(monkeypatch, tmp_path
         lambda name: SimpleNamespace(debug_venues={"mouse-combat-fixture": lambda g: None}),
     )
     monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
-    monkeypatch.setattr(main, "run", lambda g, trace, session=None: 0)
+    monkeypatch.setattr(main, "run", lambda g, trace, session=None, mirror_sink=None: 0)
 
     assert main.main([
         "--mouse-combat-fixture", "--hero", "1", "--data", str(tmp_path),
@@ -219,11 +219,52 @@ def test_main_mouse_combat_fixture_runs_its_own_setup(monkeypatch, tmp_path):
         }),
     )
     monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
-    monkeypatch.setattr(main, "run", lambda g, trace, session=None: calls.append(("run", g)) or 0)
+    monkeypatch.setattr(main, "run", lambda g, trace, session=None, mirror_sink=None: calls.append(("run", g)) or 0)
     assert main.main([
         "--mouse-combat-fixture", "--data", str(tmp_path),
     ]) == 0
     assert calls == [("mouse fixture", game), ("run", game)]
+
+
+def test_mirror_sink_write_degrades_once_when_the_helper_dies(
+    monkeypatch, data_dir, capsys,
+):
+    # The helper is a separate process; when it dies the pipe write raises
+    # BrokenPipeError. That must degrade the port (one stderr note, then
+    # no-op), never crash the run loop.
+    import os
+
+    import PyAitD.app.shell as main
+    from PyAitD.app.ui import ModalSession
+
+    captured = {}
+
+    def fake_run(game, trace, session=None, mirror_sink=None):
+        captured["sink"] = mirror_sink
+        return 0
+
+    read_fd, write_fd = os.pipe()
+    monkeypatch.setenv("PYAITD_MIRROR_FD", str(write_fd))
+    monkeypatch.setenv("PYAITD_MIRROR_PID", "4242")
+    monkeypatch.setattr(main, "run", fake_run)
+    monkeypatch.setattr(
+        main, "load_runtime_session",
+        lambda path, save_directory=None: ModalSession(settings=default_settings()),
+    )
+    assert main.main(["--data", str(data_dir), "--mirror"]) == 0
+    sink = captured["sink"]
+
+    # Live pipe: the line reaches the helper.
+    sink.key_down("UP")
+    assert os.read(read_fd, 4096) == b"post 126 down 4242\n"
+
+    # Helper dies: the next write fails, notes once, then no-ops.
+    os.close(read_fd)
+    sink.key_down("UP")
+    sink.key_down("UP")
+    notes = [line for line in capsys.readouterr().err.splitlines()
+             if "mirror helper died" in line]
+    assert len(notes) == 1
 
 
 def test_make_run_uses_shell_by_default_and_floor_zero_only_when_explicit():
