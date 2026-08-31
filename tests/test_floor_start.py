@@ -41,7 +41,7 @@ def test_relocate_actor_rebases_zv_and_zeroes_steps(data_dir, profile):
 
 
 def test_enter_floor_start_applies_transition_postconditions(data_dir, profile, monkeypatch):
-    import PyAitD.engine.script.game as game_module
+    import PyAitD.engine.script.game.boot as game_module
     game = init_game(data_dir, profile)
     calls = []
     real_spawn = game_module.spawn_stage_actors
