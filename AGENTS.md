@@ -93,7 +93,7 @@ a rule — add the test with the rule.
 
 | Package | Owns | May import |
 |---|---|---|
-| `PyAitD/engine/` | The simulation, ported from FITD with `file:line` citations: formats, PAK/floor data, `Game` state, LIFE VM core, actors, animation, tracks, collision, navmesh, picking, `playworld` tick, save/load (`save.py`). Game-neutral: reads per-game facts from `game.profile`. | stdlib, NumPy, `engine` |
+| `PyAitD/engine/` | The simulation, ported from FITD with `file:line` citations, in five domain subpackages: `data/` (formats, PAK/floor data, masks), `space/` (fixed-point math), `actor/` (actors, animation, tracks, skel), `script/` (`Game` state, LIFE VM, interaction, `playworld` tick, `save.py`), `nav/` (navmesh, picking, pointer steering). Game-neutral: reads per-game facts from `game.profile`. | stdlib, NumPy, `engine` |
 | `PyAitD/render/` | `FrameDescription` → pixels: scene description, geometry, both backends, asset resolution, texture export/check. | `engine` |
 | `PyAitD/games/<id>/` | Everything FITD branches on `g_gameId`: the `GameProfile` instance, the game's opcode handlers and reduced dispatch, debug venues, the mouse contract. `games/base.py` holds the dataclass. | `engine` |
 | `PyAitD/app/` | Window, the single event pump, settings schema/persistence, CLI, UI screens. | everything |
@@ -104,7 +104,11 @@ a rule — add the test with the rule.
 **Where new code goes**
 
 - Ports FITD behaviour (cite `file:line`) and does not depend on which game is
-  loaded → `engine/`.
+  loaded → `engine/`. Pick the domain that owns the knowledge: data parsing →
+  `engine/data/`, shared math → `engine/space/`, actor/animation behavior →
+  `engine/actor/`, game state/scripting/tick → `engine/script/`, pointer
+  navigation → `engine/nav/`. `data` and `space` are pinned leafward in
+  `tests/test_layering.py`.
 - Depends on the game — a PAK name, CVar name, opcode number, hero archive,
   debug venue, anything FITD guards with `g_gameId` → `games/<id>/`, exposed
   through a `GameProfile` field the engine reads via `game.profile`. Never an
@@ -116,12 +120,13 @@ a rule — add the test with the rule.
 
 **Growing the engine**
 
-- A module that outgrows one responsibility (`game.py`, `interaction.py`,
-  `playworld.py` are the candidates, ~500-600 lines each) becomes a
-  subpackage: `engine/game/{state,boot,objects}.py` with the public names
-  re-exported from `engine/game/__init__.py` so every importer and test keeps
-  `from PyAitD.engine.game import init_game`. Move with `git mv`; the layering
-  scan covers subpackages automatically. Split by responsibility, not by size.
+- A module that outgrows one responsibility becomes a subpackage inside its
+  domain: `engine/script/game/{state,zv,objects,boot}.py` is the landed
+  example, with the public names re-exported from
+  `engine/script/game/__init__.py` so every importer and test keeps
+  `from PyAitD.engine.script.game import init_game`. Move with `git mv`; the
+  layering scan covers subpackages automatically. Split by responsibility,
+  not by size.
 - A new engine capability (audio, sequences next) is a new `engine/`
   module that takes its game facts through new `GameProfile` fields, with the
   AITD1 values in `games/aitd1/profile.py` and a pin in
@@ -133,12 +138,16 @@ a rule — add the test with the rule.
   belongs in a profile field (data or callable), and the seam is documented in
   `games/base.py`'s docstring.
 - Known seams still hard-coded to AITD1 inside `engine/`, listed so nobody
-  closes them ad hoc: `floor.py` names the ETAGE/CAMERA archives and calls
-  `create_aitd1_mask`; `assets.py` fixes the cadre-bank entry/sprite count
-  and the 320x200 screen size; `life.py` fixes `NUM_OPCODES` and the
-  `core_table()` slot numbers; `formats.py` record layouts; `interaction.py`'s
-  `COMBAT_ACTIONS`/`PLAYER_*_ANIM`/`PLAYER_TRACK_MODES` indices. Close one by
-  moving it into `GameProfile` with a test, not by adding a second copy.
+  closes them ad hoc: `data/assets.py` fixes the cadre-bank entry/sprite
+  count and the 320x200 screen size; `script/life.py` fixes `NUM_OPCODES`
+  and the `core_table()` slot numbers; `data/formats.py` the world-object
+  record layout; `script/interaction/`'s
+  `COMBAT_ACTIONS`/`PLAYER_*_ANIM`/`PLAYER_TRACK_MODES` indices. Archive
+  naming, overlay strategy and the viewed-room stride are already
+  `GameProfile` fields
+  (docs/superpowers/specs/2026-08-31-engine-domain-subpackages-design.md).
+  Close the rest by moving them into `GameProfile` with a test, not by
+  adding a second copy.
 
 ## Conventions
 
@@ -265,7 +274,7 @@ a rule — add the test with the rule.
   [hardening proof](docs/mouse-accessibility-hardening-proof.md) supersedes the
   older pending status in the [M4a1 shell](docs/m4a1-shell-proof.md) and
   [mouse hold-to-push](docs/mouse-hold-push-proof.md) proofs.
-- M4a2 persistence: `engine/save.py` validates the complete payload before
+- M4a2 persistence: `engine/script/save.py` validates the complete payload before
   anything live is touched, and the settings block rides through as an
   opaque dict — `app/config.validate_settings` alone owns it, so `engine/`
   never imports `app/` (the addendum in the M4a2 plan records the
