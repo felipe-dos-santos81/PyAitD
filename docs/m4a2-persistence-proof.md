@@ -1,5 +1,10 @@
 # M4a2 Persistence Proof
 
+> Addendum 2026-08-31: engine modules moved into domain subpackages
+> (`engine/game.py` -> `engine/script/game/`, `engine/formats.py` ->
+> `engine/data/formats.py`, etc. — full map in
+> docs/superpowers/specs/2026-08-31-engine-domain-subpackages-design.md).
+
 Date: 2026-08-30
 Spec: `docs/superpowers/specs/2026-08-24-overall-mouse-accessibility-design.md`,
 `docs/superpowers/specs/2026-08-22-aitd1-build-conclusion-design.md`

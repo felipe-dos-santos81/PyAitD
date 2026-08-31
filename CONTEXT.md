@@ -415,7 +415,7 @@ action runner.
 
 ## M4a2 persistence boundary
 
-- The snapshot schema is `engine/script/save.py:SCHEMA` (1): root keys `schema`,
+- The snapshot schema is `engine/script/save.py:SCHEMA` (2): root keys `schema`,
   `engine_version`, `source`, `hero`, `game`, `actors`, `world_objects`,
   `anim_players`, `inventory`, `messages`, `rng_state`, `settings`.
   Validation is total before anything live is touched: exact key sets, exact

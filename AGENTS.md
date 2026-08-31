@@ -137,17 +137,16 @@ a rule — add the test with the rule.
   `games/__init__.py`. If the engine needs a branch to support it, the branch
   belongs in a profile field (data or callable), and the seam is documented in
   `games/base.py`'s docstring.
-- Known seams still hard-coded to AITD1 inside `engine/`, listed so nobody
-  closes them ad hoc: `data/assets.py` fixes the cadre-bank entry/sprite
-  count and the 320x200 screen size; `script/life.py` fixes `NUM_OPCODES`
-  and the `core_table()` slot numbers; `data/formats.py` the world-object
-  record layout; `script/interaction/`'s
-  `COMBAT_ACTIONS`/`PLAYER_*_ANIM`/`PLAYER_TRACK_MODES` indices. Archive
-  naming, overlay strategy and the viewed-room stride are already
-  `GameProfile` fields
-  (docs/superpowers/specs/2026-08-31-engine-domain-subpackages-design.md).
-  Close the rest by moving them into `GameProfile` with a test, not by
-  adding a second copy.
+- Seams the engine once hard-coded to AITD1 are now GameProfile fields
+  (docs/superpowers/specs/2026-08-31-engine-domain-subpackages-design.md):
+  archive naming (`floor_archive_name`/`camera_archive_name`), overlay
+  strategy (`mask_factory`), cadre bank, VM-control opcode numbering
+  (`core_slots`), player-control indices, record layouts
+  (`viewed_room_record_size`, `world_object_has_mark`), and the FITD
+  gameTypeEnum ordinal (`generation`). A second game is a new profile
+  instance plus a `PROFILES` entry; if the engine needs a branch to support
+  it, the branch belongs in a profile field (data or callable), documented
+  in `games/base.py`'s docstring.
 
 ## Conventions
 
