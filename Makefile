@@ -91,8 +91,8 @@ proof-intro: install ## Opening cutscene proof: headless run to CutsceneFinished
 prove-persistence: install ## M4a2 persistence gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract
 	$(HEADLESS) $(PYTHON) -m pytest tests/test_save.py tests/test_game_rng.py tests/test_ui_reducers.py tests/test_ui_mouse.py tests/test_ui_render.py tests/test_runtime_modes.py tests/test_shell_journeys.py tests/test_mouse_only.py tests/test_main.py tests/test_config.py -q
 
-compare: install ## Live mirror: original AITD1 in DOSBox-X below the port, PLAY keys forwarded (macOS, needs dosbox-x + Accessibility)
-	$(PYTHON) tools/compare_original.py
+compare: install ## Live mirror: original AITD1 in DOSBox-X below the port, PLAY keys forwarded (macOS, needs dosbox-x + Accessibility; data="path/to/INDARK")
+	$(PYTHON) tools/compare_original.py --data "$(data)"
 
 # ── Legacy milestone gate names, kept so the proof docs keep working ─────────
 # Each alias runs a superset of the files it historically ran; the superset
