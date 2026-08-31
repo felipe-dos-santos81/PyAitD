@@ -72,6 +72,16 @@ def ensure_helper():
     return HELPER_BIN
 
 
+def log_tail(path, n=20):
+    """The last n lines of a log file, or a note when nothing is there."""
+    try:
+        text = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "(no log captured)"
+    tail = text.splitlines()[-n:]
+    return "\n".join(tail) if tail else "(log is empty)"
+
+
 def _window(helper, needle):
     helper.stdin.write(f"window {needle}\n")
     helper.stdin.flush()
@@ -127,10 +137,14 @@ def main(argv=None):
     conf_dir = tempfile.mkdtemp(prefix="pyaitd-compare-")
     conf = pathlib.Path(conf_dir) / "windowed.conf"
     conf.write_text(generate_conf(), encoding="ascii")
+    # Keep dosbox-x's stderr: if the window never appears, its tail is the
+    # only evidence of why (boot failure, bad disc image, missing binary).
+    dosbox_log = pathlib.Path(conf_dir) / "dosbox-x.log"
+    dosbox_log_handle = dosbox_log.open("wb")
 
     dosbox = subprocess.Popen(
         ["dosbox-x", "-conf", str(conf)], cwd=resources,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=dosbox_log_handle,
     )
     helper = subprocess.Popen(
         [str(helper_bin)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -142,7 +156,10 @@ def main(argv=None):
                 break
             time.sleep(0.2)
         else:
-            sys.exit("error: the DOSBox-X window never appeared; see its log")
+            print(f"--- tail of the DOSBox-X log ({dosbox_log}) ---",
+                  file=sys.stderr)
+            print(log_tail(dosbox_log), file=sys.stderr)
+            sys.exit("error: the DOSBox-X window never appeared")
 
         os.environ["SDL_VIDEO_WINDOW_POS"] = "100,60"
         os.environ["PYAITD_MIRROR_PID"] = str(dosbox.pid)
@@ -172,6 +189,7 @@ def main(argv=None):
     finally:
         helper.terminate()
         dosbox.terminate()
+        dosbox_log_handle.close()
 
 
 if __name__ == "__main__":
