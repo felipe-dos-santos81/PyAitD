@@ -20,6 +20,18 @@ ROOT = pathlib.Path(__file__).resolve().parents[1] / "PyAitD"
 
 FORBIDDEN = {
     "engine": PRESENTATION + ("PyAitD.games",),
+    # Leaf-domain pins (2026-08-31-engine-domain-subpackages-design.md):
+    # data is fully closed; space may reach data and nothing else. actor,
+    # script and nav carry pre-existing cycles and get no stricter pin.
+    "engine/data": PRESENTATION + (
+        "PyAitD.games",
+        "PyAitD.engine.space", "PyAitD.engine.actor",
+        "PyAitD.engine.script", "PyAitD.engine.nav",
+    ),
+    "engine/space": PRESENTATION + (
+        "PyAitD.games",
+        "PyAitD.engine.actor", "PyAitD.engine.script", "PyAitD.engine.nav",
+    ),
     "render": ("PyAitD.games", "PyAitD.app"),
     "games": ("pygame", "moderngl", "PyAitD.render", "PyAitD.app"),
 }
