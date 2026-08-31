@@ -457,7 +457,7 @@ def test_real_wardrobe_moves_only_after_life_enables_it(data_dir, profile, hero_
 
 def test_hero_walks_to_a_clicked_destination_and_arrives(data_dir, profile):
     from PyAitD.engine.navigate import ARRIVE_DISTANCE
-    from PyAitD.engine.realvalue import give_distance_2d
+    from PyAitD.engine.space.realvalue import give_distance_2d
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)

@@ -3,7 +3,7 @@
 import struct
 
 from PyAitD.engine.effects import AfterLife, LifeFrame
-from PyAitD.engine.realvalue import start_chrono
+from PyAitD.engine.space.realvalue import start_chrono
 
 
 class VM:

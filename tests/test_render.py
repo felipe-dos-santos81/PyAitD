@@ -13,7 +13,7 @@ from PyAitD.render.render_options import RenderOptions
 from PyAitD.render.render_soft import SoftwareBackend
 from PyAitD.render.scene import CameraView, FrameDescription
 from PyAitD.app.ui import transparent_canvas
-from PyAitD.engine.world import CameraState
+from PyAitD.engine.space.world import CameraState
 import pytest
 
 pytestmark = pytest.mark.render

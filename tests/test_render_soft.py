@@ -7,7 +7,7 @@ from PyAitD.engine.data.mask_geometry import MaskDraw
 from PyAitD.render.render_soft import SoftwareBackend
 from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
 from PyAitD.engine.skel import PrimEntry, RenderResult
-from PyAitD.engine.world import CameraState
+from PyAitD.engine.space.world import CameraState
 import pytest
 
 pytestmark = pytest.mark.render

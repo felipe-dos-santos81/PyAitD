@@ -199,7 +199,7 @@ def contact_sheet(body, palette, highlight=None):
     from PyAitD.render.render_soft import SoftwareBackend
     from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
     from PyAitD.engine.skel import skin
-    from PyAitD.engine.world import CameraState
+    from PyAitD.engine.space.world import CameraState
     pal = np.array(palette, dtype=np.uint8, copy=True)
     if highlight is not None:
         pal[highlight[0]:highlight[1] + 1] = MAGENTA

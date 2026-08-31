@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.engine.cos_table import COS_TABLE, sin_cos
+from PyAitD.engine.space.cos_table import COS_TABLE, sin_cos
 import pytest
 
 pytestmark = pytest.mark.engine

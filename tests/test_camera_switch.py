@@ -3,7 +3,7 @@ import struct
 
 from PyAitD.engine.data.formats import parse_cover_zones
 from PyAitD.engine.data.pak import Pak
-from PyAitD.engine.world import find_best_camera, is_in_poly
+from PyAitD.engine.space.world import find_best_camera, is_in_poly
 import pytest
 
 pytestmark = pytest.mark.engine

@@ -22,7 +22,7 @@ import math
 import moderngl
 import numpy as np
 
-from PyAitD.engine.cos_table import sin_cos
+from PyAitD.engine.space.cos_table import sin_cos
 from PyAitD.render.geometry import icosphere
 from PyAitD.render.glsl import (
     BG_VSH as _BG_VSH,
@@ -46,7 +46,7 @@ from PyAitD.render.plate import dither_arrives_smoothed, softness
 from PyAitD.render.render_options import INTEGRATION_STRENGTHS
 from PyAitD.render.refine import subpatch
 from PyAitD.render.render_options import SMOOTHING_LEVELS
-from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
+from PyAitD.engine.space.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
 
 W, H = 320, 200
 

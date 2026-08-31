@@ -3,8 +3,8 @@
 
 from PyAitD.engine.anim import AnimPlayer
 from PyAitD.engine.game import AF_BOXIFY, AF_DRAWABLE, AF_ANIMATED
-from PyAitD.engine.realvalue import evaluate_real, init_real_value
-from PyAitD.engine.world import adjust_zv_between_rooms, cdiv as _cdiv, rotate_step
+from PyAitD.engine.space.realvalue import evaluate_real, init_real_value
+from PyAitD.engine.space.world import adjust_zv_between_rooms, cdiv as _cdiv, rotate_step
 
 def cube_intersect(zv1, zv2):
     return not (

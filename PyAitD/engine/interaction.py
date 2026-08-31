@@ -3,7 +3,7 @@ from PyAitD.engine.effects import (
     AddMessage, AfterLife, BeginTake, FoundResult, InputMode, LifeFrame, TimedMessage,
 )
 from PyAitD.engine.life import process_life
-from PyAitD.engine.world import adjust_zv_between_rooms, room_delta, shifted_zv
+from PyAitD.engine.space.world import adjust_zv_between_rooms, room_delta, shifted_zv
 
 INVENTORY_SIZE = 30
 MAX_VISIBLE_ACTIONS = 5

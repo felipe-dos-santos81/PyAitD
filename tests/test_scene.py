@@ -8,7 +8,7 @@ from PyAitD.engine.game import init_game
 from PyAitD.engine.data.mask_geometry import MaskDraw
 from PyAitD.render.scene import CameraView, FrameDescription, build_frame, mask_applies_to_actor
 from PyAitD.engine.skel import skin
-from PyAitD.engine.world import CameraState
+from PyAitD.engine.space.world import CameraState
 import pytest
 
 pytestmark = pytest.mark.render

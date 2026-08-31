@@ -10,7 +10,7 @@ from the fixed-point pipeline it has to agree with.
 import numpy as np
 
 from PyAitD.engine.navmesh import COVER_SCALE, cover_polys
-from PyAitD.engine.world import CameraState, transform_point
+from PyAitD.engine.space.world import CameraState, transform_point
 
 
 def project_floor_point(state, wx, wy, wz):

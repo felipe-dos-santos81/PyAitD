@@ -10,9 +10,9 @@ are the only fields this module writes.
 from PyAitD.engine.actors import anim_player_for, check_hard_col, check_object_col, cube_intersect
 from PyAitD.engine.game import AF_ANIMATED, AF_BOXIFY, AF_SPECIAL, activate_world_object, put_at_objet
 from PyAitD.engine.interaction import point_in_zone, remove_from_inventory
-from PyAitD.engine.realvalue import init_real_value
+from PyAitD.engine.space.realvalue import init_real_value
 from PyAitD.engine.skel import hot_point
-from PyAitD.engine.world import adjust_zv_between_rooms, cdiv, rotate_step
+from PyAitD.engine.space.world import adjust_zv_between_rooms, cdiv, rotate_step
 
 WAIT_FRAPPE_ANIM = 1
 FRAPPE_OK = 2

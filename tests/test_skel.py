@@ -4,7 +4,7 @@ import pytest
 from PyAitD.engine.data.formats import Body, Group, Primitive
 from PyAitD.engine.game import init_game
 from PyAitD.engine.skel import hot_point, pose_vertices, skin
-from PyAitD.engine.world import CameraState
+from PyAitD.engine.space.world import CameraState
 
 pytestmark = pytest.mark.engine
 

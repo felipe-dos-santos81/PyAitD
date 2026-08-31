@@ -14,7 +14,7 @@ from PyAitD.engine.interaction import (
     PLAYER_STAND_ANIM, remove_from_inventory, request_found,
     resolve_actor_contacts,
 )
-from PyAitD.engine.world import room_delta
+from PyAitD.engine.space.world import room_delta
 
 pytestmark = pytest.mark.engine
 

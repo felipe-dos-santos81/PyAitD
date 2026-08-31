@@ -2,7 +2,7 @@
 """Animation state machine port (FITD anim.cpp SetAnimObjet/SetInterAnimObjet)."""
 
 from PyAitD.engine.game import AF_ANIMATED
-from PyAitD.engine.world import trunc_div as _trunc_div
+from PyAitD.engine.space.world import trunc_div as _trunc_div
 
 ANIM_ONCE = 0
 ANIM_REPEAT = 1

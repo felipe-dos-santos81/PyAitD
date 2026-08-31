@@ -11,7 +11,7 @@ import numpy as np
 
 from PyAitD.engine.actors import anim_player_for, sort_actor_indices
 from PyAitD.render.asset_resolver import ImageAsset
-from PyAitD.engine.cos_table import sin_cos
+from PyAitD.engine.space.cos_table import sin_cos
 from PyAitD.render.geometry import BodyGeometry, pose_geometry
 from PyAitD.render.lighting import LEGACY_LIGHT, SceneLight
 from PyAitD.render.materials import MaterialTable, default_table
@@ -19,7 +19,7 @@ from PyAitD.render.plate import NEUTRAL_PLATE, PlateProfile
 from PyAitD.engine.data.mask_geometry import MaskDraw
 from PyAitD.engine.picking import actor_bbox
 from PyAitD.engine.skel import RenderResult, skin
-from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y, CameraState
+from PyAitD.engine.space.world import SCREEN_CENTER_X, SCREEN_CENTER_Y, CameraState
 
 _SENTINEL = np.array([-10000.0, -10000.0, -10000.0])
 

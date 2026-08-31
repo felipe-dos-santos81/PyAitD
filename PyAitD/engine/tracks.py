@@ -2,8 +2,8 @@
 """Track runner port (FITD track.cpp processTrack, AITD1 macro set)."""
 from PyAitD.engine.data.formats import _s16 as _read_s16
 from PyAitD.engine.game import AF_TRIGGER
-from PyAitD.engine.realvalue import give_distance_2d, init_real_value, update_actor_rotation
-from PyAitD.engine.world import cdiv as _cdiv, room_delta, rotate_step
+from PyAitD.engine.space.realvalue import give_distance_2d, init_real_value, update_actor_rotation
+from PyAitD.engine.space.world import cdiv as _cdiv, room_delta, rotate_step
 
 TL_INIT_COOR, TL_GOTO, TL_END, TL_REPEAT, TL_MARK = 0, 1, 2, 3, 4
 TL_WALK, TL_RUN, TL_STOP, TL_BACK, TL_SET_ANGLE = 5, 6, 7, 8, 9

@@ -790,7 +790,7 @@ def _state_for(floor, room_idx, cam_slot):
     # pick_floor, which builds its own camera state internally, so this
     # has no production caller — it exists only to reproduce a click's
     # screen coordinates for project_floor_point in the test below.
-    from PyAitD.engine.world import CameraState
+    from PyAitD.engine.space.world import CameraState
     room = floor.rooms[room_idx]
     camera = floor.cameras[room.camera_indices[cam_slot]]
     return CameraState.from_camera(
@@ -1182,7 +1182,7 @@ def _real_draw_list_entry(game, floor, actor_idx):
     Renderer: the same skin() call, the same picking.actor_bbox."""
     from PyAitD.engine.picking import actor_bbox
     from PyAitD.engine.skel import skin
-    from PyAitD.engine.world import CameraState
+    from PyAitD.engine.space.world import CameraState
     room = floor.rooms[game.current_room]
     camera = floor.cameras[room.camera_indices[game.num_camera]]
     state = CameraState.from_camera(
@@ -1406,7 +1406,7 @@ def test_the_approach_bias_is_converted_into_the_target_room_s_frame(data_dir, p
     # approach side essentially at random.
     import PyAitD.engine.navmesh as navmesh_module
     from PyAitD.app.shell import resolve_play_click
-    from PyAitD.engine.world import room_delta
+    from PyAitD.engine.space.world import room_delta
 
     game, floor, hero, target, draw_list = _cross_room_target_setup(data_dir, profile)
 

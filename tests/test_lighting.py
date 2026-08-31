@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from PyAitD.engine.world import CameraState
+from PyAitD.engine.space.world import CameraState
 from PyAitD.render.lighting import (
     FORWARD, LEGACY_LIGHT, MAX_TINT_RATIO, MIN_UP, SceneLight, estimate_light,
     key_weight, light_view_matrix, project_to_plane, shading_terms,

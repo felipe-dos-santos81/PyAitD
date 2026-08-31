@@ -26,7 +26,7 @@ from PyAitD.engine.data.pak import PakError
 from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import RenderOptions
 from PyAitD.render.scene import CameraView, FrameDescription
-from PyAitD.engine.world import CameraState
+from PyAitD.engine.space.world import CameraState
 # Run as a script (`python tools/check_textures.py`), sys.path[0] is tools/,
 # not the repo root, so the sibling module is only reachable through the
 # package when the root is added explicitly.

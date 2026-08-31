@@ -19,7 +19,7 @@ from PyAitD.engine.interaction import (
 from PyAitD.engine.life import life_gate
 from PyAitD.engine.navigate import WAYPOINT_DISTANCE, decide
 from PyAitD.engine.navmesh import agent_extent, find_path, nearest_walkable
-from PyAitD.engine.world import find_best_camera, is_in_poly
+from PyAitD.engine.space.world import find_best_camera, is_in_poly
 
 TICK_MS = 20  # 50 Hz logic tick
 NATIVE_ACTION = 0x2000  # mainLoop.cpp:87-101 held-action input

@@ -14,7 +14,7 @@ from PyAitD.render.render_gl import GLBackend, camera_matrix, projection_matrix,
 from PyAitD.render.render_options import RenderOptions
 from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
 from PyAitD.engine.skel import RenderResult
-from PyAitD.engine.world import CameraState
+from PyAitD.engine.space.world import CameraState
 
 pytestmark = pytest.mark.render
 

@@ -7,9 +7,9 @@ from PyAitD.engine.anim import init_anim
 from PyAitD.engine.effects import AddMessage, BeginTake, ReadText, ShowPicture
 from PyAitD.engine.game import AF_ANIMATED, AF_MASK, FloorStart, _zv_cube, _zv_max, _zv_rot, relocate_actor
 from PyAitD.engine.life import eval_var, read_s16
-from PyAitD.engine.realvalue import init_real_value, update_actor_rotation
+from PyAitD.engine.space.realvalue import init_real_value, update_actor_rotation
 from PyAitD.engine.tracks import gere_manual_rot, init_deplacement
-from PyAitD.engine.world import room_delta
+from PyAitD.engine.space.world import room_delta
 
 log = logging.getLogger(__name__)
 

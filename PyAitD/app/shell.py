@@ -340,7 +340,7 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
     from PyAitD.engine.navmesh import agent_extent, approach_cell, nearest_walkable
     from PyAitD.engine.picking import pick_actor, pick_floor_any_room
     from PyAitD.app.ui import PlayLayout
-    from PyAitD.engine.world import room_delta
+    from PyAitD.engine.space.world import room_delta
 
     if (logical_pos is None or game.active_modal is not None
             or game.input_mode is not InputMode.MOUSE or game.num_camera == -1):
