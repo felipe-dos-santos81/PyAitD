@@ -101,7 +101,7 @@ rim, occlusion, and a procedural detail field that is both a colour grain
 and real relief, lit by a derivative bump that fades out before it can
 alias; skin also gets a warm terminator, and a flame's palette ramp
 renders as emissive whatever the light does — from a palette-index table
-in `PyAitD/render/materials.json`, which `make bootstrap-materials`
+in `PyAitD/render/materials.json`, which `make export-textures`
 regenerates and a texture directory can remap per body under
 `DIR/bodies/body<NNN>.json` (re-running the bootstrap without the hand
 labels each ramp's `note` records silently reintroduces the survey's
@@ -150,7 +150,9 @@ To regenerate the backgrounds with an external tool, `make export-textures`
 writes the originals plus structure guides, a layout sidecar per camera (the
 guide's geometry as JSON, used to describe and verify the scene) and a
 manifest (`manifest.json`) into `data/aitd1/textures` (git-ignored; `out=DIR`
-to choose another), and `make check-textures` validates the results the way
+to choose another), then surveys palette ramps and body usage into
+`materials-survey/` beside them and emits `PyAitD/render/materials.json`
+(`materials=0` skips that half), and `make check-textures` validates the results the way
 the game loads them. The regeneration itself happens outside this repo;
 `make run textures=DIR` plays the game against the directory.
 

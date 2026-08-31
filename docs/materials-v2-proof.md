@@ -208,7 +208,7 @@ emitting the vision guess, not the reviewed value. 15–31, 48–63, 64–68,
 explicit label to make the reviewed value the one that ships. The emitted
 diff was 15 class-value changes across 152 palette indices.
 
-**Where the labels live.** `data/aitd1/materials-survey/` is git-ignored
+**Where the labels live.** `data/aitd1/textures/materials-survey/` is git-ignored
 (this repo ships no game data, and the survey is derived from it), so the
 survey's `label` fields are not the durable record. The durable record is
 the `note` string on each of the 23 ramps in
@@ -680,7 +680,7 @@ limitations below.
   cloth, hair and metal all sit near the knee. `--render-scale` goes to 8,
   which only helps.
 - **The review is a human step and always will be.** Nothing in the data
-  says what a polygon is made of. `make bootstrap-materials` can survey
+  says what a polygon is made of. `make export-textures` can survey
   and can ask a vision model, but the committed table's authority is a
   person, and re-running the emitter without labels will silently
   reintroduce the model's guesses — which is exactly what Task 4 found had

@@ -30,7 +30,7 @@ from PyAitD.render.materials import DEFAULT_TABLE_PATH, MATERIAL_CLASSES  # noqa
 from tools.export_textures import save_png  # noqa: E402
 
 SURVEY_FILE = "survey.json"
-DEFAULT_OUT = pathlib.Path("data/aitd1/materials-survey")
+DEFAULT_OUT = pathlib.Path("data/aitd1/textures/materials-survey")
 RAMP_HUE_TOLERANCE = 0.06   # hue drift (0..1 circle) allowed inside one ramp
 GREY_SATURATION = 0.12      # below this an entry has no usable hue
 CONFIDENT = 0.8             # ramps at or above this skip the vision pass
@@ -166,7 +166,7 @@ def propose(lo, hi, palette, usage, bodies=None):
 # What a re-survey must not destroy: everything a human or a model put on a
 # ramp. `label` in particular has no other home -- the documented fix for a
 # misclassification is to hand-label a ramp in survey.json and re-run `make
-# bootstrap-materials`, which runs the survey stage first.
+# export-textures`, which runs the survey stage first.
 CARRIED_FIELDS = ("label", "vision_class", "vision_reason")
 
 

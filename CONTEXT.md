@@ -30,7 +30,7 @@ make proof-combat              # venue, real enemy damage, player arms, game ove
 make proof-graphics            # attic + combat fixtures at every shading mode, plus flat-mesh, hard-shadow, un-composited and over-composited pairs, -> docs/graphics-proof/ (needs GL + game data)
 make proof-intro               # opening cutscene: headless gate + one GL render per visited camera
 make prove-persistence         # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract (headless)
-make export-textures         # originals + 5 KILLED_SORCERER alts + palette + guides + manifest schema 3 -> data/aitd1/textures (out=, floors=, scale=, force=1, screens=0 to skip)
+make export-textures         # originals + 5 KILLED_SORCERER alts + palette + guides + manifest schema 3 -> data/aitd1/textures, then palette ramps + body usage -> <out>/materials-survey + PyAitD/render/materials.json (out=, floors=, scale=, force=1, screens=0 skips screens, materials=0 skips materials, vision=1 asks Gemini through agy)
 make check-textures          # validate a texture dir as the game loads it (textures=DIR, proof=1 side-by-sides: bases, alts -alt.png, screens)
 make run textures=DIR        # play with a different texture directory; textures= plays the originals
 ```
@@ -61,7 +61,7 @@ below for what pins each alias to the files it historically ran.
 | Soft shadows (roadmap F) | Contact-hardening penumbra, one gathered shadow pass, light-view shadow map for self/inter-actor shadowing, `shadows` knob | automated gates green; windowed attestation pending (`docs/soft-shadows-proof.md`) |
 | Plate integration (roadmap G) | Actors resolved into their own layer and composited back through the plate's softness, tone curve and grain, graded by an `integration` level 0-3 that defaults to 2 (the full match) | automated gates green; windowed attestation pending (`docs/plate-integration-proof.md`) |
 | Materials v2 (roadmap H) | Derivative bump so `detail` is relief and not dirt, a warm skin terminator, real emissive, a normalised specular lobe, the 23 used palette ramps hand-reviewed, and the class table retuned against the fixtures | automated gates green; windowed attestation pending (`docs/materials-v2-proof.md`) |
-| Texture export + check | Export originals + structure guides + manifest for an external texture tool, validate texture dirs as the game loads them | done — `make export-textures` / `check-textures` (regeneration itself moved to an external tool) |
+| Texture export + check | Export originals + structure guides + manifest for an external texture tool, validate texture dirs as the game loads them; the same target surveys palette ramps and emits the material table | done — `make export-textures` / `check-textures` (regeneration itself moved to an external tool) |
 | Engine package reorganization | engine / render / games / app split + GameProfile | done — `tests/test_layering.py` |
 | M4a2 | Save/load: validated atomic JSON slots, persistence menu pages, deferred quick save, atomic load replacement | automated gates green (`make prove-persistence`); windowed attestation pending (`docs/m4a2-persistence-proof.md`) |
 | M4b / M4c | Audio + sequences, ending/completability | next (plans drafted under `docs/superpowers/plans/2026-08-24-m4*`) |

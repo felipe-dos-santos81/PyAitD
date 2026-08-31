@@ -21,9 +21,8 @@ make proof-intro   # opening cutscene: headless gate + one GL render per visited
 make prove-persistence # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract
 make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, textures=DIR defaults to data/aitd1/textures (textures= disables), data="..." trace=/tmp/t.log optional
 make compare       # live mirror: original AITD1 in DOSBox-X below the port, PLAY keys forwarded (macOS, needs dosbox-x + Accessibility) — not headless, not a pytest gate
-make export-textures # originals + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + manifest schema 3 to data/aitd1/textures (git-ignored) for the external texture tool (out=, floors=, scale=, force=1, screens=0 to skip)
+make export-textures # originals + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + manifest schema 3 to data/aitd1/textures (git-ignored) for the external texture tool, then palette ramps + body usage -> <out>/materials-survey + PyAitD/render/materials.json (out=, floors=, scale=, force=1, screens=0 skips screens, materials=0 skips materials, vision=1 asks Gemini through agy about uncertain ramps)
 make check-textures # validate data/aitd1/textures (or textures=DIR) as the game loads it; proof=1 renders side-by-sides (bases, alts -alt.png, screens)
-make bootstrap-materials # palette ramps + body usage -> PyAitD/render/materials.json (vision=1 asks Gemini through agy about uncertain ramps)
 ```
 
 Every pytest target runs headless via the Makefile's `HEADLESS` variable, so

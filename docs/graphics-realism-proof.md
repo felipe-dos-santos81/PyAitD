@@ -15,7 +15,7 @@ game.
 
 Actors now carry a per-material surface under `realism=enhanced` (the
 default): a palette-index material table (`PyAitD/render/materials.json`,
-bootstrapped by `make bootstrap-materials`, hand-correctable, overridable per
+bootstrapped by `make export-textures`, hand-correctable, overridable per
 body under `overrides/bodies/body<NNN>.json`) drives specular, a fresnel
 rim, a sky/ground hemisphere ambient, rest-pose vertex occlusion, a contact
 darkening at the feet and procedural grain glued to each limb.
@@ -115,7 +115,7 @@ own supersession.
   durable ramp-by-ramp record, and `tests/test_bootstrap_materials.py`'s
   `REVIEWED_RAMPS` pins the resulting per-index mapping. **Read the
   committed table as a human decision, not as disposable model output.**
-  A bare `make bootstrap-materials` re-emit, without the survey's `label`
+  A bare `make export-textures` re-emit, without the survey's `label`
   fields, silently reinstates the model's guesses — which is exactly what
   the review found had already happened to ten ramps — and `REVIEWED_RAMPS`
   is the net that fails when it does. The `note` on each row still records

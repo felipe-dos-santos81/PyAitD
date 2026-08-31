@@ -143,8 +143,8 @@ def test_the_committed_table_carries_every_index_that_is_not_the_matte_default()
 
 def test_survey_carries_a_hand_label_and_a_vision_class_across_a_re_survey():
     # The documented fix for a misclassification is to hand-label a ramp in
-    # survey.json and re-run `make bootstrap-materials`, whose first stage is
-    # survey: a wholesale overwrite would destroy the label every time.
+    # survey.json and re-run `make export-textures`, whose first materials
+    # stage is survey: a wholesale overwrite would destroy the label every time.
     bodies = {"0:0": _body([16, 17], groups=12)}
     first = bm.survey(_palette(), bodies)
     by = {(r["lo"], r["hi"]): r for r in first["ramps"]}
@@ -331,7 +331,7 @@ def test_label_stage_writes_vision_classes_back(tmp_path, monkeypatch):
 
 
 # The 23 ramps any body actually uses, hand-reviewed against the sheets in
-# data/aitd1/materials-survey/sheets/ -- see docs/materials-v2-proof.md for
+# data/aitd1/textures/materials-survey/sheets/ -- see docs/materials-v2-proof.md for
 # the decisions. This is the only in-repo record: the survey holding the
 # hand labels is git-ignored, so a re-emit that silently dropped a label
 # back to its stale vision_class or heuristic guess would otherwise be

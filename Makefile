@@ -16,7 +16,7 @@ textures ?= data/aitd1/textures
 # the mixer from opening a device on machines that have one.
 HEADLESS = SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy
 
-.PHONY: help install run run-combat run-mouse-combat test test-engine test-render test-shell test-tools test-meta test-journey proof-mouse proof-combat proof-graphics proof-intro prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro prove-persistence compare export-textures check-textures bootstrap-materials clean
+.PHONY: help install run run-combat run-mouse-combat test test-engine test-render test-shell test-tools test-meta test-journey proof-mouse proof-combat proof-graphics proof-intro prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro prove-persistence compare export-textures check-textures clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -118,13 +118,16 @@ prove-graphics: proof-graphics ## Alias of proof-graphics
 
 prove-intro: proof-intro ## Alias of proof-intro
 
-export-textures: install ## Export every camera background + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + manifest schema 3 for the external texture tool (out=data/aitd1/textures, floors=0-7, scale=4, force=1, screens=0 to skip screens)
+# The materials stages below write <out>/materials-survey (git-ignored with
+# the rest of the textures dir), which holds the hand `label`s from the
+# 23-ramp review; without it the emit falls back to vision/heuristic guesses,
+# which tests/test_bootstrap_materials.py's REVIEWED_RAMPS then fails on.
+# See docs/materials-v2-proof.md.
+export-textures: install ## Export every camera background + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + manifest schema 3, then survey palette ramps + body usage into <out>/materials-survey and emit PyAitD/render/materials.json (out=data/aitd1/textures, floors=0-7, scale=4, force=1, screens=0 skips screens, materials=0 skips the materials stages, vision=1 asks Gemini through agy about uncertain ramps, model=, threshold=0.8)
 	$(PYTHON) tools/export_textures.py "$(data)" --out "$(out)" --floors "$(or $(floors),0-7)" --guide-scale "$(or $(scale),4)" $(if $(force),--force) $(if $(filter 0,$(screens)),--no-screens)
+	$(if $(filter 0,$(materials)),,$(PYTHON) tools/bootstrap_materials.py "$(data)" survey --out "$(out)/materials-survey")
+	$(if $(filter 0,$(materials)),,$(if $(vision),$(PYTHON) tools/bootstrap_materials.py "$(data)" label --out "$(out)/materials-survey" $(if $(model),--model "$(model)") $(if $(threshold),--threshold "$(threshold)")))
+	$(if $(filter 0,$(materials)),,$(PYTHON) tools/bootstrap_materials.py "$(data)" emit --out "$(out)/materials-survey")
 
 check-textures: install ## Check a texture dir the way the game loads it (textures=data/aitd1/textures, floors=0-7); proof=1 renders original|texture side-by-sides to docs/graphics-proof/textures/ (bases, alts -alt.png, screens)
 	$(PYTHON) tools/check_textures.py "$(data)" "$(textures)" --floors "$(or $(floors),0-7)" $(if $(proof),--proof)
-
-bootstrap-materials: install ## Survey palette ramps + body usage into data/aitd1/materials-survey, then emit PyAitD/render/materials.json (survey_out=, vision=1 runs the agy labelling stage in between, model=, threshold=0.8). The survey dir is git-ignored and holds the hand `label`s from the 23-ramp review; without it the emit falls back to vision/heuristic guesses, which tests/test_bootstrap_materials.py's REVIEWED_RAMPS then fails on. See docs/materials-v2-proof.md.
-	$(PYTHON) tools/bootstrap_materials.py "$(data)" survey --out "$(or $(survey_out),data/aitd1/materials-survey)"
-	$(if $(vision),$(PYTHON) tools/bootstrap_materials.py "$(data)" label --out "$(or $(survey_out),data/aitd1/materials-survey)" $(if $(model),--model "$(model)") $(if $(threshold),--threshold "$(threshold)"))
-	$(PYTHON) tools/bootstrap_materials.py "$(data)" emit --out "$(or $(survey_out),data/aitd1/materials-survey)"
