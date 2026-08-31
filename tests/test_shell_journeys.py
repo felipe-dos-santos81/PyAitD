@@ -291,8 +291,8 @@ def test_menu_remap_sticky_save_and_reload_journey(data_dir, profile, monkeypatc
         assert buffer.sticky_armed is False
 
 
-def test_menu_graphics_page_cycle_and_save_journey(data_dir, profile, monkeypatch, tmp_path):
-    # ESC -> Configuration -> Graphics... -> Realism (cycles to classic) ->
+def test_menu_realism_page_cycle_and_save_journey(data_dir, profile, monkeypatch, tmp_path):
+    # ESC -> Configuration -> Realism... -> Realism (cycles to classic) ->
     # Back -> Back to Menu -> Return to Game -> quit: the cycled field is
     # what the save wrote, and the page transitions happened by mouse.
     game = init_game(data_dir, profile)
@@ -300,23 +300,23 @@ def test_menu_graphics_page_cycle_and_save_journey(data_dir, profile, monkeypatc
     session = load_runtime_session(path)
     state = {"frames": 0}
     config_rows = SystemMenuLayout.rows(SystemMenuPage.CONFIG)
-    graphics_rows = SystemMenuLayout.rows(SystemMenuPage.GRAPHICS)
+    realism_rows = SystemMenuLayout.rows(SystemMenuPage.REALISM)
 
     def next_events():
         state["frames"] += 1
         frames = state["frames"]
-        assert frames < 200, "graphics journey exceeded its budget"
+        assert frames < 200, "realism journey exceeded its budget"
         if frames == 1:
             return [_key(pygame.K_ESCAPE)]
         if frames == 2:
             return [_left_click(SystemMenuLayout.MAIN_ROWS[4].center)]
         if frames == 3:
-            return [_left_click(config_rows[-2].center)]          # Graphics...
+            return [_left_click(config_rows[-2].center)]          # Realism...
         if frames == 4:
-            assert session.system_menu.page is SystemMenuPage.GRAPHICS, "fixture"
-            return [_left_click(graphics_rows[6].center)]         # Realism
+            assert session.system_menu.page is SystemMenuPage.REALISM, "fixture"
+            return [_left_click(realism_rows[2].center)]          # Realism
         if frames == 5:
-            return [_left_click(graphics_rows[-1].center)]        # Back
+            return [_left_click(realism_rows[-1].center)]         # Back
         if frames == 6:
             assert session.system_menu.page is SystemMenuPage.CONFIG, "fixture"
             return [_left_click(config_rows[-1].center)]          # Back to Menu

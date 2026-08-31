@@ -656,10 +656,12 @@ def _route_game_over_command(game, session, modal_command):
 
 
 # The only render.RenderOptions fields the CONFIG menu can actually change
-# (SystemMenuPage.GRAPHICS's Scale/Shading/Filter/Lighting/Shadows/AA/Realism/Smoothing/Integration
-# rows, via GRAPHICS_CYCLES in ui.reduce_system_menu). `texture_dir` has no menu row at
-# all, so it is never in this set and a save can never pick it up from the
-# in-memory, possibly CLI-set, session.settings.render.
+# (SystemMenuPage.GRAPHICS's Scale/Shading/Filter/AA/Smoothing rows, via
+# GRAPHICS_CYCLES, and SystemMenuPage.REALISM's Lighting/Shadows/Realism/
+# Integration/Motion rows, via REALISM_CYCLES, both in ui.reduce_system_menu).
+# `texture_dir` has no menu row at all, so it is never in this set and a save
+# can never pick it up from the in-memory, possibly CLI-set,
+# session.settings.render.
 _MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism", "smoothing", "shadows", "integration", "motion")
 
 
