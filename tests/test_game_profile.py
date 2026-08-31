@@ -202,3 +202,11 @@ def test_screen_pixels_is_a_named_constant_not_a_per_game_field():
     # evidence: a named constant, not a profile field.
     from PyAitD.engine.data import assets
     assert assets.SCREEN_PIXELS == 64000
+
+
+def test_engine_life_owns_no_aitd1_table_facts():
+    # The VM-control numbering is the game's macro table (profile.core_slots);
+    # engine/life.py keeps only the semantic handlers. NUM_OPCODES is deleted,
+    # not moved: runtime bounds come from len(profile.opcode_table).
+    from PyAitD.engine.script import life
+    assert not hasattr(life, "NUM_OPCODES")

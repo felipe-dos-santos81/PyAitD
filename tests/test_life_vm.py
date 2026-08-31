@@ -212,9 +212,10 @@ def test_vm_dispatches_through_the_game_profile():
     # a one-opcode profile proves the VM owns no table of its own
     from types import SimpleNamespace
     from PyAitD.engine.script import life
+    from PyAitD.games.aitd1.profile import CORE_SLOTS, DEAD_OPCODES, NUM_OPCODES
     from PyAitD.games.base import GameProfile
     seen = []
-    table = life.core_table()
+    table = life.core_table(NUM_OPCODES, CORE_SLOTS, DEAD_OPCODES)
     table[0] = lambda vm: seen.append("hit")
     profile = GameProfile(
         name="stub", lifes_pak="", tracks_pak="", text_pak="", resource_pak="",

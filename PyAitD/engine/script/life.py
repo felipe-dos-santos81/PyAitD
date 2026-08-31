@@ -229,34 +229,39 @@ def life_gate(actor):
     return actor.life != -1 and actor.life_mode != -1
 
 
-# AITD1LifeMacroTable (AITD1.cpp:30-119, life.h:7-93): 87 entries, index == enum value.
-# The engine fills only the game-neutral slots; a GameProfile installs the rest.
-NUM_OPCODES = 87
+# The semantic VM-control handlers, keyed by name. FITD shares these
+# enumLifeMacro semantics across games while each game's macro table maps
+# them onto its own bytecode slots (AITD1.cpp:30-119, AITD2.cpp:48-171) —
+# the numbering is the profile's core_slots, not this module's.
+_CORE = {
+    "IF_EGAL": _make_if(lambda a, b: a == b),
+    "IF_DIFFERENT": _make_if(lambda a, b: a != b),
+    "IF_SUP_EGAL": _make_if(lambda a, b: a >= b),
+    "IF_SUP": _make_if(lambda a, b: a > b),
+    "IF_INF_EGAL": _make_if(lambda a, b: a <= b),
+    "IF_INF": _make_if(lambda a, b: a < b),
+    "GOTO": _op_goto,
+    "RETURN": _op_end,
+    "END": _op_end,
+    "VAR": _op_var,
+    "INC": _op_inc,
+    "DEC": _op_dec,
+    "ADD": _op_add,
+    "SUB": _op_sub,
+    "LIFE_MODE": _op_life_mode,
+    "SWITCH": _op_switch,
+    "CASE": _op_case,
+    "START_CHRONO": _op_start_chrono,
+    "MULTI_CASE": _op_multi_case,
+}
 
 
-def core_table():
-    table = [_op_not_implemented(i) for i in range(NUM_OPCODES)]
-    table[4] = _make_if(lambda a, b: a == b)   # LM_IF_EGAL
-    table[5] = _make_if(lambda a, b: a != b)   # LM_IF_DIFFERENT
-    table[6] = _make_if(lambda a, b: a >= b)   # LM_IF_SUP_EGAL
-    table[7] = _make_if(lambda a, b: a > b)    # LM_IF_SUP
-    table[8] = _make_if(lambda a, b: a <= b)   # LM_IF_INF_EGAL
-    table[9] = _make_if(lambda a, b: a < b)    # LM_IF_INF
-    table[10] = _op_goto                       # LM_GOTO
-    table[11] = _op_end                        # LM_RETURN
-    table[12] = _op_end                        # LM_END
-    table[19] = _op_var                        # LM_VAR
-    table[20] = _op_inc                        # LM_INC
-    table[21] = _op_dec                        # LM_DEC
-    table[22] = _op_add                        # LM_ADD
-    table[23] = _op_sub                        # LM_SUB
-    table[24] = _op_life_mode                  # LM_LIFE_MODE
-    table[25] = _op_switch                     # LM_SWITCH
-    table[26] = _op_case                       # LM_CASE
-    table[27] = _op_dead                       # LM_CAMERA
-    table[28] = _op_start_chrono               # LM_START_CHRONO
-    table[29] = _op_multi_case                 # LM_MULTI_CASE
-    table[57] = _op_dead                       # LM_STOP_BETA
-    table[61] = _op_dead                       # LM_DO_NORMAL_ZV
-    table[69] = _op_dead                       # LM_SPEED
+def core_table(size, core_slots, dead_slots):
+    # size and dead_slots are the game's macro-table facts. Slots left
+    # _op_not_implemented are for the game profile to fill or reject.
+    table = [_op_not_implemented(i) for i in range(size)]
+    for name, slot in core_slots.items():
+        table[slot] = _CORE[name]
+    for slot in dead_slots:
+        table[slot] = _op_dead
     return table

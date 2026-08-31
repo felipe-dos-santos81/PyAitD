@@ -44,7 +44,7 @@ def camera_archive_name(number):
 
 def _opcode_table():
     # opcode numbers per AITD1LifeMacroTable (AITD1.cpp:30-119)
-    table = life.core_table()
+    table = life.core_table(NUM_OPCODES, CORE_SLOTS, DEAD_OPCODES)
     table[0] = lambda vm: process_track(vm.game, vm.actor)  # LM_DO_MOVE
     table[1] = ops.op_anim_once
     table[2] = ops.op_anim_all_once
