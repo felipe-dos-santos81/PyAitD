@@ -25,6 +25,18 @@ class GameProfile:
     reduced_dispatch: object # callable(vm, opcode, world_idx): not-in-floor ops
     reduced_allowed: frozenset  # opcodes reduced_dispatch has a case for (life.cpp:522-716)
     debug_venues: Mapping    # CLI venue name -> callable(game)
+    generation: int            # FITD gameTypeEnum ordinal (vars.h:5-12): AITD1=0, JACK=1, AITD2=2, AITD3=3, TIMEGATE=4
+    floor_archive_name: object # callable(floor_number) -> PAK base name (floor.cpp:26-28)
+    camera_archive_name: object # callable(floor_number) -> PAK base name
+    mask_factory: object       # callable(camera_raw, offset) -> mask bitmap; AITD1 computes (createAITD1Mask), JACK+ loads MASK%02d PAKs (main.cpp:2178-2190)
+    cadre_bank: tuple          # (ITD_RESS entry, sprite count) of the cadre sprite bank
+    core_slots: Mapping        # semantic VM-control op name -> bytecode slot, per the game's life macro table
+    combat_action_text_ids: frozenset  # inventory action text ids that arm combat
+    player_stand_anim: int     # hero anim index: stand
+    player_push_anim: int      # hero anim index: push
+    player_track_modes: tuple  # track_mode values meaning player-controlled
+    viewed_room_record_size: int  # viewed-room record stride (floor.cpp:367-375): 0x0C AITD1, 0x10 JACK+
+    world_object_has_mark: bool    # OBJETS.ITD records carry a trailing mark s16 (main.cpp:1117-1121)
     # (stage, room) FITD's per-game boot passes to startGame (AITD1.cpp:352-361):
     # the scripted opening with allowSystemMenu=0, or None when the game has
     # none. `intro_start` is consumed by engine.game.start_game, exactly the

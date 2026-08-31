@@ -3,6 +3,7 @@
 AITD1LifeMacroTable (AITD1.cpp:30-119), reduced dispatch, debug venues."""
 from types import MappingProxyType
 
+from PyAitD.engine.data.mask import create_aitd1_mask
 from PyAitD.engine.script import life
 from PyAitD.engine.actor.tracks import process_track
 from PyAitD.games.aitd1 import life_ops as ops
@@ -20,6 +21,26 @@ CVAR_NAMES = (
 # life.cpp:522-716: the opcodes FITD's reduced (out-of-floor) switch has a
 # case for. Anything else on a world object whose obj_index is -1 is an error.
 REDUCED_ALLOWED = frozenset({1, 2, 3, 13, 15, 24, 28, 31, 40, 47, 48, 49, 54, 55, 67, 74})
+
+# AITD1LifeMacroTable (AITD1.cpp:30-119): slot count, the VM-control
+# numbering within it, and the holes in FITD's dispatch switch.
+NUM_OPCODES = 87
+CORE_SLOTS = MappingProxyType({
+    "IF_EGAL": 4, "IF_DIFFERENT": 5, "IF_SUP_EGAL": 6, "IF_SUP": 7,
+    "IF_INF_EGAL": 8, "IF_INF": 9, "GOTO": 10, "RETURN": 11, "END": 12,
+    "VAR": 19, "INC": 20, "DEC": 21, "ADD": 22, "SUB": 23,
+    "LIFE_MODE": 24, "SWITCH": 25, "CASE": 26, "START_CHRONO": 28,
+    "MULTI_CASE": 29,
+})
+DEAD_OPCODES = frozenset({27, 57, 61, 69})
+
+
+def floor_archive_name(number):  # floor.cpp:26-28
+    return f"ETAGE{number:02d}"
+
+
+def camera_archive_name(number):
+    return f"CAMERA{number:02d}"
 
 def _opcode_table():
     # opcode numbers per AITD1LifeMacroTable (AITD1.cpp:30-119)
@@ -111,6 +132,18 @@ AITD1 = GameProfile(
         "combat-venue": scenario.enter_combat_venue,
         "mouse-combat-fixture": scenario.enter_mouse_combat_fixture,
     }),
+    generation=0,
+    floor_archive_name=floor_archive_name,
+    camera_archive_name=camera_archive_name,
+    mask_factory=create_aitd1_mask,
+    cadre_bank=(4, 9),
+    core_slots=CORE_SLOTS,
+    combat_action_text_ids=frozenset({32}),
+    player_stand_anim=4,
+    player_push_anim=5,
+    player_track_modes=(1, 4),
+    viewed_room_record_size=0x0C,
+    world_object_has_mark=False,
     intro_start=(7, 1),
     game_start=(0, 0),
     alt_camera_sources=MappingProxyType({(7, 0): 15, (7, 1): 16, (6, 0): 17, (6, 5): 18, (6, 8): 19}),

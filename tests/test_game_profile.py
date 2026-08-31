@@ -150,4 +150,48 @@ def test_base_profile_alt_camera_sources_defaults_empty():
                             resource_pak="R", palette_entry=3, heroes=(("a","b"),),
                             cvar_names=(), defines_big_endian=True,
                             opcode_table=tuple(), reduced_dispatch={}, reduced_allowed=frozenset(),
-                            debug_venues={}).alt_camera_sources) == {}
+                            debug_venues={}, generation=0,
+                            floor_archive_name=lambda n: "E", camera_archive_name=lambda n: "C",
+                            mask_factory=lambda raw, off: None, cadre_bank=(0, 0),
+                            core_slots={}, combat_action_text_ids=frozenset(),
+                            player_stand_anim=0, player_push_anim=0, player_track_modes=(),
+                            viewed_room_record_size=0x0C, world_object_has_mark=False).alt_camera_sources) == {}
+
+
+def test_aitd1_generation_is_the_fitd_game_type_ordinal():
+    # FITD vars.h:5-12 gameTypeEnum { AITD1, JACK, AITD2, AITD3, TIMEGATE }
+    assert AITD1.generation == 0
+
+
+def test_aitd1_archive_naming_and_overlay_strategy():
+    # floor.cpp:26-28; AITD1 computes masks, JACK+ loads MASK%02d PAKs
+    # (main.cpp:2178-2190) — the strategy is the profile's, the name is the game's
+    assert AITD1.floor_archive_name(5) == "ETAGE05"
+    assert AITD1.camera_archive_name(12) == "CAMERA12"
+    from PyAitD.engine.data.mask import create_aitd1_mask
+    assert AITD1.mask_factory is create_aitd1_mask
+
+
+def test_aitd1_cadre_bank_pins_the_cadre_sprite_source():
+    # ITD_RESS entry 4, nine sprites (aitdBox.cpp AffCadre sprite layout)
+    assert AITD1.cadre_bank == (4, 9)
+
+
+def test_aitd1_core_slots_pin_the_vm_control_numbering():
+    # AITD1LifeMacroTable (AITD1.cpp:30-119): the game-neutral op slots
+    assert len(AITD1.core_slots) == 19
+    assert AITD1.core_slots["IF_EGAL"] == 4
+    assert AITD1.core_slots["MULTI_CASE"] == 29
+
+
+def test_aitd1_player_control_indices():
+    assert AITD1.combat_action_text_ids == frozenset({32})
+    assert AITD1.player_stand_anim == 4
+    assert AITD1.player_push_anim == 5
+    assert AITD1.player_track_modes == (1, 4)
+
+
+def test_aitd1_record_layouts():
+    # floor.cpp:367-375 (0x0C AITD1, 0x10 JACK+); main.cpp:1117-1121 (mark)
+    assert AITD1.viewed_room_record_size == 0x0C
+    assert AITD1.world_object_has_mark is False
