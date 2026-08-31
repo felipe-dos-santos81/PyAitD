@@ -18,7 +18,9 @@ make proof-mouse   # navmesh for every camera-visible room, every floor (needs g
 make proof-combat  # venue, real enemy damage, player arms, game over (needs game data)
 make proof-graphics # attic + combat fixtures per shading mode x realism preset x smoothing default, plus a flat-mesh pair, a hard-shadow pair and the integration range's two ends -- an un-composited pair and an over-composited one (needs GL + game data)
 make proof-intro   # opening cutscene: headless gate + one GL render per visited camera
+make prove-persistence # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract
 make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, textures=DIR defaults to data/aitd1/textures (textures= disables), data="..." trace=/tmp/t.log optional
+make compare       # live mirror: original AITD1 in DOSBox-X below the port, PLAY keys forwarded (macOS, needs dosbox-x + Accessibility) — not headless, not a pytest gate
 make export-textures # originals + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + manifest schema 3 to data/aitd1/textures (git-ignored) for the external texture tool (out=, floors=, scale=, force=1, screens=0 to skip)
 make check-textures # validate data/aitd1/textures (or textures=DIR) as the game loads it; proof=1 renders side-by-sides (bases, alts -alt.png, screens)
 make bootstrap-materials # palette ramps + body usage -> PyAitD/render/materials.json (vision=1 asks Gemini through agy about uncertain ramps)
@@ -92,7 +94,7 @@ a rule — add the test with the rule.
 
 | Package | Owns | May import |
 |---|---|---|
-| `PyAitD/engine/` | The simulation, ported from FITD with `file:line` citations: formats, PAK/floor data, `Game` state, LIFE VM core, actors, animation, tracks, collision, navmesh, picking, `playworld` tick. Game-neutral: reads per-game facts from `game.profile`. | stdlib, NumPy, `engine` |
+| `PyAitD/engine/` | The simulation, ported from FITD with `file:line` citations: formats, PAK/floor data, `Game` state, LIFE VM core, actors, animation, tracks, collision, navmesh, picking, `playworld` tick, save/load (`save.py`). Game-neutral: reads per-game facts from `game.profile`. | stdlib, NumPy, `engine` |
 | `PyAitD/render/` | `FrameDescription` → pixels: scene description, geometry, both backends, asset resolution, texture export/check. | `engine` |
 | `PyAitD/games/<id>/` | Everything FITD branches on `g_gameId`: the `GameProfile` instance, the game's opcode handlers and reduced dispatch, debug venues, the mouse contract. `games/base.py` holds the dataclass. | `engine` |
 | `PyAitD/app/` | Window, the single event pump, settings schema/persistence, CLI, UI screens. | everything |
@@ -121,10 +123,11 @@ a rule — add the test with the rule.
   re-exported from `engine/game/__init__.py` so every importer and test keeps
   `from PyAitD.engine.game import init_game`. Move with `git mv`; the layering
   scan covers subpackages automatically. Split by responsibility, not by size.
-- A new engine capability (save/load, audio, sequences) is a new `engine/`
+- A new engine capability (audio, sequences next) is a new `engine/`
   module that takes its game facts through new `GameProfile` fields, with the
   AITD1 values in `games/aitd1/profile.py` and a pin in
-  `tests/test_game_profile.py`. Effects the app must react to are `effects.py`
+  `tests/test_game_profile.py`; `save.py` is the first example of the
+  pattern. Effects the app must react to are `effects.py`
   dataclasses emitted through `game.emit`, never a callback into `app/`.
 - A second game is `games/<id>/profile.py` plus a `PROFILES` entry in
   `games/__init__.py`. If the engine needs a branch to support it, the branch
@@ -263,6 +266,28 @@ a rule — add the test with the rule.
   [hardening proof](docs/mouse-accessibility-hardening-proof.md) supersedes the
   older pending status in the [M4a1 shell](docs/m4a1-shell-proof.md) and
   [mouse hold-to-push](docs/mouse-hold-push-proof.md) proofs.
+- M4a2 persistence: `engine/save.py` validates the complete payload before
+  anything live is touched, and the settings block rides through as an
+  opaque dict — `app/config.validate_settings` alone owns it, so `engine/`
+  never imports `app/` (the addendum in the M4a2 plan records the
+  translation). Slots are `save-manual.json` / `save-quick.json` beside the
+  settings file, written with `write_slot`'s settings atomic idiom. Manual
+  save refuses while a LIFE continuation or platform effect is queued;
+  Quick Save commits at the first stable end-of-PLAY-tick boundary, never
+  mid-tick; a load stages `session.pending_load` and `_load_branch`
+  replaces game/floor/session/input as one tuple (the `_hero_branch`
+  shape), forcing fresh-boot flags and clean transient input. Every failure
+  path leaves the live game untouched. Schema changes bump `SCHEMA`; never
+  migrate in place.
+- The compare-with-original live mirror is macOS-only and never a gate:
+  `tools/compare_original.py` owns the DOSBox-X child, the resident Swift
+  CGEvent helper (`tools/mirror_helper.swift`, compiled once into the
+  git-ignored `tools/.cache/`) and window placement; the pump tap in
+  `app/shell.py` is observation-only and forwards only keyboard-mode PLAY
+  events that mapped to a control in `games/aitd1/mirror.py` (pinned from
+  FITD `input.cpp`). The helper's stdout carries async `DEAD <pid>` lines;
+  any reader of it must skip non-protocol lines. Never pipe dosbox-x output
+  through `head` — SIGPIPE kills the emulator; redirect to a file.
 - `ponytail:` comments mark deliberate simplifications with upgrade path —
   respect them, don't silently remove.
 - Workflow is brainstorm → spec → plan → TDD under `docs/superpowers/`

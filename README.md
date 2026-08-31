@@ -22,7 +22,8 @@ PyAitD/engine/   simulation ported from FITD — no pygame, no GL, no game const
 PyAitD/render/   frame description → pixels (GL and software backends)
 PyAitD/games/    per-game GameProfile + opcode handlers; aitd1/ is the only game
 PyAitD/app/      window, event pump, settings, CLI
-tools/           proofs, texture exporters, the materials bootstrap
+tools/           proofs, texture exporters, the materials bootstrap,
+                 the compare-with-original harness (DOSBox-X + CGEvent helper)
 ```
 
 `render/` and `games/` import only `engine/`; `engine/` imports none of the
@@ -35,6 +36,7 @@ code goes and how to split a module; `CONTEXT.md` maps every file.
 make run                # boots into character selection (floor=0 bypasses it for debugging)
 make run textures=      # same, but with the original 320x200 backgrounds
 make run-combat         # floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
+make compare            # live mirror: original AITD1 in DOSBox-X below the port (macOS)
 ```
 
 `make run` loads replacement textures from `data/aitd1/textures` by
@@ -56,8 +58,9 @@ to the keyboard scheme (arrows/WASD walk, Space acts) and back. Menus accept
 both throughout.
 
 Keyboard: arrows/WASD walk, Space acts, Enter or I opens inventory,
-Esc cancels — while playing it opens the system menu (Return / Configuration
-/ Quit). Configuration offers control remapping and sticky Action
+Esc cancels — while playing it opens the system menu (Return to Game /
+Save / Load / Quick Save / Configuration / Quit). Configuration offers
+control remapping and sticky Action
 (one-finger sequential Space-then-direction); settings persist per user.
 Choosing a control opens a key picker: press the physical key, or click one
 of the on-screen key cells (or Cancel) so remapping needs no keyboard at all.
@@ -65,6 +68,22 @@ In menus: arrows move, Enter/Space accepts, Esc cancels. Mouse: single left
 click on any large button. Found objects open a Take/Leave prompt; inventory
 exposes the object's own actions; letters and books are readable; pictures
 play full-screen.
+
+Save and load: the system menu's Save writes `save-manual.json`; Load lists
+`save-manual.json` and `save-quick.json` (a missing slot's row is dimmed and
+inert); Quick Save closes the menu and writes `save-quick.json` at the first
+stable tick. Slots live beside the settings file (`--save-dir DIR` points
+elsewhere). A load validates the whole file — schema, counts, and a digest of
+the game data it was written from — before the live game is touched, and the
+restored session lands back in play with clean pointer state; any failure
+leaves the running game untouched and raises the dismissible notice. Manual
+save is refused while a script continuation is pending.
+
+`make compare` runs the original DOS game (bundled inside the Mac `.app`) in
+DOSBox-X in a window stacked below ours and live-forwards every keyboard
+control the port consumes while playing (keyboard input mode) into it, for
+side-by-side comparison. macOS only; needs `dosbox-x` and a one-time
+Accessibility grant; see `docs/compare-original-proof.md`.
 
 The in-game Configuration screen's Graphics page, and ten CLI flags for a
 single session, control the enhanced renderer: `--render-scale N` (1-8, the
@@ -149,6 +168,7 @@ make proof-mouse                   # navmesh coverage for every camera-visible r
 make proof-combat                  # combat venue proof: real enemy damage, player arms, game over (needs game data)
 make proof-graphics                # render attic + combat fixtures at every shading mode, plus flat-mesh and hard-shadow pairs, to docs/graphics-proof/ (needs GL + game data)
 make proof-intro                   # opening cutscene: headless gate + one GL render per visited camera
+make prove-persistence             # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract
 make check-textures proof=1        # validate data/aitd1/textures (or textures=DIR); side-by-sides to docs/graphics-proof/textures/
 ```
 
@@ -172,10 +192,12 @@ inventory takeover regression is covered and closed.
 M1 data layer, M2 actors, M3a LIFE script VM, M3b interaction, M3c combat,
 M3d/M3e mouse-only input (including held scenery pushing), M4a1 shell
 (character select, system menu, remappable controls, settings persistence),
-and the enhanced graphics scene layer (integer-scaled internal render target,
-per-vertex shading, filtered backgrounds, texture assets) are done: the game
-boots into an asset-faithful character selector and the attic is fully
-interactive by mouse or keyboard. Next: M4a2 save/load, M4b audio/sequences,
-M4c ending.
+M4a2 save/load (versioned slots, source-identity validation, atomic load
+replacement, deferred quick save), the full enhanced-rendering roadmap (soft
+shadows, plate integration, materials, integration levels) and the
+compare-with-original live mirror (`make compare`) are done: the game boots
+into an asset-faithful character selector, the attic is fully interactive by
+mouse or keyboard, and progress persists across sessions. Next: M4b
+audio/sequences, M4c ending.
 See `CONTEXT.md` for the architecture map and `docs/superpowers/` for specs
 and plans.
