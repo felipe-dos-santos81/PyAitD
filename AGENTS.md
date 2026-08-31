@@ -143,10 +143,7 @@ a rule — add the test with the rule.
   strategy (`mask_factory`), cadre bank, VM-control opcode numbering
   (`core_slots`), player-control indices, record layouts
   (`viewed_room_record_size`, `world_object_has_mark`), and the FITD
-  gameTypeEnum ordinal (`generation`). A second game is a new profile
-  instance plus a `PROFILES` entry; if the engine needs a branch to support
-  it, the branch belongs in a profile field (data or callable), documented
-  in `games/base.py`'s docstring.
+  gameTypeEnum ordinal (`generation`).
 
 ## Conventions
 
