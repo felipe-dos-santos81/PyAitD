@@ -2,7 +2,7 @@
 """Inventory/world interaction, contacts and nav intents (subpackage split
 of the former engine.interaction module; every name re-exported)."""
 from PyAitD.engine.script.interaction.track_mode import (
-    PLAYER_TRACK_MODES, player_track_mode, sync_player_track_mode,
+    player_track_mode, sync_player_track_mode,
 )
 from PyAitD.engine.script.interaction.life_cont import (
     _add_message, _complete_after_life, _release_temporary_actor,
@@ -17,8 +17,7 @@ from PyAitD.engine.script.interaction.inventory import (
     remove_from_inventory, request_found,
 )
 from PyAitD.engine.script.interaction.combat import (
-    COMBAT_ACTIONS, PLAYER_PUSH_ANIM, PLAYER_STAND_ANIM, attack_in_hand,
-    can_strike, combat_action_for, hold_action_approach,
+    attack_in_hand, can_strike, combat_action_for, hold_action_approach,
     is_combat_target, is_hold_action_target,
 )
 from PyAitD.engine.script.interaction.contacts import (

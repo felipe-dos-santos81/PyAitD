@@ -2,10 +2,6 @@
 """Player track-mode sync between input modes."""
 from PyAitD.engine.script.effects import InputMode
 
-# FITD gates found-contact on trackMode == 1, meaning "manually controlled".
-# Mode 4 (mouse follower) is equally player-controlled, so it belongs here too.
-PLAYER_TRACK_MODES = (1, 4)
-
 
 def player_track_mode(input_mode):
     """The track mode that means 'the player drives this actor', per input mode."""
@@ -32,5 +28,5 @@ def sync_player_track_mode(game):
         return
     hero = game.actors[hero_idx]
     wanted = player_track_mode(game.input_mode)
-    if hero.track_mode in PLAYER_TRACK_MODES and hero.track_mode != wanted:
+    if hero.track_mode in game.profile.player_track_modes and hero.track_mode != wanted:
         hero.track_mode = wanted

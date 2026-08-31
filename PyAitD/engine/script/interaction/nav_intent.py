@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """NavIntent record/drop and follower arrival dispatch."""
-from PyAitD.engine.script.interaction.combat import PLAYER_STAND_ANIM
 from PyAitD.engine.script.interaction.inventory import request_found
 
 
@@ -54,9 +53,9 @@ def cancel_nav_intent(game):
     # commits step_x/step_z into the base coordinates without moving the ZV
     # again (FITD anim.cpp:238-253).  Leaving the step intact preserves the
     # actor's already-rendered effective position across release.
-    init_anim(hero, PLAYER_STAND_ANIM, 0, PLAYER_STAND_ANIM)
+    init_anim(hero, game.profile.player_stand_anim, 0, game.profile.player_stand_anim)
     hero.new_anim, hero.new_anim_type, hero.new_anim_info = (
-        PLAYER_STAND_ANIM, 0, PLAYER_STAND_ANIM,
+        game.profile.player_stand_anim, 0, game.profile.player_stand_anim,
     )
 
 

@@ -6,7 +6,6 @@ import pytest
 from PyAitD.engine.actor.anim_action import WAIT_FRAPPE_ANIM
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.script.game import init_game
-from PyAitD.engine.script.interaction import PLAYER_PUSH_ANIM
 from PyAitD.engine.script.playworld import _anim_pass, play_tick
 from PyAitD.app.ui import InputBuffer
 
@@ -103,7 +102,7 @@ def test_engaged_wardrobe_retargets_and_never_asserts_action(data_dir, profile, 
     new = _push_point(game.nav_intent, target)
     assert new != old
     assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == new
-    assert hero.new_anim == PLAYER_PUSH_ANIM
+    assert hero.new_anim == profile.player_push_anim
 
 
 def test_held_intent_cancels_when_release_is_observed(data_dir, profile):
@@ -365,7 +364,7 @@ def test_active_push_suppresses_the_verified_pending_walk_request(data_dir, prof
         requires_hold=True, engaged=True,
         waypoints=[(target.room_x, target.room_z)], path_room=target.room,
     )
-    hero.anim = PLAYER_PUSH_ANIM
+    hero.anim = profile.player_push_anim
     hero.new_anim = 254
     hero.new_anim_type = ANIM_REPEAT
     hero.new_anim_info = -1
@@ -386,7 +385,7 @@ def test_active_push_preserves_an_unrelated_uninterruptible_animation_request(da
         requires_hold=True, engaged=True,
         waypoints=[(target.room_x, target.room_z)], path_room=target.room,
     )
-    hero.anim = PLAYER_PUSH_ANIM
+    hero.anim = profile.player_push_anim
     hero.new_anim = 99
     hero.new_anim_type = ANIM_UNINTERRUPTABLE
     hero.new_anim_info = 77

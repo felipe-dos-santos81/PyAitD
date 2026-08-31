@@ -3,11 +3,6 @@
 from PyAitD.engine.script.interaction.inventory import inventory_actions, inventory_items
 from PyAitD.engine.space.world import room_delta
 
-# Inventory action text ids that arm combat (32 == "Fight" bit 9 of found_flag).
-COMBAT_ACTIONS = frozenset({32})
-PLAYER_STAND_ANIM = 4
-PLAYER_PUSH_ANIM = 5
-
 
 def is_combat_target(game, actor_idx):
     from PyAitD.engine.script.game import AF_ANIMATED
@@ -91,7 +86,7 @@ def combat_action_for(game, object_idx, *, require_idle=True):
         return None
     return next(
         (action for action in inventory_actions(game, object_idx)
-         if action in COMBAT_ACTIONS),
+         if action in game.profile.combat_action_text_ids),
         None,
     )
 

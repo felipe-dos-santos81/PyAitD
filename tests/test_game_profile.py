@@ -189,6 +189,11 @@ def test_aitd1_player_control_indices():
     assert AITD1.player_stand_anim == 4
     assert AITD1.player_push_anim == 5
     assert AITD1.player_track_modes == (1, 4)
+    from PyAitD.engine.script import interaction
+    assert not hasattr(interaction, "COMBAT_ACTIONS")
+    assert not hasattr(interaction, "PLAYER_STAND_ANIM")
+    assert not hasattr(interaction, "PLAYER_PUSH_ANIM")
+    assert not hasattr(interaction, "PLAYER_TRACK_MODES")
 
 
 def test_aitd1_record_layouts():

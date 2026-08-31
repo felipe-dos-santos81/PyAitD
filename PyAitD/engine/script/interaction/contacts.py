@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Object-collision resolution and zone walks (GereDec)."""
 from PyAitD.engine.script.interaction.inventory import request_found
-from PyAitD.engine.script.interaction.track_mode import PLAYER_TRACK_MODES
 from PyAitD.engine.space.world import adjust_zv_between_rooms, room_delta, shifted_zv
 
 
@@ -15,7 +14,7 @@ def resolve_actor_contacts(game, actor_idx, old_zv, attempted_zv, step_x, step_z
         touched = game.actors[touched_idx]
         touched.col_by = actor_idx
         if touched.object_type & AF_FOUNDABLE:
-            if actor.track_mode in PLAYER_TRACK_MODES and game.active_modal is None:
+            if actor.track_mode in game.profile.player_track_modes and game.active_modal is None:
                 effect = request_found(game, touched.index_in_world, parameter=0)
                 if effect is not None:
                     game.open_modal(effect)

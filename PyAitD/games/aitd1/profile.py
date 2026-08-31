@@ -138,9 +138,12 @@ AITD1 = GameProfile(
     mask_factory=create_aitd1_mask,
     cadre_bank=(4, 9),
     core_slots=CORE_SLOTS,
+    # Inventory action text ids that arm combat (32 == "Fight" bit 9 of found_flag).
     combat_action_text_ids=frozenset({32}),
     player_stand_anim=4,
     player_push_anim=5,
+    # FITD gates found-contact on trackMode == 1, meaning "manually controlled".
+    # Mode 4 (mouse follower) is equally player-controlled, so it belongs here too.
     player_track_modes=(1, 4),
     viewed_room_record_size=0x0C,
     world_object_has_mark=False,

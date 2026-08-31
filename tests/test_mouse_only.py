@@ -14,8 +14,7 @@ from PyAitD.engine.script.effects import GameMode, NavIntent
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.script.game import AF_ANIMATED, AF_MOVABLE, init_game
 from PyAitD.engine.script.interaction import (
-    COMBAT_ACTIONS, _finish_take, choose_inventory_action, inventory_actions,
-    inventory_items, PLAYER_PUSH_ANIM,
+    _finish_take, choose_inventory_action, inventory_actions, inventory_items,
 )
 from PyAitD.engine.script.playworld import play_tick
 from PyAitD.games.aitd1.scenario import enter_combat_venue, enter_mouse_combat_fixture
@@ -225,7 +224,7 @@ def test_real_data_combat_action_set_is_exactly_32(data_dir, profile):
             if game.active_modal is not None:
                 break
             play_tick(game, floor, InputBuffer())
-    assert armed == set(COMBAT_ACTIONS) == {32}
+    assert armed == set(profile.combat_action_text_ids) == {32}
 
 
 _FRAME = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -368,7 +367,7 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, profile, monkeypat
             assert current_game.action == current_game.local_click == 0
             intent = current_game.nav_intent
             if intent is not None and intent.engaged:
-                assert hero.anim == PLAYER_PUSH_ANIM
+                assert hero.anim == profile.player_push_anim
                 state["engaged_samples"] += 1
         if state["phase"] in {"released", "push_released"}:
             release["ticks"] += 1
@@ -433,7 +432,7 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, profile, monkeypat
             if (_effective_position(wardrobe) != wardrobe_start
                     and state["engaged_samples"] >= 3):
                 assert game.nav_intent is not None and game.nav_intent.engaged
-                assert hero.anim == PLAYER_PUSH_ANIM
+                assert hero.anim == profile.player_push_anim
                 state["push_release"] = capture_release()
                 state["phase"] = "push_released"
                 state["wardrobe_released_at"] = _effective_position(wardrobe)

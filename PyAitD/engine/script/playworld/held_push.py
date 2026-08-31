@@ -38,8 +38,7 @@ def _push_into_target(game):
 
 def _refresh_held_target(game, hero, mesh):
     from PyAitD.engine.script.interaction import (
-        PLAYER_PUSH_ANIM, cancel_nav_intent, hold_action_approach,
-        is_hold_action_target,
+        cancel_nav_intent, hold_action_approach, is_hold_action_target,
     )
     from PyAitD.engine.actor.anim import init_anim
 
@@ -97,8 +96,8 @@ def _refresh_held_target(game, hero, mesh):
         intent.waypoints = [*detour, point] if detour is not None else [point]
     intent.path_room = hero.room
     pending = (hero.new_anim, hero.new_anim_type, hero.new_anim_info)
-    init_anim(hero, PLAYER_PUSH_ANIM, 1, -1)
-    if hero.anim == PLAYER_PUSH_ANIM and pending == (254, 1, -1):
+    init_anim(hero, game.profile.player_push_anim, 1, -1)
+    if hero.anim == game.profile.player_push_anim and pending == (254, 1, -1):
         # The player's LIFE queues its ordinary forward animation after the
         # animation pass.  Keep an already-active push pose advancing instead
         # of alternating back to walk and resetting both animations every tick.

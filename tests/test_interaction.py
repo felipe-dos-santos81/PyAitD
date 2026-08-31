@@ -7,12 +7,11 @@ from PyAitD.engine.script.effects import NavIntent, ShowFound
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.script.game import AF_ANIMATED, init_game, AF_FOUNDABLE
 from PyAitD.engine.script.interaction import (
-    COMBAT_ACTIONS, _finish_take, apply_click_intent, attack_in_hand,
+    _finish_take, apply_click_intent, attack_in_hand,
     cancel_nav_intent, choose_inventory_action, combat_action_for,
     dispatch_nav_arrival, inventory_actions, inventory_items, inventory_weight,
     hold_action_approach, is_combat_target, is_hold_action_target, put_object,
-    PLAYER_STAND_ANIM, remove_from_inventory, request_found,
-    resolve_actor_contacts,
+    remove_from_inventory, request_found, resolve_actor_contacts,
 )
 from PyAitD.engine.space.world import room_delta
 
@@ -144,7 +143,6 @@ def test_combat_action_requires_an_idle_held_inventory_object(data_dir, profile)
     game = init_game(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]
     _finish_take(game, 38)
-    assert COMBAT_ACTIONS == frozenset({32})
     assert combat_action_for(game, 38) == 32
     hero.anim_action_type = 6
     assert combat_action_for(game, 38) is None
@@ -287,7 +285,7 @@ def test_cancel_held_intent_stops_and_rearms_stand_idempotently(data_dir, profil
     assert (game.nav_intent, game.nav_decision) == (None, None)
     assert (game.nav_arrived_target, game.local_joyd, game.local_click, game.action) == (-1, 0, 0, 0)
     assert (hero.speed, hero.direction, hero.rotate.num_steps) == (0, 0, 0)
-    assert hero.new_anim == PLAYER_STAND_ANIM
+    assert hero.new_anim == profile.player_stand_anim
     assert interaction.cancel_held_nav_intent(game) is False
 
 
@@ -315,7 +313,7 @@ def test_cancel_held_intent_forces_one_coherent_stand_request(
 
     assert interaction.cancel_held_nav_intent(game) is True
     assert (hero.new_anim, hero.new_anim_type, hero.new_anim_info) == (
-        PLAYER_STAND_ANIM, 0, PLAYER_STAND_ANIM,
+        profile.player_stand_anim, 0, profile.player_stand_anim,
     )
 
 
