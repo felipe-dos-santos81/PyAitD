@@ -195,3 +195,10 @@ def test_aitd1_record_layouts():
     # floor.cpp:367-375 (0x0C AITD1, 0x10 JACK+); main.cpp:1117-1121 (mark)
     assert AITD1.viewed_room_record_size == 0x0C
     assert AITD1.world_object_has_mark is False
+
+
+def test_screen_pixels_is_a_named_constant_not_a_per_game_field():
+    # FITD vars.h:272 fixes 320x200 for all five games — the seam closes by
+    # evidence: a named constant, not a profile field.
+    from PyAitD.engine.data import assets
+    assert assets.SCREEN_PIXELS == 64000
