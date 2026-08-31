@@ -41,7 +41,7 @@ def _cover_zones(floor, cam_idx, room_idx):
     if room_idx not in viewed:
         return []
     off = floor.camera_data_offsets[cam_idx]
-    return parse_cover_zones(floor.camera_raw, off, viewed.index(room_idx))
+    return parse_cover_zones(floor.camera_raw, off, viewed.index(room_idx), floor.viewed_room_record_size)
 
 
 def _camera_switch(game, floor):

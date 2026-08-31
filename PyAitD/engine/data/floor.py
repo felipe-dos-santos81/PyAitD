@@ -3,7 +3,6 @@
 import functools
 
 from PyAitD.engine.data.formats import camera_offsets, decode_image, decode_palette, parse_cameras, parse_rooms
-from PyAitD.engine.data.mask import create_aitd1_mask
 from PyAitD.engine.data.mask_geometry import mask_polygons
 from PyAitD.engine.data.pak import Pak, find_pak
 
@@ -20,11 +19,13 @@ def cache_clear():
 class Floor:
     def __init__(self, data_dir, number, profile):
         self.number = number
-        etage = find_pak(data_dir, f"ETAGE{number:02d}")
-        self._images = find_pak(data_dir, f"CAMERA{number:02d}")
+        self.profile = profile
+        self.viewed_room_record_size = profile.viewed_room_record_size
+        etage = find_pak(data_dir, profile.floor_archive_name(number))
+        self._images = find_pak(data_dir, profile.camera_archive_name(number))
         self.rooms = parse_rooms(load_entry(str(etage), 0))
         self.camera_raw = load_entry(str(etage), 1)
-        self.cameras = parse_cameras(self.camera_raw)
+        self.cameras = parse_cameras(self.camera_raw, profile.viewed_room_record_size)
         self.camera_data_offsets = camera_offsets(self.camera_raw)
         palette_pak = find_pak(data_dir, profile.resource_pak)
         self.palette = decode_palette(load_entry(str(palette_pak), profile.palette_entry))
@@ -44,8 +45,9 @@ class Floor:
     def masks(self, camera_idx):
         # occlusion masks are static camera data; read-only in the render path
         if camera_idx not in self._masks:
-            self._masks[camera_idx] = create_aitd1_mask(
+            self._masks[camera_idx] = self.profile.mask_factory(
                 self.camera_raw, self.camera_data_offsets[camera_idx],
+                self.viewed_room_record_size,
             )
         return self._masks[camera_idx]
 
@@ -55,5 +57,6 @@ class Floor:
         if camera_idx not in self._mask_draws:
             self._mask_draws[camera_idx] = mask_polygons(
                 self.camera_raw, self.camera_data_offsets[camera_idx],
+                self.viewed_room_record_size,
             )
         return self._mask_draws[camera_idx]

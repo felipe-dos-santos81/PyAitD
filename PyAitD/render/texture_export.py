@@ -152,7 +152,7 @@ def cover_zones_for(floor, cam_idx, viewed_idx):
     stubs) is asked directly."""
     if hasattr(floor, "cover_zones"):
         return floor.cover_zones(cam_idx, viewed_idx)
-    return parse_cover_zones(floor.camera_raw, floor.camera_data_offsets[cam_idx], viewed_idx)
+    return parse_cover_zones(floor.camera_raw, floor.camera_data_offsets[cam_idx], viewed_idx, floor.viewed_room_record_size)
 
 
 def _draw_legend_footer(img, h):

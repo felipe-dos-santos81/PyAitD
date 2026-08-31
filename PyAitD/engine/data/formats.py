@@ -131,7 +131,7 @@ def camera_offsets(raw):
     return offsets
 
 
-def parse_cameras(raw):
+def parse_cameras(raw, viewed_room_record_size):
     cameras = []
     for off in camera_offsets(raw):
         try:
@@ -159,7 +159,7 @@ def parse_cameras(raw):
                         light_z=_u16(raw, p + 10),
                     )
                 )
-                p += 0x0C  # AITD1 stride
+                p += viewed_room_record_size  # per-game stride (floor.cpp:367-375)
             cameras.append(cam)
         except struct.error:
             raise ValueError(f"corrupt camera data offset {off}")
@@ -396,8 +396,8 @@ def parse_priority(raw):
     return list(struct.unpack_from(f"<{n}h", raw, 0))
 
 
-def parse_cover_zones(camera_raw, camera_off, viewed_idx):
-    vr_off = camera_off + 0x14 + viewed_idx * 0x0C
+def parse_cover_zones(camera_raw, camera_off, viewed_idx, viewed_room_record_size):
+    vr_off = camera_off + 0x14 + viewed_idx * viewed_room_record_size
     cover_off = camera_off + _u16(camera_raw, vr_off + 4)
     num_zones = _u16(camera_raw, cover_off)
     p = cover_off + 2

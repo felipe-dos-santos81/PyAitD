@@ -30,7 +30,7 @@ def cover_polys(floor, room_idx):
         if room_idx not in viewed:
             continue
         offset = floor.camera_data_offsets[cam_idx]
-        out.extend(parse_cover_zones(floor.camera_raw, offset, viewed.index(room_idx)))
+        out.extend(parse_cover_zones(floor.camera_raw, offset, viewed.index(room_idx), floor.viewed_room_record_size))
     return out
 
 

@@ -210,11 +210,12 @@ def test_guide_overlay_draws_edge_with_one_far_offscreen_corner():
 
 def test_cover_zones_for_uses_parse_cover_zones_on_real_floors(monkeypatch):
     calls = []
-    monkeypatch.setattr(be, "parse_cover_zones", lambda raw, off, vi: calls.append((raw, off, vi)) or [[(1, 2)]])
+    monkeypatch.setattr(be, "parse_cover_zones", lambda raw, off, vi, rs: calls.append((raw, off, vi)) or [[(1, 2)]])
 
     class Plain:
         camera_raw = b"xyz"
         camera_data_offsets = [0, 40]
+        viewed_room_record_size = 0x0C
 
     assert be.cover_zones_for(Plain(), 1, 0) == [[(1, 2)]]
     assert calls == [(b"xyz", 40, 0)]

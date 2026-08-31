@@ -22,7 +22,7 @@ def test_floor0_rooms(data_dir):
 
 def test_floor0_cameras(data_dir):
     pak = Pak(data_dir / "ETAGE00.PAK")
-    cameras = parse_cameras(pak.read(1))
+    cameras = parse_cameras(pak.read(1), 0x0C)
     assert len(cameras) == 5
     cam0 = cameras[0]
     assert (cam0.alpha, cam0.beta, cam0.gamma) == (57, 954, 0)
@@ -33,7 +33,7 @@ def test_floor0_cameras(data_dir):
 def test_room_camera_cross_reference(data_dir):
     pak = Pak(data_dir / "ETAGE00.PAK")
     rooms = parse_rooms(pak.read(0))
-    cameras = parse_cameras(pak.read(1))
+    cameras = parse_cameras(pak.read(1), 0x0C)
     for room_idx, room in enumerate(rooms):
         for cam_idx in room.camera_indices:
             viewed = [vr.viewed_room_idx for vr in cameras[cam_idx].viewed_rooms]

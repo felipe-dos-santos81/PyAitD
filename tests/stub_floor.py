@@ -32,6 +32,7 @@ class StubFloor:
         self.cameras = [cam]
         self.camera_raw = b""
         self.camera_data_offsets = [0]
+        self.viewed_room_record_size = 0x0C
         self._images = {0: checker_pixels()} if images is None else images
         # (x, z) in cover units: 10x smaller than room scale
         self._cover = {(0, 0): [[(-5, 0), (5, 0), (5, 50), (-5, 50)]]}

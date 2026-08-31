@@ -688,7 +688,7 @@ def test_stencil_mask_matches_bitmap_erase_at_scale_one(gl_ctx, data_dir, profil
     from PyAitD.engine.data.mask import create_aitd1_mask
     floor = Floor(data_dir, 0, profile)
     draws = floor.mask_draws(0)
-    bitmaps = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[0])
+    bitmaps = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[0], 0x0C)
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
     # NOTE: despite the name, this triangle does *not* cover the whole
     # screen -- its hypotenuse is the fixed line sx+sy=260 in logical space

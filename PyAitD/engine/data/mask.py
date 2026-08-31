@@ -82,9 +82,9 @@ def fill_poly(points, target, value):
                 target[y, x_a : x_b + 1] = value
 
 
-def create_aitd1_mask(camera_raw, camera_off):
+def create_aitd1_mask(camera_raw, camera_off, viewed_room_record_size):
     masks = []
-    for vr_room, test_rects, polygons in iter_mask_records(camera_raw, camera_off):
+    for vr_room, test_rects, polygons in iter_mask_records(camera_raw, camera_off, viewed_room_record_size):
         bitmap = np.zeros((SCREEN_H, SCREEN_W), dtype=np.uint8)
         for points in polygons:
             fill_poly(points, bitmap, 255)

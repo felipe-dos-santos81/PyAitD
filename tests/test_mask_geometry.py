@@ -82,7 +82,7 @@ def _build_synthetic_camera_raw():
 
 def test_iter_mask_records_walks_a_synthetic_record():
     camera_raw, camera_off = _build_synthetic_camera_raw()
-    records = list(iter_mask_records(camera_raw, camera_off))
+    records = list(iter_mask_records(camera_raw, camera_off, 0x0C))
     assert len(records) == 1
     viewed_room, test_rects, polygons = records[0]
     assert viewed_room == 5
@@ -92,7 +92,7 @@ def test_iter_mask_records_walks_a_synthetic_record():
 
 def test_mask_polygons_wraps_synthetic_record_in_a_maskdraw():
     camera_raw, camera_off = _build_synthetic_camera_raw()
-    draws = mask_polygons(camera_raw, camera_off)
+    draws = mask_polygons(camera_raw, camera_off, 0x0C)
     assert len(draws) == 1
     draw = draws[0]
     assert isinstance(draw, MaskDraw)
@@ -111,7 +111,7 @@ def test_mask_polygons_wraps_synthetic_record_in_a_maskdraw():
 # (1, 2, 0, 3) and differing polygon vertex counts (4, {4,3}, 3, none) --
 # chosen to exercise the record-advance arithmetic in iter_mask_records
 # (`data += 2 + ((num_zones * 4 + 1) * 2)`) and the per-viewed-room table
-# stride (`vr_off = camera_off + 0x14 + viewed * 0x0C`) across boundaries a
+# stride (`vr_off = camera_off + 0x14 + viewed * viewed_room_record_size`) across boundaries a
 # single-record fixture can't reach. All expected values below are
 # transcribed by hand from this literal fixture, not derived by calling the
 # code under test.
@@ -153,13 +153,13 @@ _MULTI_RECORD_EXPECTED_BBOX = [
 
 def test_iter_mask_records_walks_multiple_viewed_rooms_and_records():
     camera_raw, camera_off = _build_camera_raw(_MULTI_RECORD_VIEWED_ROOMS)
-    records = list(iter_mask_records(camera_raw, camera_off))
+    records = list(iter_mask_records(camera_raw, camera_off, 0x0C))
     assert records == _MULTI_RECORD_EXPECTED
 
 
 def test_mask_polygons_matches_hand_computed_records_and_bboxes():
     camera_raw, camera_off = _build_camera_raw(_MULTI_RECORD_VIEWED_ROOMS)
-    draws = mask_polygons(camera_raw, camera_off)
+    draws = mask_polygons(camera_raw, camera_off, 0x0C)
     assert [d.id for d in draws] == [0, 1, 2, 3]
     for draw, (room, test_rects, polygons), bbox in zip(
         draws, _MULTI_RECORD_EXPECTED, _MULTI_RECORD_EXPECTED_BBOX
@@ -175,7 +175,7 @@ def test_mask_polygons_matches_hand_computed_records_and_bboxes():
 
 def test_create_aitd1_mask_matches_hand_computed_bitmaps_and_bboxes():
     camera_raw, camera_off = _build_camera_raw(_MULTI_RECORD_VIEWED_ROOMS)
-    masks = create_aitd1_mask(camera_raw, camera_off)
+    masks = create_aitd1_mask(camera_raw, camera_off, 0x0C)
     assert len(masks) == len(_MULTI_RECORD_EXPECTED)
     for mask, (room, test_rects, polygons), bbox in zip(
         masks, _MULTI_RECORD_EXPECTED, _MULTI_RECORD_EXPECTED_BBOX
@@ -193,8 +193,8 @@ def test_polygons_rasterize_to_the_bitmap_masks(data_dir, profile):
     floor = Floor(data_dir, 0, profile)
     for cam_idx in range(len(floor.cameras)):
         off = floor.camera_data_offsets[cam_idx]
-        bitmaps = create_aitd1_mask(floor.camera_raw, off)
-        draws = mask_polygons(floor.camera_raw, off)
+        bitmaps = create_aitd1_mask(floor.camera_raw, off, 0x0C)
+        draws = mask_polygons(floor.camera_raw, off, 0x0C)
         assert len(draws) == len(bitmaps)
         for draw, mask in zip(draws, bitmaps):
             assert isinstance(draw, MaskDraw)

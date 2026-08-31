@@ -137,10 +137,10 @@ class MaskDraw:
         )
 
 
-def iter_mask_records(camera_raw, camera_off):
+def iter_mask_records(camera_raw, camera_off, viewed_room_record_size):
     num_viewed = struct.unpack_from("<H", camera_raw, camera_off + 0x12)[0]
     for viewed in range(num_viewed):
-        vr_off = camera_off + 0x14 + viewed * 0x0C
+        vr_off = camera_off + 0x14 + viewed * viewed_room_record_size
         vr_room = struct.unpack_from("<h", camera_raw, vr_off)[0]
         mask_off = struct.unpack_from("<H", camera_raw, vr_off + 2)[0]
         base = camera_off + mask_off
@@ -181,10 +181,10 @@ def _polygons_bbox(polygons):
     return min_x, min_y, max_x, max_y
 
 
-def mask_polygons(camera_raw, camera_off):
+def mask_polygons(camera_raw, camera_off, viewed_room_record_size):
     draws = []
     for index, (viewed_room, test_rects, polygons) in enumerate(
-        iter_mask_records(camera_raw, camera_off)
+        iter_mask_records(camera_raw, camera_off, viewed_room_record_size)
     ):
         draws.append(MaskDraw(
             index,
