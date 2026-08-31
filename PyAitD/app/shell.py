@@ -1705,5 +1705,20 @@ def main(argv=None):
         if fd is not None and pid is not None:
             from PyAitD.app.mirror import MirrorSink
             stream = os.fdopen(int(fd), "w", encoding="ascii", buffering=1)
-            mirror_sink = MirrorSink(lambda line: stream.write(line + "\n"), int(pid))
+            noted = []
+
+            def write_line(line):
+                # The helper is a separate process and can die mid-session;
+                # a dead pipe must degrade the port, never crash the run
+                # loop. Note once on stderr, then no-op.
+                if noted:
+                    return
+                try:
+                    stream.write(line + "\n")
+                except OSError:
+                    noted.append(True)
+                    print("note: the mirror helper died; key forwarding "
+                          "is disabled for this session", file=sys.stderr)
+
+            mirror_sink = MirrorSink(write_line, int(pid))
     return run(game, args.trace, session=session, mirror_sink=mirror_sink)
