@@ -83,6 +83,107 @@ def test_blend_actor_state_length_mismatch_blends_pose_but_not_states():
     assert pose_fn is not None
 
 
+def _stub_body():
+    """Two vertices, one root group -- the shape stub bodies use across
+    the suite (see tests/test_skel.py for the field meanings)."""
+    from types import SimpleNamespace
+    group = SimpleNamespace(start=0, num_vertices=2, num_group=0, org_group=-1,
+                            base_vertices=0)
+    return SimpleNamespace(vertices=[[0, 0, 0], [100, 0, 0]], groups=[group],
+                           group_order=[0], flags=2, primitives=[])
+
+
+def test_pose_vertices_float_matches_integer_pose_on_translation():
+    from PyAitD.engine.actor.skel import pose_vertices
+    from PyAitD.render.motion import pose_vertices_float
+    body = _stub_body()
+    states = [(1, (10, 20, 30))]
+    integer = pose_vertices(body, states)
+    floats = pose_vertices_float(body, states)
+    for i in range(2):
+        assert tuple(floats[i]) == pytest.approx(tuple(integer[i]))
+
+
+def test_pose_vertices_float_rotation_is_exact_where_the_table_truncates():
+    import math
+    from PyAitD.render.motion import pose_vertices_float
+    body = _stub_body()
+    # 256 units = 90 degrees about y: (100, 0, 0) -> (0, 0, 100)
+    floats = pose_vertices_float(body, [(0, (0, 256, 0))])
+    assert tuple(floats[1]) == pytest.approx((0.0, 0.0, 100.0), abs=1e-9)
+    # fractional angle (impossible on the integer path): 45 degrees
+    floats = pose_vertices_float(body, [(0, (0.0, 128.0, 0.0))])
+    assert floats[1][0] == pytest.approx(100 * math.cos(math.pi / 4))
+    assert floats[1][2] == pytest.approx(100 * math.sin(math.pi / 4))
+
+
+def test_pose_vertices_float_actor_angles_group0_and_whole_model():
+    from PyAitD.engine.actor.skel import pose_vertices
+    from PyAitD.render.motion import pose_vertices_float
+    body = _stub_body()
+    # group_order non-empty: actor angles override group 0's delta
+    a = pose_vertices_float(body, [(1, (5, 5, 5))], actor_angles=(0, 256, 0))
+    assert tuple(a[1]) == pytest.approx((0.0, 0.0, 100.0), abs=1e-9)
+    # group_order empty: RotateNuage whole-model path
+    body.group_order = []
+    b = pose_vertices_float(body, [(0, (0, 0, 0))], actor_angles=(0, 256, 0))
+    i = pose_vertices(body, [(0, (0, 0, 0))], actor_angles=(0, 256, 0))
+    for k in range(2):
+        assert tuple(b[k]) == pytest.approx(tuple(i[k]), abs=8.0)
+
+
+def test_pose_vertices_float_base_vertex_inside_and_outside_span():
+    """Pins both branches of the aliasing fix: a group whose base_vertices
+    lies inside its own span (the root group in _stub_body), and a second
+    group whose base_vertices lies outside its span -- so a later
+    "simplification" back to a plain live-alias `.copy()` cannot pass
+    either case."""
+    from types import SimpleNamespace
+    from PyAitD.engine.actor.skel import pose_vertices
+    from PyAitD.render.motion import pose_vertices_float
+
+    # Inside-span case: _stub_body's root group, base_vertices=0 inside [0,2).
+    body = _stub_body()
+    states = [(1, (10, 20, 30))]
+    integer = pose_vertices(body, states)
+    floats = pose_vertices_float(body, states)
+    assert integer == [[20, 40, 60], [130, 60, 90]]
+    for i in range(2):
+        assert tuple(floats[i]) == pytest.approx(tuple(integer[i]))
+
+    # Outside-span case: group 1's base_vertices=1 lies in group 0's span.
+    g0 = SimpleNamespace(start=0, num_vertices=2, num_group=0, org_group=-1,
+                         base_vertices=0)
+    g1 = SimpleNamespace(start=2, num_vertices=3, num_group=1, org_group=0,
+                         base_vertices=1)
+    body2 = SimpleNamespace(
+        vertices=[[0, 0, 0], [100, 0, 0], [5, 5, 5], [6, 6, 6], [7, 7, 7]],
+        groups=[g0, g1], group_order=[0, 1], flags=2, primitives=[])
+    states2 = [(1, (10, 20, 30)), (1, (1, 1, 1))]
+    integer2 = pose_vertices(body2, states2)
+    floats2 = pose_vertices_float(body2, states2)
+    expected = [[20, 40, 60], [130, 60, 90], [136, 66, 96], [137, 67, 97], [138, 68, 98]]
+    assert integer2 == expected
+    for i in range(5):
+        assert tuple(floats2[i]) == pytest.approx(tuple(integer2[i]))
+
+
+@pytest.mark.parametrize("body_num", [1, 12])
+def test_pose_vertices_float_parity_on_real_bodies(data_dir, profile, body_num):
+    """Divergence from the integer pose is truncation-bounded, the way
+    CameraView's divergence from skel.skin is (~6 world units measured)."""
+    import numpy as np
+    from PyAitD.engine.data.assets import Assets
+    from PyAitD.engine.actor.skel import pose_vertices
+    from PyAitD.render.motion import pose_vertices_float
+    assets = Assets(data_dir, profile)
+    body = assets.body(body_num)
+    states = [(0, (0, 0, 0))] * len(body.groups)
+    integer = np.array(pose_vertices(body, states, actor_angles=(0, 300, 0)), dtype=np.float64)
+    floats = pose_vertices_float(body, states, actor_angles=(0, 300, 0))
+    assert float(np.max(np.abs(floats - integer))) <= 16.0
+
+
 def test_snapshot_reads_live_actors_and_players():
     from PyAitD.render.motion import snapshot
 

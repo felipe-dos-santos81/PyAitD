@@ -137,8 +137,9 @@ def _vertex_normals(vertices, tris, groups):
     return normals.astype(np.float32)
 
 
-def pose_geometry(body, group_states, actor_angles=None, ao=None, refinement=None):
-    vertices = np.array(pose_vertices(body, group_states, actor_angles), dtype=np.float32).reshape(-1, 3)
+def pose_geometry(body, group_states, actor_angles=None, ao=None, refinement=None, pose_fn=None):
+    pose = pose_vertices if pose_fn is None else pose_fn
+    vertices = np.array(pose(body, group_states, actor_angles), dtype=np.float32).reshape(-1, 3)
     tris, tri_colors, lines, line_colors, spheres, points, point_sizes, point_colors = _triangulate(body)
     normals = _vertex_normals(vertices, tris, vertex_groups(body))
     rest = np.array(body.vertices, dtype=np.float32).reshape(-1, 3)

@@ -166,6 +166,18 @@ class _CountingRefinement:
         return np.zeros((len(tris), 3, 3), np.float32)
 
 
+def test_pose_geometry_pose_fn_seam_defaults_to_the_integer_pose():
+    from tests.test_motion import _stub_body
+    body = _stub_body()
+    default = pose_geometry(body, [(1, (10, 0, 0))])
+    swapped = pose_geometry(
+        body, [(1, (10, 0, 0))],
+        pose_fn=lambda b, s, a=None: np.zeros((2, 3), dtype=np.float64),
+    )
+    assert default.vertices[1][0] == 130.0
+    assert np.all(swapped.vertices == 0.0)
+
+
 def test_a_plans_corner_normals_are_computed_on_first_read_and_only_once():
     # build_frame poses every actor every frame and passes the plan
     # whatever the smoothing level is; only render_gl's tessellated path

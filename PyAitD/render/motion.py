@@ -113,8 +113,73 @@ def blend_actor(prev, body_num, room, anim, states, angles, position, alpha):
     return out_states, out_angles, out_position, pose_vertices_float
 
 
+def _rotate_span_float(pts, start, count, dx, dy, dz):
+    # Float twin of skel._rotate_list: same axis order (y, then x, then
+    # z), same pair assignments, exact trigonometry instead of
+    # COS_TABLE's >>16 <<1 truncation. COS_TABLE[a] ~= sin(a*pi/512) and
+    # the table's paired lookup at a+0x100 is cos(a*pi/512), so the
+    # integer formula ((x*s - z*c) >> 16) << 1 is x*cos - z*sin.
+    span = pts[start:start + count]
+    for rot, (i, j) in (((dy % 1024.0), (0, 2)),
+                        ((dx % 1024.0), (1, 2)),
+                        ((dz % 1024.0), (0, 1))):
+        if rot:
+            theta = rot * (np.pi / 512.0)
+            c, s = np.cos(theta), np.sin(theta)
+            a, b = span[:, i].copy(), span[:, j].copy()
+            span[:, i] = a * c - b * s
+            span[:, j] = a * s + b * c
+
+
+def _rotate_group_float(pts, group, groups, dx, dy, dz):
+    # InitGroupeRot + RotateGroupe recursion, exactly as skel._rotate_group
+    _rotate_span_float(pts, group.start, group.num_vertices, dx, dy, dz)
+    for other in groups:
+        if other.org_group == group.num_group and other is not group:
+            _rotate_group_float(pts, other, groups, dx, dy, dz)
+
+
 def pose_vertices_float(body, group_states, actor_angles=None):
-    # Task 2 replaces this stub with the real float twin of
-    # skel.pose_vertices. blend_actor only hands it out; nothing calls
-    # it until build_frame's blend wiring lands in Task 5.
-    raise NotImplementedError("pose_vertices_float lands in Task 2")
+    """Float64 twin of skel.pose_vertices: same group hierarchy, same
+    axis order, real trigonometry and fractional angles. Diverges from
+    the integer pose only by its truncation (bounded; pinned by
+    tests/test_motion.py), the way CameraView diverges from skel.skin.
+    Rendering only -- never picking, masks or combat."""
+    pts = np.array(body.vertices, dtype=np.float64).reshape(-1, 3)
+    num_points = len(pts)
+
+    if actor_angles is not None:
+        if body.group_order:
+            # FITD AnimNuage: group 0 delta is the actor's own angles
+            group_states = list(group_states)
+            group_states[0] = (0, actor_angles)
+        else:
+            # FITD RotateNuage: non-animated bodies rotate as one model.
+            _rotate_span_float(pts, 0, num_points, *actor_angles)
+
+    for order_idx in body.group_order:
+        group = body.groups[order_idx]
+        gtype, (dx, dy, dz) = group_states[order_idx]
+        if dx or dy or dz:
+            if gtype == 0:
+                _rotate_group_float(pts, group, body.groups, dx, dy, dz)
+            elif gtype == 1:
+                pts[group.start:group.start + group.num_vertices] += (dx, dy, dz)
+            elif gtype == 2:
+                pts[group.start:group.start + group.num_vertices] *= (
+                    (dx + 256.0) / 256.0, (dy + 256.0) / 256.0, (dz + 256.0) / 256.0)
+
+    for group in body.groups:
+        start, count = group.start, group.num_vertices
+        base_idx = group.base_vertices
+        base = pts[base_idx].copy()
+        if start <= base_idx < start + count:
+            # skel.pose_vertices holds `base` as a live alias into the list
+            # it is mutating: a base vertex inside its own span doubles
+            # first, and every vertex after it adds the doubled base.
+            pts[start:base_idx] += base
+            pts[base_idx] += base
+            pts[base_idx + 1:start + count] += 2.0 * base
+        else:
+            pts[start:start + count] += base
+    return pts
