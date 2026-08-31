@@ -18,11 +18,6 @@ from PyAitD.engine.script.playworld.passes import (
 )
 
 TICK_MS = 20  # 50 Hz logic tick
-NATIVE_ACTION = 0x2000  # mainLoop.cpp:87-101 held-action input
-# Melee animation 41 reaches its strike frame well inside this; the budget
-# only exists so a LIFE that never returns the hero to idle cannot leave the
-# mouse holding a virtual button for the rest of the session.
-MOUSE_ATTACK_TICK_BUDGET = 100
 
 
 def play_tick(game, floor, input_buffer):

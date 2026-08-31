@@ -8,6 +8,12 @@ from PyAitD.engine.script.playworld.held_push import (
     _push_into_target, _refresh_held_target,
 )
 
+NATIVE_ACTION = 0x2000  # mainLoop.cpp:87-101 held-action input
+# Melee animation 41 reaches its strike frame well inside this; the budget
+# only exists so a LIFE that never returns the hero to idle cannot leave the
+# mouse holding a virtual button for the rest of the session.
+MOUSE_ATTACK_TICK_BUDGET = 100
+
 
 def apply_play_input(game, input_buffer):
     # The hero's manual-control track mode belongs to the input mode, and a
@@ -42,10 +48,6 @@ def _apply_mouse_attack(game, input_buffer):
     bounded, so the player never has to hold or time a button.
     """
     from PyAitD.engine.script.interaction import can_strike, is_combat_target
-    # playworld subpackage cycle: lazy
-    from PyAitD.engine.script.playworld.tick import (
-        MOUSE_ATTACK_TICK_BUDGET, NATIVE_ACTION,
-    )
 
     target_idx = input_buffer.mouse_attack_target
     if target_idx is None:

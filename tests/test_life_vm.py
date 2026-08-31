@@ -5,6 +5,7 @@ import pytest
 
 from PyAitD.engine.script.game import init_game
 from PyAitD.engine.script.life import process_life, read_s16, VM
+from tests.stub_profile import neutral_seam_fields
 
 pytestmark = pytest.mark.engine
 
@@ -223,12 +224,7 @@ def test_vm_dispatches_through_the_game_profile():
         heroes=(), cvar_names=(), defines_big_endian=True,
         opcode_table=tuple(table),
         reduced_dispatch=lambda vm, op, w: None, reduced_allowed=frozenset(),
-        debug_venues={}, generation=0,
-        floor_archive_name=lambda n: "E", camera_archive_name=lambda n: "C",
-        mask_factory=lambda raw, off: None, cadre_bank=(0, 0),
-        core_slots={}, combat_action_text_ids=frozenset(),
-        player_stand_anim=0, player_push_anim=0, player_track_modes=(),
-        viewed_room_record_size=0x0C, world_object_has_mark=False,
+        **neutral_seam_fields(),
     )
     game = SimpleNamespace(profile=profile)
     vm = life.VM(b"", game, 0)

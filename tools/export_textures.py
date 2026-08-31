@@ -32,7 +32,7 @@ from PyAitD.render.texture_export import (
 )
 from PyAitD.engine.data.assets import Assets
 from PyAitD.engine.data.floor import Floor, load_entry
-from PyAitD.engine.data.formats import decode_image
+from PyAitD.engine.data.formats import SCREEN_PIXELS, decode_image
 from PyAitD.engine.data.pak import PakError, find_pak
 from PyAitD.games import load_profile
 from PyAitD.render.asset_resolver import texture_palette_path
@@ -201,7 +201,7 @@ def export_alt_backgrounds(data_dir, out_dir, guide_scale=4, save=save_png, save
         floor = floors_cache[floor_num]
         try:
             raw = load_entry(itd_ress_pak, entry)
-            pixels = decode_image(raw[:64000], palette)
+            pixels = decode_image(raw[:SCREEN_PIXELS], palette)
         except Exception as exc:
             print(f"warning: alt floor {floor_num:02d} cam {cam_idx:03d} ITD_RESS:{entry} skipped: {exc}", file=sys.stderr)
             continue

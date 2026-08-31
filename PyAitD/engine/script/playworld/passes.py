@@ -3,7 +3,6 @@
 from PyAitD.engine.actor.actors import gere_anim
 from PyAitD.engine.actor.anim_action import gere_frappe, refresh_hot_point
 from PyAitD.engine.script.effects import CutsceneFinished, GameMode, GameOver
-from PyAitD.engine.data.formats import parse_cover_zones
 from PyAitD.engine.script.game import AF_ANIMATED, AF_TRIGGER, spawn_stage_actors
 from PyAitD.engine.script.interaction import gere_dec
 from PyAitD.engine.space.world import find_best_camera, is_in_poly
@@ -40,8 +39,7 @@ def _cover_zones(floor, cam_idx, room_idx):
     viewed = [vr.viewed_room_idx for vr in floor.cameras[cam_idx].viewed_rooms]
     if room_idx not in viewed:
         return []
-    off = floor.camera_data_offsets[cam_idx]
-    return parse_cover_zones(floor.camera_raw, off, viewed.index(room_idx), floor.viewed_room_record_size)
+    return floor.cover_zones(cam_idx, viewed.index(room_idx))
 
 
 def _camera_switch(game, floor):

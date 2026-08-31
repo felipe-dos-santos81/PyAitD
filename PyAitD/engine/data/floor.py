@@ -2,7 +2,9 @@
 """Floor loading: rooms, cameras, palette, camera background images."""
 import functools
 
-from PyAitD.engine.data.formats import camera_offsets, decode_image, decode_palette, parse_cameras, parse_rooms
+from PyAitD.engine.data.formats import (
+    camera_offsets, decode_image, decode_palette, parse_cameras, parse_cover_zones, parse_rooms,
+)
 from PyAitD.engine.data.mask_geometry import mask_polygons
 from PyAitD.engine.data.pak import Pak, find_pak
 
@@ -41,6 +43,11 @@ class Floor:
             raw = load_entry(str(self._images), camera_idx)
             self._camera_images[camera_idx] = decode_image(raw, self.palette)
         return self._camera_images[camera_idx]
+
+    def cover_zones(self, cam_idx, viewed_idx):
+        # cover-zone polygons ((x, z), cover units) of one viewed room as
+        # seen from one camera; static camera data, read-only in every path
+        return parse_cover_zones(self.camera_raw, self.camera_data_offsets[cam_idx], viewed_idx, self.viewed_room_record_size)
 
     def masks(self, camera_idx):
         # occlusion masks are static camera data; read-only in the render path

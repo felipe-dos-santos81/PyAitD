@@ -147,9 +147,9 @@ _CULLED = -9999.0
 
 def cover_zones_for(floor, cam_idx, viewed_idx):
     """Cover polygons ((x, z) in cover units) of `viewed_idx` as seen from
-    `cam_idx`. Real Floors go through parse_cover_zones exactly as
-    navmesh.cover_polys does; a floor object exposing `cover_zones` (test
-    stubs) is asked directly."""
+    `cam_idx`. Floor objects exposing `cover_zones` (Floor itself, test
+    stubs) are asked directly; anything less is read through
+    parse_cover_zones exactly as navmesh.cover_polys does."""
     if hasattr(floor, "cover_zones"):
         return floor.cover_zones(cam_idx, viewed_idx)
     return parse_cover_zones(floor.camera_raw, floor.camera_data_offsets[cam_idx], viewed_idx, floor.viewed_room_record_size)

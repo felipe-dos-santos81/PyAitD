@@ -174,9 +174,14 @@ def decode_palette(raw):
     return np.frombuffer(raw, dtype=np.uint8).reshape(256, 3).copy()
 
 
+# FITD vars.h:272: frontBuffer[320*200] for every game — 320x200 is an
+# engine invariant, so it is a named constant here, not a GameProfile field.
+SCREEN_PIXELS = 64000
+
+
 def decode_image(raw, palette):
-    if len(raw) != 64000:
-        raise ValueError(f"image must be 64000 bytes, got {len(raw)}")
+    if len(raw) != SCREEN_PIXELS:
+        raise ValueError(f"image must be {SCREEN_PIXELS} bytes, got {len(raw)}")
     indices = np.frombuffer(raw, dtype=np.uint8).reshape(200, 320)
     return palette[indices]
 

@@ -3,13 +3,9 @@
 import numpy as np
 
 from PyAitD.engine.data.floor import load_entry
-from PyAitD.engine.data.formats import decode_image, decode_palette, parse_anim, parse_body
+from PyAitD.engine.data.formats import SCREEN_PIXELS, decode_image, decode_palette, parse_anim, parse_body
 from PyAitD.engine.data.pak import Pak, find_pak
 from PyAitD.engine.data.text import parse_book_tokens, parse_system_texts
-
-# FITD vars.h:272: frontBuffer[320*200] for every game — 320x200 is an engine
-# invariant, so it is a named constant here, not a GameProfile field.
-SCREEN_PIXELS = 64000
 
 
 class Assets:
@@ -25,8 +21,12 @@ class Assets:
         self.num_tracks = Pak(self._tracks_pak).count
         self._bodies = {}
         self._anims = {}
-        self._text_pak = str(find_pak(data_dir, profile.text_pak))
-        self._resource_pak = str(find_pak(data_dir, profile.resource_pak))
+        text_pak = find_pak(data_dir, profile.text_pak)
+        resource_pak = find_pak(data_dir, profile.resource_pak)
+        self._text_pak = str(text_pak)
+        self._resource_pak = str(resource_pak)
+        self._text_pak_name = text_pak.name
+        self._resource_pak_name = resource_pak.name
         self._system_texts = parse_system_texts(load_entry(self._text_pak, 0))
         self._book_tokens = {}
         self.book_pages = {}  # ui-layer wrapped page layout, keyed by text entry
@@ -63,7 +63,7 @@ class Assets:
         try:
             return self._system_texts[message_id]
         except KeyError:
-            raise KeyError(f"ENGLISH.PAK: text {message_id} not found") from None
+            raise KeyError(f"{self._text_pak_name}: text {message_id} not found") from None
 
     def book_tokens(self, entry):
         if entry not in self._book_tokens:
@@ -74,7 +74,7 @@ class Assets:
         if entry not in self._resource_screens:
             raw = load_entry(self._resource_pak, entry)
             if len(raw) < SCREEN_PIXELS:
-                raise ValueError(f"ITD_RESS.PAK: entry {entry} is {len(raw)} bytes; expected {SCREEN_PIXELS}")
+                raise ValueError(f"{self._resource_pak_name}: entry {entry} is {len(raw)} bytes; expected {SCREEN_PIXELS}")
             self._resource_screens[entry] = decode_image(raw[:SCREEN_PIXELS], self._game_palette)
         return self._resource_screens[entry]
 
@@ -86,18 +86,18 @@ class Assets:
             return self._cadre_sprites
         raw = load_entry(self._resource_pak, self._cadre_entry)
         if len(raw) < self._cadre_sprite_count * 2:
-            raise ValueError(f"ITD_RESS.PAK: entry {self._cadre_entry} has a short cadre offset table")
+            raise ValueError(f"{self._resource_pak_name}: entry {self._cadre_entry} has a short cadre offset table")
         sprites = []
         for index in range(self._cadre_sprite_count):
             offset = int.from_bytes(raw[index * 2:index * 2 + 2], "little")
             dimensions = offset + 4
             if dimensions + 4 > len(raw):
-                raise ValueError(f"ITD_RESS.PAK: entry {self._cadre_entry} sprite {index} dimensions out of range")
+                raise ValueError(f"{self._resource_pak_name}: entry {self._cadre_entry} sprite {index} dimensions out of range")
             width = int.from_bytes(raw[dimensions:dimensions + 2], "little")
             height = int.from_bytes(raw[dimensions + 2:dimensions + 4], "little")
             end = dimensions + 4 + width * height
             if width == 0 or height == 0 or end > len(raw):
-                raise ValueError(f"ITD_RESS.PAK: entry {self._cadre_entry} sprite {index} pixels out of range")
+                raise ValueError(f"{self._resource_pak_name}: entry {self._cadre_entry} sprite {index} pixels out of range")
             indexed = np.frombuffer(raw[dimensions + 4:end], dtype=np.uint8).reshape(height, width)
             sprites.append(np.ascontiguousarray(self._game_palette[indexed]))
         self._cadre_sprites = tuple(sprites)

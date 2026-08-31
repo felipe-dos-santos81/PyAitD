@@ -7,6 +7,7 @@ import pytest
 from PyAitD.engine.script import life
 from PyAitD.games import PROFILES, load_profile
 from PyAitD.games.aitd1.profile import AITD1
+from tests.stub_profile import neutral_seam_fields
 
 pytestmark = pytest.mark.engine
 
@@ -150,12 +151,7 @@ def test_base_profile_alt_camera_sources_defaults_empty():
                             resource_pak="R", palette_entry=3, heroes=(("a","b"),),
                             cvar_names=(), defines_big_endian=True,
                             opcode_table=tuple(), reduced_dispatch={}, reduced_allowed=frozenset(),
-                            debug_venues={}, generation=0,
-                            floor_archive_name=lambda n: "E", camera_archive_name=lambda n: "C",
-                            mask_factory=lambda raw, off: None, cadre_bank=(0, 0),
-                            core_slots={}, combat_action_text_ids=frozenset(),
-                            player_stand_anim=0, player_push_anim=0, player_track_modes=(),
-                            viewed_room_record_size=0x0C, world_object_has_mark=False).alt_camera_sources) == {}
+                            **neutral_seam_fields()).alt_camera_sources) == {}
 
 
 def test_aitd1_generation_is_the_fitd_game_type_ordinal():

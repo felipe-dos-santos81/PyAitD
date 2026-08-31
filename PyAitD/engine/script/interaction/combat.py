@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """In-hand combat gating and held/push approach."""
 from PyAitD.engine.script.interaction.inventory import inventory_actions, inventory_items
+from PyAitD.engine.script.interaction.nav_intent import cancel_nav_intent
 from PyAitD.engine.space.world import room_delta
 
 
@@ -144,8 +145,6 @@ def attack_in_hand(game, target_actor_idx):
         target_x += dx
         target_z -= dz
 
-    # interaction subpackage cycle: lazy
-    from PyAitD.engine.script.interaction.nav_intent import cancel_nav_intent
     cancel_nav_intent(game)
     hero.speed = 0
     face_toward(hero, target_x, target_z)

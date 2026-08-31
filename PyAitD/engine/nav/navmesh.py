@@ -15,8 +15,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from PyAitD.engine.data.formats import parse_cover_zones
-
 GRID_STEP = 100   # room-scale units per cell (~5 across the hero's 532)
 COVER_SCALE = 10  # cover-zone unit -> room-scale
 _RAY = 10000      # world.is_in_poly ray length, in cover units
@@ -29,8 +27,7 @@ def cover_polys(floor, room_idx):
         viewed = [vr.viewed_room_idx for vr in floor.cameras[cam_idx].viewed_rooms]
         if room_idx not in viewed:
             continue
-        offset = floor.camera_data_offsets[cam_idx]
-        out.extend(parse_cover_zones(floor.camera_raw, offset, viewed.index(room_idx), floor.viewed_room_record_size))
+        out.extend(floor.cover_zones(cam_idx, viewed.index(room_idx)))
     return out
 
 
