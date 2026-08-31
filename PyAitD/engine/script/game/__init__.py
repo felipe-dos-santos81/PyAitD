@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Game state, world-object lifecycle and boot (subpackage split of the
-former engine.game module; every name re-exported for importers)."""
+former flat game module; every name re-exported for importers)."""
 from PyAitD.engine.script.game.state import (
     AF_ANIMATED, AF_BOXIFY, AF_DRAWABLE, AF_FALLABLE, AF_FOUNDABLE, AF_MASK,
     AF_MOVABLE, AF_SPECIAL, AF_TRIGGER, NUM_MAX_OBJECT, Actor, FloorStart,

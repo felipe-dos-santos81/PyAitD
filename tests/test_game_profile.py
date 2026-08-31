@@ -69,7 +69,7 @@ def test_aitd1_reduced_allowed_pins_the_out_of_floor_opcode_set():
     # life.cpp:522-716: the reduced switch has a case for exactly these 16
     # opcodes; every other opcode on an out-of-floor world object is an error
     # FITD does not reach. The set is AITD1's, so it lives in the profile
-    # beside reduced_dispatch, not in engine/life.py.
+    # beside reduced_dispatch, not in engine/script/life.py.
     assert AITD1.reduced_allowed == frozenset(
         {1, 2, 3, 13, 15, 24, 28, 31, 40, 47, 48, 49, 54, 55, 67, 74}
     )
@@ -128,7 +128,7 @@ def test_aitd1_start_floors_follow_startAITD1():
 
 def test_aitd1_palette_entry_pins_the_resource_palette_slot():
     # ITD_RESS entry 3 is the 768-byte VGA palette (6 bits per channel).
-    # Both engine/floor.py and engine/assets.py used to hardcode the 3.
+    # Both engine/data/floor.py and engine/data/assets.py used to hardcode the 3.
     assert AITD1.palette_entry == 3
     from PyAitD.engine.data import assets
     from PyAitD.engine.data import floor
@@ -211,7 +211,7 @@ def test_screen_pixels_is_a_named_constant_not_a_per_game_field():
 
 def test_engine_life_owns_no_aitd1_table_facts():
     # The VM-control numbering is the game's macro table (profile.core_slots);
-    # engine/life.py keeps only the semantic handlers. NUM_OPCODES is deleted,
+    # engine/script/life.py keeps only the semantic handlers. NUM_OPCODES is deleted,
     # not moved: runtime bounds come from len(profile.opcode_table).
     from PyAitD.engine.script import life
     assert not hasattr(life, "NUM_OPCODES")

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Inventory/world interaction, contacts and nav intents (subpackage split
-of the former engine.interaction module; every name re-exported)."""
+of the former flat interaction module; every name re-exported)."""
 from PyAitD.engine.script.interaction.track_mode import (
     player_track_mode, sync_player_track_mode,
 )

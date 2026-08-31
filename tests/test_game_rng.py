@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """M4a2 task 1: the gameplay RNG lives on the Game, so a save can snapshot it
-and a restored game draws the identical stream (engine/eval_var.py 0x1C)."""
+and a restored game draws the identical stream (engine/script/eval_var.py 0x1C)."""
 import random
 import struct
 
