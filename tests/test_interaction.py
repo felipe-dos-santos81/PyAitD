@@ -207,7 +207,7 @@ def test_inventory_choice_sets_action_and_in_hand_before_found_life(data_dir, pr
     _finish_take(game, 10)
     game.world_objects[10].found_flag |= 1 << 2
     called = []
-    monkeypatch.setattr("PyAitD.engine.script.interaction.execute_found_life", lambda g, i, **kw: called.append(i) or True)
+    monkeypatch.setattr("PyAitD.engine.script.interaction.inventory.execute_found_life", lambda g, i, **kw: called.append(i) or True)
     assert choose_inventory_action(game, 10, 25) is True
     assert game.in_hand_table[0] == 10
     assert game.action == 1 << 2

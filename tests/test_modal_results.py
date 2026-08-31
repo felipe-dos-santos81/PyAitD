@@ -13,7 +13,7 @@ def test_leave_debounces_and_resumes_parent(data_dir, profile, monkeypatch):
     game.life_stack.append(LifeFrame(0, 1, pc=6))
     game.open_modal(ShowFound(13, False))
     resumed = []
-    monkeypatch.setattr("PyAitD.engine.script.interaction.resume_life", lambda g: resumed.append(True) or True)
+    monkeypatch.setattr("PyAitD.engine.script.interaction.inventory.resume_life", lambda g: resumed.append(True) or True)
     assert apply_found_result(game, FoundResult.LEAVE) is True
     assert game.world_objects[13].track_number == game.timer
     assert game.mode is GameMode.PLAY
@@ -24,14 +24,14 @@ def test_take_closes_found_before_nested_found_life(data_dir, profile, monkeypat
     game = init_game(data_dir, profile)
     game.open_modal(ShowFound(13, False))
     seen = []
-    monkeypatch.setattr("PyAitD.engine.script.interaction.begin_take", lambda g, i: seen.append((i, g.active_modal)) or False)
+    monkeypatch.setattr("PyAitD.engine.script.interaction.inventory.begin_take", lambda g, i: seen.append((i, g.active_modal)) or False)
     assert apply_found_result(game, FoundResult.TAKE) is False
     assert seen == [(13, None)]
 
 
 def test_inventory_cancel_and_read_dismiss_restore_play(data_dir, profile, monkeypatch):
     game = init_game(data_dir, profile)
-    monkeypatch.setattr("PyAitD.engine.script.interaction.resume_life", lambda g: True)
+    monkeypatch.setattr("PyAitD.engine.script.interaction.inventory.resume_life", lambda g: True)
     game.open_modal(OpenInventory())
     assert apply_inventory_result(game, InventoryResult(cancelled=True)) is True
     game.open_modal(ReadText(1, 0))
