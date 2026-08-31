@@ -63,6 +63,7 @@ below for what pins each alias to the files it historically ran.
 | Materials v2 (roadmap H) | Derivative bump so `detail` is relief and not dirt, a warm skin terminator, real emissive, a normalised specular lobe, the 23 used palette ramps hand-reviewed, and the class table retuned against the fixtures | automated gates green; windowed attestation pending (`docs/materials-v2-proof.md`) |
 | Texture export + check | Export originals + structure guides + manifest for an external texture tool, validate texture dirs as the game loads them; the same target surveys palette ramps and emits the material table | done — `make export-textures` / `check-textures` (regeneration itself moved to an external tool) |
 | Engine package reorganization | engine / render / games / app split + GameProfile | done — `tests/test_layering.py` |
+| Engine domain subpackages | data/space/actor/script/nav + 12 GameProfile seam fields | done — docs/superpowers/specs/2026-08-31-engine-domain-subpackages-design.md |
 | M4a2 | Save/load: validated atomic JSON slots, persistence menu pages, deferred quick save, atomic load replacement | automated gates green (`make prove-persistence`); windowed attestation pending (`docs/m4a2-persistence-proof.md`) |
 | M4b / M4c | Audio + sequences, ending/completability | next (plans drafted under `docs/superpowers/plans/2026-08-24-m4*`) |
 
@@ -73,29 +74,28 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 
 ## Architecture (PyAitD/)
 
+The engine is organised into five domain subpackages:
+
+| Domain | Modules |
+|---|---|
+| `engine/data/` | `pak.py` PAK/HQR archives; `explode.py` EXPLODE decompression; `formats.py` pure parsers (bodies, anims, cameras, cover zones, world-object/VARS/DEFINES records — record stride/mark from profile); `floor.py` ETAGE floors (rooms, cameras, masks — archive naming and mask strategy from profile); `assets.py` parse-once registries (bodies, anims, LISTLIFE, LISTTRAK, cadre bank from profile, `SCREEN_PIXELS`); `text.py` system/book text parsers; `mask.py` + `mask_geometry.py` mask rasterization and screen-space polygons |
+| `engine/space/` | `cos_table.py` + `world.py` fixed-point rotations, camera transform/projection; `realvalue.py` rotation/speed interpolation, chronos, distances |
+| `engine/actor/` | `actors.py` actor fields + GereAnim movement/collision; `anim.py` AnimPlayer; `anim_action.py` combat action runner; `tracks.py` track processor; `skel.py` skinning/projection (integer path, authoritative) |
+| `engine/script/` | `game/` (`state.py` Game/Actor/FloorStart, `zv.py` ZV geometry, `objects.py` object-slot lifecycle, `boot.py` boot/transitions); `life.py` VM core (dispatch reads `profile.opcode_table`, core table built from `profile.core_slots`); `eval_var.py` evalVar; `interaction/` (`inventory.py`, `life_cont.py`, `combat.py`, `contacts.py`, `nav_intent.py`, `track_mode.py`); `effects.py` typed effects; `playworld/` (`tick.py`, `input.py`, `held_push.py`, `passes.py`); `save.py` versioned snapshots |
+| `engine/nav/` | `navmesh.py` walkable grid + A*; `picking.py` screen->world; `navigate.py` pointer follower |
+
+The games, render, app and tools packages:
+
 | Module | Role |
 |---|---|
-| `engine/pak.py`, `engine/floor.py`, `engine/explode.py` | PAK/HQR archives, ETAGE floor data, EXPLODE decompression. `Floor(data_dir, number, profile)` takes the profile for the palette pak/entry; callers holding a `Game` use `game.load_floor(number)` instead (`rooms_of_floor` deliberately does not) |
-| `engine/formats.py` | Pure parsers: bodies, anims, cameras, cover zones, WorldObject/VARS/DEFINES/PRIORITY records |
-| `engine/assets.py` | Parse-once registries over the LRU: bodies, anims, LISTLIFE scripts, LISTTRAK tracks |
-| `engine/game.py` | `Game` state: CVars (45, DEFINES big-endian), script vars (207), 292 world objects, 128 actor slots, `init_game`/`spawn_stage_actors` (FITD LoadWorld + GenereActiveList) |
-| `engine/life.py` | VM core: fetch loop, 0x8000 actor-switch, control flow, `Trace`, `core_table()` (the game-neutral opcode slots); dispatch reads the filled table from `vm.game.profile.opcode_table` and the not-in-floor set from `vm.game.profile.reduced_dispatch` |
 | `games/base.py` | `GameProfile`: PAK names, palette entry, hero archives, CVar names, DEFINES endianness, opcode table, reduced dispatch + its allowed opcode set, debug venues |
 | `games/aitd1/profile.py` | The AITD1 instance; `games/__init__.load_profile("aitd1")` |
 | `games/aitd1/life_ops.py`, `games/aitd1/life_reduced.py` | Full-dispatch opcode handlers + not-in-floor reduced set |
-| `engine/eval_var.py` | evalVar tagged-s16 argument system (all AITD1 property codes) |
-| `engine/tracks.py` | processTrack: manual (player) / follow / scripted modes, TL_* macros |
-| `engine/realvalue.py` | RealValue interpolation (rotation/speed ramps), chronos, GiveDistance2D |
-| `engine/actors.py` | Actor fields (tObject port), GereAnim movement/collision port, `sort_actor_indices` (FITD sortActorList) |
-| `engine/anim.py` | AnimPlayer: SetAnimObjet/SetInterAnimObjet keyframe interpolation; `init_anim`/`ANIM_ONCE`/`ANIM_REPEAT`/`ANIM_UNINTERRUPTABLE` |
-| `engine/world.py`, `engine/cos_table.py` | Fixed-point rotations, camera transform/projection (M2-verified goldens) |
-| `engine/skel.py`, `engine/mask.py` | Skinning/projection (the FITD-faithful integer path, `skin()`), mask bitmap rasterization |
 | `render/scene.py` | `build_frame(game, floor, resolver) -> (FrameDescription, draw_list)`: per-frame scene description shared by both backends; `CameraView`, a float twin of `skel.skin`'s projection, for the new renderers. `draw_list` stays built from the logical `skin()` bbox — picking, masks and the mouse contract are untouched |
 | `render/materials.py` | `Material` (12 shader parameters: roughness, specular, metallic, rim, detail, detail_scale, detail_kind, bump, sss, emissive + 2 pad), `CLASS_PRESETS`, `MaterialTable`, `parse_table`/`load_table`/`default_table`, `RealismPreset`/`PRESETS`: palette-index material classes, the hand-reviewed `materials.json`, and the two realism presets that scale every term (`classic` all-zero, so it renders byte-identically to the pre-materials engine); pygame/GL-free |
 | `render/occlusion.py` | `bake_vertex_ao(body) -> (N,) float32`: rest-pose hemisphere-ray vertex occlusion, baked once per body; pygame/GL-free |
 | `render/refine.py` | `plan_refinement(body) -> Refinement`, `corner_normals`, `subpatch(level)`, `evaluate`: rest-pose orientation, creases and smoothing groups for the GPU tessellation, and the numpy twin of the shader; pygame/GL-free |
 | `render/geometry.py` | `pose_geometry(..., ao=None) -> BodyGeometry`: float posed vertices, per-vertex normals, rest-pose vertices, baked AO, triangulated/line/point/sphere primitives, shared with `skel.pose_vertices` so pose can never disagree, crease-aware per-corner normals and straight-edge flags when handed a refinement |
-| `engine/mask_geometry.py` | Mask polygons in 320x200 screen space plus their trigger rects, parsed once from the existing mask data |
 | `render/asset_resolver.py` | `AssetResolver(assets, texture_dir=None)`: background/palette/light lookup, per-body material table (with `bodies/body<NNN>.json` override) and AO bake, checking an optional texture directory first and falling back to the original asset, tessellation plan (with the same file's `crease`) |
 | `render/lighting.py` | `estimate_light(pixels) -> SceneLight`, `shading_terms`, `project_to_plane`: a per-camera light read off the background image, and the ground-plane projection the shadow pass uses; pygame/GL-free. `light_view_matrix`, `soften`: the orthographic light view every actor's shadow map is rendered from, and the numpy twin of the penumbra blur |
 | `render/render_options.py` | `RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration)`: validation, clamping, menu-cycle helpers, and the `INTEGRATION_STRENGTHS` the composite multiplies by; pygame/GL-free |
@@ -103,15 +103,8 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 | `render/glsl.py` | Every GLSL source as a plain string; no imports, no logic |
 | `render/render_soft.py` | `SoftwareBackend`: numpy/pygame compositor over the logical projection, used headless and as the GL-failure fallback |
 | `render/render.py` | `Renderer(options)`: window/context ownership, backend selection and fallback, UI composite, present, `window_to_logical` |
-| `engine/anim_action.py` | GereFrappe action runner: melee (1→10→2), hit-object, firearm volume sweep (4→5), throw setup/launch/flight (6→7→9). Publishes `hit`/`hit_by`/`hit_force` only — never actor `life` |
 | `games/aitd1/scenario.py` | `COMBAT_VENUE`/`enter_combat_venue`: the one pinned floor-5 debug venue shared by play, tests and the proof tool |
-| `engine/playworld.py` | PlayWorld tick (mainLoop.cpp:41-281 order): input snapshot → anim/dec pass → LIFE pass → floor/room/camera flags → messages. Free of pygame/GL: `play_tick` runs headless |
-| `engine/save.py` | M4a2 save/load: `SCHEMA 1` snapshot, SHA-256 source identity, full validation with JSON-path errors, atomic `save-manual.json`/`save-quick.json` slots, `restore_game` into a fresh `Game`. Settings ride through as an opaque dict — `app/config.validate_settings` owns them, so the module never imports the app layer |
-| `engine/navmesh.py` | Walkable grid from cover zones (FITD `is_in_poly` vectorised) + A* |
-| `engine/picking.py` | Screen->world: floor homography fitted from the real projection, actor bbox hit-test |
-| `engine/navigate.py` | Mouse follower: NavIntent -> one tick of steering + mirrored joyd |
 | `games/aitd1/mouse_contract.py` | Pygame-free declaration of current player capabilities, per-mode one-button routes, and reviewed legacy command replacements (`KEYBOARD_ONLY_DECISIONS` is empty: remap capture has a clickable key picker) |
-| `engine/text.py` | Pure parsers for system texts and book/letter token streams (readable items) |
 | `render/texture_export.py` | Pure export description: per-camera original background, depth-culled structure guide geometry, manifest records (layout shared with `asset_resolver.texture_background_path`) |
 | `render/texture_check.py` | Pure validation of a texture directory exactly as `AssetResolver` would load it; structural manifest checks |
 | `app/config.py` | Pygame-free settings schema (v1), platform settings path, validated load, atomic save |
@@ -138,9 +131,9 @@ against `AITD1.cpp` — the plan + code are the source of truth).
 - Known simplifications (ponytail comments in code): do_real_zv box zv instead
   of per-vertex bounds, ANIM_RESET skip, CheckObjectCol push/pickup (M3b), fall
   management.
-- `FoundResult` moved from `ui.py` to `engine/effects.py`, and `init_anim`
+- `FoundResult` moved from `ui.py` to `engine/script/effects.py`, and `init_anim`
   (with `ANIM_ONCE`/`ANIM_REPEAT`/`ANIM_UNINTERRUPTABLE`) moved from
-  `life_ops.py` to `engine/anim.py`, so the engine imports no game or app
+  `life_ops.py` to `engine/actor/anim.py`, so the engine imports no game or app
   module.
 
 ## Current rendering QA findings
@@ -177,10 +170,10 @@ action runner.
 
 ## M3b interaction boundary
 
-- `engine/effects.py`: typed immediate/modal effects and resumable LIFE frames.
-- `engine/interaction.py`: found-LIFE, inventory/world transitions, contacts, and GereDec.
+- `engine/script/effects.py`: typed immediate/modal effects and resumable LIFE frames.
+- `engine/script/interaction/`: found-LIFE, inventory/world transitions, contacts, and GereDec.
 - `app/ui.py`: command buffering, modal reducers, mouse targets, and 320x200 presenters.
-- `engine/playworld.py`: the PLAY-only fixed tick body, free of pygame/rendering.
+- `engine/script/playworld/`: the PLAY-only fixed tick body, free of pygame/rendering.
 - `app/shell.py`: one event pump, tick accumulator, mode routing, one present.
 - Focused proof: `make prove-m3b`.
 - Full regression: `.venv/bin/pytest -q && make prove`.
@@ -211,7 +204,7 @@ action runner.
   combat items land; `gere_dec` stops at the first containing zone where FITD
   re-scans the new room's zones in the same call (one-tick delay on chained
   crossings); modal result records live in `ui.py` though locked ownership
-  puts them in `effects.py`; `op_special` still carries an M3b stub label.
+  puts them in `engine/script/effects.py`; `op_special` still carries an M3b stub label.
 
 ## M3e mouse-reachability boundary
 
@@ -350,7 +343,7 @@ action runner.
 
 ## Opening cutscene boundary
 
-- `engine.game.start_game(game, stage, room)` is FITD's `startGame`
+- `engine.script.game.start_game(game, stage, room)` is FITD's `startGame`
   (main.cpp:4134) minus `PlayWorld`: resets camera/world targets, loads
   `stage`, calls `change_salle(room)`, stages `new_num_camera=0` /
   `flag_init_view=2`, spawns the stage's actors, and clears `floor_start` —
@@ -358,7 +351,7 @@ action runner.
   `_boot_hero`'s cutscene branch calls it. The attic hand-over relies on
   neither `start_game` nor `game_start`'s config alone: `init_game` reads
   `profile.game_start` for its own floor/room instead of hardcoding 0/0
-  (`engine/game.py`), because running `start_game` on a booted attic leaves
+  (`engine/script/game/boot.py`), because running `start_game` on a booted attic leaves
   `current_camera_target_actor`/`current_world_target` at -1 and
   `floor_start` at `None` — an uncontrollable hero with no restart point.
   `tests/test_floor_start.py::test_start_game_on_the_attic_diverges_from_init_game_targeting`
@@ -422,7 +415,7 @@ action runner.
 
 ## M4a2 persistence boundary
 
-- The snapshot schema is `engine/save.py:SCHEMA` (1): root keys `schema`,
+- The snapshot schema is `engine/script/save.py:SCHEMA` (1): root keys `schema`,
   `engine_version`, `source`, `hero`, `game`, `actors`, `world_objects`,
   `anim_players`, `inventory`, `messages`, `rng_state`, `settings`.
   Validation is total before anything live is touched: exact key sets, exact
@@ -435,7 +428,7 @@ action runner.
   and the selected hero's body/anim paks, in that order. A save only loads
   against the data it was written from.
 - Settings ride through the snapshot as an opaque JSON-ready dict:
-  `engine/save.py` never imports the app layer, and
+  `engine/script/save.py` never imports the app layer, and
   `app/config.validate_settings` alone validates the block at the shell
   boundary (`settings_payload` in `app/config.py` is the one builder shared
   with `save_settings`).
