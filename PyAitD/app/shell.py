@@ -18,7 +18,7 @@ from PyAitD.app.config import (
 from PyAitD.engine.effects import ChooseCharacter, GameMode, InputMode, OpenStartupMenu, ShowTitle
 from PyAitD.engine.game import enter_floor_start, init_game
 from PyAitD.engine.life import Trace
-from PyAitD.engine.pak import PakError
+from PyAitD.engine.data.pak import PakError
 from PyAitD.engine.save import (
     SaveError, read_slot, restore_game, save_dir, slot_path, snapshot_game, write_slot,
 )

@@ -22,7 +22,7 @@ from PyAitD.render.render_options import (
     cycle_shading, cycle_shadows, cycle_smoothing,
 )
 from PyAitD.render.asset_resolver import AssetResolver
-from PyAitD.engine.text import BookToken
+from PyAitD.engine.data.text import BookToken
 
 GRAPHICS_ROWS = 9          # rows on the Graphics page above Back, in GRAPHICS_CYCLES order
 

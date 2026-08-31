@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from types import SimpleNamespace
 
-from PyAitD.engine.formats import Zone
+from PyAitD.engine.data.formats import Zone
 from PyAitD.engine.interaction import gere_dec
 import pytest
 

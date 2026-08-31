@@ -14,7 +14,7 @@ from dataclasses import fields as dataclass_fields
 from PyAitD import __version__
 from PyAitD.engine.anim import AnimPlayer
 from PyAitD.engine.effects import TimedMessage
-from PyAitD.engine.formats import WorldObject, parse_defines, parse_objets, parse_vars
+from PyAitD.engine.data.formats import WorldObject, parse_defines, parse_objets, parse_vars
 from PyAitD.engine.game import NUM_MAX_OBJECT, Actor, FloorStart, init_game
 
 SCHEMA = 1

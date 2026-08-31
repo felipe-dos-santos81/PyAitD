@@ -183,7 +183,7 @@ def test_guide_overlay_projects_cover_polygon_in_green():
 def test_guide_overlay_skips_culled_edges():
     floor = StubFloor()
     # a hard col entirely behind the camera projects to the sentinel and must not draw
-    from PyAitD.engine.formats import Zone
+    from PyAitD.engine.data.formats import Zone
     floor.rooms[0].hard_cols = [Zone(x1=-10, x2=10, y1=-10, y2=0, z1=-5000, z2=-4000, type=0, parameter=0)]
     floor._cover = {}
     g = be.guide_overlay(floor, 0, 1)
@@ -196,7 +196,7 @@ def test_guide_overlay_draws_edge_with_one_far_offscreen_corner():
     culling belongs to depth, not to screen-space x (regression for the
     a[0]/b[0] vs a[2]/b[2] cull-test bug)."""
     floor = StubFloor()
-    from PyAitD.engine.formats import Zone
+    from PyAitD.engine.data.formats import Zone
     floor.rooms[0].hard_cols = [
         Zone(x1=-1_000_000, x2=100, y1=-50, y2=0, z1=0, z2=10, type=0, parameter=0)
     ]
@@ -221,7 +221,7 @@ def test_cover_zones_for_uses_parse_cover_zones_on_real_floors(monkeypatch):
 
 
 def test_guide_overlay_real_camera_matches_integer_projection(data_dir, profile):
-    from PyAitD.engine.floor import Floor
+    from PyAitD.engine.data.floor import Floor
     from PyAitD.engine.world import CameraState, transform_point
     floor = Floor(data_dir, 0, profile)
     cam_idx = 0
@@ -304,7 +304,7 @@ def test_layout_geometry_lists_masks_collision_and_walkable():
 
 def test_layout_geometry_nulls_culled_vertices():
     floor = StubFloor()
-    from PyAitD.engine.formats import Zone
+    from PyAitD.engine.data.formats import Zone
     floor.rooms[0].hard_cols = [Zone(x1=-10, x2=10, y1=-10, y2=0, z1=-5000, z2=-4000, type=0, parameter=0)]
     floor._cover = {}
     layout = be.layout_geometry(floor, 0)

@@ -2,9 +2,9 @@
 import numpy as np
 import pytest
 
-from PyAitD.engine import floor as floormod
-from PyAitD.engine.floor import Floor
-from PyAitD.engine.pak import PakError
+from PyAitD.engine.data import floor as floormod
+from PyAitD.engine.data.floor import Floor
+from PyAitD.engine.data.pak import PakError
 
 pytestmark = pytest.mark.engine
 

@@ -2,8 +2,8 @@
 """Synthetic Floor stand-in for the export/check tests (no game data)."""
 import numpy as np
 
-from PyAitD.engine.formats import Camera, Room, ViewedRoom, Zone
-from PyAitD.engine.mask_geometry import MaskDraw
+from PyAitD.engine.data.formats import Camera, Room, ViewedRoom, Zone
+from PyAitD.engine.data.mask_geometry import MaskDraw
 
 W, H = 320, 200
 

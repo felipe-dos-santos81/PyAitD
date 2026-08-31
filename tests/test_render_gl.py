@@ -6,10 +6,10 @@ import moderngl
 import numpy as np
 import pytest
 
-from PyAitD.engine.formats import Body, Primitive
+from PyAitD.engine.data.formats import Body, Primitive
 from PyAitD.render.asset_resolver import ImageAsset
 from PyAitD.render.geometry import BodyGeometry
-from PyAitD.engine.mask_geometry import MaskDraw
+from PyAitD.engine.data.mask_geometry import MaskDraw
 from PyAitD.render.render_gl import GLBackend, camera_matrix, projection_matrix, view_matrix
 from PyAitD.render.render_options import RenderOptions
 from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
@@ -684,8 +684,8 @@ def test_actors_and_mask_render_correctly_above_scale_one(gl_ctx):
 
 
 def test_stencil_mask_matches_bitmap_erase_at_scale_one(gl_ctx, data_dir, profile):
-    from PyAitD.engine.floor import Floor
-    from PyAitD.engine.mask import create_aitd1_mask
+    from PyAitD.engine.data.floor import Floor
+    from PyAitD.engine.data.mask import create_aitd1_mask
     floor = Floor(data_dir, 0, profile)
     draws = floor.mask_draws(0)
     bitmaps = create_aitd1_mask(floor.camera_raw, floor.camera_data_offsets[0])

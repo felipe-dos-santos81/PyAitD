@@ -16,7 +16,7 @@ from PyAitD.render.occlusion import bake_vertex_ao
 from PyAitD.render.plate import estimate_plate
 from PyAitD.render.refine import CREASE_DEG, parse_crease, plan_refinement
 
-log = logging.getLogger("PyAitD.engine.assets")
+log = logging.getLogger("PyAitD.engine.data.assets")
 
 
 @dataclass(frozen=True)

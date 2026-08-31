@@ -4,7 +4,7 @@ import pytest
 from PyAitD.engine.actors import check_object_col
 from PyAitD.engine import interaction
 from PyAitD.engine.effects import NavIntent, ShowFound
-from PyAitD.engine.floor import Floor
+from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import AF_ANIMATED, init_game, AF_FOUNDABLE
 from PyAitD.engine.interaction import (
     COMBAT_ACTIONS, _finish_take, apply_click_intent, attack_in_hand,

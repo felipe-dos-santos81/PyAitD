@@ -30,10 +30,10 @@ from PyAitD.render.texture_export import (
     manifest_record, screen_guide, screen_guide_rel_path, screen_layout, screen_layout_rel_path,
     screen_record, screen_rel_path,
 )
-from PyAitD.engine.assets import Assets
-from PyAitD.engine.floor import Floor, load_entry
-from PyAitD.engine.formats import decode_image
-from PyAitD.engine.pak import PakError, find_pak
+from PyAitD.engine.data.assets import Assets
+from PyAitD.engine.data.floor import Floor, load_entry
+from PyAitD.engine.data.formats import decode_image
+from PyAitD.engine.data.pak import PakError, find_pak
 from PyAitD.games import load_profile
 from PyAitD.render.asset_resolver import texture_palette_path
 

@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from PyAitD.engine.formats import decode_image, decode_palette
-from PyAitD.engine.pak import Pak
+from PyAitD.engine.data.formats import decode_image, decode_palette
+from PyAitD.engine.data.pak import Pak
 
 pytestmark = pytest.mark.engine
 

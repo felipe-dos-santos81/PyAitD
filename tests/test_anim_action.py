@@ -8,7 +8,7 @@ from PyAitD.engine.anim_action import (
     WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, WAIT_TIR_ANIM, check_line_projection_with_actors,
     gere_frappe, refresh_hot_point, throw_stopped_at,
 )
-from PyAitD.engine.formats import Zone
+from PyAitD.engine.data.formats import Zone
 from PyAitD.engine.game import AF_ANIMATED, AF_BOXIFY, AF_MOVABLE, AF_SPECIAL, init_game
 from PyAitD.engine.skel import hot_point as skel_hot_point
 

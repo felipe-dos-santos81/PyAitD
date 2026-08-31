@@ -2,10 +2,10 @@
 import numpy as np
 
 from PyAitD.render.asset_resolver import AssetResolver, ImageAsset
-from PyAitD.engine.floor import Floor
-from PyAitD.engine.formats import Body, Camera, Group, Room
+from PyAitD.engine.data.floor import Floor
+from PyAitD.engine.data.formats import Body, Camera, Group, Room
 from PyAitD.engine.game import init_game
-from PyAitD.engine.mask_geometry import MaskDraw
+from PyAitD.engine.data.mask_geometry import MaskDraw
 from PyAitD.render.scene import CameraView, FrameDescription, build_frame, mask_applies_to_actor
 from PyAitD.engine.skel import skin
 from PyAitD.engine.world import CameraState
@@ -155,7 +155,7 @@ def test_every_floor_camera_and_body_stays_within_half_a_pixel(data_dir, profile
     # CameraView.project's docstring. Also restricted to the on-screen
     # domain the bound was calibrated over -- see _on_screen.
     from PyAitD.render.geometry import pose_geometry
-    from PyAitD.engine.assets import Assets
+    from PyAitD.engine.data.assets import Assets
     assets = Assets(data_dir, profile)
     floor = Floor(data_dir, 0, profile)
     checked_any = False

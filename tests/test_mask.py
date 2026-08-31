@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import numpy as np
 
-from PyAitD.engine.mask import fill_poly
+from PyAitD.engine.data.mask import fill_poly
 import pytest
 
 pytestmark = pytest.mark.engine
@@ -27,8 +27,8 @@ def test_fill_square_rows():
     assert target[5, 2] == 0
 
 def test_masks_tagged_with_viewed_room(data_dir, profile):
-    from PyAitD.engine.floor import Floor
-    from PyAitD.engine.mask import create_aitd1_mask
+    from PyAitD.engine.data.floor import Floor
+    from PyAitD.engine.data.mask import create_aitd1_mask
     import pathlib
     d = pathlib.Path(data_dir)
     floor = Floor(d, 0, profile)
@@ -38,8 +38,8 @@ def test_masks_tagged_with_viewed_room(data_dir, profile):
 
 
 def test_masks_retain_actor_trigger_rectangles(data_dir, profile):
-    from PyAitD.engine.floor import Floor
-    from PyAitD.engine.mask import create_aitd1_mask
+    from PyAitD.engine.data.floor import Floor
+    from PyAitD.engine.data.mask import create_aitd1_mask
     import pathlib
     d = pathlib.Path(data_dir)
     floor = Floor(d, 0, profile)

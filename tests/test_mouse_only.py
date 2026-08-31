@@ -11,7 +11,7 @@ from PyAitD.engine.anim_action import (
 )
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.effects import GameMode, NavIntent
-from PyAitD.engine.floor import Floor
+from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import AF_ANIMATED, AF_MOVABLE, init_game
 from PyAitD.engine.interaction import (
     COMBAT_ACTIONS, _finish_take, choose_inventory_action, inventory_actions,

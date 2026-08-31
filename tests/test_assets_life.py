@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from PyAitD.engine.assets import Assets
+from PyAitD.engine.data.assets import Assets
 
 pytestmark = pytest.mark.engine
 

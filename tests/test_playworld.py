@@ -4,7 +4,7 @@
 import pytest
 
 from PyAitD.engine.anim_action import WAIT_FRAPPE_ANIM
-from PyAitD.engine.floor import Floor
+from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.interaction import PLAYER_PUSH_ANIM
 from PyAitD.engine.playworld import _anim_pass, play_tick

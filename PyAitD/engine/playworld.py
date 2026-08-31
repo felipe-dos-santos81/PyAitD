@@ -8,7 +8,7 @@ freeing that needs InputBuffer moved out of the presentation layer.
 from PyAitD.engine.actors import gere_anim
 from PyAitD.engine.anim_action import gere_frappe, refresh_hot_point
 from PyAitD.engine.effects import CutsceneFinished, GameMode, GameOver, InputMode, LifeFrame
-from PyAitD.engine.formats import parse_cover_zones
+from PyAitD.engine.data.formats import parse_cover_zones
 from PyAitD.engine.game import (
     AF_ANIMATED, AF_TRIGGER, change_salle, game_step_tick, spawn_stage_actors,
 )

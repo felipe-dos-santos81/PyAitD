@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from PyAitD.engine.cos_table import COS_TABLE
-from PyAitD.engine.formats import Camera
+from PyAitD.engine.data.formats import Camera
 
 SCREEN_CENTER_X = 160
 SCREEN_CENTER_Y = 100

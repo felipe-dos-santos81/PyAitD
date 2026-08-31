@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from PyAitD.engine.formats import Body, Group, Primitive
+from PyAitD.engine.data.formats import Body, Group, Primitive
 from PyAitD.engine.game import init_game
 from PyAitD.engine.skel import hot_point, pose_vertices, skin
 from PyAitD.engine.world import CameraState

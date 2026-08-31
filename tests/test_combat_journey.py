@@ -17,7 +17,7 @@ from PyAitD.engine.anim_action import (
     DO_TIR, FRAPPE_OK, THROW_OBJECT, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, gere_frappe,
 )
 from PyAitD.engine.effects import GameMode, GameOver
-from PyAitD.engine.floor import Floor
+from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import AF_ANIMATED, init_game, relocate_actor
 from PyAitD.engine.life import process_life
 from PyAitD.engine.playworld import TICK_MS, play_tick

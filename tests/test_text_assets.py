@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from PyAitD.engine.assets import Assets
-from PyAitD.engine.text import BookToken, parse_book_tokens, parse_system_texts
+from PyAitD.engine.data.assets import Assets
+from PyAitD.engine.data.text import BookToken, parse_book_tokens, parse_system_texts
 
 pytestmark = pytest.mark.engine
 

@@ -130,7 +130,8 @@ def test_aitd1_palette_entry_pins_the_resource_palette_slot():
     # ITD_RESS entry 3 is the 768-byte VGA palette (6 bits per channel).
     # Both engine/floor.py and engine/assets.py used to hardcode the 3.
     assert AITD1.palette_entry == 3
-    from PyAitD.engine import assets, floor
+    from PyAitD.engine.data import assets
+    from PyAitD.engine.data import floor
     assert not hasattr(floor, "PALETTE_PAK")
     assert not hasattr(floor, "PALETTE_ENTRY")
     assert not hasattr(assets, "GAME_PALETTE_ENTRY")

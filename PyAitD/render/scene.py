@@ -16,7 +16,7 @@ from PyAitD.render.geometry import BodyGeometry, pose_geometry
 from PyAitD.render.lighting import LEGACY_LIGHT, SceneLight
 from PyAitD.render.materials import MaterialTable, default_table
 from PyAitD.render.plate import NEUTRAL_PLATE, PlateProfile
-from PyAitD.engine.mask_geometry import MaskDraw
+from PyAitD.engine.data.mask_geometry import MaskDraw
 from PyAitD.engine.picking import actor_bbox
 from PyAitD.engine.skel import RenderResult, skin
 from PyAitD.engine.world import SCREEN_CENTER_X, SCREEN_CENTER_Y, CameraState

@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from PyAitD.engine.formats import Body, Group, Primitive
+from PyAitD.engine.data.formats import Body, Group, Primitive
 from PyAitD.render.occlusion import DEFAULT_RAYS, bake_vertex_ao, hemisphere_directions, occlusion_of
 
 pytestmark = pytest.mark.render

@@ -3,9 +3,9 @@ import struct
 
 import numpy as np
 
-from PyAitD.engine.floor import Floor
-from PyAitD.engine.mask import create_aitd1_mask, fill_poly
-from PyAitD.engine.mask_geometry import MaskDraw, iter_mask_records, mask_polygons, triangulate_polygon
+from PyAitD.engine.data.floor import Floor
+from PyAitD.engine.data.mask import create_aitd1_mask, fill_poly
+from PyAitD.engine.data.mask_geometry import MaskDraw, iter_mask_records, mask_polygons, triangulate_polygon
 import pytest
 
 pytestmark = pytest.mark.engine

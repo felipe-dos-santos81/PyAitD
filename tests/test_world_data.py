@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pathlib
 
-from PyAitD.engine.formats import parse_defines, parse_objets, parse_priority, parse_vars
+from PyAitD.engine.data.formats import parse_defines, parse_objets, parse_priority, parse_vars
 import pytest
 
 pytestmark = pytest.mark.engine

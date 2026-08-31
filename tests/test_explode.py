@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from PyAitD.engine.explode import explode, ExplodeError
+from PyAitD.engine.data.explode import explode, ExplodeError
 import pytest
 
 pytestmark = pytest.mark.engine

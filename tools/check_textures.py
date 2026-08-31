@@ -22,7 +22,7 @@ from PyAitD.render.texture_check import (
     alt_coverage, check_alt_backgrounds, check_bodies, check_screens, check_textures, coverage, has_errors,
     screen_coverage, summarize,
 )
-from PyAitD.engine.pak import PakError
+from PyAitD.engine.data.pak import PakError
 from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import RenderOptions
 from PyAitD.render.scene import CameraView, FrameDescription

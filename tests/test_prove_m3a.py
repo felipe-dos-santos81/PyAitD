@@ -6,8 +6,8 @@ import pathlib
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
-from PyAitD.engine.assets import Assets
-from PyAitD.engine.formats import parse_defines, parse_objets, parse_priority, parse_vars
+from PyAitD.engine.data.assets import Assets
+from PyAitD.engine.data.formats import parse_defines, parse_objets, parse_priority, parse_vars
 import pytest
 
 pytestmark = [pytest.mark.engine, pytest.mark.journey]
@@ -41,7 +41,7 @@ def test_headless_boot_ticks(data_dir, profile):
     # Headless 60-tick PlayWorld boot with opcode trace, through the same
     # play_tick the game runs — playworld is pygame/GL-free, so CI needs no
     # window. Fails (not skips) if boot breaks or the intro produces no trace.
-    from PyAitD.engine.floor import Floor
+    from PyAitD.engine.data.floor import Floor
     from PyAitD.engine.game import init_game
     from PyAitD.engine.life import Trace
     from PyAitD.engine.playworld import play_tick

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.engine.formats import parse_cameras, parse_rooms
-from PyAitD.engine.pak import Pak
+from PyAitD.engine.data.formats import parse_cameras, parse_rooms
+from PyAitD.engine.data.pak import Pak
 import pytest
 
 pytestmark = pytest.mark.engine

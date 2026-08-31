@@ -3,8 +3,8 @@ from hashlib import sha256
 
 import pytest
 
-from PyAitD.engine.assets import Assets
-from PyAitD.engine.floor import load_entry
+from PyAitD.engine.data.assets import Assets
+from PyAitD.engine.data.floor import load_entry
 
 pytestmark = pytest.mark.engine
 
@@ -106,7 +106,7 @@ def _cadre_raw(bad_index, bad_offset, payload=b""):
 )
 def test_cadre_bank_malformed(data_dir, profile, monkeypatch, raw, bad_index):
     assets = Assets(data_dir, profile)
-    monkeypatch.setattr("PyAitD.engine.assets.load_entry", lambda pak, entry: raw)
+    monkeypatch.setattr("PyAitD.engine.data.assets.load_entry", lambda pak, entry: raw)
     with pytest.raises(ValueError) as excinfo:
         assets.cadre_bank()
     message = str(excinfo.value)
@@ -117,7 +117,7 @@ def test_cadre_bank_malformed(data_dir, profile, monkeypatch, raw, bad_index):
 
 
 def test_assets_reads_archive_names_from_the_profile(data_dir, profile):
-    from PyAitD.engine.assets import Assets
+    from PyAitD.engine.data.assets import Assets
     emily = Assets(data_dir, profile, hero=1)
     assert (emily.body_archive_name, emily.anim_archive_name) == ("LISTBOD2", "LISTANI2")
     with pytest.raises(ValueError):

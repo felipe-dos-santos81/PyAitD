@@ -9,7 +9,7 @@ from dataclasses import fields
 import pytest
 
 from PyAitD import __version__
-from PyAitD.engine.formats import WorldObject
+from PyAitD.engine.data.formats import WorldObject
 from PyAitD.engine.game import NUM_MAX_OBJECT, Actor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.save import SCHEMA, SaveError, source_identity, snapshot_game, validate_snapshot
@@ -251,7 +251,7 @@ def test_validate_rejects_corrupt_rng_state(data_dir, profile):
 
 from PyAitD.engine.actors import anim_player_for
 from PyAitD.engine.effects import TimedMessage
-from PyAitD.engine.floor import Floor
+from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import FloorStart
 from PyAitD.engine.navmesh import MeshCache
 from PyAitD.engine.playworld import play_tick

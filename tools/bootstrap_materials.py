@@ -274,8 +274,8 @@ def emit_table(data):
 def load_game(data_dir):
     """(palette, bodies) from real game data: the floor-0 palette and every
     body of both hero archives, keyed '<hero>:<num>'."""
-    from PyAitD.engine.assets import Assets
-    from PyAitD.engine.floor import Floor
+    from PyAitD.engine.data.assets import Assets
+    from PyAitD.engine.data.floor import Floor
     from PyAitD.games.aitd1.profile import AITD1
     palette = Floor(data_dir, 0, AITD1).palette
     bodies = {}

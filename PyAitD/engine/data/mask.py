@@ -2,7 +2,7 @@
 """Mask rasterization port of FITD polys.cpp fillpoly + main.cpp createAITD1Mask."""
 from dataclasses import dataclass
 
-from PyAitD.engine.mask_geometry import _polygons_bbox, iter_mask_records
+from PyAitD.engine.data.mask_geometry import _polygons_bbox, iter_mask_records
 
 import numpy as np
 

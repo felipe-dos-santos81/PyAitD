@@ -6,7 +6,7 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import numpy as np
 import pytest
 
-from PyAitD.engine.formats import Body, Group, Primitive
+from PyAitD.engine.data.formats import Body, Group, Primitive
 from PyAitD.render.materials import parse_table
 from tools import bootstrap_materials as bm
 

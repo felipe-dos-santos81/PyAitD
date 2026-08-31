@@ -3,7 +3,7 @@
 golden ticks pinned from the 2026-08-26 headless spike."""
 import pytest
 
-from PyAitD.engine.floor import Floor
+from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import init_game, start_game
 from PyAitD.engine.interaction import apply_reading_result
 from PyAitD.engine.playworld import play_tick

@@ -2,10 +2,10 @@
 """Parsed body/animation asset registry (parse-once caches over the M1 LRU)."""
 import numpy as np
 
-from PyAitD.engine.floor import load_entry
-from PyAitD.engine.formats import decode_image, decode_palette, parse_anim, parse_body
-from PyAitD.engine.pak import Pak, find_pak
-from PyAitD.engine.text import parse_book_tokens, parse_system_texts
+from PyAitD.engine.data.floor import load_entry
+from PyAitD.engine.data.formats import decode_image, decode_palette, parse_anim, parse_body
+from PyAitD.engine.data.pak import Pak, find_pak
+from PyAitD.engine.data.text import parse_book_tokens, parse_system_texts
 
 
 class Assets:

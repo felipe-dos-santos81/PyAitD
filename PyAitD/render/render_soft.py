@@ -8,7 +8,7 @@ import numpy as np
 import pygame
 
 from PyAitD.render.geometry import POLY_TYPES
-from PyAitD.engine.mask import fill_poly
+from PyAitD.engine.data.mask import fill_poly
 
 W, H = 320, 200
 

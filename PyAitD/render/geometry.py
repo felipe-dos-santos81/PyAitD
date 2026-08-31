@@ -8,7 +8,7 @@ import functools
 
 import numpy as np
 
-from PyAitD.engine.formats import _PRIM_POINT_LIKE
+from PyAitD.engine.data.formats import _PRIM_POINT_LIKE
 from PyAitD.engine.skel import pose_vertices
 
 POLY_TYPES = (1, 8, 9, 10)

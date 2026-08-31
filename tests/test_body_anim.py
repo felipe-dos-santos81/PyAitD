@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import pytest
 
-from PyAitD.engine.formats import parse_anim, parse_body
-from PyAitD.engine.pak import Pak
+from PyAitD.engine.data.formats import parse_anim, parse_body
+from PyAitD.engine.data.pak import Pak
 
 pytestmark = pytest.mark.engine
 

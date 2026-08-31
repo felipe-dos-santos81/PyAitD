@@ -4,7 +4,7 @@ import math
 import numpy as np
 import pytest
 
-from PyAitD.engine.formats import Body, Primitive
+from PyAitD.engine.data.formats import Body, Primitive
 from PyAitD.render.geometry import _CAMERA_FACING, pose_geometry
 from PyAitD.render.refine import (
     CREASE_DEG, Refinement, corner_normals, evaluate, parse_crease, plan_refinement, subpatch,
@@ -205,7 +205,7 @@ def test_parse_crease():
 
 
 def test_every_body_in_the_data_plans(data_dir, profile):
-    from PyAitD.engine.assets import Assets
+    from PyAitD.engine.data.assets import Assets
     assets = Assets(data_dir, profile)
     for num in range(assets.num_bodies):
         body = assets.body(num)
@@ -230,7 +230,7 @@ def test_the_hero_body_corner_normals_agree_with_their_faces(data_dir, profile):
     # wrap past 90 degrees (4 of 642 on this body). Measured against the
     # face's own oriented normal, not against the placeholder vector: a
     # face that genuinely faces -z has a genuine (0, 0, -1) normal.
-    from PyAitD.engine.assets import Assets
+    from PyAitD.engine.data.assets import Assets
     body = Assets(data_dir, profile).body(12)
     plan = plan_refinement(body)
     geo = pose_geometry(body, [(0, (0, 0, 0))] * len(body.groups), (0, 0, 0), refinement=plan)

@@ -221,7 +221,7 @@ def test_makefile_mentions_check_and_run_textures():
 
 def test_exported_originals_render_pixel_identical_through_the_texture_dir(data_dir, profile, tmp_path):
     """DIR straight from export, used as --textures, changes nothing."""
-    from PyAitD.engine.floor import Floor
+    from PyAitD.engine.data.floor import Floor
     from PyAitD.render.asset_resolver import AssetResolver
     out = tmp_path / "ov"
     assert xb.main([str(data_dir), "--out", str(out), "--floors", "0"]) == 0

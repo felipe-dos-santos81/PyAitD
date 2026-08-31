@@ -21,7 +21,7 @@ def test_export_alt_backgrounds_writes_five_and_reuses_guides(tmp_path, data_dir
         assert rec["guide"] == "guides/floor{:02d}/camera{:03d}.png".format(rec["floor"], rec["camera"])
         assert rec["itd_entry"] in (15, 16, 17, 18, 19)
     # concrete check: floor07 cam000 is ITD_RESS:15, not CAMERA07:0
-    from PyAitD.engine.floor import Floor
+    from PyAitD.engine.data.floor import Floor
     from PyAitD.render.texture_export import sha256_rgb
     # ensure alt SHA differs from base
     base_sha = sha256_rgb(Floor(data_dir, 7, profile).camera_image(0))

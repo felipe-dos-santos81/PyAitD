@@ -12,7 +12,7 @@ def test_cube_intersect():
 
 
 def test_check_hard_col():
-    from PyAitD.engine.formats import Zone
+    from PyAitD.engine.data.formats import Zone
     cols = [Zone(0, 10, 0, 100, 0, 10, 0, 0), Zone(50, 60, 0, 100, 0, 10, 0, 0)]
     assert len(check_hard_col((0, 10, 0, 10, 0, 10), cols)) == 1
 

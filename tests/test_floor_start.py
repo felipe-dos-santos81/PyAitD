@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 import struct
 
-from PyAitD.engine.floor import Floor
+from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import FloorStart, enter_floor_start, init_game, relocate_actor, start_game
 from PyAitD.engine.life import process_life
 from PyAitD.engine.playworld import play_tick

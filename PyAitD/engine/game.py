@@ -5,11 +5,11 @@ from collections import deque
 from dataclasses import dataclass, field
 from itertools import product
 
-from PyAitD.engine.assets import Assets
+from PyAitD.engine.data.assets import Assets
 from PyAitD.engine.effects import GameMode, ImmediateEffect, InputMode, MODAL_MODE, TimedMessage
 from PyAitD.engine.cos_table import COS_TABLE
-from PyAitD.engine.floor import Floor
-from PyAitD.engine.formats import parse_defines, parse_objets, parse_vars
+from PyAitD.engine.data.floor import Floor
+from PyAitD.engine.data.formats import parse_defines, parse_objets, parse_vars
 from PyAitD.engine.navmesh import MeshCache
 from PyAitD.engine.world import cdiv as _cdiv, room_delta
 

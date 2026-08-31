@@ -3,7 +3,7 @@ import numpy as np
 
 from PyAitD.render.asset_resolver import ImageAsset
 from PyAitD.render.geometry import BodyGeometry
-from PyAitD.engine.mask_geometry import MaskDraw
+from PyAitD.engine.data.mask_geometry import MaskDraw
 from PyAitD.render.render_soft import SoftwareBackend
 from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
 from PyAitD.engine.skel import PrimEntry, RenderResult

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Track runner port (FITD track.cpp processTrack, AITD1 macro set)."""
-from PyAitD.engine.formats import _s16 as _read_s16
+from PyAitD.engine.data.formats import _s16 as _read_s16
 from PyAitD.engine.game import AF_TRIGGER
 from PyAitD.engine.realvalue import give_distance_2d, init_real_value, update_actor_rotation
 from PyAitD.engine.world import cdiv as _cdiv, room_delta, rotate_step

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from PyAitD.engine.formats import parse_cover_zones
+from PyAitD.engine.data.formats import parse_cover_zones
 
 GRID_STEP = 100   # room-scale units per cell (~5 across the hero's 532)
 COVER_SCALE = 10  # cover-zone unit -> room-scale

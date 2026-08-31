@@ -24,7 +24,7 @@ def test_rotate_step_identity():
 
 
 def test_camera_from_room_coords():
-    from PyAitD.engine.formats import Camera
+    from PyAitD.engine.data.formats import Camera
     cam = Camera(109, 185, 0, -741, 280, -116, 300, 189, 158)
     state = CameraState.from_camera(cam, world_x=0, world_y=0, world_z=0)
     assert (state.x, state.y, state.z) == (-7410, -2800, 1160)

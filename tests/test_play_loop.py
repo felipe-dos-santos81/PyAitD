@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from PyAitD.engine.floor import Floor
+from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.life import life_gate
 from PyAitD.engine.navmesh import agent_extent
@@ -702,7 +702,7 @@ def test_gere_anim_walk_step(data_dir, profile):
     # walkStep outputs crossed, animMoveZ = cos*step, animMoveX = -sin*step).
     # First tick is bp=0 (inter), so the first commit lands on tick 21.
     from PyAitD.engine.actors import gere_anim
-    from PyAitD.engine.formats import Animation, Frame
+    from PyAitD.engine.data.formats import Animation, Frame
 
     game = init_game(data_dir, profile, hero=0)
     actor = game.actors[game.current_camera_target_actor]
@@ -729,7 +729,7 @@ def test_gere_anim_one_shot_rearm(data_dir, profile):
     # FITD anim.cpp:654-660: one-shot (non-repeat) anim wrap with no pending
     # anim clears ANIM_UNINTERRUPTABLE and restarts the anim as ANIM_REPEAT
     from PyAitD.engine.actors import gere_anim
-    from PyAitD.engine.formats import Animation, Frame
+    from PyAitD.engine.data.formats import Animation, Frame
 
     game = init_game(data_dir, profile, hero=0)
     actor = game.actors[game.current_camera_target_actor]

@@ -4,7 +4,7 @@ import zlib
 
 import pytest
 
-from PyAitD.engine.pak import Pak, PakError, find_pak
+from PyAitD.engine.data.pak import Pak, PakError, find_pak
 
 pytestmark = pytest.mark.engine
 

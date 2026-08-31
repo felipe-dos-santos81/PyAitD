@@ -5,11 +5,11 @@ import numpy as np
 import pygame
 import pytest
 
-from PyAitD.engine.assets import Assets
+from PyAitD.engine.data.assets import Assets
 from PyAitD.app.config import default_settings
 from PyAitD.engine.effects import FoundResult, ReadText, ShowFound, ShowPicture, TimedMessage
 from PyAitD.engine.game import init_game
-from PyAitD.engine.text import BookToken
+from PyAitD.engine.data.text import BookToken
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
     FoundPresenter, InventoryPresenter, ModalLayout, PlayLayout, ReadingPresenter, ReadingResult,

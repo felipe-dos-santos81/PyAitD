@@ -4,7 +4,7 @@ import struct
 import pytest
 
 from PyAitD.engine.effects import NavDecision
-from PyAitD.engine.formats import Zone
+from PyAitD.engine.data.formats import Zone
 from PyAitD.engine.game import AF_TRIGGER, Actor, Game, init_game
 from PyAitD.engine.tracks import (
     cap_objet, face_toward, get_room_link, init_deplacement, process_track,
