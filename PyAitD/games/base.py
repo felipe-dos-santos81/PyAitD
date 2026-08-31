@@ -2,10 +2,13 @@
 """GameProfile: the per-game constants the engine reads at runtime.
 
 FITD branches on g_gameId in boot (main.cpp), opcode semantics (life.cpp),
-getCVarsIdx, and a few format variants. This holds the per-game constants
-extracted so far; engine/ still encodes AITD1 opcode numbering (life.py's
-NUM_OPCODES and core_table() slots) and record layouts (formats.py), so a
-second game will need further seams."""
+getCVarsIdx, and a few format variants. Every seam once hard-coded in
+engine/ is now a field here: archive naming and overlay strategy
+(floor_archive_name/camera_archive_name/mask_factory), the cadre bank,
+VM-control opcode numbering (core_slots; opcode_table itself was already a
+field), the player-control indices, the record layouts, and the FITD
+gameTypeEnum ordinal (generation). A second game is a new profile instance
+plus a PROFILES entry — no engine edits."""
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
