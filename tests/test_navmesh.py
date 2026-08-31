@@ -3,7 +3,7 @@
 from PyAitD.engine.actor.actors import cube_intersect
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import init_game
-from PyAitD.engine.navmesh import COVER_SCALE, GRID_STEP, agent_extent, build_cover_grid, build_room_mesh, cover_polys
+from PyAitD.engine.nav.navmesh import COVER_SCALE, GRID_STEP, agent_extent, build_cover_grid, build_room_mesh, cover_polys
 from PyAitD.engine.space.world import is_in_poly
 
 import pytest
@@ -97,7 +97,7 @@ def test_room_links_never_block(data_dir, profile):
 
 import numpy as np
 
-from PyAitD.engine.navmesh import (
+from PyAitD.engine.nav.navmesh import (
     TARGET_SNAP_CELLS, MeshCache, RoomMesh, approach_cell, find_path, nearest_walkable,
 )
 

@@ -11,7 +11,7 @@ import hashlib
 import numpy as np
 
 from PyAitD.engine.data.formats import parse_cover_zones
-from PyAitD.engine.navmesh import COVER_SCALE
+from PyAitD.engine.nav.navmesh import COVER_SCALE
 from PyAitD.render.scene import CameraView
 from PyAitD.engine.space.world import CameraState
 

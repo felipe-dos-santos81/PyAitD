@@ -9,7 +9,7 @@ from the fixed-point pipeline it has to agree with.
 """
 import numpy as np
 
-from PyAitD.engine.navmesh import COVER_SCALE, cover_polys
+from PyAitD.engine.nav.navmesh import COVER_SCALE, cover_polys
 from PyAitD.engine.space.world import CameraState, transform_point
 
 

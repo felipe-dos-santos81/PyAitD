@@ -2,7 +2,7 @@
 
 from PyAitD.engine.effects import NavIntent
 from PyAitD.engine.game import Actor
-from PyAitD.engine.navigate import (
+from PyAitD.engine.nav.navigate import (
     ARRIVE_DISTANCE, GIVE_UP_ARRIVE_DISTANCE, STALL_TICKS, decide,
 )
 from PyAitD.engine.actor.tracks import cap_objet
@@ -189,7 +189,7 @@ def test_a_destination_in_another_room_steers_to_the_room_link():
     game = _LinkGame(intent)
     actor = _actor(0, 0, room=0)
 
-    import PyAitD.engine.navigate as navigate_module
+    import PyAitD.engine.nav.navigate as navigate_module
 
     class _Zone:
         x1, x2, y1, y2, z1, z2, type, parameter = 100, 300, 0, 0, 700, 900, 4, 3

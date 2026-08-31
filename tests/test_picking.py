@@ -2,8 +2,8 @@
 
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import init_game
-from PyAitD.engine.navmesh import COVER_SCALE, cover_polys
-from PyAitD.engine.picking import pick_floor, pick_floor_any_room, pick_floor_in_room, project_floor_point
+from PyAitD.engine.nav.navmesh import COVER_SCALE, cover_polys
+from PyAitD.engine.nav.picking import pick_floor, pick_floor_any_room, pick_floor_in_room, project_floor_point
 from PyAitD.engine.space.world import CameraState
 
 import pytest
@@ -67,7 +67,7 @@ def test_pick_floor_outside_every_cover_polygon_is_none(data_dir, profile):
     assert pick_floor((2, 2), floor, 0, 0, 0) is None
 
 
-from PyAitD.engine.picking import ACTOR_PICK_PAD, actor_bbox, pick_actor
+from PyAitD.engine.nav.picking import ACTOR_PICK_PAD, actor_bbox, pick_actor
 
 
 class _FakeResult:

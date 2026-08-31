@@ -7,8 +7,8 @@ import pytest
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import init_game
 from PyAitD.engine.life import life_gate
-from PyAitD.engine.navmesh import agent_extent
-from PyAitD.engine.picking import project_floor_point
+from PyAitD.engine.nav.navmesh import agent_extent
+from PyAitD.engine.nav.picking import project_floor_point
 
 from tests.conftest import painter_from_frame
 
@@ -1180,7 +1180,7 @@ def test_a_click_on_nothing_leaves_the_intent_alone(data_dir, profile):
 def _real_draw_list_entry(game, floor, actor_idx):
     """The (actor, screen bbox) pair _scene_frame would produce, without a
     Renderer: the same skin() call, the same picking.actor_bbox."""
-    from PyAitD.engine.picking import actor_bbox
+    from PyAitD.engine.nav.picking import actor_bbox
     from PyAitD.engine.actor.skel import skin
     from PyAitD.engine.space.world import CameraState
     room = floor.rooms[game.current_room]
@@ -1359,7 +1359,7 @@ def test_the_cursor_and_the_click_come_from_one_resolution(data_dir, profile):
 
 def test_a_walk_click_always_lands_on_a_walkable_cell(data_dir, profile):
     # the cursor promises "walk", so the destination must really be on the mesh
-    from PyAitD.engine.navmesh import agent_extent
+    from PyAitD.engine.nav.navmesh import agent_extent
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
@@ -1404,7 +1404,7 @@ def test_the_approach_bias_is_converted_into_the_target_room_s_frame(data_dir, p
     # that room's coordinate frame first. Floor 1 room 0 -> room 7 is a
     # 12000-unit delta on x, 120 grid cells, so an unconverted bias picks the
     # approach side essentially at random.
-    import PyAitD.engine.navmesh as navmesh_module
+    import PyAitD.engine.nav.navmesh as navmesh_module
     from PyAitD.app.shell import resolve_play_click
     from PyAitD.engine.space.world import room_delta
 
@@ -1439,7 +1439,7 @@ def test_the_approach_bias_is_converted_into_the_target_room_s_frame(data_dir, p
 def test_a_same_room_target_passes_the_hero_position_unchanged(data_dir, profile):
     # control: the conversion must be a no-op within one room, or every
     # single-room click would be biased by a spurious offset.
-    import PyAitD.engine.navmesh as navmesh_module
+    import PyAitD.engine.nav.navmesh as navmesh_module
     from PyAitD.app.shell import resolve_play_click
 
     game, floor, hero, target, draw_list = _cross_room_target_setup(data_dir, profile)
@@ -1463,7 +1463,7 @@ def test_a_same_room_target_passes_the_hero_position_unchanged(data_dir, profile
 
 
 def test_inventory_hud_wins_before_world_resolution(data_dir, profile, monkeypatch):
-    import PyAitD.engine.picking as picking
+    import PyAitD.engine.nav.picking as picking
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -1482,7 +1482,7 @@ def test_inventory_hud_wins_before_world_resolution(data_dir, profile, monkeypat
 def test_inventory_hud_effective_padding_has_priority_and_exclusive_far_edges(
     data_dir, profile, monkeypatch,
 ):
-    import PyAitD.engine.picking as picking
+    import PyAitD.engine.nav.picking as picking
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -1588,7 +1588,7 @@ def test_expansion_only_overlap_keeps_the_frontmost_actor(data_dir, profile):
 
 def test_original_actor_hit_wins_over_a_frontmost_expanded_actor(data_dir, profile):
     from PyAitD.app.shell import expand_actor_targets
-    from PyAitD.engine.picking import pick_actor
+    from PyAitD.engine.nav.picking import pick_actor
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -1610,7 +1610,7 @@ def test_original_actor_hit_wins_over_a_frontmost_expanded_actor(data_dir, profi
 
 
 def test_expanded_actor_target_wins_before_floor_walking(data_dir, profile, monkeypatch):
-    import PyAitD.engine.picking as picking
+    import PyAitD.engine.nav.picking as picking
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)

@@ -191,7 +191,7 @@ def is_hold_action_target(game, actor_idx):
 
 
 def hold_action_approach(game, floor, hero_idx, target_idx):
-    from PyAitD.engine.navmesh import agent_extent, nearest_walkable
+    from PyAitD.engine.nav.navmesh import agent_extent, nearest_walkable
 
     if not is_hold_action_target(game, target_idx):
         return None

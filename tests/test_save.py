@@ -253,7 +253,7 @@ from PyAitD.engine.actor.actors import anim_player_for
 from PyAitD.engine.effects import TimedMessage
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.game import FloorStart
-from PyAitD.engine.navmesh import MeshCache
+from PyAitD.engine.nav.navmesh import MeshCache
 from PyAitD.engine.playworld import play_tick
 from PyAitD.engine.save import restore_game
 

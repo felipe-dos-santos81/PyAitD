@@ -158,10 +158,10 @@ def test_every_python_file_starts_with_the_spdx_line():
 # (2026-08-26-engine-package-reorganization-design.md:110-113). Rows are the
 # modules whose headless importability is load-bearing, each with its reason.
 PRESENTATION_FREE = (
-    ("PyAitD.engine.navigate", PRESENTATION, ""),
-    ("PyAitD.engine.navmesh", PRESENTATION,
+    ("PyAitD.engine.nav.navigate", PRESENTATION, ""),
+    ("PyAitD.engine.nav.navmesh", PRESENTATION,
      " — the mesh must stay importable without the presentation layer so it can build headless"),
-    ("PyAitD.engine.picking", PRESENTATION,
+    ("PyAitD.engine.nav.picking", PRESENTATION,
      " — picking is pure math and must not need a window; the shell passes it logical coordinates"),
     ("PyAitD.engine.playworld,PyAitD.engine.actor.anim_action", PRESENTATION,
      " — the tick must stay importable without the presentation layer so it can run headless"),

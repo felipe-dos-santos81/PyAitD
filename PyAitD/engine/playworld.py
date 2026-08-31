@@ -17,8 +17,8 @@ from PyAitD.engine.interaction import (
     gere_dec, run_life, sync_player_track_mode,
 )
 from PyAitD.engine.life import life_gate
-from PyAitD.engine.navigate import WAYPOINT_DISTANCE, decide
-from PyAitD.engine.navmesh import agent_extent, find_path, nearest_walkable
+from PyAitD.engine.nav.navigate import WAYPOINT_DISTANCE, decide
+from PyAitD.engine.nav.navmesh import agent_extent, find_path, nearest_walkable
 from PyAitD.engine.space.world import find_best_camera, is_in_poly
 
 TICK_MS = 20  # 50 Hz logic tick

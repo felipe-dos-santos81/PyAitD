@@ -28,7 +28,7 @@ def test_play_tick_advances_the_world_without_a_display(data_dir, profile):
 
 
 from PyAitD.engine.effects import GameMode, InputMode, NavIntent
-from PyAitD.engine.navmesh import agent_extent
+from PyAitD.engine.nav.navmesh import agent_extent
 from PyAitD.engine.playworld import apply_play_input
 from tests.conftest import held_pointer
 
@@ -456,7 +456,7 @@ def test_real_wardrobe_moves_only_after_life_enables_it(data_dir, profile, hero_
 
 
 def test_hero_walks_to_a_clicked_destination_and_arrives(data_dir, profile):
-    from PyAitD.engine.navigate import ARRIVE_DISTANCE
+    from PyAitD.engine.nav.navigate import ARRIVE_DISTANCE
     from PyAitD.engine.space.realvalue import give_distance_2d
 
     game = init_game(data_dir, profile)
@@ -646,7 +646,7 @@ def test_held_push_on_the_rocking_horse_never_wedges_the_hero(data_dir, profile)
     # gere_collision zeroes every step and the hero can never walk again.
     from PyAitD.engine.actor.actors import check_hard_col
     from PyAitD.engine.interaction import apply_click_intent, hold_action_approach
-    from PyAitD.engine.navmesh import agent_extent, nearest_walkable
+    from PyAitD.engine.nav.navmesh import agent_extent, nearest_walkable
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)

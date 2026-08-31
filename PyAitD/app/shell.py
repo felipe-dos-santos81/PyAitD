@@ -337,8 +337,8 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
         can_strike, hold_action_approach, is_combat_target,
         is_hold_action_target,
     )
-    from PyAitD.engine.navmesh import agent_extent, approach_cell, nearest_walkable
-    from PyAitD.engine.picking import pick_actor, pick_floor_any_room
+    from PyAitD.engine.nav.navmesh import agent_extent, approach_cell, nearest_walkable
+    from PyAitD.engine.nav.picking import pick_actor, pick_floor_any_room
     from PyAitD.app.ui import PlayLayout
     from PyAitD.engine.space.world import room_delta
 

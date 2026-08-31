@@ -24,7 +24,7 @@ def _boot(data_dir, profile):
 def _legacy_scene(game, floor):
     """The pre-layer _scene_frame body: what draw_list and actor order were."""
     from PyAitD.engine.actor.actors import anim_player_for, sort_actor_indices
-    from PyAitD.engine.picking import actor_bbox
+    from PyAitD.engine.nav.picking import actor_bbox
     room = floor.rooms[game.current_room]
     cam = floor.cameras[room.camera_indices[game.num_camera]]
     state = CameraState.from_camera(cam, room.world_x, room.world_y, room.world_z).angles()
@@ -399,7 +399,7 @@ def _legacy_stub_scene(game, floor, resolver):
     # draw_list, matching how the brief's own data_dir test compares against
     # _legacy_scene above.
     from PyAitD.engine.actor.actors import anim_player_for, sort_actor_indices
-    from PyAitD.engine.picking import actor_bbox
+    from PyAitD.engine.nav.picking import actor_bbox
     room = floor.rooms[game.current_room]
     cam_idx = room.camera_indices[game.num_camera]
     state = CameraState.from_camera(
