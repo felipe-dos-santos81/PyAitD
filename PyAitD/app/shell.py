@@ -28,7 +28,7 @@ from PyAitD.engine.script.playworld import TICK_MS, play_tick
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import (
     BACKGROUND_FILTERS, LIGHTING_MODES, MSAA_LEVELS, REALISM_MODES, SHADING_MODES,
-    INTEGRATION_LEVELS, LEGACY_INTEGRATION,
+    INTEGRATION_LEVELS, LEGACY_INTEGRATION, MOTION_MODES,
     SHADOW_MODES, SMOOTHING_LEVELS, validate_render_options,
 )
 from PyAitD.games import load_profile
@@ -127,6 +127,11 @@ def parse_args(argv):
         help="how much of the plate's tone, grain and softness the actors take on: "
              "0 draws them straight over it, 1-3 composite at half, full and one-and-a-half strength")
     p.add_argument(
+        "--motion", choices=MOTION_MODES, default=None,
+        help="tick: one pose per 50 Hz tick; smooth: blend between ticks "
+             "at the display rate (rendering only, up to one tick behind)",
+    )
+    p.add_argument(
         "--textures", type=pathlib.Path, default=None, help="asset texture directory",
     )
     p.add_argument(
@@ -172,6 +177,8 @@ def apply_render_overrides(settings, args):
         payload["shadows"] = args.shadows
     if args.integration is not None:
         payload["integration"] = args.integration
+    if args.motion is not None:
+        payload["motion"] = args.motion
     if args.textures is not None:
         payload["texture_dir"] = str(args.textures)
     render, _error = validate_render_options(payload)
@@ -653,7 +660,7 @@ def _route_game_over_command(game, session, modal_command):
 # rows, via GRAPHICS_CYCLES in ui.reduce_system_menu). `texture_dir` has no menu row at
 # all, so it is never in this set and a save can never pick it up from the
 # in-memory, possibly CLI-set, session.settings.render.
-_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism", "smoothing", "shadows", "integration")
+_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism", "smoothing", "shadows", "integration", "motion")
 
 
 def _persisted_render(session):

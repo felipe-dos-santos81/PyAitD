@@ -35,6 +35,13 @@ INTEGRATION_STRENGTHS = (0.0, 0.5, 1.0, 1.5)
 # What the option was spelled as before it was a level, and what those
 # spellings mean now. `validate_render_options` reads it; nothing else should.
 LEGACY_INTEGRATION = {"off": 0, "on": 2}
+# tick: one pose per 50 Hz simulation tick, rendered as-is — today's
+# behaviour, byte for byte. smooth: build_frame blends the previous
+# tick's snapshot toward the live state at the accumulator's leftover
+# fraction, through the float pose twin (render/motion.py). Rendering
+# only: picking, masks and the logical projection always read the tick
+# pose.
+MOTION_MODES = ("tick", "smooth")
 
 
 @dataclass(frozen=True)
@@ -49,6 +56,7 @@ class RenderOptions:
     smoothing: int = 2
     shadows: str = "soft"
     integration: int = 2
+    motion: str = "tick"
 
     def to_payload(self):
         return {
@@ -62,6 +70,7 @@ class RenderOptions:
             "smoothing": self.smoothing,
             "shadows": self.shadows,
             "integration": self.integration,
+            "motion": self.motion,
         }
 
 
@@ -123,7 +132,11 @@ def validate_render_options(payload):
     if not (type(integration) is int and integration in INTEGRATION_LEVELS):
         errors.append(f"integration must be one of {', '.join(str(v) for v in INTEGRATION_LEVELS)}")
         integration = defaults.integration
-    options = RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration)
+    motion = payload.get("motion")
+    if motion not in MOTION_MODES:
+        errors.append(f"motion must be one of {', '.join(MOTION_MODES)}")
+        motion = defaults.motion
+    options = RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration, motion)
     return options, ("; ".join(errors) or None)
 
 
@@ -169,3 +182,7 @@ def cycle_shadows(options):
 def cycle_integration(options):
     current = options.integration if options.integration in INTEGRATION_LEVELS else INTEGRATION_LEVELS[0]
     return replace(options, integration=_cycle(INTEGRATION_LEVELS, current))
+
+
+def cycle_motion(options):
+    return replace(options, motion=_cycle(MOTION_MODES, options.motion))

@@ -638,3 +638,19 @@ def test_the_integration_flag_still_takes_the_words_it_used_to():
 
     assert parse_args(["--integration", "off"]).integration == 0
     assert parse_args(["--integration", "on"]).integration == 2
+
+
+def test_motion_cli_override_is_session_only_and_alone():
+    from dataclasses import replace
+    from PyAitD.app.config import default_settings
+    from PyAitD.app.shell import apply_render_overrides, parse_args
+    base = default_settings()
+    only = apply_render_overrides(base, parse_args(["--motion", "smooth"]))
+    # exactly the motion field moved, nothing else
+    assert only.render == replace(base.render, motion="smooth")
+    assert apply_render_overrides(base, parse_args([])).render.motion == "tick"
+
+
+def test_menu_render_fields_cover_motion():
+    from PyAitD.app.shell import _MENU_RENDER_FIELDS
+    assert "motion" in _MENU_RENDER_FIELDS
