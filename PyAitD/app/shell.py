@@ -1453,7 +1453,8 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
                     and event.type in (pygame.KEYDOWN, pygame.KEYUP)
                     and not bool(getattr(event, "repeat", False))
                     and game.mode is GameMode.PLAY
-                    and game.active_modal is None):
+                    and game.active_modal is None
+                    and game.input_mode is InputMode.KEYBOARD):
                 control = input_buffer.bindings.get(event.key)
                 if control is not None and control.name in MIRROR_KEYCODES:
                     if event.type == pygame.KEYDOWN:
