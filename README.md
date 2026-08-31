@@ -3,6 +3,11 @@
 Python engine reimplementation of **Alone in the Dark 1** (DOS, 1992).
 pygame-ce + ModernGL, Apple Silicon, windowed. GPLv2.
 
+This port is inspired by [FITD](https://github.com/yaz0r/FITD) and
+[AloneInTheDarkReHaunted](https://github.com/spacefarergames/AloneInTheDarkReHaunted).
+It aims to improve the game's accessibility (mouse-only play, remappable
+controls, sticky actions) and is built for **educational purposes only**.
+
 **You must own the original game** — this repo never ships game data.
 
 ## Setup
@@ -11,8 +16,12 @@ pygame-ce + ModernGL, Apple Silicon, windowed. GPLv2.
 make install            # .venv + editable install with dev deps
 ```
 
-Game data defaults to `data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK`
-at the repo root; override with `data=` on any make target or `--data DIR`.
+Add your legally owned base game files to
+`data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK`
+at the repo root — i.e. copy the original game's `INDARK` directory (the one
+holding the `.PAK` archives) into that path, keeping the `.app` folder
+structure shown. If your copy lives elsewhere, override with `data=` on any
+make target or `--data DIR`.
 Tests honor env `PYAITD_DATA` and skip when data is absent.
 
 ## Layout
