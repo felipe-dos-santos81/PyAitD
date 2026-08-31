@@ -4,7 +4,7 @@ import pytest
 
 from PyAitD.games.aitd1.mirror import MIRROR_KEYCODES
 
-pytestmark = pytest.mark.shell
+pytestmark = pytest.mark.engine
 
 
 def test_every_forwarded_control_has_a_mac_keycode():
