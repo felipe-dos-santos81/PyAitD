@@ -51,7 +51,7 @@ def test_main_skip_intro_produces_a_session_whose_hero_boot_is_not_a_cutscene(mo
 
     captured = {}
 
-    def fake_run(game, trace, session=None):
+    def fake_run(game, trace, session=None, mirror_sink=None):
         captured["session"] = session
         return 0
 
@@ -88,7 +88,7 @@ def test_normal_main_opens_the_title_before_run(monkeypatch, tmp_path):
     seen = []
     monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
     monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
-    monkeypatch.setattr(main, "run", lambda g, trace, session=None: seen.append((g, session)) or 0)
+    monkeypatch.setattr(main, "run", lambda g, trace, session=None, mirror_sink=None: seen.append((g, session)) or 0)
     assert main.main(["--data", str(tmp_path)]) == 0
     assert isinstance(game.active_modal, ShowTitle)
     assert seen and seen[0][0] is game
@@ -110,7 +110,7 @@ def test_explicit_debug_starts_bypass_character_selection(monkeypatch, tmp_path,
     monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(
         main, "run",
-        lambda value, trace, session=None: seen.append((value, session)) or 0,
+        lambda value, trace, session=None, mirror_sink=None: seen.append((value, session)) or 0,
     )
     assert main.main([*args, "--data", str(tmp_path)]) == 0
     assert game.active_modal is None
@@ -161,7 +161,7 @@ def test_main_combat_venue_calls_enter_combat_venue_once_before_run(monkeypatch,
         }),
     )
     monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
-    monkeypatch.setattr(main, "run", lambda g, trace, session=None: calls.append(("run", g)))
+    monkeypatch.setattr(main, "run", lambda g, trace, session=None, mirror_sink=None: calls.append(("run", g)))
 
     main.main(["--combat-venue", "--data", str(tmp_path)])
 
@@ -197,7 +197,7 @@ def test_main_mouse_combat_fixture_uses_the_requested_hero(monkeypatch, tmp_path
         lambda name: SimpleNamespace(debug_venues={"mouse-combat-fixture": lambda g: None}),
     )
     monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
-    monkeypatch.setattr(main, "run", lambda g, trace, session=None: 0)
+    monkeypatch.setattr(main, "run", lambda g, trace, session=None, mirror_sink=None: 0)
 
     assert main.main([
         "--mouse-combat-fixture", "--hero", "1", "--data", str(tmp_path),
@@ -219,7 +219,7 @@ def test_main_mouse_combat_fixture_runs_its_own_setup(monkeypatch, tmp_path):
         }),
     )
     monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
-    monkeypatch.setattr(main, "run", lambda g, trace, session=None: calls.append(("run", g)) or 0)
+    monkeypatch.setattr(main, "run", lambda g, trace, session=None, mirror_sink=None: calls.append(("run", g)) or 0)
     assert main.main([
         "--mouse-combat-fixture", "--data", str(tmp_path),
     ]) == 0
