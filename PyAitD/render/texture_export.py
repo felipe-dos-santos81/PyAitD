@@ -61,8 +61,8 @@ def sha256_rgb(pixels):
     return hashlib.sha256(np.ascontiguousarray(pixels, dtype=np.uint8).tobytes()).hexdigest()
 
 
-MANIFEST_SCHEMA = 3
-SUPPORTED_SCHEMAS = (1, 2, 3)   # 1: cameras only; 2: cameras + screens; 3: cameras + screens + alt_cameras
+MANIFEST_SCHEMA = 4
+SUPPORTED_SCHEMAS = (1, 2, 3, 4)   # 1: cameras only; 2: + screens; 3: + alt_cameras; 4: + bodies
 LEGEND = {"red": "masks", "blue": "collision", "green": "walkable"}
 
 
@@ -125,7 +125,7 @@ def alt_manifest_record(floor, cam_idx, pixels, itd_entry):
     return rec
 
 
-def export_manifest(records, data_dir, guide_scale, screens=(), alt_cameras=()):
+def export_manifest(records, data_dir, guide_scale, screens=(), alt_cameras=(), bodies=()):
     return {
         "schema": MANIFEST_SCHEMA,
         "data_dir": str(data_dir),
@@ -134,6 +134,7 @@ def export_manifest(records, data_dir, guide_scale, screens=(), alt_cameras=()):
         "cameras": list(records),
         "alt_cameras": list(alt_cameras),
         "screens": list(screens),
+        "bodies": list(bodies),
     }
 
 

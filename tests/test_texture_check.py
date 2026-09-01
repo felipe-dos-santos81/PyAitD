@@ -153,6 +153,16 @@ def test_no_bodies_directory_is_no_finding(tmp_path):
     assert oc.check_bodies(tmp_path) == []
 
 
+def test_check_bodies_ignores_uv_sidecars(tmp_path):
+    """body<NNN>.uv.json is the runtime's own UV sidecar (Task 2's bake),
+    not a body*.json material override -- it must not be mistaken for one
+    just because it also matches bodies/body*.json."""
+    bodies = tmp_path / "bodies"
+    bodies.mkdir(parents=True)
+    (bodies / "body012.uv.json").write_text('{"schema": 1}')
+    assert oc.check_bodies(tmp_path) == []
+
+
 def test_a_misnamed_body_file_is_reported_and_does_not_hide_the_real_one(tmp_path):
     # body7.json parses as body 7 but the game only ever opens body007.json,
     # so it would silently never load. One resolver for the whole directory
@@ -206,3 +216,55 @@ def test_an_invalid_crease_is_a_body_finding(tmp_path):
     f = oc.check_bodies(tmp_path)
     assert [(x.camera, x.kind) for x in f] == [(4, "invalid")]
     assert "crease" in f[0].detail
+
+
+def test_body_texture_findings_cover_size_hash_and_uv_range(tmp_path, data_dir, profile):
+    """A painted body is only usable if the PNG matches the manifest's atlas
+    size, the sidecar was baked against the body's current triangulation,
+    and every UV is inside [0, 1]."""
+    import json
+    import numpy as np
+    from PyAitD.engine.data.assets import Assets
+    from PyAitD.render.geometry import pose_geometry
+    from PyAitD.render.texture_check import check_body_textures
+    from PyAitD.render.texture_export import (
+        body_texture_rel_path, body_uv_rel_path, sha256_tris,
+    )
+    from tools.export_textures import save_png
+
+    num = 12
+    body = Assets(data_dir, profile).body(num)
+    geo = pose_geometry(body, [(0, (0, 0, 0))] * len(body.groups))
+    good_uvs = np.full((len(geo.tris), 3, 2), 0.5, dtype=np.float32)
+    bodies = tmp_path / "bodies"
+    bodies.mkdir(parents=True)
+
+    def write(uvs, digest, size):
+        (tmp_path / body_uv_rel_path(num)).write_text(json.dumps({
+            "schema": 1, "size": list(size), "chart_count": 1,
+            "tris_sha256": digest, "uvs": np.asarray(uvs).tolist(),
+        }), encoding="utf-8")
+        save_png(tmp_path / body_texture_rel_path(num),
+                 np.zeros((size[1], size[0], 3), dtype=np.uint8))
+
+    # clean
+    write(good_uvs, sha256_tris(geo.tris), (64, 64))
+    assert check_body_textures(tmp_path, data_dir, profile) == []
+    # stale sidecar: baked against a different triangulation
+    write(good_uvs, "f" * 64, (64, 64))
+    assert any("triangulation" in f.detail for f in
+               check_body_textures(tmp_path, data_dir, profile))
+    # a UV outside [0, 1]
+    bad = good_uvs.copy()
+    bad[0, 0, 0] = 1.5
+    write(bad, sha256_tris(geo.tris), (64, 64))
+    assert any("0, 1" in f.detail or "range" in f.detail for f in
+               check_body_textures(tmp_path, data_dir, profile))
+
+
+def test_a_body_with_no_texture_is_not_a_finding(tmp_path, data_dir, profile):
+    """Missing is the steady state, not a failure -- the same rule the
+    background override follows."""
+    from PyAitD.render.texture_check import check_body_textures
+    (tmp_path / "bodies").mkdir(parents=True)
+    assert check_body_textures(tmp_path, data_dir, profile) == []

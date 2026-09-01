@@ -282,9 +282,9 @@ def test_screen_guide_draws_blit_rects_and_legend():
 
 def test_manifest_v2_carries_screens_and_accepts_v1():
     m = be.export_manifest([], "/data", 4, screens=[{"entry": 13}])
-    assert m["schema"] == 3 and m["screens"] == [{"entry": 13}]
+    assert m["schema"] == 4 and m["screens"] == [{"entry": 13}]
     assert be.export_manifest([], "/data", 4)["screens"] == []
-    assert be.SUPPORTED_SCHEMAS == (1, 2, 3)
+    assert be.SUPPORTED_SCHEMAS == (1, 2, 3, 4)
 
 
 def test_layout_geometry_lists_masks_collision_and_walkable():
@@ -370,9 +370,9 @@ def test_export_manifest_schema3_carries_alt_cameras():
     rec = be.manifest_record(StubFloor(number=6), 0, checker_pixels())
     alt = be.alt_manifest_record(StubFloor(number=7), 0, checker_pixels(), 15)
     m = be.export_manifest([rec], "/data", 4, screens=[{"entry":13}], alt_cameras=[alt])
-    assert m["schema"] == 3 and m["alt_cameras"] == [alt]
-    assert be.SUPPORTED_SCHEMAS == (1,2,3)
-    # old call without alt_cameras still works (schema 3 but empty list)
+    assert m["schema"] == 4 and m["alt_cameras"] == [alt]
+    assert be.SUPPORTED_SCHEMAS == (1,2,3,4)
+    # old call without alt_cameras still works (current schema but empty list)
     assert be.export_manifest([rec], "/data", 4)["alt_cameras"] == []
 
 
@@ -383,3 +383,23 @@ def test_alt_background_rel_path_and_manifest_record_match_asset_resolver_layout
     rec = be.alt_manifest_record(StubFloor(number=6), 8, checker_pixels(), 19)
     json.dumps(rec)  # serialisable
     assert rec["layout"] == be.layout_rel_path(6,8)
+
+
+def test_manifest_schema_is_4_and_carries_bodies():
+    from PyAitD.render.texture_export import (
+        MANIFEST_SCHEMA, SUPPORTED_SCHEMAS, export_manifest,
+    )
+    assert MANIFEST_SCHEMA == 4
+    assert SUPPORTED_SCHEMAS == (1, 2, 3, 4)
+    body = {"body": 12, "uv": "bodies/body012.uv.json",
+            "guide": "bodies/body012-guide.png",
+            "texture": "bodies/body012.png", "size": [605, 605],
+            "charts": 52, "tris_sha256": "0" * 64}
+    manifest = export_manifest([], "d", 4, bodies=[body])
+    assert manifest["schema"] == 4
+    assert manifest["bodies"] == [body]
+
+
+def test_manifest_bodies_default_to_empty_so_a_uvless_export_still_writes_schema_4():
+    from PyAitD.render.texture_export import export_manifest
+    assert export_manifest([], "d", 4)["bodies"] == []

@@ -4,8 +4,11 @@
 Pure: loads through AssetResolver so whatever it accepts, the game
 accepts, and vice versa. PNG decoding is asset_resolver.load_png_rgb.
 """
+import json
 from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 
 from PyAitD.render.asset_resolver import (
     AssetResolver, load_png_rgb, texture_alt_background_path, texture_background_path, texture_body_material_path,
@@ -226,6 +229,8 @@ def check_bodies(texture_dir):
     # file would re-log every failure and defeat AssetResolver's log-once.
     resolver = AssetResolver(None, texture_dir)
     for path in sorted(bodies.glob("body*.json")):
+        if path.stem.endswith(".uv"):
+            continue                  # the runtime's UV sidecar (body<NNN>.uv.json), not an override
         # The name must round-trip through the path the game actually asks
         # for. body7.json reads as body 7 but the game only ever opens
         # body007.json, so such a file would silently never load -- a silent
@@ -246,6 +251,99 @@ def check_bodies(texture_dir):
     return findings
 
 
+# Bodies are archive-scoped (Assets(..., hero=h)): the same number can name
+# a different body per hero, and hero 1's archive carries numbers hero 0's
+# does not. Probing both and taking the first hit mirrors
+# tools/export_actor_uvs.py:body_numbers/export_bodies -- but this module
+# is under PyAitD/ and must not import tools/, so it keeps its own copy of
+# the probe rather than sharing that one.
+_BODY_HEROES = (0, 1)
+
+
+def check_body_textures(texture_dir, data_dir, profile):
+    """One Finding per painted body the game could not use.
+
+    A body with no PNG is not a finding -- missing is the steady state, the
+    same rule the background override follows. A body that HAS a paint is
+    checked hard: the sidecar must exist and parse, its hash must match the
+    body's current triangulation (a re-export invalidates stale paints
+    loudly), every UV must be inside [0, 1], and the PNG must decode at the
+    sidecar's atlas size. `floor` is -3 and `camera` is the body number."""
+    from PyAitD.engine.data.assets import Assets
+    from PyAitD.render.geometry import pose_geometry
+    from PyAitD.render.texture_export import (
+        body_texture_rel_path, body_uv_rel_path, sha256_tris,
+    )
+    texture_dir = Path(texture_dir)
+    findings = []
+    pngs = sorted((texture_dir / "bodies").glob("body*.png"))
+    if not pngs:
+        return findings          # nothing painted -- don't even open the archives
+    by_hero = {h: Assets(data_dir, profile, hero=h) for h in _BODY_HEROES}
+    for png in pngs:
+        stem = png.stem
+        if stem.endswith("-guide"):
+            continue                      # the painter's input, not a paint
+        if not stem[4:].isdigit():
+            findings.append(Finding(-3, -1, png, "invalid",
+                                    "the game never loads this name; it opens body<NNN>.png"))
+            continue
+        num = int(stem[4:])
+        if png != texture_dir / body_texture_rel_path(num):
+            findings.append(Finding(-3, num, png, "invalid",
+                                    f"the game never loads this name; it opens "
+                                    f"{Path(body_texture_rel_path(num)).name}"))
+            continue
+        uv_path = texture_dir / body_uv_rel_path(num)
+        if not uv_path.is_file():
+            findings.append(Finding(-3, num, png, "invalid",
+                                    f"painted but unmapped: {uv_path.name} is missing"))
+            continue
+        try:
+            payload = json.loads(uv_path.read_text(encoding="utf-8"))
+            uvs = np.asarray(payload["uvs"], dtype=np.float32)
+            width, height = int(payload["size"][0]), int(payload["size"][1])
+            digest = str(payload["tris_sha256"])
+        except Exception as exc:
+            findings.append(Finding(-3, num, uv_path, "invalid", f"unreadable sidecar: {exc}"))
+            continue
+        body = None
+        for hero in _BODY_HEROES:
+            try:
+                body = by_hero[hero].body(num)
+                break
+            except (ValueError, KeyError, IndexError):
+                continue
+        if body is None:
+            findings.append(Finding(-3, num, png, "invalid",
+                                    f"body {num} is not in either hero archive; the game has no such body"))
+            continue
+        tris = pose_geometry(body, [(0, (0, 0, 0))] * len(body.groups)).tris
+        if digest != sha256_tris(tris):
+            findings.append(Finding(-3, num, uv_path, "invalid",
+                                    "sidecar was baked against a different triangulation; "
+                                    "re-export and repaint"))
+            continue
+        if uvs.shape != (len(tris), 3, 2):
+            findings.append(Finding(-3, num, uv_path, "invalid",
+                                    f"expected {(len(tris), 3, 2)} per-corner UVs, got {uvs.shape}"))
+            continue
+        if float(uvs.min()) < 0.0 or float(uvs.max()) > 1.0:
+            findings.append(Finding(-3, num, uv_path, "invalid",
+                                    f"UVs outside [0, 1]: [{uvs.min():.4f}, {uvs.max():.4f}]"))
+            continue
+        try:
+            pixels = load_png_rgb(png)
+        except Exception as exc:
+            findings.append(Finding(-3, num, png, "invalid", f"unreadable: {exc}"))
+            continue
+        if (pixels.shape[1], pixels.shape[0]) != (width, height):
+            findings.append(Finding(-3, num, png, "invalid",
+                                    f"is {pixels.shape[1]}x{pixels.shape[0]}, "
+                                    f"sidecar says {width}x{height}"))
+    return findings
+
+
 def summarize(findings, cov, screen_cov=None, alt_cov=None):
     lines = []
     for f in findings:
@@ -256,6 +354,10 @@ def summarize(findings, cov, screen_cov=None, alt_cov=None):
                 # camera is -1 when the filename carries no readable body number
                 body = f"{f.camera:03d}" if f.camera >= 0 else "???"
                 lines.append(f"{f.kind:<7} body {body}  {f.path}: {f.detail}")
+            elif f.floor == -3:
+                # camera is -1 when the filename carries no readable body number
+                body = f"{f.camera:03d}" if f.camera >= 0 else "???"
+                lines.append(f"{f.kind:<7} body {body} texture  {f.path}: {f.detail}")
             else:
                 lines.append(f"{f.kind:<7} floor {f.floor:02d} camera {f.camera:03d}  {f.path}: {f.detail}")
     if cov is None:
@@ -276,4 +378,6 @@ def summarize(findings, cov, screen_cov=None, alt_cov=None):
         lines.append("screens: " + " / ".join(f"{k} {screen_cov[k]}" for k in ("regenerated", "original", "missing", "invalid")))
     if alt_cov is not None:
         lines.append("alt_backgrounds: " + " / ".join(f"{k} {alt_cov[k]}" for k in ("regenerated", "original", "missing", "invalid")))
+    body_findings = sum(1 for f in findings if f.floor == -3)
+    lines.append(f"bodies: {body_findings} finding(s)")
     return "\n".join(lines)

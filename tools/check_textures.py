@@ -19,8 +19,8 @@ import numpy as np
 from PyAitD.render.asset_resolver import AssetResolver, texture_alt_background_path
 from PyAitD.render.texture_export import SCREEN_ENTRIES, SUPPORTED_SCHEMAS
 from PyAitD.render.texture_check import (
-    alt_coverage, check_alt_backgrounds, check_bodies, check_screens, check_textures, coverage, has_errors,
-    screen_coverage, summarize,
+    alt_coverage, check_alt_backgrounds, check_bodies, check_body_textures, check_screens, check_textures, coverage,
+    has_errors, screen_coverage, summarize,
 )
 from PyAitD.engine.data.pak import PakError
 from PyAitD.render.render_gl import GLBackend
@@ -32,7 +32,7 @@ from PyAitD.engine.space.world import CameraState
 # package when the root is added explicitly.
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from tools.export_textures import load_assets, load_floor, parse_floors, save_png  # noqa: E402
+from tools.export_textures import PROFILE, load_assets, load_floor, parse_floors, save_png  # noqa: E402
 
 DEFAULT_PROOF_DIR = pathlib.Path("docs/graphics-proof/textures")
 
@@ -149,6 +149,7 @@ def main(argv=None):
     findings = check_textures(args.textures, floors, manifest)
     findings = findings + check_alt_backgrounds(args.textures, floors, manifest)
     findings = findings + check_bodies(args.textures)
+    findings = findings + check_body_textures(args.textures, args.data, PROFILE)
     cov = coverage(args.textures, floors, manifest) if manifest is not None else None
     alt_cov = alt_coverage(args.textures, floors, manifest) if manifest is not None else None
     screen_cov = None

@@ -96,12 +96,16 @@ def save_layout(path, layout):
 
 def _merge_manifest_records(out_dir, new_records, key="cameras"):
     """Merge `new_records` over out_dir/manifest.json's existing `key` list
-    (cameras keyed by (floor, camera), screens by entry), new records
-    winning, so a --force re-export of a subset does not lose the rest.
-    Falls back to `new_records` alone when there is no readable,
-    schema-supported manifest to merge onto."""
+    (cameras/alt_cameras keyed by (floor, camera), screens by entry, bodies
+    by body number), new records winning, so a --force re-export of a
+    subset does not lose the rest. Falls back to `new_records` alone when
+    there is no readable, schema-supported manifest to merge onto."""
     def ident(rec):
-        return rec["entry"] if key == "screens" else (rec["floor"], rec["camera"])
+        if key == "screens":
+            return rec["entry"]
+        if key == "bodies":
+            return rec["body"]
+        return (rec["floor"], rec["camera"])
     manifest_path = pathlib.Path(out_dir) / "manifest.json"
     if not manifest_path.is_file():
         return list(new_records)
@@ -291,8 +295,7 @@ def main(argv=None):
             print(f"screens: {len(screens)}")
         except (PakError, FileNotFoundError, OSError, ValueError) as exc:
             print(f"warning: screens skipped: {exc}", file=sys.stderr)
-    # body_records: consumed by export_manifest(bodies=...) in Task 3.
-    # Always attempt, warn, never block: the tools extra (xatlas, libigl) is
+    # body_records: always attempt, warn, never block: the tools extra (xatlas, libigl) is
     # optional and `make install` does not install it (Makefile:34 installs
     # only `.[dev]`), so a stock `make export-textures` must still finish
     # and write the rest of the manifest.
@@ -328,7 +331,9 @@ def main(argv=None):
     records = _merge_manifest_records(args.out, records)
     screens = _merge_manifest_records(args.out, screens, key="screens")
     alt_records = _merge_manifest_records(args.out, alt_records, key="alt_cameras")
-    manifest = export_manifest(records, args.data.resolve(), args.guide_scale, screens=screens, alt_cameras=alt_records)
+    body_records = _merge_manifest_records(args.out, body_records, key="bodies")
+    manifest = export_manifest(records, args.data.resolve(), args.guide_scale, screens=screens,
+                                alt_cameras=alt_records, bodies=body_records)
     print(save_manifest(args.out, manifest))
     return 0
 

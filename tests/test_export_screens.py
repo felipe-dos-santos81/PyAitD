@@ -77,7 +77,7 @@ def test_main_exports_screens_and_manifest(tmp_path, monkeypatch):
     out = tmp_path / "out"
     assert xb.main([str(tmp_path), "--out", str(out), "--floors", "0"]) == 0
     manifest = json.loads((out / "manifest.json").read_text())
-    assert manifest["schema"] == 3 and manifest["cameras"] == []
+    assert manifest["schema"] == 4 and manifest["cameras"] == []
     assert [s["entry"] for s in manifest["screens"]] == list(be.SCREEN_ENTRIES)
     assert (out / "screens" / "ress13.png").is_file()
 
