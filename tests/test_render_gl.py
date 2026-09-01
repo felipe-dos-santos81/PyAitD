@@ -2034,6 +2034,89 @@ def test_room_with_no_hard_col_in_view_matches_soft(gl_ctx):
                           _render_shadows_with(gl_ctx, frame, "soft"))
 
 
+# ---- task-5 fix-1, finding 1: one composite, not two, over shared coverage ----
+
+def _hero_sphere():
+    """The caster whose own flattened ground shadow (shadows="soft") has
+    to land on the same floor pixels a room receiver's shadow-map
+    darkening also reaches, for the double-darkening bug to show at all.
+    The sphere and light are test_a_sphere_casts_a_soft_shadow_even_on_
+    the_flat_mesh's own, so the flattened footprint's shape (rows 130s,
+    columns around x=120-140) is already established by that test."""
+    return _standing_actor(0, _sphere_at(0.0, 0.0, 600.0, radius=150.0, color=1), feet_y=150)
+
+
+def _structural_occluder():
+    """A second actor sitting on the light ray through the pixels
+    `_hero_sphere`'s cast covers, so its real geometry occludes them in
+    the shadow map a floor receiver reads there -- but with its own
+    flattened-cast plane (`feet_y`) pushed to 5000, far below the visible
+    frame, so _gather_shadows's per-actor cast never reaches those pixels
+    for this actor. That keeps the two darkening sources isolable by
+    which of the two actors is present in a given render: with only
+    `_hero_sphere`, shadows="soft" measures the flattened-cast
+    contribution alone; with only this actor and a receiver,
+    shadows="room" measures the shadow-map/receiver contribution alone."""
+    return _standing_actor(1, _sphere_at(-137.5, 0.0, 588.3, radius=150.0, color=2), feet_y=5000.0)
+
+
+def _double_darken_floor():
+    """A floor receiver spanning the region `_hero_sphere`'s flattened
+    cast sweeps toward the camera under `_DOUBLE_DARKEN_LIGHT` -- wide
+    enough to comfortably contain every pixel in
+    `_DOUBLE_DARKEN_PIXELS`."""
+    return ReceiverQuad(np.array(
+        [[-300.0, 150.0, 0.0], [100.0, 150.0, 0.0],
+         [100.0, 150.0, 600.0], [-300.0, 150.0, 600.0]], np.float32))
+
+
+_DOUBLE_DARKEN_LIGHT = (0.0, -0.5, 0.85)
+
+# Five floor pixels where the two sources' footprints measurably overlap
+# (picked by scanning rows 125-149 for spots where the flattened cast is
+# still partial rather than already saturated, so a second multiply on
+# top of it is visible instead of hidden by clamping).
+_DOUBLE_DARKEN_PIXELS = ((131, 130), (133, 128), (135, 127), (139, 130), (141, 131))
+
+
+def _double_darken_frame(actors, receivers):
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    return FrameDescription(_view(), ImageAsset(plate, False), _palette(), actors, (),
+                            light=_scene_light(_DOUBLE_DARKEN_LIGHT), receivers=receivers)
+
+
+def test_a_ground_cast_and_a_floor_receiver_darken_a_shared_pixel_once(gl_ctx):
+    """Finding 1: `_draw_receivers` used to clear the coverage texture
+    `_gather_shadows` had just filled and run a second `_composite_shadow`
+    of its own, so a floor pixel under both an actor's flattened ground
+    cast and a room receiver's shadow-map darkening got multiplied down
+    twice -- darker than either contribution alone, which is wrong on the
+    physics (see task-5-fix-1.md finding 1): they are two computations of
+    the same shadow, not two shadows.
+
+    Measured at the five pixels below, green channel (plate starts at
+    200): cast alone 147/124/115/109/122, receiver alone 74 at all five
+    (a floor pixel fully inside `_structural_occluder`'s shadow-map
+    coverage). On a stash of this fix (the pre-fix code, same fixture)
+    both-active read 54/46/43/40/45 -- darker than the darker single
+    contribution (74) at every one of the five, confirming the bug. After
+    the fix, both-active reads 74/74/74/74/74: exactly the darker single
+    value, per the coverage texture's own MAX rule."""
+    hero = _hero_sphere()
+    structural = _structural_occluder()
+    floor = _double_darken_floor()
+
+    cast_only = _render_shadows_with(gl_ctx, _double_darken_frame((hero,), ()), "soft")
+    receiver_only = _render_shadows_with(
+        gl_ctx, _double_darken_frame((structural,), (floor,)), "room")
+    both = _render_shadows_with(
+        gl_ctx, _double_darken_frame((hero, structural), (floor,)), "room")
+
+    for row, col in _DOUBLE_DARKEN_PIXELS:
+        darker_single = min(cast_only[row, col, 1], receiver_only[row, col, 1])
+        assert both[row, col, 1] >= darker_single, (row, col, both[row, col, 1], darker_single)
+
+
 def test_world_box_encloses_vertices_and_spheres():
     from PyAitD.render.render_gl import _world_box
     # Both contributors have to show in the answer, so the fixture puts a

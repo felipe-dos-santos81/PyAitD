@@ -837,9 +837,21 @@ class GLBackend:
             self._screen_prog["target_size"].value = self.size
 
             if soft:
-                self._gather_shadows(frame, instances, mask_by_id, travel, mvp, rot, level)
-                if self._options.shadows == "room":
-                    self._draw_receivers(frame, mvp, shadow)
+                # Exactly one _composite_shadow for the frame: gather the
+                # actor casts, soften them, then (shadows="room" only) MAX
+                # the receivers into that same softened coverage texture,
+                # and composite once over whatever ended up in it. A floor
+                # pixel under both an actor's ground cast and a room
+                # receiver must darken once, not twice -- see
+                # _gather_shadows and _draw_receivers for why each step is
+                # ordered the way it is.
+                cast = self._gather_shadows(frame, instances, mask_by_id, travel, mvp, rot, level)
+                room = self._options.shadows == "room"
+                if cast or room:
+                    self._soften_shadows()
+                received = room and self._draw_receivers(frame, mvp, shadow)
+                if cast or received:
+                    self._composite_shadow(frame.light, soft=True)
             elif integrate and scene_lit:
                 # The hard casts have to reach the *plate* layer, so under
                 # `on` they all run here, before any body, instead of
@@ -1183,11 +1195,17 @@ class GLBackend:
         return R_MAX_PER_SCALE * self._options.scale
 
     def _gather_shadows(self, frame, instances, mask_by_id, travel, mvp, rot, level):
-        """Every actor's ground shadow into one coverage texture -- each cast
-        erased by that actor's own masks -- softened by the per-pixel
-        penumbra radius and multiplied onto the plate once, before any body
-        is drawn. A nearer actor's shadow can no longer paint over a farther
-        body, and overlapping casts take the MAX, so they darken once."""
+        """Every actor's ground shadow into one coverage texture, each cast
+        erased by that actor's own masks. A nearer actor's shadow can no
+        longer paint over a farther body, and overlapping casts take the
+        MAX, so they darken once.
+
+        Leaves the coverage texture unsoftened and uncomposited: the caller
+        runs `_soften_shadows()` and (under shadows="room") `_draw_receivers`
+        against this same texture before the single `_composite_shadow` for
+        the frame, so that a floor pixel covered by both a ground cast and a
+        room receiver darkens once, not twice. Returns whether anything was
+        cast, so the caller knows whether the actor-cast side contributed."""
         self._shadow_fbo.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
@@ -1219,26 +1237,37 @@ class GLBackend:
             self._ctx.blend_equation = moderngl.FUNC_ADD
             self._ctx.disable(moderngl.BLEND)
             cast = True
-        if cast:
-            self._soften_shadows()
-            self._composite_shadow(frame.light, soft=True)
+        return cast
 
     def _draw_receivers(self, frame, mvp, shadow):
         """The room's floor and hard_col tops, darkened through the same
-        light-view depth map self-shadowing reads, into the coverage
-        texture the ground shadow just used and back out through the same
-        `_composite_shadow` -- so the room's masks erase a receiver's cast
+        light-view depth map self-shadowing reads, MAXed into the same
+        coverage texture `_gather_shadows` filled and `_soften_shadows`
+        already softened -- so the room's masks erase a receiver's cast
         exactly as they erase everything else composited through that
         texture, and the hero's shadow can drape over the crate the
         hard_col stands in for instead of stopping at the floor.
 
-        Called only under shadows="room", after _gather_shadows and before
-        any body is drawn. A no-op when there is nothing to receive onto
-        (frame.receivers is empty -- see room_receivers) or nothing to
-        receive from (`shadow` is None, exactly when _render_shadow_map
-        found no actor with anything to cast)."""
+        Deliberately does not clear the coverage texture first (that would
+        drop whatever _gather_shadows put there) and does not soften its
+        own contribution: the blur radius the softening pass applies is
+        driven by the distance-to-plane a flattened ground cast encodes,
+        and a receiver's occlusion comes from the light-view depth map with
+        its own bias and carries no such term, so a receiver's coverage
+        must land in the texture strictly after `_soften_shadows` runs.
+        The caller owns the single `_composite_shadow` for the frame; this
+        method never composites.
+
+        Called only under shadows="room", after _gather_shadows and
+        _soften_shadows and before any body is drawn. A no-op when there is
+        nothing to receive onto (frame.receivers is empty -- see
+        room_receivers) or nothing to receive from (`shadow` is None,
+        exactly when _render_shadow_map found no actor with anything to
+        cast). Returns whether it actually drew anything, so the caller can
+        fold that into the "did anything contribute" test that gates the
+        single composite."""
         if not frame.receivers or shadow is None:
-            return
+            return False
         light_vp, depth_bias = shadow
         # The room's whole mask set, not any one actor's mask_ids: a
         # receiver casts nothing of its own for a per-actor mask to erase,
@@ -1248,7 +1277,6 @@ class GLBackend:
         self._shadow_fbo.use()
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
-        self._shadow_fbo.clear(0.0, 0.0, 0.0, 0.0)
         verts = np.concatenate([_quad_triangles(r.corners) for r in frame.receivers])
         self._receiver_buf.orphan(verts.nbytes)
         self._receiver_buf.write(np.ascontiguousarray(verts, dtype="f4").tobytes())
@@ -1266,7 +1294,7 @@ class GLBackend:
         self._receiver_vao.render(moderngl.TRIANGLES, vertices=len(verts))
         self._ctx.blend_equation = moderngl.FUNC_ADD
         self._ctx.disable(moderngl.BLEND)
-        self._composite_shadow(frame.light, soft=True)
+        return True
 
     def _soften_shadows(self):
         """Two passes of the radius-driven blur over the coverage texture:
