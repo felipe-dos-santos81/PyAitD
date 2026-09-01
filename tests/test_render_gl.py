@@ -859,14 +859,14 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         "texture", "_depth", "_fbo", "_mask_tex", "_mask_fbo",
         "_shadow_tex", "_shadow_fbo", "_shadow_prog", "_shadow_geom_prog",
         "_shadow_quad", "_shadow_quad_vao",
-        "_ms_color", "_ms_depth", "_ms_fbo",
+        "_ms_color", "_ms_depth", "_ms_depth_color", "_ms_fbo", "_ms_color_only",
         "_bg_prog", "_actor_prog", "_screen_prog", "_stencil_prog",
         "_quad", "_quad_vao", "_thumb_tex", "_thumb_fbo",
         "_thumb_quad", "_thumb_quad_vao", "_material_tex",
         "_tess_prog", "_tess_shadow_prog",
         "_shadow_blur_tex", "_shadow_blur_fbo", "_cast_prog", "_blur_prog", "_blur_quad_vao",
         "_shadow_map", "_shadow_map_fbo",
-        "_plate_tex", "_plate_fbo", "_actor_tex", "_actor_fbo",
+        "_plate_tex", "_plate_fbo", "_actor_tex", "_actor_depth_tex", "_actor_fbo",
         "_composite_prog", "_composite_vao",
         "_gbuf_prog", "_gbuf_fbo", "_gbuf_tex", "_gbuf_depth",
         "_ssao_tex", "_ssao_fbo", "_ssao_blur_tex", "_ssao_blur_fbo", "_ssao_noise_tex",
@@ -881,7 +881,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
     for level, buf in backend._subpatch_bufs.items():
         assert isinstance(buf.mglo, moderngl.InvalidObject), f"subpatch buffer {level} leaked"
         leak_checked += 1
-    assert leak_checked == 60  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 63  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
@@ -987,6 +987,162 @@ def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
     backend.release()
     assert GOLDEN.is_file(), f"{GOLDEN} is missing: the realism=classic identity net is disarmed"
     assert np.array_equal(out, np.load(GOLDEN))
+
+
+# ---- atmosphere's actor-depth MRT (Task 2: the plumbing only, nothing
+# reads it yet -- Task 3 does the arithmetic) ----
+
+def _read_actor_depth(backend):
+    """Unpremultiplied linear view depth: `_actor_depth_tex` divided by
+    `_actor_tex`'s own alpha wherever it is nonzero, which is exactly what
+    the composite will do once Task 3 wires it in. An uncovered pixel
+    (alpha 0) reports depth 0 rather than dividing by zero."""
+    w, h = backend.size
+    colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+    alpha = colour[..., 3].astype(np.float32) / 255.0
+    raw = np.frombuffer(backend._actor_depth_tex.read(), np.float16).reshape(h, w).astype(np.float32)
+    depth = np.zeros((h, w), np.float32)
+    covered = alpha > 0
+    depth[covered] = raw[covered] / alpha[covered]
+    return depth
+
+
+def _offset_facing_tri(z, color, normal, x_offset, span=100.0):
+    """`_facing_tri`, but shifted along world x so two of these placed at
+    different x_offsets project to non-overlapping screen columns."""
+    v = np.array([[x_offset - span, -span, z], [x_offset + span, -span, z],
+                  [x_offset - span, span, z]], np.float32)
+    n = np.tile(normal, (3, 1)).astype(np.float32)
+    return BodyGeometry(v, n, np.array([[0, 1, 2]], np.int32), np.array([color], np.uint8),
+                        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
+                        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+
+
+def _near_and_far_frame():
+    """Two facing triangles side by side on screen (so their coverage never
+    overlaps) at very different depths: a near one at world/view z=500 and
+    a far one at z=1400. This camera sits at the origin with all angles
+    zero, so view-space position equals world position exactly (rotate and
+    translate are both identity) -- world z *is* view z here, with no
+    projection math needed to know which actor is farther."""
+    from PyAitD.render.lighting import SceneLight
+    light = SceneLight((0.3, -0.5, -0.8), (0.9, 0.8, 0.7), (0.2, 0.2, 0.3), 0.7)
+    near = _standing_actor(0, _offset_facing_tri(500.0, 1, (0.0, 0.0, -1.0), -250.0), 400.0)
+    far = _standing_actor(1, _offset_facing_tri(1400.0, 2, (0.0, 0.0, -1.0), 250.0), 400.0)
+    return FrameDescription(_view(), ImageAsset(np.full((200, 320, 3), 40, np.uint8), False),
+                            _palette(), (near, far), (), light)
+
+
+def _solo_actor_pixels(gl_ctx, actor):
+    """The screen pixels one actor alone covers, at the same render options
+    `_near_and_far_frame`'s callers use it under -- so `_near_actor_pixels`
+    and `_far_actor_pixels` can locate each actor's own pixels in the
+    combined frame without hand-deriving NDC bounds."""
+    from PyAitD.render.lighting import SceneLight
+    light = SceneLight((0.3, -0.5, -0.8), (0.9, 0.8, 0.7), (0.2, 0.2, 0.3), 0.7)
+    frame = FrameDescription(_view(), ImageAsset(np.full((200, 320, 3), 40, np.uint8), False),
+                             _palette(), (actor,), (), light)
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=0, integration=2, atmosphere="on"))
+    try:
+        backend.draw(frame)
+        w, h = backend.size
+        colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+        return colour[..., 3] > 0
+    finally:
+        backend.release()
+
+
+def _near_actor_pixels(gl_ctx, frame):
+    return _solo_actor_pixels(gl_ctx, frame.actors[0])
+
+
+def _far_actor_pixels(gl_ctx, frame):
+    return _solo_actor_pixels(gl_ctx, frame.actors[1])
+
+
+def _render_with_atmosphere(gl_ctx, frame, atmosphere):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=0, integration=2, atmosphere=atmosphere))
+    try:
+        backend.draw(frame)
+        return backend.read_rgb().copy()
+    finally:
+        backend.release()
+
+
+def test_the_actor_layer_carries_linear_depth(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=0, integration=2, atmosphere="on"))
+    try:
+        backend.draw(_golden_frame())
+        depth = _read_actor_depth(backend)
+        w, h = backend.size
+        colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+        covered = colour[..., 3] > 0
+        assert covered.any() and not covered.all()
+        assert (depth[covered] > 0.0).all(), "a covered pixel must carry a depth"
+        assert (depth[~covered] == 0.0).all(), "an uncovered pixel must carry none"
+    finally:
+        backend.release()
+
+
+@pytest.mark.parametrize("msaa", [0, 4])
+def test_both_resolve_paths_carry_depth(gl_ctx, msaa):
+    """The MSAA path resolves two attachments where it used to resolve one;
+    a resolve that silently drops attachment 1 is the failure this catches."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=msaa, integration=2, atmosphere="on"))
+    try:
+        backend.draw(_golden_frame())
+        depth = _read_actor_depth(backend)
+        assert (depth > 0.0).any(), f"no depth survived the resolve at msaa={msaa}"
+    finally:
+        backend.release()
+
+
+def test_depth_grows_with_distance(gl_ctx):
+    """Two actors at known distances: the far one's depth must exceed the
+    near one's. This is what makes the value a depth rather than a number."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=0, integration=2, atmosphere="on"))
+    try:
+        frame = _near_and_far_frame()
+        backend.draw(frame)
+        depth = _read_actor_depth(backend)
+        near_mask = _near_actor_pixels(gl_ctx, frame)
+        far_mask = _far_actor_pixels(gl_ctx, frame)
+        near = depth[near_mask]
+        far = depth[far_mask]
+        assert near.size and far.size
+        assert far[far > 0].mean() > near[near > 0].mean()
+    finally:
+        backend.release()
+
+
+def test_the_depth_target_changes_no_pixel_of_the_frame(gl_ctx):
+    """The whole point of landing the MRT before the arithmetic: writing a
+    second attachment must not disturb the first."""
+    frame = _golden_frame()
+    assert np.array_equal(_render_with_atmosphere(gl_ctx, frame, "on"),
+                          _render_with_atmosphere(gl_ctx, frame, "off"))
+
+
+def test_msaa_resolve_still_carries_colour_after_the_second_attachment(gl_ctx):
+    """The non-integrate MSAA resolve (`elif self._ms_fbo is not None` in
+    `_draw_frame`) used to copy `_ms_fbo` straight into `_fbo`; now `_ms_fbo`
+    carries two colour attachments and `_fbo` carries one, so that copy has
+    to go through `_ms_color_only` or it raises the same
+    "different number of color attachments" error the plate resolve does.
+    lighting="fixed" makes the frame take the direct, non-integrate path
+    (see `_draw_frame`'s `integrate = scene_lit and ... integration > 0`)."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="fixed", msaa=4))
+    try:
+        backend.draw(_frame([_actor(0, _facing_tri(600.0, 1, (0.0, 0.0, -1.0)))]))
+        out = backend.read_rgb()
+        assert (out > 0).any()
+    finally:
+        backend.release()
 
 
 def test_fixed_lighting_is_unchanged_by_the_scene_light(gl_ctx):

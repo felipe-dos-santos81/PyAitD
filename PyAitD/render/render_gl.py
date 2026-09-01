@@ -126,6 +126,20 @@ def _set_uniform(prog, name, value):
         uniform.value = value
 
 
+def _set_color_mask(fbo, mask):
+    """Set `fbo.color_mask` correctly whatever `fbo`'s attachment count is.
+
+    ModernGL's `color_mask` setter wants one 4-tuple *per colour attachment*
+    once there is more than one -- a bare 4-tuple, which is exactly right
+    for every single-attachment target this module used to have exclusively,
+    raises "invalid color mask" the moment `_actor_fbo` or `_ms_fbo` carry
+    the atmosphere depth attachment alongside colour. Measured: a flat
+    4-tuple against a 2-attachment framebuffer fails; a tuple of two
+    4-tuples succeeds."""
+    n = len(fbo.color_attachments)
+    fbo.color_mask = (mask,) * n if n > 1 else mask
+
+
 def _world_box(actor):
     """The eight corners of the box around everything this actor draws --
     posed vertices and sphere extents, in world space. Not the collision
@@ -306,11 +320,14 @@ class GLBackend:
         self.samples = 0
         self._ms_color = None
         self._ms_depth = None
+        self._ms_depth_color = None
         self._ms_fbo = None
+        self._ms_color_only = None
         self._target = None
         self._plate_tex = None
         self._plate_fbo = None
         self._actor_tex = None
+        self._actor_depth_tex = None
         self._actor_fbo = None
         self._composite_prog = None
         self._composite_vao = None
@@ -489,7 +506,21 @@ class GLBackend:
             if self.samples:
                 self._ms_color = ctx.renderbuffer(self.size, 4, samples=self.samples)
                 self._ms_depth = ctx.depth_renderbuffer(self.size, samples=self.samples)
+                # The atmosphere depth twin (R16F is multisample-capable on
+                # this GPU, measured): _ms_fbo carries it as a second colour
+                # attachment so the actor pass's depth resolves the same way
+                # colour does.
+                self._ms_depth_color = ctx.renderbuffer(self.size, 1, samples=self.samples, dtype="f2")
                 self._ms_fbo = ctx.framebuffer(
+                    color_attachments=[self._ms_color, self._ms_depth_color], depth_attachment=self._ms_depth)
+                # A single-attachment view over the same renderbuffers, for
+                # the plate resolve: ctx.copy_framebuffer refuses a
+                # 2-attachment source into `_plate_fbo`'s 1 attachment
+                # ("Destination and source framebuffers have different
+                # number of color attachments!"), and the plate never wants
+                # depth anyway. No new pixel storage -- it aliases
+                # `_ms_color`/`_ms_depth`, it does not allocate a copy.
+                self._ms_color_only = ctx.framebuffer(
                     color_attachments=[self._ms_color], depth_attachment=self._ms_depth)
             self._target = self._ms_fbo or self._fbo
 
@@ -509,8 +540,15 @@ class GLBackend:
             self._actor_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
             self._actor_tex.repeat_x = False
             self._actor_tex.repeat_y = False
+            # R16F is enough for a linear depth in world units -- half-float
+            # holds integers exactly to 2048 and the game's rooms are far
+            # smaller than that -- and it keeps the resolve cheap. Nothing
+            # reads this yet (Task 3 does); this task only lands the MRT.
+            self._actor_depth_tex = ctx.texture(self.size, 1, dtype="f2")
+            self._actor_depth_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+            self._actor_depth_tex.repeat_x = self._actor_depth_tex.repeat_y = False
             self._actor_fbo = ctx.framebuffer(
-                color_attachments=[self._actor_tex], depth_attachment=self._depth)
+                color_attachments=[self._actor_tex, self._actor_depth_tex], depth_attachment=self._depth)
             self._composite_prog = ctx.program(
                 vertex_shader=_STENCIL_VSH, fragment_shader=_COMPOSITE_FSH)
             _set_uniform(self._composite_prog, "plate_tex", 5)
@@ -692,10 +730,11 @@ class GLBackend:
             self._shadow_prog, self._shadow_geom_prog,
             self._shadow_fbo, self._shadow_tex,
             self._shadow_blur_fbo, self._shadow_blur_tex,
-            self._composite_prog, self._plate_fbo, self._plate_tex, self._actor_fbo, self._actor_tex,
+            self._composite_prog, self._plate_fbo, self._plate_tex,
+            self._actor_fbo, self._actor_tex, self._actor_depth_tex,
             self._mask_fbo, self._mask_tex,
             self._thumb_fbo, self._thumb_tex,
-            self._ms_fbo, self._ms_color, self._ms_depth,
+            self._ms_fbo, self._ms_color_only, self._ms_color, self._ms_depth, self._ms_depth_color,
             self._fbo, self._depth, self.texture,
             self._bg_tex,
         ):
@@ -765,7 +804,7 @@ class GLBackend:
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
         self._ctx.disable(moderngl.BLEND)
-        self._target.color_mask = (True, True, True, True)
+        _set_color_mask(self._target, (True, True, True, True))
         self._ctx.clear(0.0, 0.0, 0.0, 1.0)
 
         self._draw_background(frame.background)
@@ -823,6 +862,12 @@ class GLBackend:
             for prog in (self._actor_prog, self._tess_prog, self._screen_prog):
                 _set_uniform(prog, "ssao_tex", 7)
                 _set_uniform(prog, "occlusion_on", 1 if ssao_on else 0)
+                # Atmosphere depth (Task 3 reads f_depth; consumed by
+                # nothing yet). Load-bearing on _screen_prog specifically:
+                # _SCREEN_VSH writes v_view = vec3(0.0), so a line or point
+                # reports depth == focal1 exactly -- the nearest possible
+                # depth, so the haze leaves it alone once Task 3 lands.
+                _set_uniform(prog, "focal1", float(frame.camera.state.focal1))
 
             shadow = None
             if soft:
@@ -872,13 +917,13 @@ class GLBackend:
                     self._cast_hard_shadow(actor, inst, mask_by_id, frame, travel, mvp, level)
 
             if integrate:
-                self._resolve_into(self._plate_fbo)
+                self._resolve_into(self._plate_fbo, self._ms_color_only)
                 self._target = self._ms_fbo or self._actor_fbo
                 self._target.use()
                 self._ctx.viewport = (0, 0, *self.size)
                 self._ctx.disable(moderngl.DEPTH_TEST)
                 self._ctx.disable(moderngl.BLEND)
-                self._target.color_mask = (True, True, True, True)
+                _set_color_mask(self._target, (True, True, True, True))
                 # Transparent, not opaque black: the actor shader writes
                 # alpha 1, so what survives the resolve is coverage.
                 self._ctx.clear(0.0, 0.0, 0.0, 0.0)
@@ -897,9 +942,9 @@ class GLBackend:
                 # A fresh depth buffer per actor: within one actor's own
                 # primitives, depth decides what's in front; across actors,
                 # later draws simply paint over earlier ones (painter's order).
-                self._target.color_mask = (False, False, False, False)
+                _set_color_mask(self._target, (False, False, False, False))
                 self._target.clear(depth=1.0)
-                self._target.color_mask = (True, True, True, True)
+                _set_color_mask(self._target, (True, True, True, True))
                 # Framebuffer.clear() leaves moderngl's colour-mask state
                 # desynced from the GL binding point: re-`use()` the target so
                 # the restored mask actually takes effect before the next
@@ -932,8 +977,12 @@ class GLBackend:
             self._composite(frame)
         elif self._ms_fbo is not None:
             # Resolves the multisample buffer down into `.texture`, which is
-            # what read_rgb, thumbnail and Renderer all read.
-            self._ctx.copy_framebuffer(self._fbo, self._ms_fbo)
+            # what read_rgb, thumbnail and Renderer all read. `_fbo` carries
+            # one colour attachment (no atmosphere target of its own on the
+            # non-integrate path), so this goes through `_ms_color_only`
+            # for the same reason the plate resolve does: `_ms_fbo` now
+            # carries two.
+            self._resolve_into(self._fbo, self._ms_color_only)
 
     def _set_frame_uniforms(self, prog, frame, mvp, rot, scene_lit, shadow=None):
         """Everything an actor program needs once per frame. Shared by
@@ -1545,12 +1594,21 @@ class GLBackend:
         if cast:
             self._composite_shadow(frame.light)
 
-    def _resolve_into(self, fbo):
-        """Resolve the multisample buffer into `fbo`'s single-sampled
+    def _resolve_into(self, fbo, src=None):
+        """Resolve `src` (default `self._ms_fbo`) into `fbo`'s single-sampled
         texture. A no-op when msaa is off: `fbo` was the render target
-        itself, and its texture already holds the result."""
-        if self._ms_fbo is not None:
-            self._ctx.copy_framebuffer(fbo, self._ms_fbo)
+        itself, and its texture already holds the result.
+
+        `src` exists for the plate resolve: `_ms_fbo` now carries two colour
+        attachments (colour and atmosphere depth) so the actor resolve below
+        can move both, but `ctx.copy_framebuffer` refuses a 2-attachment
+        source into `_plate_fbo`'s single attachment. `_ms_color_only` is a
+        second framebuffer over the same renderbuffers, colour-attachment
+        count matched to `_plate_fbo`, so the plate's caller passes that
+        instead of relying on the default."""
+        source = src if src is not None else self._ms_fbo
+        if source is not None:
+            self._ctx.copy_framebuffer(fbo, source)
 
     def _composite(self, frame):
         """The actor layer back onto the plate layer, into `.texture`."""

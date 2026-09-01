@@ -85,9 +85,26 @@ uniform sampler2D body_albedo; uniform int has_body_texture;
 // occlusion_on gates the sample so occlusion="off" never touches the
 // sampler, mirroring has_body_texture's own gate above.
 uniform sampler2D ssao_tex; uniform int occlusion_on;
+// Atmosphere (Task 3 reads f_depth; this task only fills it in). The
+// engine's actual perspective divide is by z + focal1, not z alone (see
+// GBUFFER_FSH above for the measured, signed derivation) -- v_view.z is
+// already +z-forward camera space, so v_view.z + focal1 is a positive
+// linear distance with no sign flip needed, unlike -v_view.z which OpenGL's
+// -z-forward convention would call for and this engine does not use.
+uniform float focal1;
 in vec3 v_color; in vec3 v_normal; in vec3 v_rest; in float v_ao; flat in float v_index; in float v_world_y;
 in vec4 v_shadow; in vec3 v_view; in vec2 v_uv;
-out vec4 f_color;
+layout(location = 0) out vec4 f_color;
+// Positive linear view depth, premultiplied by coverage exactly as colour
+// is: the shader writes alpha 1 and the multisample resolve scales both,
+// so the composite unpremultiplies both with the same a.a. A depth that
+// travelled unpremultiplied would make a half-covered edge pixel report
+// the full depth of whichever samples happened to be covered.
+//
+// Writing this output when the bound framebuffer has only one attachment
+// is well defined -- the value is discarded and attachment 0 is
+// unaffected -- so a single-attachment target keeps working unchanged.
+layout(location = 1) out vec4 f_depth;
 
 // Warm blood under thin skin: the tint the terminator picks up. One
 // constant, not a material field -- the hue is a property of people, not
@@ -130,6 +147,7 @@ void main() {
     if (shading == 0) {
         // unshaded: flat palette colour, and the only path lines and points take
         f_color = vec4(v_color, 1.0);
+        f_depth = vec4(v_view.z + focal1, 0.0, 0.0, 1.0);
         return;
     }
     vec3 n = (shading == 1)
@@ -140,6 +158,7 @@ void main() {
         // the pre-scene-light rig, kept byte-identical: abs() because FITD
         // polygons have no consistent winding
         f_color = vec4(v_color * (0.55 + 0.45 * abs(dot(n, l))), 1.0);
+        f_depth = vec4(v_view.z + focal1, 0.0, 0.0, 1.0);
         return;
     }
     // Orient rather than fold: -z is toward the camera, so a normal with a
@@ -318,6 +337,7 @@ void main() {
     // the hemisphere comment above warns about; it is the same identity
     // `occl`'s mix(1.0, v_ao, preset_a.z) has always rested on.
     f_color = vec4(mix(shaded, albedo, preset_c.z * m2.z), 1.0);
+    f_depth = vec4(v_view.z + focal1, 0.0, 0.0, 1.0);
 }
 """
 TESS_VSH = """
