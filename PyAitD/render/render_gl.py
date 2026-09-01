@@ -137,14 +137,16 @@ def _world_box(actor):
 
 # One instance per source triangle for the tessellating programs: per
 # corner k, (pos.xyz, ao), (normal.xyz, straight of edge k -> k+1),
-# (rgb, palette index), rest.xyz -- 15 floats, 45 per triangle, twelve
-# packed attributes plus the per-vertex barycentric: 13 of the 16 slots
-# GL 3.3 guarantees.
-INSTANCE_FLOATS = 45
-_INSTANCE_ATTRIBUTES = ("4f", "4f", "4f", "3f") * 3
-_INSTANCE_NAMES = ("in_p0", "in_n0", "in_c0", "in_r0",
-                   "in_p1", "in_n1", "in_c1", "in_r1",
-                   "in_p2", "in_n2", "in_c2", "in_r2")
+# (rgb, palette index), rest.xyz, uv.xy -- 17 floats, 51 per triangle,
+# fifteen packed attributes plus the per-vertex barycentric: 16 of the 16
+# slots GL 3.3 guarantees, which is all of them. A further per-corner
+# attribute does not fit and must pack into an existing one instead
+# (tests/test_render_gl.py pins this).
+INSTANCE_FLOATS = 51
+_INSTANCE_ATTRIBUTES = ("4f", "4f", "4f", "3f", "2f") * 3
+_INSTANCE_NAMES = ("in_p0", "in_n0", "in_c0", "in_r0", "in_uv0",
+                   "in_p1", "in_n1", "in_c1", "in_r1", "in_uv1",
+                   "in_p2", "in_n2", "in_c2", "in_r2", "in_uv2")
 
 
 def instance_layout(prog):
@@ -325,6 +327,7 @@ class GLBackend:
         self._bg_tex = None
         self._bg_key = None
         self._bg_src = None
+        self._body_tex_cache = {}
         self._sphere = None
         self._material_tex = None
         self._material_key = None
@@ -557,10 +560,13 @@ class GLBackend:
         ):
             if resource is not None:
                 resource.release()
+        for tex, _pixels in self._body_tex_cache.values():
+            tex.release()
         self._bg_tex = None
         self._bg_key = None
         self._material_key = None
         self._bg_src = None
+        self._body_tex_cache = {}
         self._released = True
 
     # ---- per-frame drawing ----
@@ -802,7 +808,9 @@ class GLBackend:
             col = np.repeat(palette[geometry.tri_colors][:, None, :], 3, axis=1)   # (M,3,3)
             index = np.repeat(geometry.tri_colors.astype("f4")[:, None, None], 3, axis=1)   # (M,3,1)
             rest = geometry.rest[idx]                                           # (M,3,3)
-            rows.append(np.concatenate([pos, ao, normal, straight, col, index, rest], axis=2).reshape(len(idx), INSTANCE_FLOATS))
+            uv = (np.zeros((len(idx), 3, 2), "f4") if geometry.uv is None
+                  else geometry.uv.astype("f4"))                                # (M,3,2)
+            rows.append(np.concatenate([pos, ao, normal, straight, col, index, rest, uv], axis=2).reshape(len(idx), INSTANCE_FLOATS))
         if geometry.spheres:
             sphere_verts, sphere_tris = self._sphere   # cached, lru_cache-shared: never mutated
             unit = sphere_verts[sphere_tris].astype(np.float64)                 # (80,3,3) fancy-indexed copy
@@ -818,6 +826,7 @@ class GLBackend:
                 rows.append(np.concatenate([
                     pos, np.ones((m, 3, 1)), unit, np.zeros((m, 3, 1)),
                     np.tile(palette[color], (m, 3, 1)), np.full((m, 3, 1), float(color)), rest,
+                    np.full((m, 3, 2), -1.0),   # spheres share this buffer and stay untextured
                 ], axis=2).reshape(m, INSTANCE_FLOATS))
         if not rows:
             return np.zeros((0, INSTANCE_FLOATS), dtype="f4")
@@ -835,6 +844,12 @@ class GLBackend:
     def _draw_actor_tessellated(self, actor, frame, palette, instances, level):
         if instances is not None:
             self._tess_prog["project"].value = 0
+            texture = self._body_texture(actor.texture)
+            textured = texture is not None and self._options.realism != "classic"
+            if textured:
+                texture.use(5)                    # unit 5: 0-4 are taken
+            _set_uniform(self._tess_prog, "body_albedo", 5)
+            _set_uniform(self._tess_prog, "has_body_texture", 1 if textured else 0)
             self._render_instanced(self._tess_prog, self._tess_layout, instances[0], instances[1], level)
         position = np.asarray(actor.position, dtype=np.float64)
         self._draw_lines(actor, frame, palette, position)
@@ -875,6 +890,29 @@ class GLBackend:
         self._bg_prog["src_size"].value = (float(src_w), float(src_h))
         self._ctx.disable(moderngl.DEPTH_TEST)
         self._quad_vao.render(moderngl.TRIANGLES)
+
+    def _body_texture(self, asset):
+        """The GL texture for a body's albedo atlas, memoised on the source
+        array's identity the way the background is. Mipmapped and
+        anisotropically filtered: an actor's atlas is minified hard at
+        distance, and without mips the chart gutters alias into each
+        other."""
+        if asset is None:
+            return None
+        pixels = asset.pixels
+        key = (id(pixels), pixels.shape)
+        cached = self._body_tex_cache.get(key)
+        if cached is None:
+            data = np.ascontiguousarray(pixels, dtype=np.uint8).tobytes()
+            tex = self._ctx.texture((pixels.shape[1], pixels.shape[0]), 3, data)
+            tex.build_mipmaps()
+            tex.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
+            tex.anisotropy = min(8.0, self._ctx.max_anisotropy)
+            tex.repeat_x = tex.repeat_y = False
+            # keep the source array alive for as long as its id() is the key
+            self._body_tex_cache[key] = (tex, pixels)
+            cached = self._body_tex_cache[key]
+        return cached[0]
 
     def _rasterize_masks(self, masks):
         # Each polygon is drawn as a real triangle list (GL_TRIANGLES),
@@ -1214,6 +1252,12 @@ class GLBackend:
         position = np.asarray(actor.position, dtype=np.float64)
         tri_data = self._triangle_data(geometry, position, palette)
         if len(tri_data):
+            texture = self._body_texture(actor.texture)
+            textured = texture is not None and self._options.realism != "classic"
+            if textured:
+                texture.use(5)                    # unit 5: 0-4 are taken
+            _set_uniform(self._actor_prog, "body_albedo", 5)
+            _set_uniform(self._actor_prog, "has_body_texture", 1 if textured else 0)
             self._render_triangles(tri_data)
         self._draw_lines(actor, frame, palette, position)
         self._draw_points(actor, frame, palette, position)
@@ -1229,9 +1273,11 @@ class GLBackend:
             rest = geometry.rest[idx]
             ao = geometry.ao[idx][:, None]
             index = colors.astype("f4")[:, None]
+            uv = (np.zeros((len(idx), 2), "f4") if geometry.uv is None
+                  else geometry.uv.reshape(-1, 2)[:len(idx)].astype("f4"))
             parts.append(np.concatenate(
                 [pos.astype("f4"), norm.astype("f4"), col.astype("f4"),
-                 rest.astype("f4"), ao.astype("f4"), index], axis=1))
+                 rest.astype("f4"), ao.astype("f4"), index, uv], axis=1))
         if geometry.spheres:
             sphere_verts, sphere_tris = self._sphere  # cached, lru_cache-shared: never mutated
             idx = sphere_tris.reshape(-1)
@@ -1247,16 +1293,19 @@ class GLBackend:
                 rest = (unit.astype(np.float64) * radius + geometry.rest[centre_idx]).astype("f4")
                 ao = np.ones((len(pos), 1), "f4")
                 index = np.full((len(pos), 1), float(color), "f4")
-                parts.append(np.concatenate([pos, norm, col, rest, ao, index], axis=1))
+                # spheres share this buffer and stay untextured; a negative
+                # uv is the sentinel the shader reads for that
+                uv = np.full((len(pos), 2), -1.0, "f4")
+                parts.append(np.concatenate([pos, norm, col, rest, ao, index, uv], axis=1))
         if not parts:
-            return np.zeros((0, 14), dtype="f4")
+            return np.zeros((0, 16), dtype="f4")
         return np.concatenate(parts, axis=0)
 
     def _render_triangles(self, data):
         buf = self._ctx.buffer(np.ascontiguousarray(data, dtype="f4").tobytes())
         vao = self._ctx.vertex_array(
             self._actor_prog,
-            [(buf, "3f 3f 3f 3f 1f 1f", "in_pos", "in_normal", "in_color", "in_rest", "in_ao", "in_index")])
+            [(buf, "3f 3f 3f 3f 1f 1f 2f", "in_pos", "in_normal", "in_color", "in_rest", "in_ao", "in_index", "in_uv")])
         vao.render(moderngl.TRIANGLES)
         vao.release()
         buf.release()

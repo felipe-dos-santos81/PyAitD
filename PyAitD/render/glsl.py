@@ -40,9 +40,9 @@ uniform mat4 light_vp; uniform float normal_offset;
 // Camera-space position, for the fragment shader's screen-space
 // derivatives. A direction would not do: bump needs dP/dx and dP/dy.
 uniform mat4 view;
-in vec3 in_pos; in vec3 in_normal; in vec3 in_color; in vec3 in_rest; in float in_ao; in float in_index;
+in vec3 in_pos; in vec3 in_normal; in vec3 in_color; in vec3 in_rest; in float in_ao; in float in_index; in vec2 in_uv;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
-out vec4 v_shadow; out vec3 v_view;
+out vec4 v_shadow; out vec3 v_view; out vec2 v_uv;
 void main() {
     gl_Position = mvp * vec4(in_pos, 1.0);
     v_color = in_color; v_normal = rot * in_normal;
@@ -50,6 +50,7 @@ void main() {
     v_world_y = in_pos.y;   // in_pos is already world space: the actor position was added on the CPU
     v_shadow = light_vp * vec4(in_pos + in_normal * normal_offset, 1.0);
     v_view = (view * vec4(in_pos, 1.0)).xyz;
+    v_uv = in_uv;
 }
 """
 ACTOR_FSH = """
@@ -75,8 +76,12 @@ uniform float plane_y; uniform float contact_height;
 // self_shadow gates the lookup; depth_bias is in map depth units, from
 // SHADOW_BIAS_UNITS over the map's extent along the light.
 uniform sampler2DShadow shadow_map; uniform int self_shadow; uniform float depth_bias;
+// The body's painted albedo atlas (Task 4's resolved UVs). has_body_texture
+// gates the sample so lines, points, spheres and unpainted bodies -- all of
+// which leave v_uv at its default -- never touch the sampler at all.
+uniform sampler2D body_albedo; uniform int has_body_texture;
 in vec3 v_color; in vec3 v_normal; in vec3 v_rest; in float v_ao; flat in float v_index; in float v_world_y;
-in vec4 v_shadow; in vec3 v_view;
+in vec4 v_shadow; in vec3 v_view; in vec2 v_uv;
 out vec4 f_color;
 
 // Warm blood under thin skin: the tint the terminator picks up. One
@@ -235,7 +240,15 @@ void main() {
     float wrapped = clamp(dot(n, l) * 0.5 + 0.5, 0.0, 1.0);
     // The key's share is what a shadow removes; the fill's share stays, so
     // a shadowed limb falls to the room's fill colour and never to black.
-    vec3 base = v_color * (fill_tint + key_tint * wrapped * wrapped * vis);
+    // Paint changes colour, not physics: the sampled albedo replaces the
+    // ramp colour, while the palette-index material table keeps driving
+    // specular, rim, bump, sss and emissive. A negative uv marks a sphere,
+    // which shares the triangle buffer and stays untextured.
+    vec3 albedo = v_color;
+    if (has_body_texture != 0 && v_uv.x >= 0.0) {
+        albedo = texture(body_albedo, v_uv).rgb;
+    }
+    vec3 base = albedo * (fill_tint + key_tint * wrapped * wrapped * vis);
     // Peaks at the light/shade boundary (wrapped 0.5, where 4x(1-x) is 1)
     // and vanishes on both the fully lit and the fully unlit side.
     //
@@ -273,7 +286,7 @@ void main() {
     // Blinn-Phong's lobe integrates to less as it tightens, so without
     // (gloss + 8) / 8pi a polished metal reads *dimmer* than a rough one.
     // preset_a.x already zeroes the whole term under classic.
-    vec3 spec = key_tint * mix(vec3(1.0), v_color, m0.z) * pow(max(dot(n, h), 0.0), gloss)
+    vec3 spec = key_tint * mix(vec3(1.0), albedo, m0.z) * pow(max(dot(n, h), 0.0), gloss)
               * ((gloss + 8.0) / (8.0 * 3.14159265)) * m0.y * preset_a.x * vis;
     vec3 rim = key_tint * pow(1.0 - max(dot(n, view), 0.0), 3.0) * m0.w * preset_a.y;
     float grain = 1.0 + preset_b.y * m1.x * dn;
@@ -282,7 +295,7 @@ void main() {
     // by construction. That is `a` on the nose 0.0, not the general mix
     // the hemisphere comment above warns about; it is the same identity
     // `occl`'s mix(1.0, v_ao, preset_a.z) has always rested on.
-    f_color = vec4(mix(shaded, v_color, preset_c.z * m2.z), 1.0);
+    f_color = vec4(mix(shaded, albedo, preset_c.z * m2.z), 1.0);
 }
 """
 TESS_VSH = """
@@ -311,14 +324,15 @@ uniform int project; uniform vec3 travel; uniform float plane_y;
 // as a fraction of r_max. Under project == 0 v_penumbra is 0 and unread.
 uniform vec3 right; uniform float tan_source; uniform float r_max; uniform vec2 target_size;
 in vec3 in_bary;
-in vec4 in_p0; in vec4 in_n0; in vec4 in_c0; in vec3 in_r0;
-in vec4 in_p1; in vec4 in_n1; in vec4 in_c1; in vec3 in_r1;
-in vec4 in_p2; in vec4 in_n2; in vec4 in_c2; in vec3 in_r2;
+in vec4 in_p0; in vec4 in_n0; in vec4 in_c0; in vec3 in_r0; in vec2 in_uv0;
+in vec4 in_p1; in vec4 in_n1; in vec4 in_c1; in vec3 in_r1; in vec2 in_uv1;
+in vec4 in_p2; in vec4 in_n2; in vec4 in_c2; in vec3 in_r2; in vec2 in_uv2;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
 out vec3 v_world;   // the evaluated world position: read back by transform feedback in tests, unused by the fragment shader
 out vec3 v_view;
 out float v_penumbra;
 out vec4 v_shadow;
+out vec2 v_uv;
 
 vec3 edge_point(vec3 pi, vec3 pj, vec3 ni, float straight) {
     // a third of the way from pi toward pj, projected onto pi's tangent
@@ -368,6 +382,7 @@ void main() {
     // the three corners carry the triangle's one colour; blending them keeps
     // every instance attribute referenced, so no driver's linker drops one
     v_color = in_c0.xyz * u + in_c1.xyz * v + in_c2.xyz * w; v_index = in_c0.w;
+    v_uv = in_uv0 * u + in_uv1 * v + in_uv2 * w;
     v_normal = rot * n;
     v_rest = in_r0 * u + in_r1 * v + in_r2 * w;
     v_ao = in_p0.w * u + in_p1.w * v + in_p2.w * w;
@@ -376,14 +391,15 @@ void main() {
 """
 SCREEN_VSH = """
 #version 330
-in vec3 in_ndc; in vec3 in_color;
+in vec3 in_ndc; in vec3 in_color; in vec2 in_uv;
 out vec3 v_color; out vec3 v_normal; out vec3 v_rest; out float v_ao; flat out float v_index; out float v_world_y;
-out vec4 v_shadow; out vec3 v_view;
+out vec4 v_shadow; out vec3 v_view; out vec2 v_uv;
 void main() {
     gl_Position = vec4(in_ndc, 1.0); v_color = in_color; v_normal = vec3(0.0, 0.0, 1.0);
     v_rest = vec3(0.0); v_ao = 1.0; v_index = 0.0; v_world_y = 0.0;
     v_shadow = vec4(0.0);   // lines and points never reach the term
     v_view = vec3(0.0);     // nor the derivative bump
+    v_uv = in_uv;
 }
 """
 STENCIL_VSH = """

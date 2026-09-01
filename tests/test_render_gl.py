@@ -1183,15 +1183,15 @@ def _flat_backend(gl_ctx, level, scale=1):
 
 
 def _instance_rows(corners, normals, straight):
-    """(M,45) float32 rows in GLBackend._instance_data's layout -- per corner
-    (pos.xyz, ao), (normal.xyz, straight), (rgb, index), rest -- with ao=1,
-    black, index 0 and rest 0: only positions, normals and flags matter to
-    the tessellation itself."""
+    """(M,51) float32 rows in GLBackend._instance_data's layout -- per corner
+    (pos.xyz, ao), (normal.xyz, straight), (rgb, index), rest, uv -- with
+    ao=1, black, index 0, rest 0 and uv 0: only positions, normals and
+    flags matter to the tessellation itself."""
     m = len(corners)
     parts = []
     for k in range(3):
         parts += [corners[:, k], np.ones((m, 1)), normals[:, k], straight[:, k:k + 1],
-                  np.zeros((m, 3)), np.zeros((m, 1)), np.zeros((m, 3))]
+                  np.zeros((m, 3)), np.zeros((m, 1)), np.zeros((m, 3)), np.zeros((m, 2))]
     return np.concatenate(parts, axis=1).astype("f4")
 
 
@@ -1323,24 +1323,25 @@ def test_instance_data_packs_each_corners_own_columns(gl_ctx):
     # or rolled `geometry.straight[:, :, None]` (or any other column) would
     # pass the entire existing suite. Pin the documented per-corner layout
     # directly instead: per corner k, (pos.xyz, ao), (normal.xyz,
-    # straight_k), (rgb, index), rest.xyz -- 15 floats, using a value
+    # straight_k), (rgb, index), rest.xyz, uv.xy -- 17 floats, using a value
     # distinct per corner in every field that varies per corner.
     pos = np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0]], np.float32)
     normals = np.array([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]], np.float32)
     straight = np.array([[1.0, 0.0, 1.0]], np.float32)   # distinct per corner: not uniform, not a palindrome
     ao = np.array([0.2, 0.5, 0.9], np.float32)
     rest = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]], np.float32)
+    uv = np.array([[[0.1, 0.9], [0.3, 0.7], [0.5, 0.5]]], np.float32)
     geometry = BodyGeometry(
         pos, normals[0], np.array([[0, 1, 2]], np.int32), np.array([2], np.uint8),
         np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
         np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8),
-        rest, ao, normals, straight)
+        rest, ao, normals, straight, None, uv)
     palette = _palette().astype("f4") / 255.0
     backend = _flat_backend(gl_ctx, 0)
     row = backend._instance_data(geometry, np.zeros(3, np.float64), palette)[0]
     backend.release()
     for k in range(3):
-        block = row[15 * k: 15 * (k + 1)]
+        block = row[17 * k: 17 * (k + 1)]
         assert np.allclose(block[0:3], pos[k]), f"corner {k} position"
         assert block[3] == pytest.approx(ao[k]), f"corner {k} ao"
         assert np.allclose(block[4:7], normals[0, k]), f"corner {k} normal"
@@ -1348,6 +1349,7 @@ def test_instance_data_packs_each_corners_own_columns(gl_ctx):
         assert np.allclose(block[8:11], palette[2]), f"corner {k} colour"
         assert block[11] == pytest.approx(2.0), f"corner {k} palette index"
         assert np.allclose(block[12:15], rest[k]), f"corner {k} rest"
+        assert np.allclose(block[15:17], uv[0, k]), f"corner {k} uv"
 
 
 def test_instance_data_and_triangle_data_agree_column_for_column(gl_ctx):
@@ -1367,14 +1369,15 @@ def test_instance_data_and_triangle_data_agree_column_for_column(gl_ctx):
     tri = backend._triangle_data(geometry, position, palette)
     backend.release()
     assert len(inst) and len(tri) == 3 * len(inst)
-    corner = inst.reshape(len(inst), 3, 15)          # pos.xyz, ao, normal.xyz, straight, rgb, index, rest.xyz
-    vertex = tri.reshape(len(inst), 3, 14)           # pos.xyz, normal.xyz, rgb, rest.xyz, ao, index
+    corner = inst.reshape(len(inst), 3, 17)          # pos.xyz, ao, normal.xyz, straight, rgb, index, rest.xyz, uv.xy
+    vertex = tri.reshape(len(inst), 3, 16)           # pos.xyz, normal.xyz, rgb, rest.xyz, ao, index, uv.xy
     assert np.allclose(corner[:, :, 0:3], vertex[:, :, 0:3]), "position"
     assert np.allclose(corner[:, :, 3], vertex[:, :, 12]), "ao"
     assert np.allclose(corner[:, :, 4:7], vertex[:, :, 3:6]), "normal"
     assert np.allclose(corner[:, :, 8:11], vertex[:, :, 6:9]), "colour"
     assert np.allclose(corner[:, :, 11], vertex[:, :, 13]), "palette index"
     assert np.allclose(corner[:, :, 12:15], vertex[:, :, 9:12]), "rest"
+    assert np.allclose(corner[:, :, 15:17], vertex[:, :, 14:16]), "uv"
 
 
 def _enhanced_tessellated_backend(gl_ctx, level=2):
@@ -2783,3 +2786,82 @@ def test_the_tone_match_still_meets_the_room_at_both_extremes(gl_ctx):
         pytest.approx([33, 12, 8], abs=1)
     assert list(_composited_centre(gl_ctx, room, palette=white)) == \
         pytest.approx([157, 117, 98], abs=1)
+
+
+def _painted_frame():
+    """_golden_frame with every body given a flat blue atlas and a dummy
+    per-corner UV, so both the tessellated and flat actor paths have
+    something to sample. Blue, not the brief's red: _golden_frame's textured
+    body is palette index 1, which _palette() sets to (255, 0, 0) -- a red
+    atlas would land on exactly the same value the palette ramp already
+    produces, so the substitution would be a silent no-op and the test
+    would pass whether or not albedo substitution actually worked."""
+    import dataclasses
+    frame = _golden_frame()
+    texture = ImageAsset(np.tile([[[0, 0, 255]]], (8, 8, 1)).astype(np.uint8), True)
+    painted_actors = tuple(
+        dataclasses.replace(
+            actor,
+            geometry=dataclasses.replace(
+                actor.geometry,
+                uv=np.full((len(actor.geometry.tris), 3, 2), 0.5, np.float32)),
+            texture=texture,
+        )
+        for actor in frame.actors
+    )
+    return dataclasses.replace(frame, actors=painted_actors)
+
+
+def test_instance_layout_uses_no_more_than_the_guaranteed_attribute_slots(gl_ctx):
+    """The tessellated actor path packs 12 per-corner attributes plus the
+    per-vertex barycentric, and adding the UVs takes it to 16 -- exactly
+    GL 3.3's guaranteed minimum. This pin is the tripwire: the next
+    per-corner attribute does not fit, and must find room by packing into
+    an existing one instead."""
+    from PyAitD.render.render_gl import INSTANCE_FLOATS, _INSTANCE_NAMES
+    assert INSTANCE_FLOATS == 51
+    assert len(_INSTANCE_NAMES) == 15          # 5 per corner x 3 corners
+    assert len(_INSTANCE_NAMES) + 1 <= gl_ctx.info["GL_MAX_VERTEX_ATTRIBS"]
+    assert gl_ctx.info["GL_MAX_VERTEX_ATTRIBS"] >= 16
+
+
+def test_an_unpainted_body_renders_byte_identically_with_the_texture_path_compiled(gl_ctx):
+    """The whole feature is opt-in per body: a frame whose actors carry no
+    uv must produce exactly the pixels it produced before textures existed."""
+    from PyAitD.render.render_gl import GLBackend
+    from PyAitD.render.render_options import RenderOptions
+    options = RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
+                            realism="enhanced", smoothing=0, shadows="hard",
+                            integration=0, motion="tick")
+    backend = GLBackend(gl_ctx, options)
+    try:
+        backend.draw(_golden_frame())          # the file's own unpainted fixture
+        first = backend.read_rgb()
+        backend.draw(_golden_frame())
+        assert np.array_equal(first, backend.read_rgb())
+    finally:
+        backend.release()
+
+
+def test_a_painted_body_changes_pixels_and_classic_ignores_it(gl_ctx):
+    """A flat blue atlas over every corner must move pixels under
+    realism=enhanced and move none under realism=classic."""
+    from PyAitD.render.render_gl import GLBackend
+    from PyAitD.render.render_options import RenderOptions
+
+    plain = _golden_frame()
+    painted = _painted_frame()                 # same frame, uv + blue texture (helper above)
+
+    def render(frame, realism):
+        options = RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
+                                realism=realism, smoothing=0, shadows="hard",
+                                integration=0, motion="tick")
+        backend = GLBackend(gl_ctx, options)
+        try:
+            backend.draw(frame)
+            return backend.read_rgb()
+        finally:
+            backend.release()
+
+    assert not np.array_equal(render(plain, "enhanced"), render(painted, "enhanced"))
+    assert np.array_equal(render(plain, "classic"), render(painted, "classic"))
