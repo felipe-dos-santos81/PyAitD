@@ -104,7 +104,20 @@ def test_main_does_not_relabel_an_unrelated_import_error_inside_the_bake(tmp_pat
     """Finding 8: only a genuinely missing xatlas/igl is "install the tools
     extra" -- an ImportError raised anywhere else inside export_bodies is a
     real bug and must surface as one, not be swallowed and mislabeled as a
-    missing dependency."""
+    missing dependency.
+
+    This test only reaches its pytest.raises(ImportError) if main() gets
+    past the tools/export_textures.py:317-318 import preflight. On a stock
+    `make install` host (the tools extra is optional and not installed by
+    `make install`), that preflight raises first, main() prints the
+    "install the tools extra" warning and returns 0, and this test would
+    fail rather than exercise what it's actually testing -- so skip it
+    outright when the extra isn't present. Keep this importorskip inside
+    this one function: the rest of this file is legitimately extra-free
+    and must keep running on a host without it -- do not hoist this to
+    module scope."""
+    pytest.importorskip("xatlas")
+    pytest.importorskip("igl.embree")
     _patch_floors(monkeypatch, {0})
     import tools.export_actor_uvs as export_actor_uvs
 

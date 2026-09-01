@@ -1274,7 +1274,7 @@ class GLBackend:
                         and self._options.realism != "classic")
             if textured:
                 # unit 5: shared with the composite's plate texture
-                # (_plate_tex.use(location=5) below); each pass rebinds it
+                # (_plate_tex.use(location=5) above); each pass rebinds it
                 # before sampling, so the two never collide within a frame
                 texture.use(5)
             _set_uniform(self._actor_prog, "body_albedo", 5)
