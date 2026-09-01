@@ -204,11 +204,13 @@ def test_occlusion_defaults_ssao_and_cycles():
     assert cycle_occlusion(cycle_occlusion(options)).occlusion == "ssao"
 
 
-def test_occlusion_is_last_so_positional_construction_still_works():
+@pytest.mark.parametrize("field, default", [("occlusion", "ssao"), ("atmosphere", "on")])
+def test_appended_fields_are_last_so_positional_construction_still_works(field, default):
     # Every earlier field keeps its slot: this is what stops a new knob
-    # from silently shifting an existing caller's arguments.
+    # from silently shifting an existing caller's arguments. One case per
+    # field appended since -- the bodies were identical but for the name.
     options = RenderOptions(4, "smooth", "bilinear", None, "scene", 4, "enhanced", 2)
-    assert options.occlusion == "ssao"
+    assert getattr(options, field) == default
 
 
 def test_invalid_or_missing_occlusion_falls_back_alone():
@@ -223,12 +225,15 @@ def test_invalid_or_missing_occlusion_falls_back_alone():
     assert options.occlusion == "ssao" and "occlusion" in error
 
 
-def test_occlusion_round_trips_through_the_payload():
+# The *non-default* value for atmosphere, so that case is a round trip and
+# not a restatement of the fallback its own falls-back-alone test covers.
+@pytest.mark.parametrize("field, value", [("occlusion", "ssao"), ("atmosphere", "off")])
+def test_appended_fields_round_trip_through_the_payload(field, value):
     from dataclasses import replace
-    options = replace(RenderOptions(), occlusion="ssao")
-    assert options.to_payload()["occlusion"] == "ssao"
+    options = replace(RenderOptions(), **{field: value})
+    assert options.to_payload()[field] == value
     restored, error = validate_render_options(options.to_payload())
-    assert restored.occlusion == "ssao" and error is None
+    assert getattr(restored, field) == value and error is None
 
 
 def test_atmosphere_defaults_on_and_cycles():
@@ -244,11 +249,6 @@ def test_atmosphere_defaults_on_and_cycles():
     assert cycle_atmosphere(cycle_atmosphere(options)).atmosphere == "on"
 
 
-def test_atmosphere_is_last_so_positional_construction_still_works():
-    options = RenderOptions(4, "smooth", "bilinear", None, "scene", 4, "enhanced", 2)
-    assert options.atmosphere == "on"
-
-
 def test_invalid_or_missing_atmosphere_falls_back_alone():
     payload = RenderOptions().to_payload()
     payload["atmosphere"] = "foggy"
@@ -259,13 +259,3 @@ def test_invalid_or_missing_atmosphere_falls_back_alone():
     del payload["atmosphere"]   # a settings file from before this option
     options, error = validate_render_options(payload)
     assert options.atmosphere == "on" and "atmosphere" in error
-
-
-def test_atmosphere_round_trips_through_the_payload():
-    # The non-default value, so this is a round trip and not a restatement
-    # of the fallback the test above already covers.
-    from dataclasses import replace
-    options = replace(RenderOptions(), atmosphere="off")
-    assert options.to_payload()["atmosphere"] == "off"
-    restored, error = validate_render_options(options.to_payload())
-    assert restored.atmosphere == "off" and error is None

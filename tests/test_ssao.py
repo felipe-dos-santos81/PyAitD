@@ -78,11 +78,8 @@ def test_a_nearby_step_occludes_the_pixels_beside_it():
     against a 14-unit radius is deliberate -- the range check discards an
     occluder much further away than the radius, so a step of 200 units
     would (correctly) occlude nothing at all."""
-    h = w = 48
-    d = np.full((h, w), 500.0, dtype=np.float32)
+    d, n = _flat_plate(48, 48)
     d[:, :8] = 490.0
-    n = np.zeros((h, w, 3), dtype=np.float32)
-    n[..., 2] = 1.0
     out = ssao_reference(d, n, hemisphere_kernel(), noise_rotations(), (2.0, 2.0))
     beside = out[:, 8:11].mean()
     far = out[:, 30:40].mean()
@@ -95,9 +92,8 @@ def test_zero_radius_occludes_nothing():
     """The neutral identity the GL pass leans on: with the radius at zero
     every sample lands on the pixel itself, and nothing is occluded."""
     rng = np.random.default_rng(9)
+    _, n = _flat_plate(16, 16)          # the normals only; the depth is random here
     d = rng.uniform(200.0, 900.0, (16, 16)).astype(np.float32)
-    n = np.zeros((16, 16, 3), dtype=np.float32)
-    n[..., 2] = 1.0
     out = ssao_reference(d, n, hemisphere_kernel(), noise_rotations(), (2.0, 2.0), radius=0.0)
     assert np.allclose(out, 1.0)
 

@@ -17,6 +17,7 @@ discards any fragment the mask marks as covered. This is equivalent to a
 stencil test for this use case (same polygons, same resolution, reset per
 actor) and stays within ModernGL's documented API.
 """
+import contextlib
 import math
 
 import moderngl
@@ -1308,12 +1309,8 @@ class GLBackend:
             self._ctx.viewport = (0, 0, *self.size)
             self._mask_tex.use(location=1)
             prog["plane_y"].value = _plane_y(actor)
-            self._ctx.enable(moderngl.BLEND)
-            self._ctx.blend_func = moderngl.ONE, moderngl.ONE
-            self._ctx.blend_equation = moderngl.MAX
-            self._render_instanced(prog, self._cast_layout, inst[0], inst[1], level)
-            self._ctx.blend_equation = moderngl.FUNC_ADD
-            self._ctx.disable(moderngl.BLEND)
+            with self._max_blended():
+                self._render_instanced(prog, self._cast_layout, inst[0], inst[1], level)
             cast = True
         return cast
 
@@ -1366,12 +1363,8 @@ class GLBackend:
         prog["target_size"].value = self.size
         self._mask_tex.use(location=1)
         self._shadow_map.use(location=4)
-        self._ctx.enable(moderngl.BLEND)
-        self._ctx.blend_func = moderngl.ONE, moderngl.ONE
-        self._ctx.blend_equation = moderngl.MAX
-        self._receiver_vao.render(moderngl.TRIANGLES, vertices=len(verts))
-        self._ctx.blend_equation = moderngl.FUNC_ADD
-        self._ctx.disable(moderngl.BLEND)
+        with self._max_blended():
+            self._receiver_vao.render(moderngl.TRIANGLES, vertices=len(verts))
         return True
 
     def _soften_shadows(self):
@@ -1612,6 +1605,25 @@ class GLBackend:
             cast = self._rasterize_shadow(actor, travel, mvp)
         if cast:
             self._composite_shadow(frame.light)
+
+    @contextlib.contextmanager
+    def _max_blended(self):
+        """MAX blending for the duration, then back to FUNC_ADD.
+
+        Both shadow passes that MAX into the coverage texture need this,
+        and it is the *restore* half that matters: leaving MAX live makes
+        the next pass max onto its own destination instead of replacing
+        it, which _soften_shadows' docstring records as a real failure.
+        One bracket rather than two identical ones means the restore
+        cannot drift out of step with the setup."""
+        self._ctx.enable(moderngl.BLEND)
+        self._ctx.blend_func = moderngl.ONE, moderngl.ONE
+        self._ctx.blend_equation = moderngl.MAX
+        try:
+            yield
+        finally:
+            self._ctx.blend_equation = moderngl.FUNC_ADD
+            self._ctx.disable(moderngl.BLEND)
 
     def _resolve_into(self, fbo):
         """Resolve the multisample twin into `fbo`'s single-sampled texture.

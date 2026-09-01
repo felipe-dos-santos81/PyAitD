@@ -459,7 +459,7 @@ def test_room_receivers_are_the_floor_plus_every_hard_col_top():
         Zone(x1=0, x2=100, y1=-50, y2=0, z1=0, z2=100, type=0, parameter=0),
         Zone(x1=200, x2=260, y1=-80, y2=0, z1=0, z2=60, type=0, parameter=0),
     ])
-    receivers = room_receivers(room, plane_y=0.0)
+    receivers = room_receivers(room)
     # One floor quad plus one top face per box -- and nothing else: the
     # vertical faces are excluded by design, not by accident.
     assert len(receivers) == 3
@@ -474,7 +474,7 @@ def test_room_receivers_are_the_floor_plus_every_hard_col_top():
 
 
 def test_a_room_with_no_boxes_still_has_its_floor():
-    receivers = room_receivers(_room_with_boxes([]), plane_y=0.0)
+    receivers = room_receivers(_room_with_boxes([]))
     assert len(receivers) == 1
 
 

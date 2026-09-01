@@ -142,19 +142,31 @@ def _floor_quad(room, plane_y):
     ], dtype=np.float32)
 
 
-def room_receivers(room, plane_y):
+def box_top_corners(box):
+    """A hard_col's top face, counter-clockwise: (x1,z1), (x2,z1), (x2,z2),
+    (x1,z2).
+
+    World y grows downward, so the top face is at y1 -- the *smaller* of
+    the two bounds, not y2. That rule and this corner order are shared with
+    texture_export._box_corners' second half, which draws the same face as
+    part of the box wireframe; they lived in both modules until this was
+    pulled out, so a y-axis revisit had two places to find."""
+    return (
+        (box.x1, box.y1, box.z1), (box.x2, box.y1, box.z1),
+        (box.x2, box.y1, box.z2), (box.x1, box.y1, box.z2),
+    )
+
+
+def room_receivers(room):
     """The room's floor plane plus the top face of every hard_col.
 
-    Vertical faces are excluded by design -- see ReceiverQuad. World y
-    grows downward, so a box's top face is at its y1 (the smaller value),
-    not its y2."""
-    quads = [ReceiverQuad(_floor_quad(room, plane_y))]
+    Vertical faces are excluded by design -- see ReceiverQuad. The floor
+    level is read off the room rather than passed in: it is a pure function
+    of the same hard_cols this reads, so a caller could only ever pass one
+    that disagreed with them."""
+    quads = [ReceiverQuad(_floor_quad(room, _room_plane_y(room)))]
     for box in room.hard_cols:
-        top = np.array([
-            [box.x1, box.y1, box.z1], [box.x2, box.y1, box.z1],
-            [box.x2, box.y1, box.z2], [box.x1, box.y1, box.z2],
-        ], dtype=np.float32)
-        quads.append(ReceiverQuad(top))
+        quads.append(ReceiverQuad(np.array(box_top_corners(box), dtype=np.float32)))
     return tuple(quads)
 
 
@@ -336,6 +348,6 @@ def build_frame(game, floor, resolver, blend=None, shadows="soft"):
         masks,
         _light(resolver, floor, cam_idx, killed),
         _plate(resolver, floor, cam_idx, killed),
-        room_receivers(room, _room_plane_y(room)) if shadows == "room" else (),
+        room_receivers(room) if shadows == "room" else (),
     )
     return frame, draw_list

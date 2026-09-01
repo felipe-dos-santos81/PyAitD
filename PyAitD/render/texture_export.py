@@ -12,7 +12,7 @@ import numpy as np
 
 from PyAitD.engine.data.formats import parse_cover_zones
 from PyAitD.engine.nav.navmesh import COVER_SCALE
-from PyAitD.render.scene import CameraView
+from PyAitD.render.scene import CameraView, box_top_corners
 from PyAitD.engine.space.world import CameraState
 
 W, H = 320, 200
@@ -180,9 +180,12 @@ _BOX_EDGES = (
 
 
 def _box_corners(z):
+    # The top half is scene.box_top_corners -- the same four corners in the
+    # same order that room_receivers rasterises as a shadow receiver, so
+    # the wireframe and the receiver can never disagree about which y is up.
     return [
         (z.x1, z.y2, z.z1), (z.x2, z.y2, z.z1), (z.x2, z.y2, z.z2), (z.x1, z.y2, z.z2),
-        (z.x1, z.y1, z.z1), (z.x2, z.y1, z.z1), (z.x2, z.y1, z.z2), (z.x1, z.y1, z.z2),
+        *box_top_corners(z),
     ]
 
 

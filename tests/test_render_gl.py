@@ -1029,13 +1029,36 @@ def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
 # ---- atmosphere's actor-depth MRT (Task 2: the plumbing only, nothing
 # reads it yet -- Task 3 does the arithmetic) ----
 
+def _read_gbuffer(backend):
+    """The G-buffer as (h, w, 4) float32: xyz normal, w linear eye depth.
+
+    The read-back shape is the one thing every caller got wrong the same
+    way if it got it wrong at all -- `_gbuf_size` is (w, h) while the
+    reshape needs (h, w) -- so it is written once here."""
+    return np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
+        backend._gbuf_size[1], backend._gbuf_size[0], 4).astype(np.float32)
+
+
+def _read_ssao(backend):
+    """The SSAO factor as (h, w) float32 in 0..255, bottom-up like every
+    raw `.read()` in this file (see _read_actor_depth's note)."""
+    w, h = backend._ssao_tex.size
+    return np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w).astype(np.float32)
+
+
+def _read_actor_rgba(backend):
+    """The actor layer as (h, w, 4) uint8, premultiplied and bottom-up."""
+    w, h = backend.size
+    return np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+
+
 def _read_actor_depth(backend):
     """Unpremultiplied linear view depth: `_actor_depth_tex` divided by
     `_actor_tex`'s own alpha wherever it is nonzero, which is exactly what
     the composite will do once Task 3 wires it in. An uncovered pixel
     (alpha 0) reports depth 0 rather than dividing by zero."""
     w, h = backend.size
-    colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+    colour = _read_actor_rgba(backend)
     alpha = colour[..., 3].astype(np.float32) / 255.0
     raw = np.frombuffer(backend._actor_depth_tex.read(), np.float16).reshape(h, w).astype(np.float32)
     depth = np.zeros((h, w), np.float32)
@@ -1109,7 +1132,7 @@ def _solo_actor_pixels(gl_ctx, actor):
     try:
         backend.draw(frame)
         w, h = backend.size
-        colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+        colour = _read_actor_rgba(backend)
         return colour[..., 3] > 0
     finally:
         backend.release()
@@ -1163,7 +1186,7 @@ def test_the_actor_layer_carries_linear_depth(gl_ctx):
         backend.draw(_golden_frame())
         depth = _read_actor_depth(backend)
         w, h = backend.size
-        colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+        colour = _read_actor_rgba(backend)
         covered = colour[..., 3] > 0
         assert covered.any() and not covered.all()
         assert (depth[covered] > 0.0).all(), "a covered pixel must carry a depth"
@@ -1251,7 +1274,7 @@ def _uncovered_pixels(gl_ctx, frame):
     try:
         backend.draw(frame)
         w, h = backend.size
-        colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+        colour = _read_actor_rgba(backend)
         covered = colour[..., 3] > 0
     finally:
         backend.release()
@@ -1280,7 +1303,8 @@ def _box_mean(field, window):
 
 
 def _luma(image):
-    return image.astype(np.float64) @ np.array([0.2126, 0.7152, 0.0722])
+    from PyAitD.render.lighting import LUMA
+    return image.astype(np.float64) @ np.asarray(LUMA, np.float64)
 
 
 def _local_variance(image, mask):
@@ -1383,7 +1407,7 @@ def test_haze_unpremultiplies_depth_at_partially_covered_edges(gl_ctx):
         backend.draw(frame)
         rgb = backend.read_rgb().astype(np.float64)
         w, h = backend.size
-        colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+        colour = _read_actor_rgba(backend)
         alpha = colour[..., 3]
     finally:
         backend.release()
@@ -2556,11 +2580,8 @@ def _frame_with_no_boxes():
     """A caster with nothing to receive its shadow: frame.receivers is
     empty, the input _draw_receivers treats as a no-op -- the neutral
     identity `shadows="room"` has to collapse to `shadows="soft"` under."""
-    geometry = _sphere_and_phantom_floor(0.0, -500.0, 600.0, radius=250.0, floor_y=320.0)
-    hero = _standing_actor(0, geometry, feet_y=-700)
-    light = _scene_light((0.0, -1.0, 0.0))
-    plate = np.full((200, 320, 3), 200, np.uint8)
-    return FrameDescription(_view(), ImageAsset(plate, False), _palette(), (hero,), (), light=light)
+    from dataclasses import replace as _replace
+    return _replace(_frame_with_box_under_the_hero(), receivers=())
 
 
 def _box_top_pixels(frame):
@@ -3506,15 +3527,12 @@ def _composited_centre(gl_ctx, profile, palette=None, colour=1, plate_value=0,
     frame = FD(_view(), ImageAsset(plate, False), palette,
                (_standing_actor(0, _tri_geometry(600.0, colour), 400.0),), (),
                _scene_light((0.0, 0.0, -1.0)), profile)
-    # atmosphere="off": every caller compares two composited centre pixels
-    # to isolate what the tone curve did, and several assert an exact
-    # equality against a hand-computed value. The haze is a second thing
-    # acting on that same pixel, so it is named off here rather than left
-    # to happen to be zero -- which is all that keeps these green today,
-    # this triangle sitting at eye depth 1600, under HAZE_START.
-    backend = GLBackend(gl_ctx, RenderOptions(
-        scale=1, shading="smooth", lighting="scene", msaa=0,
-        realism="classic", integration=integration, atmosphere="off"))
+    # Through _integration_options, which is where this family's
+    # atmosphere="off" rationale lives: every caller here compares two
+    # composited centre pixels to isolate what the tone curve did, and the
+    # haze is a second thing acting on that same pixel.
+    backend = GLBackend(gl_ctx, _integration_options(
+        realism="classic", integration=integration))
     backend.draw(frame)
     got = _centre(backend.read_rgb())
     backend.release()
@@ -3566,16 +3584,13 @@ def _grey_grain_render(gl_ctx, grain, scale=1, integration=2):
                (_actor(0, _tri_geometry(600.0, 1)),), (),
                _scene_light((0.0, 0.0, -1.0)),
                PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), grain))
-    # atmosphere="off": these tests measure the composite grain's RMS
-    # against `plate_grain` exactly (GAIN is sqrt(12) precisely so the two
-    # match). GRAIN_DEPTH_SLOPE scales that same field by depth, so with
-    # atmosphere on the measured amplitude is the plate's times the depth
-    # grade -- a second, unrelated factor in a test asserting a 5% relative
-    # tolerance on the first. Named off rather than left to this triangle
-    # happening to sit at eye depth 1600, under HAZE_START.
-    backend = GLBackend(gl_ctx, RenderOptions(
-        scale=scale, shading="smooth", lighting="scene", msaa=0,
-        realism="classic", integration=integration, atmosphere="off"))
+    # Through _integration_options for its atmosphere="off": these tests
+    # measure the composite grain's RMS against `plate_grain` exactly (GAIN
+    # is sqrt(12) precisely so the two match), and GRAIN_DEPTH_SLOPE scales
+    # that same field by depth -- a second, unrelated factor in a test
+    # asserting a 5% relative tolerance on the first.
+    backend = GLBackend(gl_ctx, _integration_options(
+        scale=scale, realism="classic", integration=integration))
     backend.draw(frame)
     out = backend.read_rgb().copy()
     backend.release()
@@ -3682,10 +3697,7 @@ def _residual_rms(field):
     """RMS of a field against its own 3x3 box mean -- `plate._grain`'s
     estimator, at target resolution. What the eye compares the actor's
     dither against is the room's residual, not its variance."""
-    padded = np.pad(field, 1, mode="edge")
-    mean = sum(padded[dy:dy + field.shape[0], dx:dx + field.shape[1]]
-               for dy in range(3) for dx in range(3)) / 9.0
-    return float((field - mean).std())
+    return float((field - _box_mean(field, 3)).std())
 
 
 def test_grain_arrives_the_way_the_rooms_own_dither_does(gl_ctx):
@@ -3988,8 +4000,7 @@ def test_the_gbuffer_is_half_resolution_and_starts_empty(gl_ctx):
     try:
         assert backend._gbuf_size == (backend.size[0] // 2, backend.size[1] // 2)
         assert backend._gbuf_tex.size == backend._gbuf_size
-        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
-            backend._gbuf_size[1], backend._gbuf_size[0], 4)
+        gbuf = _read_gbuffer(backend)
         # Alpha is linear depth and nothing has been drawn yet.
         assert (gbuf[..., 3] == 0.0).all()
     finally:
@@ -4002,8 +4013,7 @@ def test_the_gbuffer_carries_depth_and_normals_where_an_actor_stands(gl_ctx):
     try:
         frame = _golden_frame()
         backend.draw(frame)
-        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
-            backend._gbuf_size[1], backend._gbuf_size[0], 4)
+        gbuf = _read_gbuffer(backend)
         depth = gbuf[..., 3].astype(np.float32)
         covered = depth > 0.0
         assert covered.any(), "the prepass drew nothing"
@@ -4030,8 +4040,7 @@ def test_the_prepass_does_not_run_with_occlusion_off(gl_ctx):
                                               lighting="scene", msaa=0, occlusion="off"))
     try:
         backend.draw(_golden_frame())
-        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
-            backend._gbuf_size[1], backend._gbuf_size[0], 4)
+        gbuf = _read_gbuffer(backend)
         assert (gbuf[..., 3] == 0.0).all(), "the prepass ran with occlusion off"
     finally:
         backend.release()
@@ -4064,8 +4073,7 @@ def test_the_gbuffer_bridges_the_camera_facing_normal_to_positive_z(gl_ctx):
                                               lighting="scene", msaa=0, occlusion="ssao"))
     try:
         backend.draw(_golden_frame())
-        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
-            backend._gbuf_size[1], backend._gbuf_size[0], 4)
+        gbuf = _read_gbuffer(backend)
         depth = gbuf[..., 3].astype(np.float32)
         covered = depth > 0.0
         assert covered.any(), "the prepass drew nothing"
@@ -4108,8 +4116,7 @@ def test_the_gbuffer_bridge_flips_the_normals_y_component_too(gl_ctx):
     try:
         actor = _actor(0, _facing_tri(600.0, 1, (0.0, -0.6, -0.8)))
         backend.draw(_lit_frame([actor], (0.3, -0.5, -0.8)))
-        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
-            backend._gbuf_size[1], backend._gbuf_size[0], 4).astype(np.float32)
+        gbuf = _read_gbuffer(backend).astype(np.float32)
         depth = gbuf[..., 3]
         covered = depth > 0.0
         assert covered.any(), "the prepass drew nothing"
@@ -4200,7 +4207,7 @@ def test_the_ssao_pass_matches_the_numpy_twin(gl_ctx):
         backend._gbuf_tex.write(np.ascontiguousarray(gbuf).tobytes())
         proj_xy = (2.0, 2.0)
         backend._render_ssao_with(proj_xy)           # the seam the test drives
-        out = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w) / 255.0
+        out = _read_ssao(backend) / 255.0
         # noise_tex is uploaded as f2 (render_gl.py's _ssao_noise_tex), so the
         # shader never sees more than f16 precision in the rotation tile;
         # rounding the twin's copy through the same f16 is the established
@@ -4239,7 +4246,7 @@ def test_an_empty_gbuffer_leaves_the_ssao_texture_fully_open(gl_ctx):
         w, h = backend._gbuf_size
         backend._gbuf_tex.write(np.zeros((h, w, 4), np.float16).tobytes())
         backend._render_ssao_with((2.0, 2.0))
-        out = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w)
+        out = _read_ssao(backend)
         assert (out == 255).all()
     finally:
         backend.release()
@@ -4276,11 +4283,11 @@ def test_blur_ssao_smooths_the_noise_tile_and_swaps_ssao_tex(gl_ctx):
         gbuf = np.concatenate([n, depth[..., None]], axis=2).astype(np.float16)
         backend._gbuf_tex.write(np.ascontiguousarray(gbuf).tobytes())
         backend._render_ssao_with((2.0, 2.0))
-        raw = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w).astype(np.float32)
+        raw = _read_ssao(backend)
         before = backend._ssao_tex
         backend._blur_ssao()
         after = backend._ssao_tex
-        blurred = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w).astype(np.float32)
+        blurred = _read_ssao(backend)
         assert after is not before, "the ping-pong swap did not run"
         assert blurred.var() < raw.var(), "the blur did not reduce the noise tile's variance"
     finally:
@@ -4295,12 +4302,7 @@ def _two_actor_frame():
     has something to darken."""
     from dataclasses import replace
     frame = _golden_frame()
-    sphere2 = BodyGeometry(
-        np.array([[550.0, 0.0, 700.0]], np.float32), np.array([[0.0, 0.0, -1.0]], np.float32),
-        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
-        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, 120.0, 3),),
-        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
-    second = _standing_actor(2, sphere2, 400.0)
+    second = _standing_actor(2, _sphere_at(550.0, 0.0, 700.0, color=3), 400.0)
     return replace(frame, actors=frame.actors + (second,))
 
 
@@ -4355,9 +4357,13 @@ def _frame_with_light(key, fill):
     return replace(frame, light=light)
 
 
-def _render_with(gl_ctx, frame, occlusion):
+def _render_with(gl_ctx, frame, occlusion, **kw):
+    """One SSAO render at scale 2. `**kw` forwards any further RenderOptions
+    field, so a caller varying smoothing or shadows shares this baseline
+    rather than restating scale/msaa/realism in a near-twin helper."""
     backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
-                                              msaa=0, occlusion=occlusion, realism="enhanced"))
+                                              msaa=0, occlusion=occlusion, realism="enhanced",
+                                              **kw))
     try:
         backend.draw(frame)
         return backend.read_rgb().copy()
@@ -4425,17 +4431,7 @@ def test_ssao_still_renders_at_smoothing_0_and_shadows_hard(gl_ctx):
     asserted here because they never regressed, but the fix must not
     change that."""
     frame = _two_actor_frame()
-    off = _render_with_smoothing_and_shadows(gl_ctx, frame, "off", smoothing=0, shadows="hard")
-    on = _render_with_smoothing_and_shadows(gl_ctx, frame, "ssao", smoothing=0, shadows="hard")
+    off = _render_with(gl_ctx, frame, "off", smoothing=0, shadows="hard")
+    on = _render_with(gl_ctx, frame, "ssao", smoothing=0, shadows="hard")
     assert not np.array_equal(off, on)
 
-
-def _render_with_smoothing_and_shadows(gl_ctx, frame, occlusion, smoothing, shadows):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
-                                              msaa=0, occlusion=occlusion, realism="enhanced",
-                                              smoothing=smoothing, shadows=shadows))
-    try:
-        backend.draw(frame)
-        return backend.read_rgb().copy()
-    finally:
-        backend.release()
