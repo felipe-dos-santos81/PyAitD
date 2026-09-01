@@ -18,22 +18,28 @@ from PyAitD.render.texture_export import (
 )
 from PyAitD.render.render_options import (
     INTEGRATION_LABELS,
-    RenderOptions, cycle_filter, cycle_integration, cycle_lighting, cycle_msaa, cycle_realism, cycle_scale,
-    cycle_shading, cycle_shadows, cycle_smoothing,
+    RenderOptions, cycle_filter, cycle_integration, cycle_lighting, cycle_motion, cycle_msaa, cycle_realism,
+    cycle_scale, cycle_shading, cycle_shadows, cycle_smoothing,
 )
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.data.text import BookToken
 
-GRAPHICS_ROWS = 9          # rows on the Graphics page above Back, in GRAPHICS_CYCLES order
+GRAPHICS_ROWS = 5          # rows on the Graphics page above Back, in GRAPHICS_CYCLES order
+REALISM_ROWS = 5           # rows on the Realism page above Back, in REALISM_CYCLES order
 
 
 def config_row_count():
-    # Sticky Action, one row per remappable control, "Graphics...", "Back to Menu"
-    return 3 + len(REMAPPABLE_CONTROLS)
+    # Sticky Action, one row per remappable control, "Graphics...",
+    # "Realism...", "Back to Menu"
+    return 4 + len(REMAPPABLE_CONTROLS)
 
 
 def graphics_row_count():
     return GRAPHICS_ROWS + 1   # plus Back
+
+
+def realism_row_count():
+    return REALISM_ROWS + 1    # plus Back
 
 
 class Command(Enum):
@@ -342,6 +348,7 @@ class SystemMenuPage(Enum):
     LOAD = auto()
     CONFIG = auto()
     GRAPHICS = auto()
+    REALISM = auto()
     KEY_PICK = auto()
 
 
@@ -407,15 +414,23 @@ def reduce_character_select(state, command):
 
 # One cycle per Graphics-page row above Back; graphics_labels draws them in
 # the same order, and tests pin that the two never drift apart.
-GRAPHICS_CYCLES = (
-    cycle_scale, cycle_shading, cycle_filter, cycle_lighting, cycle_shadows,
-    cycle_msaa, cycle_realism, cycle_smoothing, cycle_integration,
-)
+GRAPHICS_CYCLES = (cycle_scale, cycle_shading, cycle_filter, cycle_msaa, cycle_smoothing)
+
+# One cycle per Realism-page row above Back; realism_labels draws them in
+# the same order, and tests pin that the two never drift apart. Later
+# sub-projects append their rows here, keeping the same index alignment.
+REALISM_CYCLES = (cycle_lighting, cycle_shadows, cycle_realism, cycle_integration, cycle_motion)
 
 
 def _leave_graphics(state):
     state.page = SystemMenuPage.CONFIG
-    state.cursor = config_row_count() - 2   # back on the Graphics... row
+    state.cursor = config_row_count() - 3   # back on the Graphics... row
+    state.hover = None
+
+
+def _leave_realism(state):
+    state.page = SystemMenuPage.CONFIG
+    state.cursor = config_row_count() - 2   # back on the Realism... row
     state.hover = None
 
 
@@ -431,6 +446,8 @@ def reduce_system_menu(state, command, settings, available_slots=frozenset()):
         row_count = len(LOAD_ROW_LABELS)
     elif state.page is SystemMenuPage.GRAPHICS:
         row_count = graphics_row_count()
+    elif state.page is SystemMenuPage.REALISM:
+        row_count = realism_row_count()
     else:
         row_count = config_row_count()
     if command is Command.UP:
@@ -440,6 +457,9 @@ def reduce_system_menu(state, command, settings, available_slots=frozenset()):
     elif command is Command.CANCEL:
         if state.page is SystemMenuPage.GRAPHICS:
             _leave_graphics(state)
+            return SystemMenuResult(save=True)
+        if state.page is SystemMenuPage.REALISM:
+            _leave_realism(state)
             return SystemMenuResult(save=True)
         if state.page is SystemMenuPage.CONFIG:
             state.page = SystemMenuPage.MAIN
@@ -492,14 +512,25 @@ def reduce_system_menu(state, command, settings, available_slots=frozenset()):
             return SystemMenuResult(save=True)
         cycle = GRAPHICS_CYCLES[state.cursor]
         return SystemMenuResult(settings=replace(settings, render=cycle(settings.render)))
+    elif command is Command.ACCEPT and state.page is SystemMenuPage.REALISM:
+        if state.cursor == row_count - 1:
+            _leave_realism(state)
+            return SystemMenuResult(save=True)
+        cycle = REALISM_CYCLES[state.cursor]
+        return SystemMenuResult(settings=replace(settings, render=cycle(settings.render)))
     elif (command is Command.ACCEPT and state.page is SystemMenuPage.CONFIG
           and state.cursor == row_count - 1):
         state.page = SystemMenuPage.MAIN
         state.cursor = 0
         return SystemMenuResult(save=True)
-    elif command is Command.ACCEPT and state.cursor == row_count - 2:
-        # the Graphics... row, just above Back
+    elif command is Command.ACCEPT and state.cursor == row_count - 3:
+        # the Graphics... row
         state.page = SystemMenuPage.GRAPHICS
+        state.cursor = 0
+        state.hover = None
+    elif command is Command.ACCEPT and state.cursor == row_count - 2:
+        # the Realism... row
+        state.page = SystemMenuPage.REALISM
         state.cursor = 0
         state.hover = None
     elif command is Command.ACCEPT and state.cursor == 0:
@@ -660,15 +691,18 @@ class SystemMenuLayout:
         pygame.Rect(16, 2 + i * 13, 288, 13)
         for i in range(config_row_count())
     )
-    # graphics_row_count() rows at an 18 px pitch, 18 px tall. The roadmap's
-    # rows need the room: eight plus Back end at y=174, nine plus Back at
-    # y=192, both inside the 200-row screen. Touching rows are fine --
-    # effective_rects splits their 2 px hit padding at the midpoint, which
-    # CONFIG's 13 px rows already rely on -- and 18 >= 13 keeps the 12x12
-    # target contract.
+    # Both option pages at a 22 px pitch from y=12, rows 20 px tall -- the
+    # split gave each page its room back. Graphics (6 rows) ends at y=142;
+    # Realism holds 6 now and 8 when roadmap-2 K and L add their rows
+    # (y=186), all inside the 200-row screen, and 20 >= 13 keeps
+    # effective_rects' 12x12 target contract.
     GRAPHICS_PAGE_ROWS = tuple(
-        pygame.Rect(16, 12 + i * 18, 288, 18)
+        pygame.Rect(16, 12 + i * 22, 288, 20)
         for i in range(graphics_row_count())
+    )
+    REALISM_PAGE_ROWS = tuple(
+        pygame.Rect(16, 12 + i * 22, 288, 20)
+        for i in range(realism_row_count())
     )
     # 8 columns x 7 rows of key cells under a one-line header, then a wide
     # Cancel button. The 4 px gaps absorb effective_rects' 2 px padding on
@@ -692,6 +726,8 @@ class SystemMenuLayout:
             return cls.CONFIG_ROWS
         if page is SystemMenuPage.GRAPHICS:
             return cls.GRAPHICS_PAGE_ROWS
+        if page is SystemMenuPage.REALISM:
+            return cls.REALISM_PAGE_ROWS
         return cls.KEY_PICK_ROWS
 
     @classmethod
@@ -1256,17 +1292,24 @@ def graphics_labels(render):
         f"Scale: {render.scale}x",
         f"Shading: {render.shading.title()}",
         f"Filter: {render.background_filter.title()}",
-        f"Lighting: {render.lighting.title()}",
-        f"Shadows: {render.shadows.title()}",
         # "up to", because this row shows the *option*, and GLBackend clamps
         # it to ctx.max_samples at construction (many drivers cap at 4). The
         # menu has no handle on the live backend to read the real count off,
         # so the label states the request honestly rather than claiming a
         # sample count the GPU may not be giving.
         f"AA: up to {render.msaa}x" if render.msaa else "AA: Off",
-        f"Realism: {render.realism.title()}",
         f"Smoothing: {SMOOTHING_LABELS[render.smoothing]}",
+    ]
+
+
+def realism_labels(render):
+    """One label per Realism-page row above Back, in REALISM_CYCLES order."""
+    return [
+        f"Lighting: {render.lighting.title()}",
+        f"Shadows: {render.shadows.title()}",
+        f"Realism: {render.realism.title()}",
         f"Integration: {INTEGRATION_LABELS[render.integration]}",
+        f"Motion: {render.motion.title()}",
     ]
 
 
@@ -1280,10 +1323,13 @@ def system_menu_labels(page, settings):
         return list(LOAD_ROW_LABELS)
     if page is SystemMenuPage.GRAPHICS:
         return graphics_labels(settings.render) + ["Back"]
+    if page is SystemMenuPage.REALISM:
+        return realism_labels(settings.render) + ["Back"]
     labels = [f"Sticky Action: {'On' if settings.sticky_action else 'Off'}"]
     for control in REMAPPABLE_CONTROLS:
         labels.append(f"{control.name}: {', '.join(settings.bindings[control.name])}")
     labels.append("Graphics...")
+    labels.append("Realism...")
     labels.append("Back to Menu")
     return labels
 
@@ -1304,7 +1350,9 @@ def render_system_menu(painter, presenter, settings, assets, available_slots=fro
     else:
         enabled = [True] * len(labels)
     selection = presenter.hover if presenter.hover is not None else presenter.cursor
-    button_size = 12 if presenter.page in (SystemMenuPage.CONFIG, SystemMenuPage.GRAPHICS) else 18
+    button_size = 12 if presenter.page in (
+        SystemMenuPage.CONFIG, SystemMenuPage.GRAPHICS, SystemMenuPage.REALISM,
+    ) else 18
     rows = zip(SystemMenuLayout.rows(presenter.page), labels, enabled, strict=True)
     for index, (rect, label, row_enabled) in enumerate(rows):
         _button(painter, rect, label, selected=index == selection,

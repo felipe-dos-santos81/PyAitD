@@ -39,13 +39,13 @@ def test_valid_payload_round_trips():
 def test_each_invalid_field_falls_back_alone():
     options, error = validate_render_options(
         {"scale": 99, "shading": "smooth", "background_filter": "bilinear", "texture_dir": None,
-         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on"})
-    assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0)  # clamped, not rejected
+         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on", "motion": "tick"})
+    assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick")  # clamped, not rejected
     assert error is None
     options, error = validate_render_options(
         {"scale": "x", "shading": "neon", "background_filter": "bilinear", "texture_dir": 3,
-         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on"})
-    assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0)
+         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on", "motion": "tick"})
+    assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick")
     assert "scale" in error and "shading" in error and "texture_dir" in error
 
 
@@ -167,3 +167,25 @@ def test_integration_cycles_through_every_level():
         options = cycle_integration(options)
         seen.append(options.integration)
     assert seen == [2, 3, 0, 1, 2]
+
+
+def test_motion_defaults_to_smooth_and_cycles():
+    from PyAitD.render.render_options import MOTION_MODES, RenderOptions, cycle_motion
+    assert MOTION_MODES == ("tick", "smooth")
+    options = RenderOptions()
+    assert options.motion == "smooth"
+    assert cycle_motion(options).motion == "tick"
+    assert cycle_motion(cycle_motion(options)).motion == "smooth"
+    assert RenderOptions(motion="smooth").to_payload()["motion"] == "smooth"
+
+
+def test_invalid_or_missing_motion_falls_back_alone():
+    from PyAitD.render.render_options import RenderOptions, validate_render_options
+    payload = RenderOptions(scale=2).to_payload()
+    payload["motion"] = "cinematic"
+    options, error = validate_render_options(payload)
+    assert options.motion == "smooth" and options.scale == 2
+    assert "motion" in error
+    del payload["motion"]   # a settings file from before this option
+    options, error = validate_render_options(payload)
+    assert options.motion == "smooth" and "motion" in error

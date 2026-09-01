@@ -638,3 +638,43 @@ def test_the_integration_flag_still_takes_the_words_it_used_to():
 
     assert parse_args(["--integration", "off"]).integration == 0
     assert parse_args(["--integration", "on"]).integration == 2
+
+
+def test_motion_cli_override_is_session_only_and_alone():
+    from dataclasses import replace
+    from PyAitD.app.config import default_settings
+    from PyAitD.app.shell import apply_render_overrides, parse_args
+    base = default_settings()
+    assert base.render.motion == "smooth"                    # the shipped default
+    only = apply_render_overrides(base, parse_args(["--motion", "tick"]))
+    # exactly the motion field moved, nothing else
+    assert only.render == replace(base.render, motion="tick")
+    # no flag: the default persists, unmodified
+    assert apply_render_overrides(base, parse_args([])).render.motion == "smooth"
+
+
+def test_menu_render_fields_cover_motion():
+    from PyAitD.app.shell import _MENU_RENDER_FIELDS
+    assert "motion" in _MENU_RENDER_FIELDS
+
+
+def test_motion_blend_helper_gates_on_mode_and_snapshot():
+    from dataclasses import replace
+    from PyAitD.app.config import default_settings
+    from PyAitD.app.shell import _motion_blend
+    from PyAitD.engine.script.playworld import TICK_MS
+
+    class _Session:
+        settings = replace(default_settings(),
+                            render=replace(default_settings().render, motion="tick"))
+
+    session = _Session()
+    sentinel = object()
+    assert _motion_blend(session, sentinel, 10) is None      # tick mode: never
+    session.settings = replace(session.settings,
+                               render=replace(session.settings.render, motion="smooth"))
+    assert _motion_blend(session, None, 10) is None          # no snapshot yet
+    snap, alpha = _motion_blend(session, sentinel, 10)
+    assert snap is sentinel and alpha == pytest.approx(10 / TICK_MS)
+    _, alpha = _motion_blend(session, sentinel, TICK_MS * 3)
+    assert alpha == 1.0                                      # clamped, never extrapolates

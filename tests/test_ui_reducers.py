@@ -163,17 +163,22 @@ def test_configuration_cursor_wraps_across_all_rows():
 
 def test_configuration_graphics_row_opens_the_graphics_page():
     from PyAitD.app.ui import config_row_count
-    assert config_row_count() == 3 + len(REMAPPABLE_CONTROLS)
-    state = SystemMenuPresenter(page=SystemMenuPage.CONFIG, cursor=config_row_count() - 2, hover=3)
+    assert config_row_count() == 4 + len(REMAPPABLE_CONTROLS)
+    state = SystemMenuPresenter(page=SystemMenuPage.CONFIG, cursor=config_row_count() - 3, hover=3)
     assert reduce_system_menu(state, Command.ACCEPT, default_settings()) is None
     assert (state.page, state.cursor, state.hover) == (SystemMenuPage.GRAPHICS, 0, None)
 
 
-def test_graphics_rows_cycle_render_options():
-    from PyAitD.app.ui import GRAPHICS_CYCLES, GRAPHICS_ROWS, graphics_row_count
-    from PyAitD.render.render_options import RenderOptions
-    assert GRAPHICS_ROWS == 9 and len(GRAPHICS_CYCLES) == GRAPHICS_ROWS
+def test_graphics_and_realism_rows_cycle_render_options():
+    from PyAitD.app.ui import (
+        GRAPHICS_CYCLES, GRAPHICS_ROWS, REALISM_CYCLES, REALISM_ROWS,
+        graphics_row_count, realism_row_count,
+    )
+    assert GRAPHICS_ROWS == 5 and len(GRAPHICS_CYCLES) == GRAPHICS_ROWS
+    assert REALISM_ROWS == 5 and len(REALISM_CYCLES) == REALISM_ROWS
     assert graphics_row_count() == GRAPHICS_ROWS + 1
+    assert realism_row_count() == REALISM_ROWS + 1
+    from PyAitD.render.render_options import RenderOptions
     settings = default_settings()
     state = SystemMenuPresenter(page=SystemMenuPage.GRAPHICS, cursor=0)
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(scale=6)
@@ -182,32 +187,70 @@ def test_graphics_rows_cycle_render_options():
     state.cursor = 2
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(background_filter="xbr")
     state.cursor = 3
-    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(lighting="fixed")
-    state.cursor = 4
-    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(shadows="hard")
-    state.cursor = 5
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(msaa=8)
-    state.cursor = 6
-    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(realism="classic")
-    state.cursor = 7
+    state.cursor = 4
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(smoothing=3)
     assert state.page is SystemMenuPage.GRAPHICS  # a cycle never leaves the page
 
+    state = SystemMenuPresenter(page=SystemMenuPage.REALISM, cursor=0)
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(lighting="fixed")
+    state.cursor = 1
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(shadows="hard")
+    state.cursor = 2
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(realism="classic")
+    state.cursor = 3
+    # Minor 12: REALISM_CYCLES[3] (cycle_integration) was otherwise pinned
+    # only by identity (test_smoothing_integration_and_motion_cycle_slots_
+    # are_pinned) and by label rendering, never by an actual
+    # reduce_system_menu(ACCEPT) asserting the resulting settings.render
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(integration=3)
+    assert state.page is SystemMenuPage.REALISM  # a cycle never leaves the page
 
-def test_the_integration_row_cycles_from_the_graphics_page():
-    from PyAitD.app.ui import GRAPHICS_CYCLES
-    from PyAitD.render.render_options import cycle_integration
-    assert GRAPHICS_CYCLES[8] is cycle_integration
+
+def test_smoothing_integration_and_motion_cycle_slots_are_pinned():
+    from PyAitD.app.ui import GRAPHICS_CYCLES, REALISM_CYCLES
+    from PyAitD.render.render_options import cycle_integration, cycle_motion, cycle_smoothing
+    assert GRAPHICS_CYCLES[4] is cycle_smoothing
+    assert REALISM_CYCLES[3] is cycle_integration
+    assert REALISM_CYCLES[4] is cycle_motion
 
 
 def test_graphics_back_and_cancel_return_to_the_graphics_row_saving():
     from PyAitD.app.ui import config_row_count, graphics_row_count
     state = SystemMenuPresenter(page=SystemMenuPage.GRAPHICS, cursor=graphics_row_count() - 1, hover=2)
     assert reduce_system_menu(state, Command.ACCEPT, default_settings()) == SystemMenuResult(save=True)
-    assert (state.page, state.cursor, state.hover) == (SystemMenuPage.CONFIG, config_row_count() - 2, None)
+    assert (state.page, state.cursor, state.hover) == (SystemMenuPage.CONFIG, config_row_count() - 3, None)
     state = SystemMenuPresenter(page=SystemMenuPage.GRAPHICS, cursor=3)
     assert reduce_system_menu(state, Command.CANCEL, default_settings()) == SystemMenuResult(save=True)
-    assert (state.page, state.cursor) == (SystemMenuPage.CONFIG, config_row_count() - 2)
+    assert (state.page, state.cursor) == (SystemMenuPage.CONFIG, config_row_count() - 3)
+
+
+def test_config_navigates_to_both_pages_and_back():
+    state = SystemMenuPresenter(page=SystemMenuPage.CONFIG,
+                                cursor=config_row_count() - 3)
+    settings = default_settings()
+    assert reduce_system_menu(state, Command.ACCEPT, settings) is None
+    assert state.page is SystemMenuPage.GRAPHICS and state.cursor == 0
+    result = reduce_system_menu(state, Command.CANCEL, settings)
+    assert result.save and state.page is SystemMenuPage.CONFIG
+    assert state.cursor == config_row_count() - 3   # back on Graphics...
+    state.cursor = config_row_count() - 2
+    assert reduce_system_menu(state, Command.ACCEPT, settings) is None
+    assert state.page is SystemMenuPage.REALISM and state.cursor == 0
+    result = reduce_system_menu(state, Command.CANCEL, settings)
+    assert result.save and state.page is SystemMenuPage.CONFIG
+    assert state.cursor == config_row_count() - 2   # back on Realism...
+
+
+def test_realism_page_cycles_motion_and_backs_out():
+    from PyAitD.app.ui import realism_row_count
+    settings = default_settings()
+    state = SystemMenuPresenter(page=SystemMenuPage.REALISM, cursor=4)
+    result = reduce_system_menu(state, Command.ACCEPT, settings)
+    assert result.settings.render.motion == "tick"
+    state.cursor = realism_row_count() - 1
+    result = reduce_system_menu(state, Command.ACCEPT, settings)
+    assert result.save and state.page is SystemMenuPage.CONFIG
 
 
 def test_graphics_cursor_wraps_across_all_rows():

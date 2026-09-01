@@ -192,11 +192,11 @@ def test_story_whole_frame_confirms_and_menu_rows_are_large():
             # rows; effective_rects still pads every row past the 12x12
             # minimum target size
             assert all(rect.width >= 224 and rect.height >= 13 for rect in rows)
-        elif page is SystemMenuPage.GRAPHICS:
-            # GRAPHICS moved to an 18 px pitch to fit the Shadows row; still
-            # comfortably above the 12x12 minimum target size
-            assert all(rect.width >= 224 and rect.height >= 18 for rect in rows)
         else:
+            # GRAPHICS and REALISM share this branch too: both were split
+            # off CONFIG onto their own 22 px-pitch, 20 px-tall rows -- the
+            # room the old single Graphics page ran out of -- comfortably
+            # above the 12x12 minimum target size
             assert all(rect.width >= 224 and rect.height >= 20 for rect in rows)
         for index, rect in enumerate(rows):
             assert hit_test_system_menu(rect.center, presenter) == index

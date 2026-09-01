@@ -15,6 +15,7 @@ from PyAitD.engine.space.cos_table import sin_cos
 from PyAitD.render.geometry import BodyGeometry, pose_geometry
 from PyAitD.render.lighting import LEGACY_LIGHT, SceneLight
 from PyAitD.render.materials import MaterialTable, default_table
+from PyAitD.render.motion import blend_actor
 from PyAitD.render.plate import NEUTRAL_PLATE, PlateProfile
 from PyAitD.engine.data.mask_geometry import MaskDraw
 from PyAitD.engine.nav.picking import actor_bbox
@@ -178,15 +179,32 @@ def _plate(resolver, floor, cam_idx, killed):
         return getter(floor, cam_idx)
 
 
-def build_frame(game, floor, resolver):
+def build_frame(game, floor, resolver, blend=None):
     """The per-frame scene: a float FrameDescription for the new renderers,
     and the unchanged draw_list (from the logical skin() bbox) so picking,
-    the mouse contract and combat keep working byte-identically."""
+    the mouse contract and combat keep working byte-identically.
+
+    `blend` is (MotionSnapshot, alpha) under motion="smooth": geometry,
+    angles and position interpolate snapshot -> live state through the
+    float pose twin. The logical projection below never blends."""
     room = floor.rooms[game.current_room]
     cam_idx = room.camera_indices[game.num_camera]
     state = CameraState.from_camera(
         floor.cameras[cam_idx], room.world_x, room.world_y, room.world_z,
     ).angles()
+    snap, alpha = (None, 0.0)
+    if blend is not None:
+        snap, alpha = blend
+        if (snap.floor != game.current_floor or snap.room != game.current_room
+                or snap.camera != game.num_camera):
+            # a camera cut, room change or floor change since the snapshot:
+            # every actor renders unblended this frame rather than smearing
+            # across it. `camera` alone is not enough -- it is only a slot
+            # index into room.camera_indices, not a camera identity, so a
+            # same-slot room change (the best camera for the new room also
+            # sitting at the old num_camera slot) is a real cut with
+            # `camera` unchanged; `room` catches it.
+            snap = None
     masks = tuple(floor.mask_draws(cam_idx))
     actors = []
     draw_list = []
@@ -205,11 +223,19 @@ def build_frame(game, floor, resolver):
         angles = (actor.alpha, actor.beta, actor.gamma)
         logical = skin(body, states, position, state, actor_angles=angles)
         draw_list.append((index, actor_bbox(logical)))
+        draw_states, draw_angles, draw_position, pose_fn = states, angles, position, None
+        if snap is not None:
+            draw_states, draw_angles, draw_position, pose_fn = blend_actor(
+                snap.actors.get(index), actor.body_num, actor.room, actor.anim,
+                states, angles, position, alpha,
+            )
         actors.append(ActorDraw(
             index,
-            pose_geometry(body, states, angles, ao=resolver.geometry_ao(actor.body_num),
-                          refinement=resolver.refinement(actor.body_num)),
-            position,
+            pose_geometry(body, draw_states, draw_angles,
+                          ao=resolver.geometry_ao(actor.body_num),
+                          refinement=resolver.refinement(actor.body_num),
+                          pose_fn=pose_fn),
+            draw_position,
             actor.room,
             tuple(actor.zv),
             logical,

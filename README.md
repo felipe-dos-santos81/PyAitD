@@ -126,6 +126,9 @@ in `DIR/bodies/body<NNN>.json`),
 gives every shadow a penumbra that hardens where the actor meets the ground,
 composites every actor's shadow once before any body is drawn, and lets
 limbs and actors shadow each other through a light-view depth map),
+`--motion {tick,smooth}` (`smooth`, the default, blends actor motion between
+simulation ticks at the display rate; `tick` renders one pose per 50 Hz
+tick),
 `--integration {0,1,2,3}` (how much of the room's own picture the actors take
 on: any level above 0 resolves the bodies into their own layer and composites
 them back — softened or pixelated to the plate's cell, clamped into the

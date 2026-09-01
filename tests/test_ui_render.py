@@ -418,7 +418,7 @@ def test_system_menu_labels_match_the_layouts():
     from PyAitD.app.ui import SystemMenuLayout, system_menu_labels
     settings = default_settings()
     for page in (SystemMenuPage.MAIN, SystemMenuPage.SAVE, SystemMenuPage.LOAD,
-                 SystemMenuPage.CONFIG, SystemMenuPage.GRAPHICS):
+                 SystemMenuPage.CONFIG, SystemMenuPage.GRAPHICS, SystemMenuPage.REALISM):
         assert len(system_menu_labels(page, settings)) == len(SystemMenuLayout.rows(page))
     assert system_menu_labels(SystemMenuPage.MAIN, settings) == [
         "Return to Game", "Save", "Load", "Quick Save", "Configuration", "Quit",
@@ -821,55 +821,76 @@ def test_big_cadre_spans_its_exact_scaled_box(data_dir, profile, scale, top, bot
     assert (int(ink[:, 1].min()), int(ink[:, 1].max())) == (0, right)
 
 
-def test_graphics_page_rows_fit_the_screen_and_do_not_overlap():
-    from PyAitD.app.ui import SystemMenuLayout, graphics_row_count
-    rows = SystemMenuLayout.rows(SystemMenuPage.GRAPHICS)
-    assert len(rows) == graphics_row_count()
-    assert all(r.bottom <= 200 and r.height >= 13 for r in rows)
-    hit = SystemMenuLayout.hit_rows(SystemMenuPage.GRAPHICS)
-    for a in range(len(hit)):
-        for b in range(a + 1, len(hit)):
-            assert not hit[a].colliderect(hit[b])
+def test_graphics_and_realism_page_rows_fit_the_screen_and_do_not_overlap():
+    from PyAitD.app.ui import SystemMenuLayout, graphics_row_count, realism_row_count
+    assert len(SystemMenuLayout.rows(SystemMenuPage.GRAPHICS)) == graphics_row_count()
+    assert len(SystemMenuLayout.rows(SystemMenuPage.REALISM)) == realism_row_count()
+    for page in (SystemMenuPage.GRAPHICS, SystemMenuPage.REALISM):
+        for rect in SystemMenuLayout.rows(page):
+            assert rect.bottom <= 200 and rect.height >= 13
+        hit = SystemMenuLayout.hit_rows(page)
+        for a in range(len(hit)):
+            for b in range(a + 1, len(hit)):
+                assert not hit[a].colliderect(hit[b])
 
 
-def test_graphics_labels_match_the_cycles_one_per_row():
-    from PyAitD.app.ui import GRAPHICS_CYCLES, GRAPHICS_ROWS, SMOOTHING_LABELS, graphics_labels
+def test_graphics_and_realism_labels_match_the_cycles_one_per_row():
+    from PyAitD.app.ui import (
+        GRAPHICS_CYCLES, GRAPHICS_ROWS, REALISM_CYCLES, REALISM_ROWS,
+        SMOOTHING_LABELS, graphics_labels, realism_labels,
+    )
     from PyAitD.render.render_options import (
         INTEGRATION_LABELS, INTEGRATION_LEVELS, SMOOTHING_LEVELS)
-    labels = graphics_labels(default_settings().render)
-    assert len(labels) == GRAPHICS_ROWS == len(GRAPHICS_CYCLES)
+    render = default_settings().render
+    graphics = graphics_labels(render)
+    realism = realism_labels(render)
+    assert len(graphics) == GRAPHICS_ROWS == len(GRAPHICS_CYCLES)
+    assert len(realism) == REALISM_ROWS == len(REALISM_CYCLES)
     # every other row's label is total over its option; the Smoothing and
     # Integration rows index a tuple, so a level with no label would
     # IndexError (or, below zero, silently wrap) instead of drawing
     assert len(SMOOTHING_LABELS) == len(SMOOTHING_LEVELS)
     assert len(INTEGRATION_LABELS) == len(INTEGRATION_LEVELS)
-    assert labels[0] == "Scale: 4x" and labels[4] == "Shadows: Soft"
-    assert labels[6] == "Realism: Enhanced" and labels[7] == "Smoothing: Medium"
-    assert labels[8] == "Integration: Full"
+    assert graphics[0] == "Scale: 4x" and graphics[4] == "Smoothing: Medium"
+    assert realism[1] == "Shadows: Soft" and realism[2] == "Realism: Enhanced"
+    assert realism[3] == "Integration: Full" and realism[4] == "Motion: Smooth"
 
 
 def test_every_integration_level_draws_its_own_row_label():
     from dataclasses import replace
 
-    from PyAitD.app.ui import graphics_labels
+    from PyAitD.app.ui import realism_labels
     render = default_settings().render
-    drawn = [graphics_labels(replace(render, integration=level))[8]
+    drawn = [realism_labels(replace(render, integration=level))[3]
              for level in (0, 1, 2, 3)]
     assert drawn == ["Integration: Off", "Integration: Subtle",
                      "Integration: Full", "Integration: Strong"]
 
 
-def test_configuration_page_ends_with_graphics_then_back(monkeypatch):
+def test_motion_label_titles_the_mode():
+    from dataclasses import replace
+    from PyAitD.app.ui import realism_labels
+    render = default_settings().render
+    assert realism_labels(replace(render, motion="tick"))[4] == "Motion: Tick"
+    assert realism_labels(replace(render, motion="smooth"))[4] == "Motion: Smooth"
+
+
+def test_configuration_page_ends_with_graphics_realism_then_back(monkeypatch):
     # The CONFIG label list is hand-built; pin its tail so the reducer's
-    # "row_count - 2 is Graphics..." rule and the drawn labels cannot drift.
+    # "row_count - 3 is Graphics..., row_count - 2 is Realism..." rule and
+    # the drawn labels cannot drift.
     from PyAitD.app.ui import _button
     drawn = []
     monkeypatch.setattr("PyAitD.app.ui._button", lambda painter, rect, label, **kw: drawn.append(label))
     fake_sprite = np.zeros((20, 20, 3), dtype=np.uint8)
     fake_assets = SimpleNamespace(cadre_bank=lambda: (fake_sprite,) * 9)
     render_system_menu(UIPainter(), SystemMenuPresenter(page=SystemMenuPage.CONFIG), default_settings(), fake_assets)
-    assert drawn[-2:] == ["Graphics...", "Back to Menu"]
+    assert drawn[-3:] == ["Graphics...", "Realism...", "Back to Menu"]
     assert not any(label.startswith("Scale") for label in drawn)
+    assert not any(label.startswith("Lighting") for label in drawn)
     drawn.clear()
     render_system_menu(UIPainter(), SystemMenuPresenter(page=SystemMenuPage.GRAPHICS), default_settings(), fake_assets)
     assert drawn[0] == "Scale: 4x" and drawn[-1] == "Back"
+    drawn.clear()
+    render_system_menu(UIPainter(), SystemMenuPresenter(page=SystemMenuPage.REALISM), default_settings(), fake_assets)
+    assert drawn[0] == "Lighting: Scene" and drawn[-1] == "Back"

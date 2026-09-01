@@ -28,11 +28,12 @@ from PyAitD.engine.script.playworld import TICK_MS, play_tick
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import (
     BACKGROUND_FILTERS, LIGHTING_MODES, MSAA_LEVELS, REALISM_MODES, SHADING_MODES,
-    INTEGRATION_LEVELS, LEGACY_INTEGRATION,
+    INTEGRATION_LEVELS, LEGACY_INTEGRATION, MOTION_MODES,
     SHADOW_MODES, SMOOTHING_LEVELS, validate_render_options,
 )
 from PyAitD.games import load_profile
 from PyAitD.games.aitd1.mirror import MIRROR_KEYCODES
+from PyAitD.render.motion import snapshot as motion_snapshot
 from PyAitD.render.scene import build_frame
 from PyAitD.app.ui import (
     Command, DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, UIPainter, configure_input,
@@ -127,6 +128,11 @@ def parse_args(argv):
         help="how much of the plate's tone, grain and softness the actors take on: "
              "0 draws them straight over it, 1-3 composite at half, full and one-and-a-half strength")
     p.add_argument(
+        "--motion", choices=MOTION_MODES, default=None,
+        help="tick: one pose per 50 Hz tick; smooth: blend between ticks "
+             "at the display rate (rendering only, up to one tick behind)",
+    )
+    p.add_argument(
         "--textures", type=pathlib.Path, default=None, help="asset texture directory",
     )
     p.add_argument(
@@ -172,6 +178,8 @@ def apply_render_overrides(settings, args):
         payload["shadows"] = args.shadows
     if args.integration is not None:
         payload["integration"] = args.integration
+    if args.motion is not None:
+        payload["motion"] = args.motion
     if args.textures is not None:
         payload["texture_dir"] = str(args.textures)
     render, _error = validate_render_options(payload)
@@ -239,7 +247,7 @@ def _credits_entry(game):
     return game.cvars[game.profile.cvar_index("TEXTE_CREDITS")] + 1
 
 
-def _scene_frame(game, floor, renderer, resolver):
+def _scene_frame(game, floor, renderer, resolver, blend=None):
     # mainLoop.cpp:270 AllRedraw through the scene layer: build_frame keeps
     # the logical draw_list; the renderer draws the enhanced frame (its
     # 320x200 thumbnail, if a presenter or the software path needs one, is
@@ -248,8 +256,20 @@ def _scene_frame(game, floor, renderer, resolver):
     # required, not defaulted: a silent `AssetResolver(game.assets)`
     # fallback here would drop the override directory with no error, the same
     # silent-degradation failure mode `_resolver_for` exists to avoid below.
-    frame, draw_list = build_frame(game, floor, resolver)
+    frame, draw_list = build_frame(game, floor, resolver, blend)
     return renderer.compose_scene(frame), draw_list
+
+
+def _motion_blend(session, motion_prev, accumulator):
+    """build_frame's blend argument for this frame, or None.
+
+    Smooth motion only, with a snapshot taken before this game's most
+    recent tick; alpha is the accumulator's leftover fraction of the
+    next tick, clamped so a stalled frame holds the tick pose instead
+    of extrapolating past it."""
+    if motion_prev is None or session.settings.render.motion != "smooth":
+        return None
+    return motion_prev, min(accumulator / TICK_MS, 1.0)
 
 
 def _resolver_for(assets, texture_dir):
@@ -649,11 +669,13 @@ def _route_game_over_command(game, session, modal_command):
 
 
 # The only render.RenderOptions fields the CONFIG menu can actually change
-# (SystemMenuPage.GRAPHICS's Scale/Shading/Filter/Lighting/Shadows/AA/Realism/Smoothing/Integration
-# rows, via GRAPHICS_CYCLES in ui.reduce_system_menu). `texture_dir` has no menu row at
-# all, so it is never in this set and a save can never pick it up from the
-# in-memory, possibly CLI-set, session.settings.render.
-_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism", "smoothing", "shadows", "integration")
+# (SystemMenuPage.GRAPHICS's Scale/Shading/Filter/AA/Smoothing rows, via
+# GRAPHICS_CYCLES, and SystemMenuPage.REALISM's Lighting/Shadows/Realism/
+# Integration/Motion rows, via REALISM_CYCLES, both in ui.reduce_system_menu).
+# `texture_dir` has no menu row at all, so it is never in this set and a save
+# can never pick it up from the in-memory, possibly CLI-set,
+# session.settings.render.
+_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism", "smoothing", "shadows", "integration", "motion")
 
 
 def _persisted_render(session):
@@ -1389,6 +1411,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
     exit_status = 0
     last = pygame.time.get_ticks()
     accumulator = 0
+    motion_prev = None
     if game.num_camera == -1:
         game.num_camera = game.new_num_camera
         game.flag_init_view = 0
@@ -1532,6 +1555,9 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
             # same object here instead of building a second one over the same
             # new_game.assets, so later frames keep its override-PNG cache.
             resolver = new_resolver
+            # a hero swap, restart, cutscene hand-over or load must never
+            # blend from the old game's snapshot
+            motion_prev = None
             game, floor, session, input_buffer = (
                 new_game, new_floor, new_session, new_input_buffer,
             )
@@ -1547,6 +1573,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
             accumulator += elapsed
             ticked = False
             while accumulator >= TICK_MS and game.mode is GameMode.PLAY:
+                motion_prev = motion_snapshot(game)
                 play_tick(game, floor, input_buffer)
                 ticked = True
                 for actor_idx in _hit_actor_ids(game):
@@ -1569,7 +1596,10 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
                 # effects queued
                 _commit_quick_save(game, session)
             if game.num_camera != -1:
-                scene_frame, draw_list = _scene_frame(game, floor, renderer, resolver)
+                scene_frame, draw_list = _scene_frame(
+                    game, floor, renderer, resolver,
+                    _motion_blend(session, motion_prev, accumulator),
+                )
             # after the ticks and the scene refresh, so a moved pointer
             # resolves against the frame it is actually over. A camera cut
             # with a still pointer changes nothing here: follow_pointer's
@@ -1579,6 +1609,10 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
             )
         else:
             accumulator = 0
+            # not PLAY this frame: the accumulator restarts, so the old
+            # snapshot must not survive to blend against on the resume
+            # frame (it would pop the actor backward by up to one tick)
+            motion_prev = None
             session.elapsed_ms += elapsed
             _auto_dismiss_picture(game, session)
             if isinstance(game.active_modal, ShowTitle):
