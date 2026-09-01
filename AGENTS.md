@@ -247,8 +247,13 @@ a rule — add the test with the rule.
   structurally implies everything `shadows="soft"` does (one gathered cast,
   the light-view shadow map, self/inter-actor shadowing) and adds a receiver
   pass that rasterises the room's floor and its `hard_col` tops through that
-  same depth map, after the gathered shadow composites and before any body
-  draws; `hard_cols` are collision proxies, not painted furniture, so `room`
+  same depth map, MAX'd into the same coverage texture the gathered cast
+  already softened, *before* the frame's one `_composite_shadow` and before
+  any body draws — never a second composite after receivers. A second
+  `_composite_shadow` there double-darkens every floor pixel under an
+  actor's ground cast that a room receiver also covers (measured
+  54/46/43/40/45 versus the correct 74, the coverage texture's own MAX
+  rule); `hard_cols` are collision proxies, not painted furniture, so `room`
   stays a menu choice behind `RenderOptions.shadows`, which still defaults
   to `"soft"` pending a human's eye on real fixtures.
 - The UI layer is painted through `app.ui.UIPainter`, which owns a surface at

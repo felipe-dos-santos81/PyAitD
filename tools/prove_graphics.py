@@ -191,7 +191,7 @@ def output_paths(out_dir, smoothing=None, shadows=None, integration=None, motion
     against the "soft" default; naming it after "soft" the way the brief's
     first draft did (forcing "soft" against a "room" default) would have
     compared two identical renders, since `RenderOptions.shadows` has
-    never moved off "soft" -- see task-6-addendum.md."""
+    never moved off "soft"."""
     out_dir = pathlib.Path(out_dir)
     defaults = RenderOptions()
     level = defaults.smoothing if smoothing is None else smoothing

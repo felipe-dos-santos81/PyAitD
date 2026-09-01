@@ -421,6 +421,14 @@ void main() {
     v_rest = vec3(0.0); v_ao = 1.0; v_index = 0.0; v_world_y = 0.0;
     v_shadow = vec4(0.0);   // lines and points never reach the term
     v_view = vec3(0.0);     // nor the derivative bump
+    // _screen_prog reuses ACTOR_FSH unchanged, so a line or point's fill
+    // still gets multiplied by `ssao` sampled at gl_FragCoord.xy -- its
+    // own screen position, not this vertex's (line/point primitives never
+    // write the G-buffer, so there is no occlusion of their own to read).
+    // That pixel therefore carries whatever occlusion the *triangle*
+    // geometry underneath happened to leave in the G-buffer at that same
+    // position, or 1.0 (unoccluded) if none did. Benign, arguably correct
+    // even, and left as is.
     v_uv = in_uv;
 }
 """

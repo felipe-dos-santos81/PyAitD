@@ -29,8 +29,12 @@ and `"soft"` (the default, unmoved by this task). `"room"` does
 everything `"soft"` does -- one gathered ground cast, the light-view
 shadow map, self/inter-actor shadowing -- and adds a receiver pass that
 rasterises the current room's floor plane and the top faces of its
-`hard_col` collision boxes, sampling that same shadow map to darken them
-after the gathered shadow composites and before any body draws. Passing
+`hard_col` collision boxes, sampling that same shadow map to darken them,
+MAX'd into the same coverage texture the gathered cast already softened --
+before the frame's single `_composite_shadow` and before any body draws,
+never after. A second composite following the receiver pass would darken
+every floor pixel under both an actor's ground cast and a room receiver
+twice over (measured 54/46/43/40/45 versus the correct 74). Passing
 `shadows="soft"` (or leaving it at the default) skips the receiver pass
 entirely and reproduces `"soft"`'s output.
 

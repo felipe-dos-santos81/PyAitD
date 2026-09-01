@@ -97,7 +97,7 @@ def test_zero_radius_occludes_nothing():
     rng = np.random.default_rng(9)
     d = rng.uniform(200.0, 900.0, (16, 16)).astype(np.float32)
     n = np.zeros((16, 16, 3), dtype=np.float32)
-    n[..., 2] = -1.0
+    n[..., 2] = 1.0
     out = ssao_reference(d, n, hemisphere_kernel(), noise_rotations(), (2.0, 2.0), radius=0.0)
     assert np.allclose(out, 1.0)
 

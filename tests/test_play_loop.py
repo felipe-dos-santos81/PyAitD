@@ -413,8 +413,11 @@ def test_scene_frame_delegates_to_build_frame_and_compose_scene(monkeypatch):
     the wiring around it and needs no game data, unlike the old 6-arg
     compose_scene call this replaced. The `shadows` keyword is read off
     renderer.options rather than threaded through _scene_frame's own
-    parameters (see task-5-fix-1.md finding 2) -- the fake renderer below
-    stands in for the real Renderer's authoritative post-set_options value."""
+    parameters: renderer.options is the authoritative post-set_options
+    value, so reading it there instead of adding a parameter (and threading
+    it through every _scene_frame call site) is the only way the frame and
+    the backend can't disagree about the mode -- the fake renderer below
+    stands in for that authoritative value."""
     import PyAitD.app.shell as main
 
     game = SimpleNamespace(assets="assets-marker")
