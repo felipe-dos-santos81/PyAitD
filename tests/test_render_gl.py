@@ -869,6 +869,8 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         "_plate_tex", "_plate_fbo", "_actor_tex", "_actor_fbo",
         "_composite_prog", "_composite_vao",
         "_gbuf_prog", "_gbuf_fbo", "_gbuf_tex", "_gbuf_depth",
+        "_ssao_tex", "_ssao_fbo", "_ssao_blur_tex", "_ssao_blur_fbo", "_ssao_noise_tex",
+        "_ssao_prog", "_ssao_vao", "_ssao_blur_prog", "_ssao_blur_vao",
     ):
         resource = getattr(backend, attr)
         assert resource is not None, f"{attr} was never allocated before the failure"
@@ -878,7 +880,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
     for level, buf in backend._subpatch_bufs.items():
         assert isinstance(buf.mglo, moderngl.InvalidObject), f"subpatch buffer {level} leaked"
         leak_checked += 1
-    assert leak_checked == 48  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 57  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
@@ -978,7 +980,7 @@ def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
                                               realism="classic", smoothing=0, shadows="hard",
                                               integration=0,
                                               # names every roadmap-2 field the identity holds at
-                                              motion="tick"))
+                                              motion="tick", occlusion="off"))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
@@ -3214,3 +3216,156 @@ def test_proj_xy_and_gbuffer_depth_reconstruct_the_real_projections_ndc(gl_ctx):
         assert np.allclose(ndc_recon, ndc_real, atol=1e-6)
     finally:
         backend.release()
+
+
+def test_the_ssao_pass_matches_the_numpy_twin(gl_ctx):
+    """The `soften` pattern: seed the backend's own G-buffer, run the one
+    pass, read it back, compare against the twin at byte tolerance."""
+    from PyAitD.render.ssao import (SSAO_BIAS, SSAO_RADIUS, hemisphere_kernel,
+                                    noise_rotations, ssao_reference)
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        w, h = backend._gbuf_size
+        rng = np.random.default_rng(23)
+        depth = rng.uniform(300.0, 700.0, (h, w)).astype(np.float32)
+        depth[: h // 4, :] = 0.0                     # a band the prepass never covered
+        n = rng.normal(size=(h, w, 3)).astype(np.float32)
+        n /= np.linalg.norm(n, axis=2, keepdims=True)
+        gbuf = np.concatenate([n, depth[..., None]], axis=2).astype(np.float16)
+        backend._gbuf_tex.write(np.ascontiguousarray(gbuf).tobytes())
+        proj_xy = (2.0, 2.0)
+        backend._render_ssao_with(proj_xy)           # the seam the test drives
+        out = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w) / 255.0
+        expected = ssao_reference(gbuf[..., 3].astype(np.float32),
+                                  gbuf[..., :3].astype(np.float32),
+                                  hemisphere_kernel(), noise_rotations(), proj_xy,
+                                  SSAO_RADIUS, SSAO_BIAS)
+        assert np.abs(out - expected).max() <= 4.0 / 255
+    finally:
+        backend.release()
+
+
+def test_an_empty_gbuffer_leaves_the_ssao_texture_fully_open(gl_ctx):
+    """The neutral identity: nothing drawn means nothing occluded, so the
+    attenuation the actor shader applies is exactly 1.0."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        w, h = backend._gbuf_size
+        backend._gbuf_tex.write(np.zeros((h, w, 4), np.float16).tobytes())
+        backend._render_ssao_with((2.0, 2.0))
+        out = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w)
+        assert (out == 255).all()
+    finally:
+        backend.release()
+
+
+def _two_actor_frame():
+    """`_golden_frame`'s actors plus a second sphere positioned close beside
+    the first (surfaces ~10 world units apart, well inside SSAO_RADIUS),
+    so the near-facing rims of the two bodies are where screen-space AO --
+    unlike the baked rest-pose AO, which cannot see a neighbour at all --
+    has something to darken."""
+    from dataclasses import replace
+    frame = _golden_frame()
+    sphere2 = BodyGeometry(
+        np.array([[550.0, 0.0, 700.0]], np.float32), np.array([[0.0, 0.0, -1.0]], np.float32),
+        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, 120.0, 3),),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    second = _standing_actor(2, sphere2, 400.0)
+    return replace(frame, actors=frame.actors + (second,))
+
+
+def _gap_column_slice(alone, together):
+    """Not the sphere disks themselves (their own fill share is already
+    near-saturated toward the key side facing the light) but the tri
+    backdrop's surface visible just below them, between where the two
+    silhouettes nearly touch -- close enough to both spheres, in view
+    space, for SSAO to have real occluders nearby, and covered by an
+    actor in *both* frames so the comparison is apples to apples rather
+    than "a body is there now and wasn't". Measured directly against
+    `_golden_frame` + `_two_actor_frame` at scale=2: the two 120-radius
+    spheres centred 250 world units apart (near-touching, well inside
+    SSAO_RADIUS=14 of each other's rims) land here as fractions of the
+    640x400 frame, independent of `alone`/`together`'s actual size."""
+    h, w, _ = alone.shape
+    row_lo, row_hi = int(h * 0.625), int(h * 0.81)
+    col_lo, col_hi = int(w * 0.558), int(w * 0.752)
+    return (slice(row_lo, row_hi), slice(col_lo, col_hi))
+
+
+def test_two_actors_side_by_side_darken_the_gap_between_them(gl_ctx):
+    """The whole point of screen-space AO over the baked kind: the baked
+    pass cannot see a neighbour, this one can."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
+                                              msaa=0, occlusion="ssao", realism="enhanced"))
+    try:
+        one = _golden_frame()
+        two = _two_actor_frame()          # the same actor plus a second beside it
+        backend.draw(one)
+        alone = backend.read_rgb().astype(np.int32)
+        backend.draw(two)
+        together = backend.read_rgb().astype(np.int32)
+    finally:
+        backend.release()
+    gap = _gap_column_slice(alone, together)   # the pixels between the two bodies
+    assert together[gap].mean() < alone[gap].mean() - 1.0
+
+
+def _frame_with_light(key, fill):
+    """`_golden_frame`'s two-sphere pair (see `_two_actor_frame`) under a
+    SceneLight whose key and fill are set independently, so a test can
+    isolate whether SSAO -- which attenuates only the fill share -- moves
+    a frame that is pure key, pure fill, or both. The two spheres sit close
+    enough (see `_two_actor_frame`) that SSAO has real occlusion to apply
+    somewhere on screen, not just the uniform 1.0 a single convex body
+    would read."""
+    from dataclasses import replace
+    from PyAitD.render.lighting import SceneLight
+    frame = _two_actor_frame()
+    light = SceneLight((0.3, -0.5, -0.8), key, fill, 0.5)
+    return replace(frame, light=light)
+
+
+def _render_with(gl_ctx, frame, occlusion):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
+                                              msaa=0, occlusion=occlusion, realism="enhanced"))
+    try:
+        backend.draw(frame)
+        return backend.read_rgb().copy()
+    finally:
+        backend.release()
+
+
+def _render_baseline(gl_ctx, frame):
+    """The same options a pre-K build would have run: no occlusion field at
+    all, so this must mean whatever `occlusion="off"` means today, not
+    whatever the default happens to be."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
+                                              msaa=0, occlusion="off", realism="enhanced"))
+    try:
+        backend.draw(frame)
+        return backend.read_rgb().copy()
+    finally:
+        backend.release()
+
+
+def test_ssao_attenuates_the_fill_share_and_leaves_key_and_specular_alone(gl_ctx):
+    """Decision 7, made testable: with the key light switched off entirely
+    the frame is pure fill, so SSAO must move it; with the fill switched
+    off the frame is pure key and specular, so SSAO must not."""
+    fill_only = _frame_with_light(key=(0.0, 0.0, 0.0), fill=(0.5, 0.5, 0.5))
+    key_only = _frame_with_light(key=(0.8, 0.8, 0.8), fill=(0.0, 0.0, 0.0))
+    for frame, should_move in ((fill_only, True), (key_only, False)):
+        off = _render_with(gl_ctx, frame, occlusion="off")
+        on = _render_with(gl_ctx, frame, occlusion="ssao")
+        moved = int(np.abs(off.astype(np.int32) - on.astype(np.int32)).sum()) > 0
+        assert moved is should_move, ("fill" if should_move else "key", moved)
+
+
+def test_occlusion_off_renders_byte_identically(gl_ctx):
+    off = _render_with(gl_ctx, _golden_frame(), occlusion="off")
+    # The same options a pre-K build would have run.
+    assert np.array_equal(off, _render_baseline(gl_ctx, _golden_frame()))

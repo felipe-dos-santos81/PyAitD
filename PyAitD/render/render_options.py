@@ -62,7 +62,7 @@ class RenderOptions:
     shadows: str = "soft"
     integration: int = 2
     motion: str = "smooth"
-    occlusion: str = "off"
+    occlusion: str = "ssao"
 
     def to_payload(self):
         return {

@@ -34,6 +34,8 @@ from PyAitD.render.glsl import (
     STENCIL_VSH as _STENCIL_VSH,
     STENCIL_FSH as _STENCIL_FSH,
     GBUFFER_FSH as _GBUFFER_FSH,
+    SSAO_FSH as _SSAO_FSH,
+    SSAO_BLUR_FSH as _SSAO_BLUR_FSH,
     SHADOW_GEOM_VSH as _SHADOW_GEOM_VSH,
     SHADOW_FSH as _SHADOW_FSH,
     SHADOW_CAST_FSH as _SHADOW_CAST_FSH,
@@ -47,6 +49,7 @@ from PyAitD.render.plate import dither_arrives_smoothed, softness
 from PyAitD.render.render_options import INTEGRATION_STRENGTHS
 from PyAitD.render.refine import subpatch
 from PyAitD.render.render_options import SMOOTHING_LEVELS
+from PyAitD.render.ssao import SSAO_BIAS, SSAO_RADIUS, hemisphere_kernel, noise_rotations
 from PyAitD.engine.space.world import SCREEN_CENTER_X, SCREEN_CENTER_Y
 
 W, H = 320, 200
@@ -61,6 +64,8 @@ _DEPTH_B = -2 * FAR * NEAR / (FAR - NEAR)
 _SHADING_INDEX = {"flat": 0, "lambert": 1, "smooth": 2}
 
 CONTACT_HEIGHT = 150.0   # FITD units over which the contact term fades, roughly shin height
+
+_SSAO_KERNEL_CAP = 64    # matches SSAO_FSH's `uniform vec3 kernel[64]`
 
 # The ground shadow's penumbra. A light source of angular radius
 # SOURCE_ANGLE throws a penumbra `drop * tan(SOURCE_ANGLE)` wide at a point
@@ -342,6 +347,15 @@ class GLBackend:
         self._gbuf_fbo = None
         self._gbuf_prog = None
         self._gbuf_layout = None
+        self._ssao_tex = None
+        self._ssao_fbo = None
+        self._ssao_blur_tex = None
+        self._ssao_blur_fbo = None
+        self._ssao_noise_tex = None
+        self._ssao_prog = None
+        self._ssao_vao = None
+        self._ssao_blur_prog = None
+        self._ssao_blur_vao = None
         self._subpatch_bufs = {}
         self._tess_layout = self._tess_shadow_layout = None
         self._released = False
@@ -532,7 +546,22 @@ class GLBackend:
             # a limitation.
             self._gbuf_size = (max(1, self.size[0] // 2), max(1, self.size[1] // 2))
             self._gbuf_tex = ctx.texture(self._gbuf_size, 4, dtype="f2")
-            self._gbuf_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
+            # NEAREST, not the LINEAR Task 3 shipped this as (no test
+            # exercised `texture()` sampling of it, only `.read()` of the
+            # raw texels, so nothing pinned the choice): SSAO_FSH samples
+            # neighbouring pixels' depth to decide whether they occlude the
+            # centre one, and ssao_reference does that with a plain integer
+            # index, never a blend. LINEAR here silently bilinear-filters
+            # depth *across* whatever silhouette the two samples straddle,
+            # producing a value neither surface actually has -- measured
+            # against test_the_ssao_pass_matches_the_numpy_twin's adversarial
+            # per-pixel-random G-buffer: LINEAR put the twin comparison's max
+            # difference at 0.576 (a wall away from the pinned 4/255);
+            # NEAREST brings it to 0.064, matching (to within GPU-vs-numpy
+            # floating point noise the twin's own algorithm is not immune to
+            # -- see the task-4 report) the same discrete indexing the twin
+            # performs.
+            self._gbuf_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
             self._gbuf_tex.repeat_x = self._gbuf_tex.repeat_y = False
             self._gbuf_depth = ctx.depth_renderbuffer(self._gbuf_size)
             self._gbuf_fbo = ctx.framebuffer(color_attachments=[self._gbuf_tex],
@@ -550,6 +579,46 @@ class GLBackend:
             # unseeded uniform is insurance against that changing later.
             _set_uniform(self._gbuf_prog, "travel", (0.0, 1.0, 0.0))
             self._gbuf_layout = instance_layout(self._gbuf_prog)
+
+            # The two SSAO passes: half-resolution R8 ping-pong, over the
+            # G-buffer the block above builds. _ssao_tex is what the actor
+            # programs sample; _blur_ssao's ping-pong swap keeps that name
+            # pointed at whichever texture holds the latest blurred result.
+            self._ssao_tex = ctx.texture(self._gbuf_size, 1)
+            self._ssao_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
+            self._ssao_tex.repeat_x = self._ssao_tex.repeat_y = False
+            self._ssao_fbo = ctx.framebuffer(color_attachments=[self._ssao_tex])
+            self._ssao_blur_tex = ctx.texture(self._gbuf_size, 1)
+            self._ssao_blur_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
+            self._ssao_blur_tex.repeat_x = self._ssao_blur_tex.repeat_y = False
+            self._ssao_blur_fbo = ctx.framebuffer(color_attachments=[self._ssao_blur_tex])
+            rot = noise_rotations()
+            self._ssao_noise_tex = ctx.texture((rot.shape[1], rot.shape[0]), 2, dtype="f2")
+            self._ssao_noise_tex.write(np.ascontiguousarray(rot.astype(np.float16)).tobytes())
+            self._ssao_noise_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+            # The one texture in this backend that should tile: the noise
+            # rotation repeats over the whole screen, which is exactly what
+            # makes `gl_FragCoord.xy / 4.0` in SSAO_FSH sample it correctly.
+            self._ssao_noise_tex.repeat_x = self._ssao_noise_tex.repeat_y = True
+            self._ssao_prog = ctx.program(vertex_shader=_STENCIL_VSH, fragment_shader=_SSAO_FSH)
+            self._ssao_vao = ctx.vertex_array(self._ssao_prog, [(self._shadow_quad, "2f", "in_pos")])
+            self._ssao_blur_prog = ctx.program(vertex_shader=_STENCIL_VSH, fragment_shader=_SSAO_BLUR_FSH)
+            self._ssao_blur_vao = ctx.vertex_array(self._ssao_blur_prog,
+                                                   [(self._shadow_quad, "2f", "in_pos")])
+            kernel = hemisphere_kernel()
+            # ModernGL's uniform writer rejects a length that does not match
+            # the shader's declared array size exactly (measured: "invalid
+            # uniform size" writing SSAO_KERNEL_SIZE=16 vec3s into
+            # SSAO_FSH's kernel[64]) -- unlike a plain glUniform3fv call,
+            # which accepts a shorter count. Padded to _SSAO_KERNEL_CAP with
+            # zeros to satisfy that, harmlessly: the shader loop only reads
+            # the first kernel_count entries.
+            padded_kernel = np.zeros((_SSAO_KERNEL_CAP, 3), dtype=np.float32)
+            padded_kernel[: len(kernel)] = kernel
+            _set_uniform(self._ssao_prog, "kernel", tuple(map(tuple, padded_kernel)))
+            _set_uniform(self._ssao_prog, "kernel_count", len(kernel))
+            _set_uniform(self._ssao_prog, "radius", SSAO_RADIUS)
+            _set_uniform(self._ssao_prog, "bias", SSAO_BIAS)
 
             # Every level, 0 included: subpatch(0) is the flat triangle with
             # exact corners, so the soft-shadow passes can draw every actor
@@ -577,11 +646,17 @@ class GLBackend:
             self._shadow_map_fbo, self._shadow_map,
             self._tess_prog, self._tess_shadow_prog, *self._subpatch_bufs.values(),
             self._gbuf_prog, self._gbuf_fbo, self._gbuf_tex, self._gbuf_depth,
-            # All three VAOs are built on `_shadow_quad`, so all three come
+            self._ssao_prog, self._ssao_fbo, self._ssao_tex,
+            self._ssao_blur_prog, self._ssao_blur_fbo, self._ssao_blur_tex, self._ssao_noise_tex,
+            # All five VAOs are built on `_shadow_quad`, so all five come
             # before it: every other pair in this tuple frees the VAO ahead of its
             # buffer, and deleting a buffer does not unbind it from a VAO
-            # that is not current.
-            self._shadow_quad_vao, self._blur_quad_vao, self._composite_vao, self._shadow_quad,
+            # that is not current. (_ssao_tex/_ssao_blur_tex may have swapped
+            # GL objects an odd number of times via _blur_ssao's ping-pong --
+            # harmless here, since both attribute names are released either
+            # way, whichever underlying object each currently points at.)
+            self._shadow_quad_vao, self._blur_quad_vao, self._composite_vao,
+            self._ssao_vao, self._ssao_blur_vao, self._shadow_quad,
             self._blur_prog, self._cast_prog,
             self._shadow_prog, self._shadow_geom_prog,
             self._shadow_fbo, self._shadow_tex,
@@ -696,6 +771,17 @@ class GLBackend:
             ssao_on = scene_lit and self._options.occlusion == "ssao"
             if ssao_on:
                 self._render_gbuffer(frame, instances, level)
+                self._render_ssao(frame)
+                self._blur_ssao()
+            # Bound and set unconditionally, like the shadow map below
+            # whatever `shadows` says: a sampler left unbound reads
+            # undefined data if a driver ever mispredicts the branch, and
+            # `occlusion_on` is what makes the value irrelevant rather than
+            # the binding.
+            self._ssao_tex.use(location=7)
+            for prog in (self._actor_prog, self._tess_prog, self._screen_prog):
+                _set_uniform(prog, "ssao_tex", 7)
+                _set_uniform(prog, "occlusion_on", 1 if ssao_on else 0)
 
             shadow = None
             if soft:
@@ -1121,6 +1207,49 @@ class GLBackend:
             src.use(location=2)
             self._blur_prog["axis"].value = axis
             self._blur_quad_vao.render(moderngl.TRIANGLES)
+
+    def _render_ssao(self, frame):
+        self._render_ssao_with(self._proj_xy(frame))
+
+    def _render_ssao_with(self, proj_xy):
+        """The one SSAO pass, over the half-resolution G-buffer, into
+        _ssao_tex. Split from _render_ssao so a test can drive it with a
+        known (fx, fy) instead of reaching into a frame to fake a
+        projection -- the seam tests/test_render_gl.py's twin-comparison
+        test exists to use."""
+        self._ssao_fbo.use()
+        self._ctx.viewport = (0, 0, *self._gbuf_size)
+        self._ctx.disable(moderngl.DEPTH_TEST)
+        self._gbuf_tex.use(location=7)
+        self._ssao_noise_tex.use(location=8)
+        _set_uniform(self._ssao_prog, "gbuf_tex", 7)
+        _set_uniform(self._ssao_prog, "noise_tex", 8)
+        _set_uniform(self._ssao_prog, "target_size", tuple(float(v) for v in self._gbuf_size))
+        _set_uniform(self._ssao_prog, "proj_xy", (float(proj_xy[0]), float(proj_xy[1])))
+        self._ssao_vao.render(moderngl.TRIANGLES)
+
+    def _blur_ssao(self):
+        """One pass, into the ping-pong target, then swap so _ssao_tex is
+        always the texture the actor shader samples.
+
+        The swap is a trap for release(): after an odd number of frames the
+        attribute names point at each other's GL objects (_ssao_tex may
+        hold what was allocated as _ssao_blur_tex, and vice versa). That is
+        harmless for release() -- both objects are released regardless of
+        which attribute names them -- so do not "fix" it by tracking the
+        original objects separately.
+        """
+        self._ssao_blur_fbo.use()
+        self._ctx.viewport = (0, 0, *self._gbuf_size)
+        self._ssao_tex.use(location=7)
+        self._gbuf_tex.use(location=8)
+        _set_uniform(self._ssao_blur_prog, "ssao_tex", 7)
+        _set_uniform(self._ssao_blur_prog, "gbuf_tex", 8)
+        _set_uniform(self._ssao_blur_prog, "target_size", tuple(float(v) for v in self._gbuf_size))
+        _set_uniform(self._ssao_blur_prog, "depth_threshold", SSAO_RADIUS)
+        self._ssao_blur_vao.render(moderngl.TRIANGLES)
+        self._ssao_tex, self._ssao_blur_tex = self._ssao_blur_tex, self._ssao_tex
+        self._ssao_fbo, self._ssao_blur_fbo = self._ssao_blur_fbo, self._ssao_fbo
 
     def _render_gbuffer(self, frame, instances, level):
         """Every actor once, into a half-resolution normal+depth buffer.

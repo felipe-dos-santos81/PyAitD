@@ -80,6 +80,11 @@ uniform sampler2DShadow shadow_map; uniform int self_shadow; uniform float depth
 // gates the sample so lines, points, spheres and unpainted bodies -- all of
 // which leave v_uv at its default -- never touch the sampler at all.
 uniform sampler2D body_albedo; uniform int has_body_texture;
+// Screen-space AO (Task 4). ssao_tex is the half-resolution occlusion
+// texture, sampled at full target resolution the same way mask_tex is;
+// occlusion_on gates the sample so occlusion="off" never touches the
+// sampler, mirroring has_body_texture's own gate above.
+uniform sampler2D ssao_tex; uniform int occlusion_on;
 in vec3 v_color; in vec3 v_normal; in vec3 v_rest; in float v_ao; flat in float v_index; in float v_world_y;
 in vec4 v_shadow; in vec3 v_view; in vec2 v_uv;
 out vec4 f_color;
@@ -248,7 +253,24 @@ void main() {
     if (has_body_texture != 0 && v_uv.x >= 0.0) {
         albedo = texture(body_albedo, v_uv).rgb;
     }
-    vec3 base = albedo * (fill_tint + key_tint * wrapped * wrapped * vis);
+    // Screen-space occlusion attenuates the *fill* share and nothing else.
+    // The key share is already gated by `vis` (the shadow map), and F's
+    // rule holds: a shadowed limb falls to the room's fill, never to
+    // black -- so the fill is the one share an occlusion term may touch.
+    //
+    // Not folded into `occl` below, however much the name invites it:
+    // `occl` multiplies the whole of `base`, key share included, as does
+    // `hemi`. Either would darken the key light a second time, which the
+    // shadow map already owns.
+    //
+    // ssao is exactly 1.0 when occlusion_on is 0, and multiplying by
+    // exactly 1.0 is exact in IEEE 754 -- that, not a mix(), is what
+    // makes the off path byte-identical.
+    float ssao = 1.0;
+    if (occlusion_on != 0) {
+        ssao = texture(ssao_tex, gl_FragCoord.xy / target_size).r;
+    }
+    vec3 base = albedo * (fill_tint * ssao + key_tint * wrapped * wrapped * vis);
     // Peaks at the light/shade boundary (wrapped 0.5, where 4x(1-x) is 1)
     // and vanishes on both the fully lit and the fully unlit side.
     //
@@ -470,6 +492,97 @@ uniform float focal1;
 out vec4 f_gbuf;
 void main() {
     f_gbuf = vec4(normalize(vec3(v_normal.xy, -v_normal.z)), v_view.z + focal1);
+}
+"""
+SSAO_FSH = """
+#version 330
+// Screen-space ambient occlusion over the half-resolution G-buffer.
+//
+// Every line here has a counterpart in PyAitD/render/ssao.py's
+// ssao_reference, which tests/test_render_gl.py pins this against at
+// 4/255 -- the same arrangement `soften` and SHADOW_BLUR_FSH have. When
+// you change one, change both, or the test will tell you.
+//
+// Depth is positive linear view distance in the G-buffer's alpha, and 0.0
+// means no actor covered that pixel. Output is a *multiplier*: 1.0 is
+// unoccluded, which is what makes an empty G-buffer contribute nothing.
+uniform sampler2D gbuf_tex;
+uniform sampler2D noise_tex;
+uniform vec2 target_size;      // the half-resolution G-buffer's size
+uniform vec2 proj_xy;          // the projection's (fx, fy), shared with the twin
+uniform float radius;
+uniform float bias;
+uniform int kernel_count;
+uniform vec3 kernel[64];
+out vec4 f_color;
+
+vec3 view_position(vec2 uv, float depth) {
+    vec2 ndc = uv * 2.0 - 1.0;
+    return vec3(ndc.x * depth / proj_xy.x, ndc.y * depth / proj_xy.y, -depth);
+}
+
+void main() {
+    vec2 uv = gl_FragCoord.xy / target_size;
+    vec4 g = texture(gbuf_tex, uv);
+    float depth = g.a;
+    if (depth <= 0.0) { f_color = vec4(1.0); return; }
+    vec3 n = normalize(g.rgb);
+    vec3 p = view_position(uv, depth);
+
+    vec2 r = texture(noise_tex, gl_FragCoord.xy / 4.0).rg;
+    vec3 rand = vec3(r, 0.0);
+    vec3 tangent = rand - n * dot(rand, n);
+    float tlen = length(tangent);
+    tangent = tlen > 1e-6 ? tangent / tlen : vec3(0.0, 1.0, 0.0);
+    vec3 bitangent = cross(n, tangent);
+
+    float occluded = 0.0;
+    for (int i = 0; i < kernel_count; i++) {
+        vec3 k = kernel[i];
+        vec3 sample_pos = p + (tangent * k.x + bitangent * k.y + n * k.z) * radius;
+        if (sample_pos.z >= -1e-6) continue;         // behind the camera: no screen position
+        vec2 s_ndc = vec2(sample_pos.x * proj_xy.x, sample_pos.y * proj_xy.y) / (-sample_pos.z);
+        vec2 s_uv = clamp(s_ndc * 0.5 + 0.5, vec2(0.0), vec2(1.0));
+        float s_depth = texture(gbuf_tex, s_uv).a;
+        float sample_dist = -sample_pos.z;
+        if (s_depth > 0.0 && s_depth < sample_dist - bias) {
+            occluded += clamp(radius / max(abs(depth - s_depth), 1e-6), 0.0, 1.0);
+        }
+    }
+    f_color = vec4(clamp(1.0 - occluded / float(kernel_count), 0.0, 1.0));
+}
+"""
+SSAO_BLUR_FSH = """
+#version 330
+// One bilateral-ish pass over the occlusion texture: a 4x4 box the width
+// of the noise tile, which is exactly what removes the tile's pattern,
+// rejecting taps whose depth is far from the centre's so the blur does
+// not drag occlusion across a silhouette.
+uniform sampler2D ssao_tex;
+uniform sampler2D gbuf_tex;
+uniform vec2 target_size;
+uniform float depth_threshold;
+out vec4 f_color;
+void main() {
+    vec2 texel = 1.0 / target_size;
+    vec2 uv = gl_FragCoord.xy / target_size;
+    float centre_depth = texture(gbuf_tex, uv).a;
+    if (centre_depth <= 0.0) { f_color = vec4(1.0); return; }
+    float sum = 0.0;
+    float total = 0.0;
+    for (int y = -2; y < 2; y++) {
+        for (int x = -2; x < 2; x++) {
+            vec2 q = uv + vec2(float(x), float(y)) * texel;
+            float d = texture(gbuf_tex, q).a;
+            // A tap on the far side of a silhouette is a different
+            // surface; averaging it in is what makes a thin limb halo.
+            if (d > 0.0 && abs(d - centre_depth) < depth_threshold) {
+                sum += texture(ssao_tex, q).r;
+                total += 1.0;
+            }
+        }
+    }
+    f_color = vec4(total > 0.0 ? sum / total : 1.0);
 }
 """
 SHADOW_GEOM_VSH = """

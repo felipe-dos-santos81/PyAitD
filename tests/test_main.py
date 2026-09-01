@@ -663,12 +663,12 @@ def test_the_occlusion_flag_overrides_only_its_own_field():
     from PyAitD.app.config import default_settings
     from PyAitD.app.shell import apply_render_overrides, parse_args
     base = default_settings()
-    assert base.render.occlusion == "off"                    # the shipped default
-    only = apply_render_overrides(base, parse_args(["--occlusion", "ssao"]))
+    assert base.render.occlusion == "ssao"                    # the shipped default
+    only = apply_render_overrides(base, parse_args(["--occlusion", "off"]))
     # exactly the occlusion field moved, nothing else
-    assert only.render == replace(base.render, occlusion="ssao")
+    assert only.render == replace(base.render, occlusion="off")
     # no flag: the default persists, unmodified
-    assert apply_render_overrides(base, parse_args([])).render.occlusion == "off"
+    assert apply_render_overrides(base, parse_args([])).render.occlusion == "ssao"
     with pytest.raises(SystemExit):
         parse_args(["--occlusion", "raytraced"])  # argparse choices reject it
 

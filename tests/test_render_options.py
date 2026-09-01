@@ -193,32 +193,32 @@ def test_invalid_or_missing_motion_falls_back_alone():
     assert options.motion == "smooth" and "motion" in error
 
 
-def test_occlusion_defaults_off_and_cycles():
+def test_occlusion_defaults_ssao_and_cycles():
     from PyAitD.render.render_options import OCCLUSION_MODES, cycle_occlusion
     options = RenderOptions()
-    assert options.occlusion == "off"
+    assert options.occlusion == "ssao"
     assert OCCLUSION_MODES == ("off", "ssao")
-    assert cycle_occlusion(options).occlusion == "ssao"
-    assert cycle_occlusion(cycle_occlusion(options)).occlusion == "off"
+    assert cycle_occlusion(options).occlusion == "off"
+    assert cycle_occlusion(cycle_occlusion(options)).occlusion == "ssao"
 
 
 def test_occlusion_is_last_so_positional_construction_still_works():
     # Every earlier field keeps its slot: this is what stops a new knob
     # from silently shifting an existing caller's arguments.
     options = RenderOptions(4, "smooth", "bilinear", None, "scene", 4, "enhanced", 2)
-    assert options.occlusion == "off"
+    assert options.occlusion == "ssao"
 
 
 def test_invalid_or_missing_occlusion_falls_back_alone():
     payload = RenderOptions().to_payload()
     payload["occlusion"] = "raytraced"
     options, error = validate_render_options(payload)
-    assert options.occlusion == "off"
+    assert options.occlusion == "ssao"
     assert options.motion == "smooth"          # its neighbour is undisturbed
     assert "occlusion" in error
     del payload["occlusion"]   # a settings file from before this option
     options, error = validate_render_options(payload)
-    assert options.occlusion == "off" and "occlusion" in error
+    assert options.occlusion == "ssao" and "occlusion" in error
 
 
 def test_occlusion_round_trips_through_the_payload():
