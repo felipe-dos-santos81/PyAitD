@@ -624,7 +624,14 @@ def test_depth_test_keeps_the_near_face_within_one_actor(gl_ctx):
 
 
 def test_painter_order_across_actors_ignores_depth(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
+    # atmosphere="off" for the same reason
+    # test_integration_at_full_with_a_neutral_plate_reproduces_the_golden
+    # names occlusion="off": this test asserts an exact primary colour, and
+    # its far triangle sits at eye depth 4000 -- past HAZE_START, so the
+    # shipping default hazes it 1.8% toward the ambient tone and (0, 255, 0)
+    # arrives as (3, 250, 3). Draw order is what is under test here, not
+    # the composite.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", atmosphere="off"))
     near, far = _tri_geometry(500.0, 1), _tri_geometry(3000.0, 2, span=1200.0)
     backend.draw(_frame([_actor(0, near), _actor(1, far)]))  # far drawn last: covers near
     assert tuple(backend.read_rgb()[100, 140]) == (0, 255, 0)
@@ -981,7 +988,7 @@ def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
                                               realism="classic", smoothing=0, shadows="hard",
                                               integration=0,
                                               # names every roadmap-2 field the identity holds at
-                                              motion="tick", occlusion="off"))
+                                              motion="tick", occlusion="off", atmosphere="off"))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
@@ -1021,14 +1028,36 @@ def _offset_facing_tri(z, color, normal, x_offset, span=100.0):
 def _near_and_far_frame():
     """Two facing triangles side by side on screen (so their coverage never
     overlaps) at very different depths: a near one at world/view z=500 and
-    a far one at z=1400. This camera sits at the origin with all angles
+    a far one at z=14000. This camera sits at the origin with all angles
     zero, so view-space position equals world position exactly (rotate and
     translate are both identity) -- world z *is* view z here, with no
-    projection math needed to know which actor is farther."""
+    projection math needed to know which actor is farther. At this
+    camera's focal1 of 1000 that is eye depth 1500 and 15000.
+
+    The far actor used to sit at z=1400 (depth 2400). Task 4 measured what
+    the real fixtures produce -- the attic's farthest actor is at eye
+    depth ~15400, the combat venue's cast at 22000-29500 -- and 2400 is
+    not a far actor in this game at all; it is barely past HAZE_START.
+    Left there, every assertion below about a far actor would have been
+    measuring a 0.5% haze, under one 8-bit count, which would have made
+    this whole group of tests inert the moment the tunables were
+    recalibrated to real content. z=14000 is the attic's own far actor.
+
+    `x_offset` and `span` are scaled by the same 6.25 the depth is, so the
+    far actor's *screen* footprint is unchanged: same columns, same rows,
+    same pixel count as at z=1400. That does make it a 6.25x larger object
+    in world units, which the enhanced material's world-space detail field
+    notices -- it renders with finer detail than it used to. Harmless
+    here, and deliberately not worked around: every assertion built on
+    this frame compares one actor against *itself* across two renders of
+    this same frame, never the near actor against the far one.
+    (`_far_flat_actor_frame`, whose whole premise is a uniform silhouette,
+    cannot afford that and lengthens the lens instead.)"""
     from PyAitD.render.lighting import SceneLight
     light = SceneLight((0.3, -0.5, -0.8), (0.9, 0.8, 0.7), (0.2, 0.2, 0.3), 0.7)
     near = _standing_actor(0, _offset_facing_tri(500.0, 1, (0.0, 0.0, -1.0), -250.0), 400.0)
-    far = _standing_actor(1, _offset_facing_tri(1400.0, 2, (0.0, 0.0, -1.0), 250.0), 400.0)
+    far = _standing_actor(1, _offset_facing_tri(14000.0, 2, (0.0, 0.0, -1.0), 1562.5, span=625.0),
+                          400.0)
     return FrameDescription(_view(), ImageAsset(np.full((200, 320, 3), 40, np.uint8), False),
                             _palette(), (near, far), (), light)
 
@@ -1147,7 +1176,7 @@ def test_depth_grows_with_distance(gl_ctx):
 # and grain) ----
 
 def _all_actors_nearer_than_haze_start():
-    """Both actors sit well inside HAZE_START (1600 world units, see
+    """Both actors sit well inside HAZE_START (2500 world units, see
     `plate.HAZE_START`): `max(0, depth - HAZE_START)` is exactly 0 for
     every covered pixel here, so atmosphere="on" must render identically
     to "off" by construction -- the small-room case the depth-driven haze
@@ -1253,11 +1282,30 @@ def _far_flat_actor_frame():
     its whole silhouette, the same construction `_facing_tri` uses --
     placed well past HAZE_START. Every point on its face, edge or
     interior, is the same true distance from the camera, so a correct
-    depth unpremultiply must haze its whole silhouette uniformly."""
+    depth unpremultiply must haze its whole silhouette uniformly.
+
+    z=14000, so eye depth 15000 at focal1 1000 -- the attic fixture's own
+    far actor. It sat at z=1500 (depth 2500) until Task 4 remeasured the
+    fixtures against real data and recalibrated the tunables; at the new
+    values 2500 is a 0.006 haze, and the bug this test exists to catch
+    would have moved the edge by a fraction of a count against a 6.0-count
+    threshold -- a live test quietly turned inert.
+
+    The lens is lengthened (focal2 = focal3 = 3200 against `_view()`'s
+    320) rather than the triangle enlarged, which is why this helper does
+    not use `_view()`. Scaling `span` by the depth ratio keeps the screen
+    footprint too, but it changes the actor's size *in world units*, and
+    the enhanced material's procedural detail field is a world-space
+    field: a 6x bigger triangle samples 6x more of it across the same
+    pixels, which alone moved the measured edge-vs-interior gap from 0.3
+    counts to 20 -- past the threshold, with no bug present. Measured
+    both ways. Only focal1 feeds the depth this test is about, and it is
+    unchanged."""
     from PyAitD.render.lighting import SceneLight
     light = SceneLight((0.3, -0.5, -0.8), (0.9, 0.8, 0.7), (0.2, 0.2, 0.3), 0.7)
-    far = _standing_actor(0, _offset_facing_tri(1500.0, 1, (0.0, 0.0, -1.0), 0.0, span=150.0), 400.0)
-    return FrameDescription(_view(), ImageAsset(np.full((200, 320, 3), 40, np.uint8), False),
+    far = _standing_actor(0, _offset_facing_tri(14000.0, 1, (0.0, 0.0, -1.0), 0.0, span=150.0), 400.0)
+    long_lens = CameraView(CameraState(0, 0, 0, 0, 0, 0, 1000, 3200, 3200).angles())
+    return FrameDescription(long_lens, ImageAsset(np.full((200, 320, 3), 40, np.uint8), False),
                             _palette(), (far,), (), light)
 
 
@@ -1334,8 +1382,8 @@ def test_neutral_tunables_are_an_exact_identity(gl_ctx):
     getting bitten by. The second half of this test closes that hole: at
     the real default tunables (no monkeypatching), "on" must *differ*
     from "off" -- on `_near_and_far_frame`, whose far actor sits well past
-    HAZE_START (depth 2400, at this test camera's `z + focal1` convention;
-    see `_all_actors_nearer_than_haze_start`'s docstring)."""
+    HAZE_START (depth 15000, at this test camera's `z + focal1`
+    convention; see `_all_actors_nearer_than_haze_start`'s docstring)."""
     frame = _near_and_far_frame()
     off = _render_with_atmosphere(gl_ctx, frame, atmosphere="off", integration=2)
     on_neutral = _render_with_tunables(gl_ctx, frame, atmosphere="on", integration=2,
@@ -1427,8 +1475,8 @@ def test_softness_and_grain_increase_with_depth(gl_ctx):
     the background asset (forcing `cell = 2`, so `radius > 0`) and gives
     the plate a nonzero grain, so both slopes actually have something to
     grade -- its actors are otherwise `_near_and_far_frame`'s own (near
-    at depth 1500, under HAZE_START=1600 so `beyond` is exactly 0; far at
-    depth 2400, well past it)."""
+    at depth 1500, under HAZE_START=2500 so `beyond` is exactly 0; far at
+    depth 15000, well past it -- `beyond` is 5.0 there)."""
     from dataclasses import replace
     from PyAitD.render.plate import PlateProfile
     base = _near_and_far_frame()
@@ -3153,10 +3201,28 @@ def test_integration_at_full_with_a_neutral_plate_reproduces_the_golden(gl_ctx):
     # by construction -- the "off" branch already zeroes those same three
     # uniforms in _composite -- so it proved nothing beyond what this test
     # already proves more strongly.
+    #
+    # atmosphere="off" is named for the same reason, one sub-project
+    # later -- it happened twice. This test predates atmosphere and rode
+    # sub-project L green only because the knob shipped off; the moment
+    # Task 4 flipped the default on, this test failed, because
+    # `_golden_frame`'s actors (eye depth 1564..1696 at this camera's
+    # focal1 of 1000) straddled the HAZE_START of 1600 that Task 3 had
+    # settled on and hazed. Same test, same trap: an identity that reads
+    # as green only because a defaulted-on feature happens to be inert.
+    #
+    # Stated exactly, because the honest version is the useful one: at the
+    # HAZE_START of 2500 that Task 4 then remeasured against the real
+    # fixtures, this frame is entirely under the threshold and the pin is
+    # NOT currently load-bearing -- verified by deleting it, which leaves
+    # the test green. It stays anyway. A golden identity names every
+    # option that can touch a pixel at the value it holds at, rather than
+    # inheriting a default, precisely so that the next person to move a
+    # tunable does not silently re-arm this trap for a third time.
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=1, shading="smooth", lighting="scene", msaa=0,
         realism="classic", smoothing=0, shadows="hard", integration=2,
-        occlusion="off"))
+        occlusion="off", atmosphere="off"))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
