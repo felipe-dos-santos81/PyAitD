@@ -2091,8 +2091,8 @@ def test_a_ground_cast_and_a_floor_receiver_darken_a_shared_pixel_once(gl_ctx):
     of its own, so a floor pixel under both an actor's flattened ground
     cast and a room receiver's shadow-map darkening got multiplied down
     twice -- darker than either contribution alone, which is wrong on the
-    physics (see task-5-fix-1.md finding 1): they are two computations of
-    the same shadow, not two shadows.
+    physics: they are two computations of the same shadow (the actor
+    blocking the key light from the floor), not two shadows.
 
     Measured at the five pixels below, green channel (plate starts at
     200): cast alone 147/124/115/109/122, receiver alone 74 at all five
@@ -2114,7 +2114,7 @@ def test_a_ground_cast_and_a_floor_receiver_darken_a_shared_pixel_once(gl_ctx):
 
     for row, col in _DOUBLE_DARKEN_PIXELS:
         darker_single = min(cast_only[row, col, 1], receiver_only[row, col, 1])
-        assert both[row, col, 1] >= darker_single, (row, col, both[row, col, 1], darker_single)
+        assert both[row, col, 1] == darker_single, (row, col, both[row, col, 1], darker_single)
 
 
 def test_world_box_encloses_vertices_and_spheres():
