@@ -175,7 +175,7 @@ def test_graphics_and_realism_rows_cycle_render_options():
         graphics_row_count, realism_row_count,
     )
     assert GRAPHICS_ROWS == 5 and len(GRAPHICS_CYCLES) == GRAPHICS_ROWS
-    assert REALISM_ROWS == 5 and len(REALISM_CYCLES) == REALISM_ROWS
+    assert REALISM_ROWS == 6 and len(REALISM_CYCLES) == REALISM_ROWS
     assert graphics_row_count() == GRAPHICS_ROWS + 1
     assert realism_row_count() == REALISM_ROWS + 1
     from PyAitD.render.render_options import RenderOptions
@@ -213,6 +213,14 @@ def test_smoothing_integration_and_motion_cycle_slots_are_pinned():
     assert GRAPHICS_CYCLES[4] is cycle_smoothing
     assert REALISM_CYCLES[3] is cycle_integration
     assert REALISM_CYCLES[4] is cycle_motion
+
+
+def test_the_realism_page_gained_the_occlusion_row():
+    from PyAitD.app.ui import REALISM_CYCLES, REALISM_ROWS
+    from PyAitD.render.render_options import cycle_occlusion
+    assert REALISM_ROWS == 6
+    assert len(REALISM_CYCLES) == REALISM_ROWS
+    assert REALISM_CYCLES[5] is cycle_occlusion
 
 
 def test_graphics_back_and_cancel_return_to_the_graphics_row_saving():

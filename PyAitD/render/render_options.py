@@ -42,6 +42,11 @@ LEGACY_INTEGRATION = {"off": 0, "on": 2}
 # only: picking, masks and the logical projection always read the tick
 # pose.
 MOTION_MODES = ("tick", "smooth")
+# Screen-space ambient occlusion on the actor layer. "off" runs today's
+# renderer verbatim; "ssao" adds the G-buffer prepass and the two SSAO
+# passes. Additive to the baked rest-pose AO in render/occlusion.py, which
+# cannot see pose or neighbours.
+OCCLUSION_MODES = ("off", "ssao")
 
 
 @dataclass(frozen=True)
@@ -57,6 +62,7 @@ class RenderOptions:
     shadows: str = "soft"
     integration: int = 2
     motion: str = "smooth"
+    occlusion: str = "off"
 
     def to_payload(self):
         return {
@@ -71,6 +77,7 @@ class RenderOptions:
             "shadows": self.shadows,
             "integration": self.integration,
             "motion": self.motion,
+            "occlusion": self.occlusion,
         }
 
 
@@ -136,7 +143,11 @@ def validate_render_options(payload):
     if motion not in MOTION_MODES:
         errors.append(f"motion must be one of {', '.join(MOTION_MODES)}")
         motion = defaults.motion
-    options = RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration, motion)
+    occlusion = payload.get("occlusion", defaults.occlusion)
+    if occlusion not in OCCLUSION_MODES:
+        errors.append(f"occlusion must be one of {OCCLUSION_MODES}, got {occlusion!r}")
+        occlusion = defaults.occlusion
+    options = RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration, motion, occlusion)
     return options, ("; ".join(errors) or None)
 
 
@@ -186,3 +197,7 @@ def cycle_integration(options):
 
 def cycle_motion(options):
     return replace(options, motion=_cycle(MOTION_MODES, options.motion))
+
+
+def cycle_occlusion(options):
+    return replace(options, occlusion=_cycle(OCCLUSION_MODES, options.occlusion))
