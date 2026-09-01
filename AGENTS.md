@@ -242,11 +242,33 @@ a rule — add the test with the rule.
   this repo: `make export-textures` writes the contract (originals, guides,
   layout sidecars, manifest) and `make check-textures` validates the result.
 - `skel.skin`'s integer projection stays authoritative for picking, masks and
-  the mouse contract; `draw_list` entries must stay byte-identical.
-  `scene.CameraView` is a parallel float path for rendering only and is
-  deliberately not bit-identical — it diverges by ~9.6px near the camera and
-  ~0.13px far away, because the integer path truncates. Never "fix" that
-  divergence by projecting `draw_list` through the float path.
+  the mouse contract; `draw_list` entries must stay byte-identical. There are
+  now two parallel float paths, both for rendering only, both deliberately not
+  bit-identical, and neither may ever feed picking:
+  `scene.CameraView` (projection) diverges by ~9.6px near the camera and
+  ~0.13px far away, and `motion.pose_vertices_float` (posing) diverges by up
+  to ~50 world units on a real animated body, because the integer paths
+  truncate — `pose_vertices_float`'s error compounds once per ancestor group,
+  so it is far larger than the ~7 units a single rotation shows, and
+  `tests/test_motion.py`'s `_HIERARCHICAL_PARITY_BOUND` is the guard that
+  must keep exercising a hierarchical pose, never an all-zero-states one.
+  Never "fix" either divergence by routing `draw_list` or `skin()` through a
+  float path.
+- Motion interpolation is presentation-only. `scene.build_frame(blend=None)`
+  is the identity path and must stay byte-identical to the pre-blend engine;
+  only `ActorDraw.geometry` and `ActorDraw.position` ever see blended values,
+  while `logical`/`draw_list` are computed from the unblended tick state
+  *before* `blend_actor` runs — keep that ordering. Blending interpolates and
+  never extrapolates (`alpha = min(accumulator / TICK_MS, 1.0)`), and the
+  snapshot is taken before `play_tick`, unconditionally, so it can never go
+  stale across a mid-session knob flip. An actor renders unblended rather than
+  smearing whenever `motion.blend_actor`'s snap rules fire (no snapshot entry,
+  body/room/anim change, or movement past `TELEPORT_LIMIT`) or the whole frame
+  snaps on a floor, room or camera change — `MotionSnapshot.camera` is only a
+  slot index into `room.camera_indices`, so `room` is what actually catches a
+  same-slot cut. Because picking reads the tick pose while the screen shows
+  the blended one, a moving actor is drawn up to one tick behind its hitbox;
+  that is the accepted trade, not a bug to "fix" by blending `draw_list`.
 - Mouse movement is a held pointer follow: every navigation intent is
   hold-bound (`playworld._apply_mouse_input` cancels an intent whose buffer is
   not held and focused), `app.shell.follow_pointer` re-resolves the held

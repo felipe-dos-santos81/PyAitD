@@ -69,8 +69,9 @@ both throughout.
 Keyboard: arrows/WASD walk, Space acts, Enter or I opens inventory,
 Esc cancels — while playing it opens the system menu (Return to Game /
 Save / Load / Quick Save / Configuration / Quit). Configuration offers
-control remapping and sticky Action
-(one-finger sequential Space-then-direction); settings persist per user.
+control remapping, sticky Action
+(one-finger sequential Space-then-direction), and the Graphics and Realism
+sub-pages of renderer options; settings persist per user.
 Choosing a control opens a key picker: press the physical key, or click one
 of the on-screen key cells (or Cancel) so remapping needs no keyboard at all.
 In menus: arrows move, Enter/Space accepts, Esc cancels. Mouse: single left
@@ -94,8 +95,11 @@ control the port consumes while playing (keyboard input mode) into it, for
 side-by-side comparison. macOS only; needs `dosbox-x` and a one-time
 Accessibility grant; see `docs/compare-original-proof.md`.
 
-The in-game Configuration screen's Graphics page, and ten CLI flags for a
-single session, control the enhanced renderer: `--render-scale N` (1-8, the
+The in-game Configuration screen's Graphics and Realism pages, and eleven CLI
+flags for a single session, control the enhanced renderer: Graphics holds the
+display knobs (scale, shading, background filter, AA, mesh smoothing) and
+Realism the lighting and motion ones (lighting, shadows, realism preset, plate
+integration, motion). `--render-scale N` (1-8, the
 internal render resolution as a multiple of 320x200), `--shading
 {flat,lambert,smooth}` (the per-actor shading model: where surface normals
 come from), `--background-filter {nearest,bilinear,xbr}` (how the original
@@ -148,7 +152,7 @@ point or clear `textures=`). A texture directory holds
 falls back to the original asset silently, while one that exists but fails
 to load logs a warning and falls back — the game never crashes on a bad
 texture file. CLI flags apply only to the current session and are not persisted;
-the Graphics page's rows persist like every other setting.
+the Graphics and Realism pages' rows persist like every other setting.
 If no GL 3.3 context is available, rendering falls back to the software
 backend at scale 1 with a settings notice; the game always runs.
 
@@ -180,7 +184,7 @@ make test-meta                     # the repo's own rules (package layering, tes
 make test-journey                  # real run() event pump and long real-data simulations
 make proof-mouse                   # navmesh coverage for every camera-visible room, every floor (needs game data)
 make proof-combat                  # combat venue proof: real enemy damage, player arms, game over (needs game data)
-make proof-graphics                # render attic + combat fixtures at every shading mode, plus flat-mesh and hard-shadow pairs, to docs/graphics-proof/ (needs GL + game data)
+make proof-graphics                # render attic + combat fixtures at every shading mode, plus flat-mesh, hard-shadow, un-composited, over-composited and blended-motion pairs, to docs/graphics-proof/ (needs GL + game data)
 make proof-intro                   # opening cutscene: headless gate + one GL render per visited camera
 make prove-persistence             # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract
 make check-textures proof=1        # validate data/aitd1/textures (or textures=DIR); side-by-sides to docs/graphics-proof/textures/
@@ -208,7 +212,9 @@ M3d/M3e mouse-only input (including held scenery pushing), M4a1 shell
 (character select, system menu, remappable controls, settings persistence),
 M4a2 save/load (versioned slots, source-identity validation, atomic load
 replacement, deferred quick save), the full enhanced-rendering roadmap (soft
-shadows, plate integration, materials, integration levels) and the
+shadows, plate integration, materials, integration levels), roadmap 2's motion
+interpolation (actors blend between the 50 Hz simulation ticks at the display
+rate, behind a Motion knob) and the
 compare-with-original live mirror (`make compare`) are done: the game boots
 into an asset-faithful character selector, the attic is fully interactive by
 mouse or keyboard, and progress persists across sessions. Next: M4b

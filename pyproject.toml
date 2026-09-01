@@ -1,6 +1,6 @@
 [project]
 name = "PyAitD"
-version = "0.6.0"
+version = "0.7.0"
 description = "Alone in the Dark 1 engine reimplementation (Python/pygame-ce/ModernGL)"
 requires-python = ">=3.12"
 license = "GPL-2.0-only"
