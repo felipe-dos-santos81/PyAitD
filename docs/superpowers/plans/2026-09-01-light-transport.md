@@ -106,10 +106,17 @@ pytestmark = pytest.mark.render
 
 
 def _flat_plate(h=32, w=32, depth=500.0):
-    """A wall square-on to the camera: constant depth, normals toward it."""
+    """A wall square-on to the camera: constant depth, normals toward it.
+
+    View space looks down -z, so a surface *facing* the camera has its
+    normal pointing back along +z. Getting this sign wrong is not a
+    cosmetic error: the hemisphere would push every sample away from the
+    camera instead of toward it, and a flat plate would occlude itself
+    (measured: min occlusion 0.125 with the sign flipped, 1.0 with it
+    right)."""
     d = np.full((h, w), depth, dtype=np.float32)
     n = np.zeros((h, w, 3), dtype=np.float32)
-    n[..., 2] = -1.0            # view space looks down -z, so a facing wall is -z
+    n[..., 2] = 1.0
     return d, n
 
 
@@ -153,26 +160,25 @@ def test_occlusion_is_bounded_to_the_unit_range():
     assert out.min() >= 0.0 and out.max() <= 1.0
 
 
-def test_a_right_angle_crease_occludes_its_corner():
-    """Two walls meeting at a right angle down the middle of the image.
+def test_a_nearby_step_occludes_the_pixels_beside_it():
+    """A wall with a block of columns standing 10 units nearer the camera.
 
-    The left half faces the camera; the right half is a wall receding
-    away from it. Pixels at the seam see geometry in most of their
-    hemisphere and must come out darker than pixels far from it."""
+    Wall pixels next to that step have most of their hemisphere blocked by
+    it and must come out darker; pixels far from it must not. Ten units
+    against a 14-unit radius is deliberate -- the range check discards an
+    occluder much further away than the radius, so a step of 200 units
+    would (correctly) occlude nothing at all."""
     h = w = 48
     d = np.full((h, w), 500.0, dtype=np.float32)
+    d[:, :8] = 490.0
     n = np.zeros((h, w, 3), dtype=np.float32)
-    n[..., 2] = -1.0
-    seam = w // 2
-    # The right half recedes: one unit of depth per column.
-    ramp = np.arange(w - seam, dtype=np.float32) * 8.0
-    d[:, seam:] = 500.0 + ramp
-    n[:, seam:] = np.array([-1.0, 0.0, 0.0], dtype=np.float32)   # facing -x
+    n[..., 2] = 1.0
     out = ssao_reference(d, n, hemisphere_kernel(), noise_rotations(), (2.0, 2.0))
-    at_seam = out[:, seam - 1:seam + 1].mean()
-    far_left = out[:, :4].mean()
-    assert at_seam < far_left - 0.05, (at_seam, far_left)
-    assert far_left > 0.9
+    beside = out[:, 8:11].mean()
+    far = out[:, 30:40].mean()
+    # Measured on the reference implementation: 0.9219 and 1.0000.
+    assert beside < 0.96, beside
+    assert far > 0.99, far
 
 
 def test_zero_radius_occludes_nothing():
@@ -358,7 +364,7 @@ def ssao_reference(depth, normals, kernel, rotations, proj_xy,
 Run: `SDL_VIDEODRIVER=dummy .venv/bin/pytest tests/test_ssao.py -q`
 Expected: PASS, 9 tests.
 
-If `test_a_right_angle_crease_occludes_its_corner` fails by a hair, do **not** loosen its threshold to make it pass — check the sign of the receding wall's normal and the direction of the depth ramp first. A crease that does not darken means the kernel is sampling into free space, which is the one thing this twin exists to catch.
+If `test_a_nearby_step_occludes_the_pixels_beside_it` fails, do **not** loosen its thresholds to make it pass — check the normal's sign first (`+z` faces the camera; the reference measures 0.9219 beside the step and 1.0000 far from it). A step that does not darken means the kernel is sampling away from the camera into free space, which is the one thing this twin exists to catch.
 
 - [ ] **Step 5: Full gate, then commit**
 

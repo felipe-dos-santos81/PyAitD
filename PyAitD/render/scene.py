@@ -104,6 +104,71 @@ class ActorDraw:
 
 
 @dataclass(frozen=True)
+class ReceiverQuad:
+    """One horizontal surface the room's shadows may land on, in the same
+    room-space coordinates every other geometry in a FrameDescription uses
+    -- the room's world offset is already folded into the camera, exactly
+    as in layout_geometry and build_frame.
+
+    Horizontal only. hard_cols approximate the painted furniture rather
+    than matching it, and a shadow on a vertical face 30 units off the
+    wall it stands for reads as a bug; a top face that is a little too
+    high still reads as the top of that crate."""
+    corners: np.ndarray          # (4, 3) float32, counter-clockwise
+
+
+_FLOOR_MARGIN = 200.0   # room units of pad beyond the hard_cols bounding box
+
+
+def _floor_quad(room, plane_y):
+    """The room's own extent at `plane_y`: the bounding box of its
+    hard_cols, padded by _FLOOR_MARGIN so the floor reaches past the
+    furniture standing on it. Room carries no width/depth field of its
+    own to read instead. A room with no hard_cols at all (a bare room, or
+    test data) still gets a floor -- a small quad centred on the origin --
+    rather than an empty or degenerate one."""
+    boxes = room.hard_cols
+    if boxes:
+        x1 = min(b.x1 for b in boxes) - _FLOOR_MARGIN
+        x2 = max(b.x2 for b in boxes) + _FLOOR_MARGIN
+        z1 = min(b.z1 for b in boxes) - _FLOOR_MARGIN
+        z2 = max(b.z2 for b in boxes) + _FLOOR_MARGIN
+    else:
+        x1 = z1 = -_FLOOR_MARGIN
+        x2 = z2 = _FLOOR_MARGIN
+    return np.array([
+        [x1, plane_y, z1], [x2, plane_y, z1],
+        [x2, plane_y, z2], [x1, plane_y, z2],
+    ], dtype=np.float32)
+
+
+def room_receivers(room, plane_y):
+    """The room's floor plane plus the top face of every hard_col.
+
+    Vertical faces are excluded by design -- see ReceiverQuad. World y
+    grows downward, so a box's top face is at its y1 (the smaller value),
+    not its y2."""
+    quads = [ReceiverQuad(_floor_quad(room, plane_y))]
+    for box in room.hard_cols:
+        top = np.array([
+            [box.x1, box.y1, box.z1], [box.x2, box.y1, box.z1],
+            [box.x2, box.y1, box.z2], [box.x1, box.y1, box.z2],
+        ], dtype=np.float32)
+        quads.append(ReceiverQuad(top))
+    return tuple(quads)
+
+
+def _room_plane_y(room):
+    """The room's own floor level: the largest of the two y bounds across
+    every hard_col -- world y grows downward, so that is the lowest point
+    any of them reaches, the level they all stand on -- or 0.0, the
+    room-local datum, when the room carries no hard_cols to read one
+    from."""
+    boxes = room.hard_cols
+    return float(max((max(b.y1, b.y2) for b in boxes), default=0.0))
+
+
+@dataclass(frozen=True)
 class FrameDescription:
     """The dataclass itself is immutable -- its fields can't be reassigned
     -- but some payloads are mutable arrays that alias shared, cached
@@ -119,6 +184,10 @@ class FrameDescription:
     masks: tuple[MaskDraw, ...]
     light: SceneLight = LEGACY_LIGHT
     plate: PlateProfile = NEUTRAL_PLATE
+    # The room's floor and hard_col tops, under shadows="room" only -- see
+    # room_receivers. Appended last so every existing positional
+    # FrameDescription(...) call in this test suite keeps working.
+    receivers: tuple[ReceiverQuad, ...] = ()
 
 
 def mask_applies_to_actor(mask, actor_room, zv):
@@ -188,14 +257,18 @@ def _body_texture(resolver, body_num):
     return None if getter is None else getter(body_num)
 
 
-def build_frame(game, floor, resolver, blend=None):
+def build_frame(game, floor, resolver, blend=None, shadows="soft"):
     """The per-frame scene: a float FrameDescription for the new renderers,
     and the unchanged draw_list (from the logical skin() bbox) so picking,
     the mouse contract and combat keep working byte-identically.
 
     `blend` is (MotionSnapshot, alpha) under motion="smooth": geometry,
     angles and position interpolate snapshot -> live state through the
-    float pose twin. The logical projection below never blends."""
+    float pose twin. The logical projection below never blends.
+
+    `shadows` only decides whether `frame.receivers` gets built: every
+    other mode leaves it at FrameDescription's own () default, so no mode
+    but "room" pays for room_receivers."""
     room = floor.rooms[game.current_room]
     cam_idx = room.camera_indices[game.num_camera]
     state = CameraState.from_camera(
@@ -263,5 +336,6 @@ def build_frame(game, floor, resolver, blend=None):
         masks,
         _light(resolver, floor, cam_idx, killed),
         _plate(resolver, floor, cam_idx, killed),
+        room_receivers(room, _room_plane_y(room)) if shadows == "room" else (),
     )
     return frame, draw_list

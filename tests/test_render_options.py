@@ -39,13 +39,15 @@ def test_valid_payload_round_trips():
 def test_each_invalid_field_falls_back_alone():
     options, error = validate_render_options(
         {"scale": 99, "shading": "smooth", "background_filter": "bilinear", "texture_dir": None,
-         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on", "motion": "tick"})
-    assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick")  # clamped, not rejected
+         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on", "motion": "tick",
+         "occlusion": "off"})
+    assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick", "off")  # clamped, not rejected
     assert error is None
     options, error = validate_render_options(
         {"scale": "x", "shading": "neon", "background_filter": "bilinear", "texture_dir": 3,
-         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on", "motion": "tick"})
-    assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick")
+         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on", "motion": "tick",
+         "occlusion": "off"})
+    assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick", "off")
     assert "scale" in error and "shading" in error and "texture_dir" in error
 
 
@@ -109,12 +111,14 @@ def test_invalid_smoothing_falls_back_alone():
 
 def test_shadows_defaults_to_soft_and_cycles():
     from PyAitD.render.render_options import SHADOW_MODES, cycle_shadows
-    assert SHADOW_MODES == ("hard", "soft")
+    assert SHADOW_MODES == ("hard", "soft", "room")
     options = RenderOptions()
     assert options.shadows == "soft"
-    assert cycle_shadows(options).shadows == "hard"
+    assert cycle_shadows(options).shadows == "room"
+    assert cycle_shadows(RenderOptions(shadows="room")).shadows == "hard"
     assert cycle_shadows(RenderOptions(shadows="hard")).shadows == "soft"
     assert RenderOptions(shadows="hard").to_payload()["shadows"] == "hard"
+    assert RenderOptions(shadows="room").to_payload()["shadows"] == "room"
 
 
 def test_invalid_shadows_falls_back_alone():
@@ -189,3 +193,39 @@ def test_invalid_or_missing_motion_falls_back_alone():
     del payload["motion"]   # a settings file from before this option
     options, error = validate_render_options(payload)
     assert options.motion == "smooth" and "motion" in error
+
+
+def test_occlusion_defaults_ssao_and_cycles():
+    from PyAitD.render.render_options import OCCLUSION_MODES, cycle_occlusion
+    options = RenderOptions()
+    assert options.occlusion == "ssao"
+    assert OCCLUSION_MODES == ("off", "ssao")
+    assert cycle_occlusion(options).occlusion == "off"
+    assert cycle_occlusion(cycle_occlusion(options)).occlusion == "ssao"
+
+
+def test_occlusion_is_last_so_positional_construction_still_works():
+    # Every earlier field keeps its slot: this is what stops a new knob
+    # from silently shifting an existing caller's arguments.
+    options = RenderOptions(4, "smooth", "bilinear", None, "scene", 4, "enhanced", 2)
+    assert options.occlusion == "ssao"
+
+
+def test_invalid_or_missing_occlusion_falls_back_alone():
+    payload = RenderOptions().to_payload()
+    payload["occlusion"] = "raytraced"
+    options, error = validate_render_options(payload)
+    assert options.occlusion == "ssao"
+    assert options.motion == "smooth"          # its neighbour is undisturbed
+    assert "occlusion" in error
+    del payload["occlusion"]   # a settings file from before this option
+    options, error = validate_render_options(payload)
+    assert options.occlusion == "ssao" and "occlusion" in error
+
+
+def test_occlusion_round_trips_through_the_payload():
+    from dataclasses import replace
+    options = replace(RenderOptions(), occlusion="ssao")
+    assert options.to_payload()["occlusion"] == "ssao"
+    restored, error = validate_render_options(options.to_payload())
+    assert restored.occlusion == "ssao" and error is None

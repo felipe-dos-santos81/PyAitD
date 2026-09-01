@@ -405,12 +405,19 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(profile, mon
 
 
 def test_scene_frame_delegates_to_build_frame_and_compose_scene(monkeypatch):
-    """_scene_frame's own contract (task 9): call build_frame(game, floor,
-    resolver, blend), hand its FrameDescription -- and nothing else -- to
-    renderer.compose_scene, and return (that thumbnail, build_frame's own
-    draw_list) unmodified. build_frame's own draw_list correctness is
-    test_scene.py's job; this pins the wiring around it and needs no game
-    data, unlike the old 6-arg compose_scene call this replaced."""
+    """_scene_frame's own contract (task 9, updated by task-5 fix-1): call
+    build_frame(game, floor, resolver, blend, shadows=renderer.options.shadows),
+    hand its FrameDescription -- and nothing else -- to renderer.compose_scene,
+    and return (that thumbnail, build_frame's own draw_list) unmodified.
+    build_frame's own draw_list correctness is test_scene.py's job; this pins
+    the wiring around it and needs no game data, unlike the old 6-arg
+    compose_scene call this replaced. The `shadows` keyword is read off
+    renderer.options rather than threaded through _scene_frame's own
+    parameters: renderer.options is the authoritative post-set_options
+    value, so reading it there instead of adding a parameter (and threading
+    it through every _scene_frame call site) is the only way the frame and
+    the backend can't disagree about the mode -- the fake renderer below
+    stands in for that authoritative value."""
     import PyAitD.app.shell as main
 
     game = SimpleNamespace(assets="assets-marker")
@@ -419,13 +426,15 @@ def test_scene_frame_delegates_to_build_frame_and_compose_scene(monkeypatch):
     sentinel_draw_list = [(0, (1, 2, 3, 4))]
     calls = {}
 
-    def fake_build_frame(passed_game, passed_floor, passed_resolver, passed_blend):
-        calls["build_frame"] = (passed_game, passed_floor, passed_resolver, passed_blend)
+    def fake_build_frame(passed_game, passed_floor, passed_resolver, passed_blend, shadows):
+        calls["build_frame"] = (passed_game, passed_floor, passed_resolver, passed_blend, shadows)
         return sentinel_frame, sentinel_draw_list
 
     monkeypatch.setattr(main, "build_frame", fake_build_frame)
 
     class FakeRenderer:
+        options = SimpleNamespace(shadows="room")
+
         def compose_scene(self, frame):
             calls["compose_scene"] = frame
             return "thumbnail"
@@ -433,7 +442,7 @@ def test_scene_frame_delegates_to_build_frame_and_compose_scene(monkeypatch):
     resolver = object()
     composed, draw_list = main._scene_frame(game, floor, FakeRenderer(), resolver)
 
-    assert calls["build_frame"] == (game, floor, resolver, None)
+    assert calls["build_frame"] == (game, floor, resolver, None, "room")
     assert calls["compose_scene"] is sentinel_frame
     assert composed == "thumbnail"
     assert draw_list is sentinel_draw_list

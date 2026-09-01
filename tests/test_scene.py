@@ -3,10 +3,11 @@ import numpy as np
 
 from PyAitD.render.asset_resolver import AssetResolver, ImageAsset
 from PyAitD.engine.data.floor import Floor
-from PyAitD.engine.data.formats import Body, Camera, Group, Room
+from PyAitD.engine.data.formats import Body, Camera, Group, Room, Zone
 from PyAitD.engine.script.game import init_game
 from PyAitD.engine.data.mask_geometry import MaskDraw
-from PyAitD.render.scene import CameraView, FrameDescription, build_frame, mask_applies_to_actor
+from PyAitD.render.scene import (CameraView, FrameDescription, ReceiverQuad, build_frame,
+                                 mask_applies_to_actor, room_receivers)
 from PyAitD.engine.actor.skel import skin
 from PyAitD.engine.space.world import CameraState
 import pytest
@@ -444,6 +445,48 @@ def _stub_scene(beta=0):
     floor = _StubFloor(rooms=[room], cameras=[camera], masks_by_camera={0: []})
     resolver = _StubResolver({0: body}, object(), np.zeros((256, 3), dtype=np.uint8))
     return game, floor, resolver
+
+
+def _room_with_boxes(hard_cols):
+    """A minimal room carrying the given hard_cols, for room_receivers --
+    everything else about a Room is irrelevant to that function."""
+    return Room(world_x=0, world_y=0, world_z=0, camera_indices=[0],
+                hard_cols=hard_cols, sce_zones=[], offset_to_hard_col=0, offset_to_sce_zones=0)
+
+
+def test_room_receivers_are_the_floor_plus_every_hard_col_top():
+    room = _room_with_boxes([
+        Zone(x1=0, x2=100, y1=-50, y2=0, z1=0, z2=100, type=0, parameter=0),
+        Zone(x1=200, x2=260, y1=-80, y2=0, z1=0, z2=60, type=0, parameter=0),
+    ])
+    receivers = room_receivers(room, plane_y=0.0)
+    # One floor quad plus one top face per box -- and nothing else: the
+    # vertical faces are excluded by design, not by accident.
+    assert len(receivers) == 3
+    assert all(isinstance(r, ReceiverQuad) for r in receivers)
+    tops = [r for r in receivers[1:]]
+    for r in tops:
+        assert r.corners.shape == (4, 3)
+        ys = r.corners[:, 1]
+        assert np.allclose(ys, ys[0]), "a top face is horizontal by definition"
+    # World y grows downward, so a box top is *above* the floor plane.
+    assert tops[0].corners[0][1] < 0.0
+
+
+def test_a_room_with_no_boxes_still_has_its_floor():
+    receivers = room_receivers(_room_with_boxes([]), plane_y=0.0)
+    assert len(receivers) == 1
+
+
+def test_build_frame_carries_receivers_only_under_shadows_room():
+    game, floor, resolver = _stub_scene()
+    floor.rooms[0].hard_cols = [
+        Zone(x1=-50, x2=50, y1=-30, y2=0, z1=400, z2=500, type=0, parameter=0),
+    ]
+    frame, _ = build_frame(game, floor, resolver, shadows="room")
+    assert frame.receivers
+    soft_frame, _ = build_frame(game, floor, resolver, shadows="soft")
+    assert soft_frame.receivers == ()
 
 
 def test_build_frame_blend_moves_geometry_but_not_the_logical_projection():

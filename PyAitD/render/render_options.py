@@ -14,9 +14,15 @@ SMOOTHING_LEVELS = (0, 1, 2, 3)   # 2**level segments per edge; 0 draws the flat
 # hard: today's per-actor projected silhouette, thresholded, verbatim.
 # soft: a penumbra that hardens at contact, every actor's shadow gathered
 # into one pass before any body is drawn, and a light-view depth map that
-# lets bodies shadow themselves and each other. Both under lighting="scene"
-# only; "fixed" casts nothing either way.
-SHADOW_MODES = ("hard", "soft")
+# lets bodies shadow themselves and each other. room: everything soft
+# does, plus a receiver pass that rasterises the room's floor and its
+# hard_col tops and darkens them through that same light-view depth map --
+# so a shadow can drape over the box standing in for a table instead of
+# stopping dead at its edge. hard_cols are collision proxies, not the
+# painted furniture, so "room" is a menu choice only; the default stays
+# "soft" until a human looks at real frames and decides otherwise. All
+# three under lighting="scene" only; "fixed" casts nothing either way.
+SHADOW_MODES = ("hard", "soft", "room")
 # How much of the plate the actor layer takes on. Level 0 is the
 # single-target path -- bodies drawn straight over the plate, at the
 # internal resolution, with the plate's tone and dither ignored. Levels 1-3
@@ -42,6 +48,11 @@ LEGACY_INTEGRATION = {"off": 0, "on": 2}
 # only: picking, masks and the logical projection always read the tick
 # pose.
 MOTION_MODES = ("tick", "smooth")
+# Screen-space ambient occlusion on the actor layer. "off" runs today's
+# renderer verbatim; "ssao" adds the G-buffer prepass and the two SSAO
+# passes. Additive to the baked rest-pose AO in render/occlusion.py, which
+# cannot see pose or neighbours.
+OCCLUSION_MODES = ("off", "ssao")
 
 
 @dataclass(frozen=True)
@@ -57,6 +68,7 @@ class RenderOptions:
     shadows: str = "soft"
     integration: int = 2
     motion: str = "smooth"
+    occlusion: str = "ssao"
 
     def to_payload(self):
         return {
@@ -71,6 +83,7 @@ class RenderOptions:
             "shadows": self.shadows,
             "integration": self.integration,
             "motion": self.motion,
+            "occlusion": self.occlusion,
         }
 
 
@@ -136,7 +149,11 @@ def validate_render_options(payload):
     if motion not in MOTION_MODES:
         errors.append(f"motion must be one of {', '.join(MOTION_MODES)}")
         motion = defaults.motion
-    options = RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration, motion)
+    occlusion = payload.get("occlusion")
+    if occlusion not in OCCLUSION_MODES:
+        errors.append(f"occlusion must be one of {', '.join(OCCLUSION_MODES)}")
+        occlusion = defaults.occlusion
+    options = RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration, motion, occlusion)
     return options, ("; ".join(errors) or None)
 
 
@@ -186,3 +203,7 @@ def cycle_integration(options):
 
 def cycle_motion(options):
     return replace(options, motion=_cycle(MOTION_MODES, options.motion))
+
+
+def cycle_occlusion(options):
+    return replace(options, occlusion=_cycle(OCCLUSION_MODES, options.occlusion))

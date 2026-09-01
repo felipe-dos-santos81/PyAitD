@@ -107,6 +107,17 @@ def test_an_unknown_atmosphere_value_falls_back_alone():
     assert any("atmosphere" in e for e in errors)
 
 
+def test_a_missing_atmosphere_key_falls_back_with_a_notice():
+    """An older settings file has no such key. It must fall back *and say
+    so* -- the convention every sibling field follows, and what the spec
+    means by "older-file-falls-back-with-notice"."""
+    payload = RenderOptions().to_payload()
+    del payload["atmosphere"]
+    options, errors = validate_render_options(payload)
+    assert options.atmosphere == "off"
+    assert any("atmosphere" in e for e in errors)
+
+
 def test_atmosphere_round_trips_through_the_payload():
     options = replace(RenderOptions(), atmosphere="on")
     assert options.to_payload()["atmosphere"] == "on"
@@ -165,9 +176,15 @@ Append the field after the last existing one:
 Add it to `to_payload()` (last key), to `validate_render_options` beside its neighbours:
 
 ```python
-    atmosphere = payload.get("atmosphere", defaults.atmosphere)
+    # Bare .get(), like every sibling field: a MISSING key must produce a
+    # notice before falling back, not fall back silently. The spec calls
+    # for "the usual older-file-falls-back-with-notice convention", and
+    # every settings file written before this task lacks the key, so the
+    # missing case is the common one. The message format matches the
+    # siblings too -- `', '.join(MODES)`, not a raw tuple repr.
+    atmosphere = payload.get("atmosphere")
     if atmosphere not in ATMOSPHERE_MODES:
-        errors.append(f"atmosphere must be one of {ATMOSPHERE_MODES}, got {atmosphere!r}")
+        errors.append(f"atmosphere must be one of {', '.join(ATMOSPHERE_MODES)}")
         atmosphere = defaults.atmosphere
 ```
 

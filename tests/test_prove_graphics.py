@@ -57,31 +57,42 @@ def test_parse_args_overrides():
 def test_output_paths_cover_every_combination_plus_the_twins():
     from PyAitD.render.render_options import RenderOptions
     paths = output_paths("docs/graphics-proof")
-    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 6 * len(FIXTURES)
+    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 8 * len(FIXTURES)
     default = RenderOptions()
     # keyed on `label`, not `motion_blend` -- Minor 8: motion_blend alone
     # collides between the plain smooth-enhanced main row and the
     # -tickmotion row whenever motion_blend is False (--motion tick), which
-    # a set keyed on the other six fields would silently collapse -- and
+    # a set keyed on the other seven fields would silently collapse -- and
     # the -painted row's motion_blend is always False too, so it needs the
     # same distinct-label treatment to avoid colliding with either
-    names = {(name, mode, realism, level, shadows, integration, label)
-             for name, mode, realism, level, shadows, integration, _motion_blend, label, _ in paths}
-    expected = {(n, m, r, default.smoothing, default.shadows, default.integration, "")
+    names = {(name, mode, realism, level, shadows, integration, occlusion, label)
+             for name, mode, realism, level, shadows, integration, occlusion, _motion_blend, label, _
+             in paths}
+    expected = {(n, m, r, default.smoothing, default.shadows, default.integration, default.occlusion, "")
                 for n in FIXTURES for m in SHADING_MODES for r in REALISM_MODES}
-    expected |= {(n, "smooth", "enhanced", 0, default.shadows, default.integration, "flatmesh")
+    expected |= {(n, "smooth", "enhanced", 0, default.shadows, default.integration, default.occlusion,
+                  "flatmesh")
                  for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, "hard", default.integration, "hardshadow")
+    expected |= {(n, "smooth", "enhanced", default.smoothing, "hard", default.integration,
+                  default.occlusion, "hardshadow")
                  for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 0, "nocomposite")
+    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 0, default.occlusion,
+                  "nocomposite")
                  for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 3, "strong")
+    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 3, default.occlusion,
+                  "strong")
                  for n in FIXTURES}
     expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
-                  "tickmotion")
+                  default.occlusion, "tickmotion")
                  for n in FIXTURES}
     expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
-                  "painted")
+                  default.occlusion, "painted")
+                 for n in FIXTURES}
+    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
+                  "off", "nossao")
+                 for n in FIXTURES}
+    expected |= {(n, "smooth", "enhanced", default.smoothing, "room", default.integration,
+                  default.occlusion, "roomshadow")
                  for n in FIXTURES}
     assert names == expected
     # the -tickmotion row's motion_blend still tracks the "smooth" default
@@ -93,7 +104,7 @@ def test_output_paths_cover_every_combination_plus_the_twins():
     painted_blends = {motion_blend
                       for *_, motion_blend, label, _ in paths if label == "painted"}
     assert painted_blends == {False}
-    for name, mode, realism, level, shadows, integration, motion_blend, label, path in paths:
+    for name, mode, realism, level, shadows, integration, occlusion, motion_blend, label, path in paths:
         suffix = f"-{label}" if label else ""
         assert path == pathlib.Path("docs/graphics-proof") / f"{name}-{mode}-{realism}{suffix}.png"
 
@@ -135,4 +146,25 @@ def test_render_fixture_is_importable_with_the_documented_signature():
     import inspect
     params = list(inspect.signature(render_fixture).parameters)
     assert params == ["data_dir", "name", "scale", "shading", "ctx", "realism", "smoothing",
-                      "shadows", "integration", "motion_blend", "painted"]
+                      "shadows", "integration", "motion_blend", "painted", "occlusion"]
+
+
+def test_the_nossao_twin_differs_from_the_default(tmp_path, gl_ctx, data_dir):
+    default = render_fixture(data_dir, "attic", 1, "smooth", gl_ctx)
+    nossao = render_fixture(data_dir, "attic", 1, "smooth", gl_ctx, occlusion="off")
+    assert not np.array_equal(default, nossao)
+
+
+def test_the_roomshadow_twin_differs_from_the_default(tmp_path, gl_ctx, data_dir):
+    # Unlike -nossao, this pair is not guaranteed to differ on every
+    # fixture: the room receiver pass only darkens pixels a hard_col top
+    # actually receives a shadow on (test_room_with_no_hard_col_in_view_
+    # matches_soft in tests/test_render_gl.py is the neutral identity for
+    # a fixture with no box in view). Measured directly: the attic fixture
+    # renders byte-identical under "room" (no hard_col catches a shadow
+    # there), while the combat fixture -- which has furniture-proxy boxes
+    # in view -- does differ, which is why this test uses "combat" rather
+    # than following -nossao's "attic" example.
+    default = render_fixture(data_dir, "combat", 1, "smooth", gl_ctx)
+    roomshadow = render_fixture(data_dir, "combat", 1, "smooth", gl_ctx, shadows="room")
+    assert not np.array_equal(default, roomshadow)

@@ -28,7 +28,7 @@ from PyAitD.engine.script.playworld import TICK_MS, play_tick
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import (
     BACKGROUND_FILTERS, LIGHTING_MODES, MSAA_LEVELS, REALISM_MODES, SHADING_MODES,
-    INTEGRATION_LEVELS, LEGACY_INTEGRATION, MOTION_MODES,
+    INTEGRATION_LEVELS, LEGACY_INTEGRATION, MOTION_MODES, OCCLUSION_MODES,
     SHADOW_MODES, SMOOTHING_LEVELS, validate_render_options,
 )
 from PyAitD.games import load_profile
@@ -133,6 +133,10 @@ def parse_args(argv):
              "at the display rate (rendering only, up to one tick behind)",
     )
     p.add_argument(
+        "--occlusion", choices=OCCLUSION_MODES, default=None,
+        help="screen-space ambient occlusion on actors (session only)",
+    )
+    p.add_argument(
         "--textures", type=pathlib.Path, default=None, help="asset texture directory",
     )
     p.add_argument(
@@ -180,6 +184,8 @@ def apply_render_overrides(settings, args):
         payload["integration"] = args.integration
     if args.motion is not None:
         payload["motion"] = args.motion
+    if args.occlusion is not None:
+        payload["occlusion"] = args.occlusion
     if args.textures is not None:
         payload["texture_dir"] = str(args.textures)
     render, _error = validate_render_options(payload)
@@ -256,7 +262,13 @@ def _scene_frame(game, floor, renderer, resolver, blend=None):
     # required, not defaulted: a silent `AssetResolver(game.assets)`
     # fallback here would drop the override directory with no error, the same
     # silent-degradation failure mode `_resolver_for` exists to avoid below.
-    frame, draw_list = build_frame(game, floor, resolver, blend)
+    # shadows is read off renderer.options rather than threaded through as
+    # a parameter: renderer.options is the authoritative post-set_options
+    # value (see render.py's Renderer.options / set_options and this
+    # module's _apply_render_options), so the frame this builds and the
+    # backend that draws it can never disagree about which shadow mode is
+    # active.
+    frame, draw_list = build_frame(game, floor, resolver, blend, shadows=renderer.options.shadows)
     return renderer.compose_scene(frame), draw_list
 
 
@@ -671,11 +683,12 @@ def _route_game_over_command(game, session, modal_command):
 # The only render.RenderOptions fields the CONFIG menu can actually change
 # (SystemMenuPage.GRAPHICS's Scale/Shading/Filter/AA/Smoothing rows, via
 # GRAPHICS_CYCLES, and SystemMenuPage.REALISM's Lighting/Shadows/Realism/
-# Integration/Motion rows, via REALISM_CYCLES, both in ui.reduce_system_menu).
+# Integration/Motion/Occlusion rows, via REALISM_CYCLES, both in
+# ui.reduce_system_menu).
 # `texture_dir` has no menu row at all, so it is never in this set and a save
 # can never pick it up from the in-memory, possibly CLI-set,
 # session.settings.render.
-_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism", "smoothing", "shadows", "integration", "motion")
+_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism", "smoothing", "shadows", "integration", "motion", "occlusion")
 
 
 def _persisted_render(session):

@@ -80,6 +80,11 @@ uniform sampler2DShadow shadow_map; uniform int self_shadow; uniform float depth
 // gates the sample so lines, points, spheres and unpainted bodies -- all of
 // which leave v_uv at its default -- never touch the sampler at all.
 uniform sampler2D body_albedo; uniform int has_body_texture;
+// Screen-space AO (Task 4). ssao_tex is the half-resolution occlusion
+// texture, sampled at full target resolution the same way mask_tex is;
+// occlusion_on gates the sample so occlusion="off" never touches the
+// sampler, mirroring has_body_texture's own gate above.
+uniform sampler2D ssao_tex; uniform int occlusion_on;
 in vec3 v_color; in vec3 v_normal; in vec3 v_rest; in float v_ao; flat in float v_index; in float v_world_y;
 in vec4 v_shadow; in vec3 v_view; in vec2 v_uv;
 out vec4 f_color;
@@ -248,7 +253,24 @@ void main() {
     if (has_body_texture != 0 && v_uv.x >= 0.0) {
         albedo = texture(body_albedo, v_uv).rgb;
     }
-    vec3 base = albedo * (fill_tint + key_tint * wrapped * wrapped * vis);
+    // Screen-space occlusion attenuates the *fill* share and nothing else.
+    // The key share is already gated by `vis` (the shadow map), and F's
+    // rule holds: a shadowed limb falls to the room's fill, never to
+    // black -- so the fill is the one share an occlusion term may touch.
+    //
+    // Not folded into `occl` below, however much the name invites it:
+    // `occl` multiplies the whole of `base`, key share included, as does
+    // `hemi`. Either would darken the key light a second time, which the
+    // shadow map already owns.
+    //
+    // ssao is exactly 1.0 when occlusion_on is 0, and multiplying by
+    // exactly 1.0 is exact in IEEE 754 -- that, not a mix(), is what
+    // makes the off path byte-identical.
+    float ssao = 1.0;
+    if (occlusion_on != 0) {
+        ssao = texture(ssao_tex, gl_FragCoord.xy / target_size).r;
+    }
+    vec3 base = albedo * (fill_tint * ssao + key_tint * wrapped * wrapped * vis);
     // Peaks at the light/shade boundary (wrapped 0.5, where 4x(1-x) is 1)
     // and vanishes on both the fully lit and the fully unlit side.
     //
@@ -399,6 +421,14 @@ void main() {
     v_rest = vec3(0.0); v_ao = 1.0; v_index = 0.0; v_world_y = 0.0;
     v_shadow = vec4(0.0);   // lines and points never reach the term
     v_view = vec3(0.0);     // nor the derivative bump
+    // _screen_prog reuses ACTOR_FSH unchanged, so a line or point's fill
+    // still gets multiplied by `ssao` sampled at gl_FragCoord.xy -- its
+    // own screen position, not this vertex's (line/point primitives never
+    // write the G-buffer, so there is no occlusion of their own to read).
+    // That pixel therefore carries whatever occlusion the *triangle*
+    // geometry underneath happened to leave in the G-buffer at that same
+    // position, or 1.0 (unoccluded) if none did. Benign, arguably correct
+    // even, and left as is.
     v_uv = in_uv;
 }
 """
@@ -411,6 +441,182 @@ STENCIL_FSH = """
 #version 330
 out vec4 f_color;
 void main() { f_color = vec4(1.0); }
+"""
+GBUFFER_FSH = """
+#version 330
+// The SSAO prepass's only output: view-space normal in rgb, positive
+// linear view depth in alpha.
+//
+// Linear depth rather than the depth buffer's projective value, because
+// ssao_reference has to reproduce this exactly and a projection inverse
+// is the easiest place for a twin and a shader to disagree by a hair.
+// The depth attachment is still there -- it is what makes the pass
+// depth-test correctly against itself -- but nothing reads it.
+//
+// Alpha 0.0 marks a pixel no actor covered. ssao_reference and SSAO_FSH
+// both treat that as "unoccluded" rather than as depth zero.
+//
+// v_view.z, not -v_view.z: this engine's camera space is +z-forward (a
+// FITD-derived convention, not OpenGL's -z-forward), confirmed against
+// the golden frame -- an actor at world z in [580, 820] renders covered
+// pixels with v_view.z in [564.5, 696.0], and -v_view.z on the same
+// scene is negative everywhere a pixel is covered. Depth is otherwise
+// convention-free: it is a positive distance along the view axis, and
+// ssao_reference/SSAO_FSH each reconstruct a position from it in their
+// own -z-forward space (ssao.py's _view_position sets z = -depth) --
+// neither side ever sees an engine-space position, so no sign decision
+// is needed here for depth.
+//
+// focal1: this engine's actual perspective divide is by z + focal1, not
+// by bare z (CameraState.project: `depth = z + self.focal1`; see
+// GLBackend._proj_xy's docstring for how projection_matrix's `shift`
+// gets there). That is not a fudge factor -- this engine's projection
+// centre sits at -focal1 along z, so z + focal1 *is* the true pinhole
+// distance from the projection centre, the honest linear depth for this
+// camera. Writing it (rather than bare v_view.z) is what makes
+// `ndc = x * f / depth` exact, which is precisely the relation
+// ssao_reference's _view_position/_project and SSAO_FSH all assume --
+// with this term included, ssao.py needs no changes of its own to be
+// correct. focal1 is per camera, not per vertex, so it arrives as a
+// uniform GLBackend._render_gbuffer sets once per frame, the same way
+// mvp and rot are, rather than a varying.
+//
+// Normals are the one quantity that actually crosses the boundary
+// between the two spaces, and unlike depth they are not convention-free:
+// a surface facing the camera has its normal pointing toward -z in this
+// engine's +z-forward space, but ssao.py was written for a -z-forward
+// space, where a camera-facing normal points toward +z. Left unmirrored,
+// every normal this pass writes would be flipped end-to-end through
+// Task 4's whole pipeline -- consistently wrong on both the numpy twin
+// and the shader, so the twin-vs-shader parity test would still pass
+// while a flat, camera-facing surface occluded itself.
+//
+// The bridge is a full 180-degree rotation about x, diag(1, -1, -1), not
+// a mirror on z alone: this engine's own projection negates y before the
+// divide (`projection_matrix`'s y row is `[0, -focal3/SCREEN_CENTER_Y, 0,
+// 0]`, so the real relation is `ndc_y = -y_view * fy / depth`), and
+// `_proj_xy` deliberately returns fy as an unsigned magnitude -- it has
+// no sign to give, since it is shared with x's row, which carries no
+// negation at all. ssao.py's `_view_position` therefore reconstructs
+// `y_recon = ndc_y * depth / fy = -y_view` alongside `z_recon = -depth`,
+// landing on the frame `(x, -y, -(z + focal1))`: y flips along with z, x
+// does not. A vector transforms with the same rotation as the frame it
+// is expressed in, so the normal handed across the boundary must carry
+// that same y flip or it describes a mirrored surface -- SSAO would then
+// compute occlusion against geometry that isn't there. diag(1, -1, -1)
+// is the fix, applied here rather than in ssao.py (a self-contained
+// reference this bridges into, not the space that should change): its
+// determinant is +1 (a genuine rotation, not a reflection) and, like the
+// z-only mirror it replaces, it is its own inverse-transpose, so this
+// remains exact, not an approximation.
+in vec3 v_normal;
+in vec3 v_view;
+uniform float focal1;
+out vec4 f_gbuf;
+void main() {
+    f_gbuf = vec4(normalize(vec3(v_normal.x, -v_normal.y, -v_normal.z)), v_view.z + focal1);
+}
+"""
+SSAO_FSH = """
+#version 330
+// Screen-space ambient occlusion over the half-resolution G-buffer.
+//
+// Every line here has a counterpart in PyAitD/render/ssao.py's
+// ssao_reference, which tests/test_render_gl.py pins this against at
+// 4/255 -- the same arrangement `soften` and SHADOW_BLUR_FSH have. When
+// you change one, change both, or the test will tell you.
+//
+// Depth is positive linear view distance in the G-buffer's alpha, and 0.0
+// means no actor covered that pixel. Output is a *multiplier*: 1.0 is
+// unoccluded, which is what makes an empty G-buffer contribute nothing.
+uniform sampler2D gbuf_tex;
+uniform sampler2D noise_tex;
+uniform vec2 target_size;      // the half-resolution G-buffer's size
+uniform vec2 proj_xy;          // the projection's (fx, fy), shared with the twin
+uniform float radius;
+uniform float bias;
+uniform int kernel_count;
+uniform vec3 kernel[64];
+out vec4 f_color;
+
+vec3 view_position(vec2 uv, float depth) {
+    vec2 ndc = uv * 2.0 - 1.0;
+    return vec3(ndc.x * depth / proj_xy.x, ndc.y * depth / proj_xy.y, -depth);
+}
+
+void main() {
+    vec2 uv = gl_FragCoord.xy / target_size;
+    vec4 g = texture(gbuf_tex, uv);
+    float depth = g.a;
+    if (depth <= 0.0) { f_color = vec4(1.0); return; }
+    vec3 n = normalize(g.rgb);
+    vec3 p = view_position(uv, depth);
+
+    vec2 r = texture(noise_tex, gl_FragCoord.xy / 4.0).rg;
+    // Duff et al., "Building an Orthonormal Basis, Revisited". Built from
+    // the normal alone and exactly orthonormal for every normal, unlike a
+    // Gram-Schmidt against the noise vector, whose tangent collapses
+    // toward zero length wherever the noise happens to align with the
+    // normal -- measured down to 4.2e-3, which amplifies a last-bit
+    // disagreement into a whole flipped kernel sample. The rotation then
+    // happens *within* the tangent plane, so the noise still decorrelates
+    // neighbouring pixels without ever conditioning the basis.
+    float sgn = n.z >= 0.0 ? 1.0 : -1.0;
+    float a = -1.0 / (sgn + n.z);
+    float b = n.x * n.y * a;
+    vec3 b1 = vec3(1.0 + sgn * n.x * n.x * a, sgn * b, -sgn * n.x);
+    vec3 b2 = vec3(b, sgn + n.y * n.y * a, -n.y);
+    vec3 tangent   =  b1 * r.x + b2 * r.y;
+    vec3 bitangent = -b1 * r.y + b2 * r.x;
+
+    float occluded = 0.0;
+    for (int i = 0; i < kernel_count; i++) {
+        vec3 k = kernel[i];
+        vec3 sample_pos = p + (tangent * k.x + bitangent * k.y + n * k.z) * radius;
+        if (sample_pos.z >= -1e-6) continue;         // behind the camera: no screen position
+        vec2 s_ndc = vec2(sample_pos.x * proj_xy.x, sample_pos.y * proj_xy.y) / (-sample_pos.z);
+        vec2 s_uv = clamp(s_ndc * 0.5 + 0.5, vec2(0.0), vec2(1.0));
+        float s_depth = texture(gbuf_tex, s_uv).a;
+        float sample_dist = -sample_pos.z;
+        if (s_depth > 0.0 && s_depth < sample_dist - bias) {
+            occluded += clamp(radius / max(abs(depth - s_depth), 1e-6), 0.0, 1.0);
+        }
+    }
+    f_color = vec4(clamp(1.0 - occluded / float(kernel_count), 0.0, 1.0));
+}
+"""
+SSAO_BLUR_FSH = """
+#version 330
+// One bilateral-ish pass over the occlusion texture: a 4x4 box the width
+// of the noise tile, which is exactly what removes the tile's pattern,
+// rejecting taps whose depth is far from the centre's so the blur does
+// not drag occlusion across a silhouette.
+uniform sampler2D ssao_tex;
+uniform sampler2D gbuf_tex;
+uniform vec2 target_size;
+uniform float depth_threshold;
+out vec4 f_color;
+void main() {
+    vec2 texel = 1.0 / target_size;
+    vec2 uv = gl_FragCoord.xy / target_size;
+    float centre_depth = texture(gbuf_tex, uv).a;
+    if (centre_depth <= 0.0) { f_color = vec4(1.0); return; }
+    float sum = 0.0;
+    float total = 0.0;
+    for (int y = -2; y < 2; y++) {
+        for (int x = -2; x < 2; x++) {
+            vec2 q = uv + vec2(float(x), float(y)) * texel;
+            float d = texture(gbuf_tex, q).a;
+            // A tap on the far side of a silhouette is a different
+            // surface; averaging it in is what makes a thin limb halo.
+            if (d > 0.0 && abs(d - centre_depth) < depth_threshold) {
+                sum += texture(ssao_tex, q).r;
+                total += 1.0;
+            }
+        }
+    }
+    f_color = vec4(total > 0.0 ? sum / total : 1.0);
+}
 """
 SHADOW_GEOM_VSH = """
 #version 330
@@ -503,6 +709,42 @@ void main() {
         }
     }
     f_color = vec4(min(cover, 1.0), 1.0 - reach / float(r_max), 0.0, 0.0);
+}
+"""
+RECEIVER_VSH = """
+#version 330
+uniform mat4 mvp; uniform mat4 light_vp; uniform float normal_offset;
+in vec3 in_pos;
+out vec4 v_shadow;
+void main() {
+    // Horizontal faces only, so the receiver normal is always straight
+    // up and the push along it is a push in y -- the same normal_offset
+    // the actor receivers use, for the same acne.
+    v_shadow = light_vp * vec4(in_pos + vec3(0.0, -normal_offset, 0.0), 1.0);
+    gl_Position = mvp * vec4(in_pos, 1.0);
+}
+"""
+RECEIVER_FSH = """
+#version 330
+// How much of the light the shadow map says this surface loses, written
+// into the same gathered coverage texture the ground shadow uses -- so
+// the composite that follows treats a receiver's cast exactly like an
+// actor's. Unlike SHADOW_CAST_FSH's per-actor mask (a receiver casts
+// nothing of its own to erase under one actor's mask_ids), the mask
+// tested here is the room's whole mask set: a static foreground occluder
+// hides whatever floor or box top sits behind it, the same as it hides
+// an actor standing there.
+uniform sampler2DShadow shadow_map;
+uniform sampler2D mask_tex;
+uniform vec2 target_size;
+uniform float depth_bias;
+in vec4 v_shadow;
+out vec4 f_color;
+void main() {
+    if (texture(mask_tex, gl_FragCoord.xy / target_size).r > 0.5) discard;
+    vec3 c = v_shadow.xyz / v_shadow.w;
+    float vis = textureProj(shadow_map, vec4(c.xy, c.z - depth_bias, 1.0));
+    f_color = vec4(1.0 - vis, 0.0, 0.0, 1.0);
 }
 """
 COMPOSITE_FSH = """

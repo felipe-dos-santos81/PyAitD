@@ -226,6 +226,36 @@ a rule — add the test with the rule.
   per-corner UV, 5 x 3 corners = 15, + the per-vertex barycentric) — the
   next per-corner attribute does not fit on the target GPU and must pack
   into an existing slot instead (`docs/actor-textures-proof.md`).
+  `render/ssao.py` is pure numpy — `hemisphere_kernel`, `noise_rotations`,
+  `ssao_reference` — and stays that way, unlike `render/occlusion.py`'s
+  baked rest-pose vertex AO: the two are additive, not alternatives, one
+  seeing pose and neighbours every frame and the other seeing neither, ever.
+  The half-resolution G-buffer `_render_gbuffer` writes (`GBUFFER_FSH`)
+  carries view normals plus *linear view depth in alpha*, never the depth
+  attachment's projective value — a projection inverse is the easiest place
+  for `ssao_reference` and the shader to disagree by a hair, so depth is
+  written once, straight, as `v_view.z + focal1` (this engine's actual
+  perspective divisor, not bare `z`), and the depth attachment itself is
+  read by nothing, only used to depth-test the pass against itself. Screen-space
+  occlusion attenuates `fill_tint` alone, never `key_tint`, `occl` or `hemi`:
+  those three already gate or scale the key share (the shadow map's `vis`,
+  the baked AO, the ambient hemisphere term), and folding SSAO into any of
+  them would darken the key light a second time — the same "a shadowed limb
+  falls to fill, never to black" rule F's shadow map set. Do not "simplify"
+  `ACTOR_FSH`'s `fill_tint * ssao` term into `occl` or `hemi`; that reads
+  like a cleanup and is a double-darkening regression. `shadows="room"`
+  structurally implies everything `shadows="soft"` does (one gathered cast,
+  the light-view shadow map, self/inter-actor shadowing) and adds a receiver
+  pass that rasterises the room's floor and its `hard_col` tops through that
+  same depth map, MAX'd into the same coverage texture the gathered cast
+  already softened, *before* the frame's one `_composite_shadow` and before
+  any body draws — never a second composite after receivers. A second
+  `_composite_shadow` there double-darkens every floor pixel under an
+  actor's ground cast that a room receiver also covers (measured
+  54/46/43/40/45 versus the correct 74, the coverage texture's own MAX
+  rule); `hard_cols` are collision proxies, not painted furniture, so `room`
+  stays a menu choice behind `RenderOptions.shadows`, which still defaults
+  to `"soft"` pending a human's eye on real fixtures.
 - The UI layer is painted through `app.ui.UIPainter`, which owns a surface at
   `(320*s, 200*s)` and scales logical coordinates on every call. Presenters
   author in logical 320x200 and never build their own surface; `s` comes from

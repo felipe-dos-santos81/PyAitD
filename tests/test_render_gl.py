@@ -12,7 +12,7 @@ from PyAitD.render.geometry import BodyGeometry
 from PyAitD.engine.data.mask_geometry import MaskDraw
 from PyAitD.render.render_gl import GLBackend, camera_matrix, projection_matrix, view_matrix
 from PyAitD.render.render_options import RenderOptions
-from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
+from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription, ReceiverQuad
 from PyAitD.engine.actor.skel import RenderResult
 from PyAitD.engine.space.world import CameraState
 
@@ -868,6 +868,10 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         "_shadow_map", "_shadow_map_fbo",
         "_plate_tex", "_plate_fbo", "_actor_tex", "_actor_fbo",
         "_composite_prog", "_composite_vao",
+        "_gbuf_prog", "_gbuf_fbo", "_gbuf_tex", "_gbuf_depth",
+        "_ssao_tex", "_ssao_fbo", "_ssao_blur_tex", "_ssao_blur_fbo", "_ssao_noise_tex",
+        "_ssao_prog", "_ssao_vao", "_ssao_blur_prog", "_ssao_blur_vao",
+        "_receiver_prog", "_receiver_buf", "_receiver_vao",
     ):
         resource = getattr(backend, attr)
         assert resource is not None, f"{attr} was never allocated before the failure"
@@ -877,7 +881,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
     for level, buf in backend._subpatch_bufs.items():
         assert isinstance(buf.mglo, moderngl.InvalidObject), f"subpatch buffer {level} leaked"
         leak_checked += 1
-    assert leak_checked == 44  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 60  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
@@ -977,7 +981,7 @@ def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
                                               realism="classic", smoothing=0, shadows="hard",
                                               integration=0,
                                               # names every roadmap-2 field the identity holds at
-                                              motion="tick"))
+                                              motion="tick", occlusion="off"))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
@@ -1885,6 +1889,234 @@ def test_a_sphere_casts_a_soft_shadow_even_on_the_flat_mesh(gl_ctx):
     assert int((soft[137:] < plain[137:] - 5).any(axis=2).sum()) > 50
 
 
+# ---- shadows="room": the receiver pass over the floor and hard_col tops ----
+
+def _sphere_and_phantom_floor(x, y, z, radius, floor_y, color=1):
+    """A visible sphere plus one extra, undrawn vertex far below it.
+
+    _world_box (and so the shadow map's frustum, tightly fit to the
+    casting actor's own geometry -- see NORMAL_OFFSET) reads every vertex
+    in `geometry.vertices` unconditionally, whether or not a triangle or
+    a sphere ever references it. The phantom vertex here belongs to
+    neither, so nothing draws it, but it still stretches the frustum's
+    far plane down to `floor_y` -- otherwise a receiver placed clear of
+    the visible sphere's own on-screen silhouette would fall outside the
+    valid shadow map and sample its clamped edge instead of a real
+    depth."""
+    vertices = np.array([[x, y, z], [x, floor_y, z]], np.float32)
+    normals = np.tile([0.0, 0.0, -1.0], (2, 1)).astype(np.float32)
+    return BodyGeometry(vertices, normals, np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+                        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, radius, color),),
+                        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+
+
+def _frame_with_box_under_the_hero():
+    """A caster (a sphere resting high above the scene, its own rendered
+    silhouette clipped near the top of the frame) and one hand-built
+    box-top receiver sitting far below it on screen -- inside the
+    sphere's own straight-down shadow footprint (its horizontal distance
+    from the sphere's axis is under the sphere's radius), and inside the
+    shadow map's frustum only because of the phantom vertex `geometry`
+    carries. The light travels straight down (0, 1, 0) so the shadow's
+    world x/z footprint exactly follows the sphere's, with no lateral
+    correction to reason about, and the untilted test camera maps world
+    y to screen row directly, with no x/z entanglement -- so placing the
+    sphere far above (very negative y) and the receiver far below (a
+    large positive y) is what keeps the receiver's own screen position
+    from landing inside the sphere's rendered body and reading its
+    colour back instead of the darkened plate."""
+    geometry = _sphere_and_phantom_floor(0.0, -500.0, 600.0, radius=250.0, floor_y=320.0)
+    # feet_y sits near the sphere's own top, far (on screen) from the
+    # receiver below -- so the old, unrelated flattened ground-shadow
+    # this actor also casts under shadows="soft" cannot land on the same
+    # pixels _box_top_pixels reads and confound the comparison.
+    hero = _standing_actor(0, geometry, feet_y=-700)
+    light = _scene_light((0.0, -1.0, 0.0))
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    floor = ReceiverQuad(np.array(
+        [[-200.0, 300.0, 350.0], [200.0, 300.0, 350.0],
+         [200.0, 300.0, 850.0], [-200.0, 300.0, 850.0]], np.float32))
+    top = ReceiverQuad(np.array(
+        [[-40.0, 300.0, 450.0], [40.0, 300.0, 450.0],
+         [40.0, 300.0, 750.0], [-40.0, 300.0, 750.0]], np.float32))
+    return FrameDescription(_view(), ImageAsset(plate, False), _palette(), (hero,), (),
+                            light=light, receivers=(floor, top))
+
+
+def _frame_with_box_under_the_hero_and_a_mask_over_it():
+    """The same fixture, plus a full-screen static mask -- unrelated to
+    the hero's own mask_ids, exactly as a room's mask polygons are: a
+    receiver casts nothing of its own for a per-actor mask to erase, so
+    the only way a mask can reach it is through the room's whole mask
+    set, `frame.masks`."""
+    frame = _frame_with_box_under_the_hero()
+    poly = np.array([[0, 0], [319, 0], [319, 199], [0, 199]], np.int16)
+    mask = MaskDraw(0, (poly,), (0, 0, 319, 199), 0, ())
+    from dataclasses import replace as _replace
+    return _replace(frame, masks=(mask,))
+
+
+def _frame_with_no_boxes():
+    """A caster with nothing to receive its shadow: frame.receivers is
+    empty, the input _draw_receivers treats as a no-op -- the neutral
+    identity `shadows="room"` has to collapse to `shadows="soft"` under."""
+    geometry = _sphere_and_phantom_floor(0.0, -500.0, 600.0, radius=250.0, floor_y=320.0)
+    hero = _standing_actor(0, geometry, feet_y=-700)
+    light = _scene_light((0.0, -1.0, 0.0))
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    return FrameDescription(_view(), ImageAsset(plate, False), _palette(), (hero,), (), light=light)
+
+
+def _box_top_pixels(frame):
+    """The screen rectangle frame.receivers[1] (the box-top quad) covers,
+    shrunk by a couple of pixels so antialiasing at the quad's own
+    screen-space edges cannot leak into the comparison. The quad is a
+    horizontal (constant-y) surface seen nearly edge-on by this untilted
+    camera, so its own z extent -- not a large one -- is what buys the
+    handful of screen rows this needs; the margin has to stay small
+    enough not to invert that thin a range."""
+    top = frame.receivers[1]
+    proj = frame.camera.project(top.corners)[:, :2]
+    x0, y0 = proj.min(axis=0)
+    x1, y1 = proj.max(axis=0)
+    margin = 2
+    return (slice(int(round(y0)) + margin, int(round(y1)) - margin),
+            slice(int(round(x0)) + margin, int(round(x1)) - margin))
+
+
+def _render_shadows_with(gl_ctx, frame, shadows):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", shadows=shadows))
+    backend.draw(frame)
+    out = backend.read_rgb().astype(int)
+    backend.release()
+    return out
+
+
+def _render_baseline_soft(gl_ctx, frame):
+    """`frame` rendered under shadows="soft" with its receivers stripped
+    out -- i.e. exactly the FrameDescription shadows="soft" rendered
+    before this task, since `receivers` did not exist yet. The pass/fail
+    line for "soft has to stay byte-identical" is this against
+    _render_shadows_with(..., "soft") on the *unstripped* frame."""
+    from dataclasses import replace as _replace
+    return _render_shadows_with(gl_ctx, _replace(frame, receivers=()), "soft")
+
+
+def test_a_caster_over_a_box_top_darkens_it_through_the_shadow_map(gl_ctx):
+    frame = _frame_with_box_under_the_hero()
+    lit = _render_shadows_with(gl_ctx, frame, "soft")
+    received = _render_shadows_with(gl_ctx, frame, "room")
+    top = _box_top_pixels(frame)
+    assert received[top].mean() < lit[top].mean() - 2.0
+
+
+def test_the_room_receiver_pass_leaves_soft_output_untouched(gl_ctx):
+    """The whole receiver feature is gated behind the third mode: `soft`
+    must be byte-identical to what it was before this task."""
+    frame = _frame_with_box_under_the_hero()
+    assert np.array_equal(_render_shadows_with(gl_ctx, frame, "soft"),
+                          _render_baseline_soft(gl_ctx, frame))
+
+
+def test_a_mask_erases_the_receiver_pass(gl_ctx):
+    """Receivers are drawn through the same gathered composite the ground
+    shadow uses, so the room's masks erase them exactly as they erase it."""
+    frame = _frame_with_box_under_the_hero_and_a_mask_over_it()
+    received = _render_shadows_with(gl_ctx, frame, "room")
+    top = _box_top_pixels(frame)
+    assert np.array_equal(received[top], _render_shadows_with(gl_ctx, frame, "soft")[top])
+
+
+def test_room_with_no_hard_col_in_view_matches_soft(gl_ctx):
+    """The neutral identity for this mode."""
+    frame = _frame_with_no_boxes()
+    assert np.array_equal(_render_shadows_with(gl_ctx, frame, "room"),
+                          _render_shadows_with(gl_ctx, frame, "soft"))
+
+
+# ---- task-5 fix-1, finding 1: one composite, not two, over shared coverage ----
+
+def _hero_sphere():
+    """The caster whose own flattened ground shadow (shadows="soft") has
+    to land on the same floor pixels a room receiver's shadow-map
+    darkening also reaches, for the double-darkening bug to show at all.
+    The sphere and light are test_a_sphere_casts_a_soft_shadow_even_on_
+    the_flat_mesh's own, so the flattened footprint's shape (rows 130s,
+    columns around x=120-140) is already established by that test."""
+    return _standing_actor(0, _sphere_at(0.0, 0.0, 600.0, radius=150.0, color=1), feet_y=150)
+
+
+def _structural_occluder():
+    """A second actor sitting on the light ray through the pixels
+    `_hero_sphere`'s cast covers, so its real geometry occludes them in
+    the shadow map a floor receiver reads there -- but with its own
+    flattened-cast plane (`feet_y`) pushed to 5000, far below the visible
+    frame, so _gather_shadows's per-actor cast never reaches those pixels
+    for this actor. That keeps the two darkening sources isolable by
+    which of the two actors is present in a given render: with only
+    `_hero_sphere`, shadows="soft" measures the flattened-cast
+    contribution alone; with only this actor and a receiver,
+    shadows="room" measures the shadow-map/receiver contribution alone."""
+    return _standing_actor(1, _sphere_at(-137.5, 0.0, 588.3, radius=150.0, color=2), feet_y=5000.0)
+
+
+def _double_darken_floor():
+    """A floor receiver spanning the region `_hero_sphere`'s flattened
+    cast sweeps toward the camera under `_DOUBLE_DARKEN_LIGHT` -- wide
+    enough to comfortably contain every pixel in
+    `_DOUBLE_DARKEN_PIXELS`."""
+    return ReceiverQuad(np.array(
+        [[-300.0, 150.0, 0.0], [100.0, 150.0, 0.0],
+         [100.0, 150.0, 600.0], [-300.0, 150.0, 600.0]], np.float32))
+
+
+_DOUBLE_DARKEN_LIGHT = (0.0, -0.5, 0.85)
+
+# Five floor pixels where the two sources' footprints measurably overlap
+# (picked by scanning rows 125-149 for spots where the flattened cast is
+# still partial rather than already saturated, so a second multiply on
+# top of it is visible instead of hidden by clamping).
+_DOUBLE_DARKEN_PIXELS = ((131, 130), (133, 128), (135, 127), (139, 130), (141, 131))
+
+
+def _double_darken_frame(actors, receivers):
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    return FrameDescription(_view(), ImageAsset(plate, False), _palette(), actors, (),
+                            light=_scene_light(_DOUBLE_DARKEN_LIGHT), receivers=receivers)
+
+
+def test_a_ground_cast_and_a_floor_receiver_darken_a_shared_pixel_once(gl_ctx):
+    """Finding 1: `_draw_receivers` used to clear the coverage texture
+    `_gather_shadows` had just filled and run a second `_composite_shadow`
+    of its own, so a floor pixel under both an actor's flattened ground
+    cast and a room receiver's shadow-map darkening got multiplied down
+    twice -- darker than either contribution alone, which is wrong on the
+    physics: they are two computations of the same shadow (the actor
+    blocking the key light from the floor), not two shadows.
+
+    Measured at the five pixels below, green channel (plate starts at
+    200): cast alone 147/124/115/109/122, receiver alone 74 at all five
+    (a floor pixel fully inside `_structural_occluder`'s shadow-map
+    coverage). On a stash of this fix (the pre-fix code, same fixture)
+    both-active read 54/46/43/40/45 -- darker than the darker single
+    contribution (74) at every one of the five, confirming the bug. After
+    the fix, both-active reads 74/74/74/74/74: exactly the darker single
+    value, per the coverage texture's own MAX rule."""
+    hero = _hero_sphere()
+    structural = _structural_occluder()
+    floor = _double_darken_floor()
+
+    cast_only = _render_shadows_with(gl_ctx, _double_darken_frame((hero,), ()), "soft")
+    receiver_only = _render_shadows_with(
+        gl_ctx, _double_darken_frame((structural,), (floor,)), "room")
+    both = _render_shadows_with(
+        gl_ctx, _double_darken_frame((hero, structural), (floor,)), "room")
+
+    for row, col in _DOUBLE_DARKEN_PIXELS:
+        darker_single = min(cast_only[row, col, 1], receiver_only[row, col, 1])
+        assert both[row, col, 1] == darker_single, (row, col, both[row, col, 1], darker_single)
+
+
 def test_world_box_encloses_vertices_and_spheres():
     from PyAitD.render.render_gl import _world_box
     # Both contributors have to show in the answer, so the fixture puts a
@@ -2404,10 +2636,18 @@ def _integration_options(**kw):
 def test_integration_at_full_with_a_neutral_plate_reproduces_the_golden(gl_ctx):
     # The plumbing identity: `on` changes where the pixels are assembled,
     # never what they are. NEUTRAL_PLATE makes every composite term vanish
-    # by construction, and msaa=0 makes coverage exactly 0 or 1.
+    # by construction, and msaa=0 makes coverage exactly 0 or 1. occlusion
+    # must be named "off" explicitly (final whole-branch review, C1): this
+    # test predates SSAO and used to get "off" for free from a gate bug --
+    # smoothing=0, shadows="hard" left occlusion="ssao" (the default)
+    # silently inert. Now that the gate is fixed, the default would apply
+    # real SSAO here and this identity -- which is about integration, not
+    # occlusion -- would stop holding for a reason unrelated to what it
+    # tests.
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=1, shading="smooth", lighting="scene", msaa=0,
-        realism="classic", smoothing=0, shadows="hard", integration=2))
+        realism="classic", smoothing=0, shadows="hard", integration=2,
+        occlusion="off"))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
@@ -3075,3 +3315,462 @@ def test_a_mismatched_uv_sidecar_renders_as_unpainted_instead_of_raising(gl_ctx)
 
     for smoothing in (0, 2):             # the flat path, then the tessellated path
         assert np.array_equal(render(plain, smoothing), render(mismatched, smoothing))
+
+
+def test_the_gbuffer_is_half_resolution_and_starts_empty(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        assert backend._gbuf_size == (backend.size[0] // 2, backend.size[1] // 2)
+        assert backend._gbuf_tex.size == backend._gbuf_size
+        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
+            backend._gbuf_size[1], backend._gbuf_size[0], 4)
+        # Alpha is linear depth and nothing has been drawn yet.
+        assert (gbuf[..., 3] == 0.0).all()
+    finally:
+        backend.release()
+
+
+def test_the_gbuffer_carries_depth_and_normals_where_an_actor_stands(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        frame = _golden_frame()
+        backend.draw(frame)
+        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
+            backend._gbuf_size[1], backend._gbuf_size[0], 4)
+        depth = gbuf[..., 3].astype(np.float32)
+        covered = depth > 0.0
+        assert covered.any(), "the prepass drew nothing"
+        assert not covered.all(), "the prepass covered the whole frame"
+        assert depth[covered].min() > 0.0
+        # Fix round 2: depth is v_view.z + focal1 (this engine's real
+        # perspective-divide denominator, not bare view-space z), and
+        # this engine's camera-space z is itself always positive for
+        # visible geometry -- so a correctly wired focal1 uniform means
+        # every covered depth exceeds focal1 alone. Pins the uniform is
+        # actually reaching the GPU shader (not just that the CPU-side
+        # arithmetic in _proj_xy's docstring/test is right): before the
+        # fix, this scene's covered depths topped out at 696.0, well
+        # under this camera's focal1 of 1000.
+        assert depth[covered].min() > float(frame.camera.state.focal1)
+        n = gbuf[..., :3].astype(np.float32)[covered]
+        assert np.allclose(np.linalg.norm(n, axis=1), 1.0, atol=2e-2)
+    finally:
+        backend.release()
+
+
+def test_the_prepass_does_not_run_with_occlusion_off(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth",
+                                              lighting="scene", msaa=0, occlusion="off"))
+    try:
+        backend.draw(_golden_frame())
+        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
+            backend._gbuf_size[1], backend._gbuf_size[0], 4)
+        assert (gbuf[..., 3] == 0.0).all(), "the prepass ran with occlusion off"
+    finally:
+        backend.release()
+
+
+def test_the_gbuffer_bridges_the_camera_facing_normal_to_positive_z(gl_ctx):
+    """Fix round 1, Important 3 (controller ruling): this engine's camera
+    space is +z-forward (see GBUFFER_FSH's and _proj_xy's comments), so a
+    surface facing the camera has its normal pointing toward -z here --
+    but ssao.py was written for a -z-forward space, where a camera-facing
+    normal points toward +z. GBUFFER_FSH bridges the two conventions with
+    diag(1, -1, -1) (fix round 3 corrected this from the z-only mirror,
+    diag(1, 1, -1), this test originally pinned -- see the y-flip test
+    below for why the y term is there too); this test only pins the z
+    half of that.
+
+    Pinned against a real frame, not a synthetic buffer, because a
+    synthetic buffer could encode either convention by construction and
+    would prove nothing about whether the bridge is actually wired into
+    the shader: _golden_frame's two actors (a flat triangle and a sphere)
+    are camera-facing by construction (that's what makes them visible at
+    all -- a back-facing triangle would be culled/invisible and the
+    sphere is drawn whole, so only its near, camera-facing hemisphere
+    ends up depth-tested to the front), so the covered pixels' normals
+    should be predominantly +z once the bridge is applied. Measured on
+    this scene: 100% of covered pixels have normal.z > 0, mean 0.867 --
+    the assertions below sit well inside that margin so a future
+    unrelated change to the golden geometry does not make this flaky."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        backend.draw(_golden_frame())
+        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
+            backend._gbuf_size[1], backend._gbuf_size[0], 4)
+        depth = gbuf[..., 3].astype(np.float32)
+        covered = depth > 0.0
+        assert covered.any(), "the prepass drew nothing"
+        normal_z = gbuf[..., 2].astype(np.float32)[covered]
+        assert (normal_z > 0.0).mean() > 0.9, \
+            "covered normals are not predominantly +z -- the bridge looks unwired"
+        assert normal_z.mean() > 0.5
+    finally:
+        backend.release()
+
+
+def test_the_gbuffer_bridge_flips_the_normals_y_component_too(gl_ctx):
+    """Critical 1 (fix round 3, controller ruling): the bridge is a full
+    180-degree rotation about x, diag(1, -1, -1), not a mirror on z
+    alone. This engine's own projection negates y before the divide, so
+    ssao.py's `_view_position` reconstructs `y_recon = -y_view` alongside
+    `z_recon = -depth` -- the reconstruction frame is `(x, -y, -(z +
+    focal1))`, and a normal expressed in that frame needs the same y flip
+    or SSAO computes occlusion against a mirrored surface. The z-only
+    pinning test above (test_the_gbuffer_bridges_the_camera_facing_
+    normal_to_positive_z) asserts nothing about y and would pass whether
+    or not this flip exists -- which is exactly how the missing flip
+    survived Task 3 and fix rounds 1-2.
+
+    Pinned against a real frame, for the same reason the z test is: a
+    synthetic buffer could encode either sign by construction. A single
+    flat, camera-facing triangle with normal (0, -0.6, -0.8) -- this
+    camera has no rotation, so camera space equals world space, and the
+    normal is the same at all three vertices, so every covered pixel
+    should read back *exactly* the same bridged value. Measured with the
+    fix in place: normal.x == 0.0, normal.y == 0.5996094 (~+0.6, the
+    input's y negated), normal.z == 0.7998047 (~+0.8, unchanged sign
+    from the existing z test) -- pinned tightly since this geometry has
+    no variation to average away, unlike the golden frame's mix of a
+    flat body and a curved sphere. Removing the y flip (reverting to
+    diag(1, 1, -1)) reproduces the pre-fix bug: normal.y would read
+    back negative instead."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene",
+                                              msaa=0, occlusion="ssao", smoothing=0))
+    try:
+        actor = _actor(0, _facing_tri(600.0, 1, (0.0, -0.6, -0.8)))
+        backend.draw(_lit_frame([actor], (0.3, -0.5, -0.8)))
+        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
+            backend._gbuf_size[1], backend._gbuf_size[0], 4).astype(np.float32)
+        depth = gbuf[..., 3]
+        covered = depth > 0.0
+        assert covered.any(), "the prepass drew nothing"
+        nx, ny, nz = gbuf[..., 0][covered], gbuf[..., 1][covered], gbuf[..., 2][covered]
+        assert np.allclose(nx, 0.0, atol=1e-3)
+        assert np.allclose(ny, 0.6, atol=1e-2), \
+            "covered normal.y is not positive -- the y flip looks unwired"
+        assert np.allclose(nz, 0.8, atol=1e-2)
+    finally:
+        backend.release()
+
+
+def test_proj_xy_and_gbuffer_depth_reconstruct_the_real_projections_ndc(gl_ctx):
+    """Fix round 2, replacing fix round 1's
+    test_proj_xy_matches_the_signed_scale_the_real_projection_applies.
+
+    That test compared fx/fy against clip.xy *before* the perspective
+    divide, specifically to sidestep a discrepancy it had just found:
+    dividing by bare view-space z (what GBUFFER_FSH wrote then) did not
+    reproduce this engine's real NDC, because this engine's actual
+    perspective divide is by z + state.focal1 (CameraState.project), not
+    by z alone. That was the right call at the time -- a sign-pinning
+    test should not silently launder an unrelated, unresolved gap into a
+    passing assertion -- but it means that test could not have caught the
+    missing `+ focal1` term either: it never divided by anything.
+
+    GBUFFER_FSH now adds `focal1` to the depth it writes
+    (`v_view.z + focal1`, via a uniform GLBackend._render_gbuffer sets
+    each frame from `frame.camera.state.focal1`), which is exactly the
+    fix this gap needed. That makes a full NDC comparison possible and
+    honest: this test reconstructs NDC from a known camera-space point
+    using `_proj_xy`'s fx/fy *and* the G-buffer's depth convention
+    (view-space z plus focal1), off-axis on both x and y so a sign error
+    on either axis is caught too, and asserts it matches
+    `camera_matrix`'s real clip.xy / clip.w exactly. Confirmed this test
+    fails on the pre-fix code: reconstructing with bare view-space z
+    (dropping the `+ state.focal1` below) gives ndc (0.30444, 0.18489)
+    against the real (0.14421, 0.08758) for this camera -- the ~2.1x
+    (1900 / 900, i.e. (z + focal1) / z for this camera's z=900,
+    focal1=1000) originally measured and flagged in the task-3 report."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        frame = _golden_frame()
+        fx, fy = backend._proj_xy(frame)
+        assert fx > 0.0 and fy > 0.0
+        world = np.array([137.0, -52.0, 900.0, 1.0], dtype=np.float64)
+        mvp = camera_matrix(frame.camera, backend._options.scale).astype(np.float64)
+        clip = mvp @ world
+        ndc_real = clip[:2] / clip[3]
+        view_pos = (view_matrix(frame.camera).astype(np.float64) @ world)[:3]
+        depth = view_pos[2] + frame.camera.state.focal1
+        ndc_recon = np.array([view_pos[0] * fx / depth, -view_pos[1] * fy / depth])
+        assert np.allclose(ndc_recon, ndc_real, atol=1e-6)
+    finally:
+        backend.release()
+
+
+def test_the_ssao_pass_matches_the_numpy_twin(gl_ctx):
+    """The `soften` pattern: seed the backend's own G-buffer, run the one
+    pass, read it back, compare against the twin.
+
+    Two assertions, not a loosened scalar tolerance -- strictly stronger in
+    the direction that matters. The hit test the kernel loop runs is
+    binary (`sd < sdist - bias`), so a sample whose projection straddles a
+    texel boundary flips outright between two independent float
+    implementations, moving the result by exactly one sample's share
+    (1/SSAO_KERNEL_SIZE) regardless of how well-conditioned the tangent
+    basis is or how the depth buffer is shaped -- measured at 0.0625 on
+    both a white-noise and a smooth-with-a-step depth buffer, so it is a
+    property of the algorithm, not of this fixture. Exact agreement at
+    4/255 is therefore impossible in principle (four times smaller than
+    that one-sample quantum), but real drift -- a wrong weight, a wrong
+    basis, a mis-sampled texture -- still moves most of the frame, which
+    the percentile below still catches at the original byte tolerance."""
+    from PyAitD.render.ssao import (SSAO_BIAS, SSAO_KERNEL_SIZE, SSAO_RADIUS,
+                                    hemisphere_kernel, noise_rotations, ssao_reference)
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        w, h = backend._gbuf_size
+        rng = np.random.default_rng(23)
+        depth = rng.uniform(300.0, 700.0, (h, w)).astype(np.float32)
+        depth[: h // 4, :] = 0.0                     # a band the prepass never covered
+        n = rng.normal(size=(h, w, 3)).astype(np.float32)
+        n /= np.linalg.norm(n, axis=2, keepdims=True)
+        gbuf = np.concatenate([n, depth[..., None]], axis=2).astype(np.float16)
+        backend._gbuf_tex.write(np.ascontiguousarray(gbuf).tobytes())
+        proj_xy = (2.0, 2.0)
+        backend._render_ssao_with(proj_xy)           # the seam the test drives
+        out = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w) / 255.0
+        # noise_tex is uploaded as f2 (render_gl.py's _ssao_noise_tex), so the
+        # shader never sees more than f16 precision in the rotation tile;
+        # rounding the twin's copy through the same f16 is the established
+        # pattern this file already applies to the seeded depth/normals above,
+        # not a new one -- an unquantised twin input was an avoidable mismatch,
+        # not evidence of the algorithm's own imprecision.
+        rot = noise_rotations().astype(np.float16).astype(np.float32)
+        expected = ssao_reference(gbuf[..., 3].astype(np.float32),
+                                  gbuf[..., :3].astype(np.float32),
+                                  hemisphere_kernel(), rot, proj_xy,
+                                  SSAO_RADIUS, SSAO_BIAS)
+        diff = np.abs(out - expected)
+        # The bulk must agree at byte tolerance: real drift -- a wrong weight, a
+        # wrong basis, a mis-sampled texture -- moves most of the frame, and this
+        # is what catches it.
+        assert np.percentile(diff, 99.5) <= 4.0 / 255
+        # No single pixel may disagree by more than ONE kernel sample plus encode
+        # noise. The hit test is binary, so a sample whose projection straddles a
+        # texel boundary flips outright between two independent float
+        # implementations and moves the result by exactly 1/kernel_count --
+        # measured at 0.0625 on both a white-noise and a smooth depth buffer, so
+        # it is a property of the algorithm, not of the fixture. A ceiling here
+        # still catches a systematically wrong sample count or weight, which
+        # would exceed one sample's worth.
+        assert diff.max() <= 1.0 / SSAO_KERNEL_SIZE + 2.0 / 255
+    finally:
+        backend.release()
+
+
+def test_an_empty_gbuffer_leaves_the_ssao_texture_fully_open(gl_ctx):
+    """The neutral identity: nothing drawn means nothing occluded, so the
+    attenuation the actor shader applies is exactly 1.0."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        w, h = backend._gbuf_size
+        backend._gbuf_tex.write(np.zeros((h, w, 4), np.float16).tobytes())
+        backend._render_ssao_with((2.0, 2.0))
+        out = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w)
+        assert (out == 255).all()
+    finally:
+        backend.release()
+
+
+def test_blur_ssao_smooths_the_noise_tile_and_swaps_ssao_tex(gl_ctx):
+    """Minor (fix round 3, controller ruling): nothing previously pinned
+    _blur_ssao at all -- the review confirmed deleting its ping-pong swap
+    failed no test in this file.
+
+    Seeded with a smooth, gently-undulating depth field (not the sharply
+    random depth test_the_ssao_pass_matches_the_numpy_twin uses) so that
+    SSAO_BLUR_FSH's depth-threshold gate accepts most of the 4x4 box's
+    neighbouring taps rather than rejecting them as different surfaces --
+    the point here is to measure the blur actually blurring, not to pin
+    it against the twin. A flat, camera-facing normal (bridged +z) gives
+    every pixel real, non-degenerate occlusion to blur, unlike the empty
+    buffer the identity test above uses.
+
+    Two things pinned directly: the raw SSAO output's per-pixel variance
+    drops after one blur pass (the noise tile's own high-frequency
+    pattern -- one rotation per screen pixel -- is exactly what the blur
+    exists to remove), and `_ssao_tex` names a different GL object
+    afterward than before (the ping-pong swap `_blur_ssao`'s docstring
+    describes). Measured on this run: variance 49.8 -> 8.9."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        w, h = backend._gbuf_size
+        yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
+        depth = (500.0 + 3.0 * np.sin(xx / 5.0) + 3.0 * np.cos(yy / 7.0)).astype(np.float32)
+        n = np.zeros((h, w, 3), np.float32)
+        n[..., 2] = 1.0                              # camera-facing, already in the bridged +z convention
+        gbuf = np.concatenate([n, depth[..., None]], axis=2).astype(np.float16)
+        backend._gbuf_tex.write(np.ascontiguousarray(gbuf).tobytes())
+        backend._render_ssao_with((2.0, 2.0))
+        raw = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w).astype(np.float32)
+        before = backend._ssao_tex
+        backend._blur_ssao()
+        after = backend._ssao_tex
+        blurred = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w).astype(np.float32)
+        assert after is not before, "the ping-pong swap did not run"
+        assert blurred.var() < raw.var(), "the blur did not reduce the noise tile's variance"
+    finally:
+        backend.release()
+
+
+def _two_actor_frame():
+    """`_golden_frame`'s actors plus a second sphere positioned close beside
+    the first (surfaces ~10 world units apart, well inside SSAO_RADIUS),
+    so the near-facing rims of the two bodies are where screen-space AO --
+    unlike the baked rest-pose AO, which cannot see a neighbour at all --
+    has something to darken."""
+    from dataclasses import replace
+    frame = _golden_frame()
+    sphere2 = BodyGeometry(
+        np.array([[550.0, 0.0, 700.0]], np.float32), np.array([[0.0, 0.0, -1.0]], np.float32),
+        np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, 120.0, 3),),
+        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+    second = _standing_actor(2, sphere2, 400.0)
+    return replace(frame, actors=frame.actors + (second,))
+
+
+def _near_rim_slice(image):
+    """The screen band where the two spheres in `_two_actor_frame` come
+    closest to each other -- surfaces ~10 world units apart, well inside
+    SSAO_RADIUS=14 -- as fractions of the frame, independent of `image`'s
+    actual size. This is the region SSAO can actually reach: the tri
+    backdrop below the spheres (fix round 3's Critical 2 finding) has no
+    occluder within SSAO_RADIUS at all, so SSAO's own contribution there
+    is exactly 0.0 -- a comparison sampled there passes with the feature
+    deleted, which is what the original version of this test did."""
+    h, w, _ = image.shape
+    row_lo, row_hi = int(h * 0.425), int(h * 0.575)
+    col_lo, col_hi = int(w * 0.703), int(w * 0.797)
+    return (slice(row_lo, row_hi), slice(col_lo, col_hi))
+
+
+def test_ssao_darkens_the_near_rim_where_the_two_bodies_approach(gl_ctx):
+    """Critical 2 (fix round 3, controller ruling): the original version
+    of this test compared a one-actor render against a two-actor render
+    with occlusion="ssao" on *both* sides -- so the darkening it measured
+    was entirely the second actor's cast shadow and geometry, never SSAO
+    itself. The review re-ran the same two helpers under both occlusion
+    modes and measured SSAO's own contribution to the sampled region at
+    exactly 0.0: the test passed with the feature deleted.
+
+    Rewritten to hold the frame fixed -- the same `_two_actor_frame`,
+    unchanged between the two renders -- and vary only the occlusion
+    knob, so any difference left is attributable to SSAO alone. The
+    sampled region also moved, to `_near_rim_slice` (see its docstring
+    for why the original region could never have shown an effect)."""
+    frame = _two_actor_frame()
+    off = _render_with(gl_ctx, frame, occlusion="off")
+    on = _render_with(gl_ctx, frame, occlusion="ssao")
+    region = _near_rim_slice(off)
+    assert on[region].astype(np.float64).mean() < off[region].astype(np.float64).mean() - 1.5
+
+
+def _frame_with_light(key, fill):
+    """`_golden_frame`'s two-sphere pair (see `_two_actor_frame`) under a
+    SceneLight whose key and fill are set independently, so a test can
+    isolate whether SSAO -- which attenuates only the fill share -- moves
+    a frame that is pure key, pure fill, or both. The two spheres sit close
+    enough (see `_two_actor_frame`) that SSAO has real occlusion to apply
+    somewhere on screen, not just the uniform 1.0 a single convex body
+    would read."""
+    from dataclasses import replace
+    from PyAitD.render.lighting import SceneLight
+    frame = _two_actor_frame()
+    light = SceneLight((0.3, -0.5, -0.8), key, fill, 0.5)
+    return replace(frame, light=light)
+
+
+def _render_with(gl_ctx, frame, occlusion):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
+                                              msaa=0, occlusion=occlusion, realism="enhanced"))
+    try:
+        backend.draw(frame)
+        return backend.read_rgb().copy()
+    finally:
+        backend.release()
+
+
+def test_ssao_attenuates_the_fill_share_and_leaves_key_and_specular_alone(gl_ctx):
+    """Decision 7, made testable: with the key light switched off entirely
+    the frame is pure fill, so SSAO must move it; with the fill switched
+    off the frame is pure key and specular, so SSAO must not."""
+    fill_only = _frame_with_light(key=(0.0, 0.0, 0.0), fill=(0.5, 0.5, 0.5))
+    key_only = _frame_with_light(key=(0.8, 0.8, 0.8), fill=(0.0, 0.0, 0.0))
+    for frame, should_move in ((fill_only, True), (key_only, False)):
+        off = _render_with(gl_ctx, frame, occlusion="off")
+        on = _render_with(gl_ctx, frame, occlusion="ssao")
+        moved = int(np.abs(off.astype(np.int32) - on.astype(np.int32)).sum()) > 0
+        assert moved is should_move, ("fill" if should_move else "key", moved)
+
+
+def test_the_occlusion_knob_actually_changes_the_render(gl_ctx):
+    """Important 3 (fix round 3, controller ruling): this test used to
+    compare two identically-constructed `RenderOptions(..., occlusion=
+    "off", ...)` renders against each other, which asserts GL
+    determinism, not that `occlusion="off"` reproduces anything -- the
+    brief's instruction to keep a baseline helper "free of any new
+    option" stopped being satisfiable once the default flipped to
+    "ssao", and this test was quietly relying on it anyway. The
+    byte-identity invariant that actually matters -- occlusion="off"
+    reproduces the pre-K, pre-materials render exactly -- is what
+    `test_classic_realism_matches_the_pre_materials_golden` pins, now
+    with occlusion="off" named among the fields it holds constant; that
+    is the test to look at for byte-identity, not this one.
+
+    What this test proves instead: the knob is live. `_golden_frame`
+    rendered with occlusion="off" and occlusion="ssao" must differ --
+    116821 summed over 28151 pixels, measured on this run -- because a
+    knob two identical renders can't tell apart from each other isn't
+    being exercised at all."""
+    off = _render_with(gl_ctx, _golden_frame(), occlusion="off")
+    on = _render_with(gl_ctx, _golden_frame(), occlusion="ssao")
+    assert not np.array_equal(off, on)
+
+
+def test_ssao_still_renders_at_smoothing_0_and_shadows_hard(gl_ctx):
+    """Critical 1 (final whole-branch review): the instance-buffer gate at
+    the top of `_draw_frame` -- `if level or soft:` -- predates SSAO.
+    `_render_gbuffer` reads the same `instances` list the soft-shadow
+    passes read, but at smoothing=0 (`level=0`) with shadows="hard"
+    (`soft=False`) the old gate built nothing, so the G-buffer stayed at
+    its `clear(0,0,0,0)` value, SSAO read 1.0 (unoccluded) everywhere, and
+    the fill-share attenuation was the identity -- `occlusion="ssao"` and
+    `occlusion="off"` rendered byte-identical despite the menu reading
+    SSAO. Both `smoothing` and `shadows` are in `_MENU_RENDER_FIELDS`
+    (Graphics -> Smoothing Off, Realism -> Shadows Hard), so this was
+    reachable from the shipped menus and persisted across sessions.
+
+    Measured on this exact frame/options pair: before the fix,
+    occlusion="off" and occlusion="ssao" were byte-identical (sum |diff|
+    = 0). After widening the gate to `if level or soft or ssao_on:`, they
+    differ by a summed absolute difference of 89723 over the frame. The
+    other two rows the review measured -- smoothing=0/shadows=soft and
+    smoothing=2/shadows=hard -- were already live before this fix (both
+    non-identical pre- and post-) and stay live after it; they are not
+    asserted here because they never regressed, but the fix must not
+    change that."""
+    frame = _two_actor_frame()
+    off = _render_with_smoothing_and_shadows(gl_ctx, frame, "off", smoothing=0, shadows="hard")
+    on = _render_with_smoothing_and_shadows(gl_ctx, frame, "ssao", smoothing=0, shadows="hard")
+    assert not np.array_equal(off, on)
+
+
+def _render_with_smoothing_and_shadows(gl_ctx, frame, occlusion, smoothing, shadows):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
+                                              msaa=0, occlusion=occlusion, realism="enhanced",
+                                              smoothing=smoothing, shadows=shadows))
+    try:
+        backend.draw(frame)
+        return backend.read_rgb().copy()
+    finally:
+        backend.release()
