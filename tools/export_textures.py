@@ -291,13 +291,20 @@ def main(argv=None):
             print(f"screens: {len(screens)}")
         except (PakError, FileNotFoundError, OSError, ValueError) as exc:
             print(f"warning: screens skipped: {exc}", file=sys.stderr)
-    # body_records: consumed by export_manifest(bodies=...) in Task 3
+    # body_records: consumed by export_manifest(bodies=...) in Task 3.
+    # Always attempt, warn, never block: the tools extra (xatlas, libigl) is
+    # optional and `make install` does not install it (Makefile:34 installs
+    # only `.[dev]`), so a stock `make export-textures` must still finish
+    # and write the rest of the manifest.
     body_records = []
     if args.uvs:
         try:
             from tools.export_actor_uvs import export_bodies
             body_records = export_bodies(args.data, PROFILE, args.out)
             print(f"body uvs: {len(body_records)}")
+        except ImportError as exc:
+            print(f"warning: actor UV bake skipped (install the tools extra: "
+                  f'pip install -e ".[tools]"): {exc}', file=sys.stderr)
         except (PakError, FileNotFoundError, OSError, ValueError) as exc:
             print(f"warning: body uvs skipped: {exc}", file=sys.stderr)
     # alt_backgrounds: respect --floors filter, warn and continue on failure

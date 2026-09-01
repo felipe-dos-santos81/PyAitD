@@ -11,8 +11,9 @@ libigl from the `tools` extra, which PyAitD/ may never import
   xatlas splits vertices at chart seams (body 1: 67 -> 198), which is why
   the UVs are per corner and why the runtime never sees the vertex remap.
 - `bodies/body<NNN>-guide.png` -- what a painter works from: charts filled
-  with the body's own palette colours, an ambient-occlusion layer, and a
-  wireframe overlay, at the atlas's own size.
+  with the body's own palette colours, darkened by an ambient-occlusion
+  layer, with a dark wireframe overlay tracing every triangle edge, at the
+  atlas's own size.
 
 The painter produces `bodies/body<NNN>.png` (albedo, same layout).
 `make check-textures` validates the result."""
@@ -28,7 +29,7 @@ from PyAitD.engine.data.assets import Assets
 from PyAitD.games import load_profile
 from PyAitD.render.geometry import pose_geometry
 from PyAitD.render.texture_export import (
-    body_guide_rel_path, body_texture_rel_path, body_uv_rel_path, sha256_tris,
+    body_guide_rel_path, body_texture_rel_path, body_uv_rel_path, draw_polyline, sha256_tris,
 )
 # Run as a script (`python tools/export_actor_uvs.py`), sys.path[0] is
 # tools/, not the repo root, so the sibling tools.export_textures module
@@ -46,6 +47,9 @@ ATLAS_RESOLUTION = 512
 # paint into its neighbour.
 ATLAS_PADDING = 4
 AO_SAMPLES = 64
+# Dark, desaturated -- reads against both light and dark palette colours,
+# so a chart boundary never disappears into its own fill.
+WIREFRAME_RGB = (32, 32, 32)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -154,9 +158,12 @@ def ambient_occlusion(body):
 def _barycentric_fill(size, corner_uvs, corner_values, ao_values):
     """Rasterise each triangle's chart into an (H, W, 3) uint8 image.
 
-    Flat-fills each triangle with its own palette colour scaled by the mean
-    openness of its corners -- enough for a painter to read shape and
-    cavity without pulling in a rasteriser dependency."""
+    Flat-fills each triangle's bounding box with its own palette colour
+    scaled by the mean openness of its corners -- enough for a painter to
+    read shape and cavity without pulling in a rasteriser dependency -- then
+    draws every triangle's three edges over the fill in a dark wireframe, so
+    chart boundaries (otherwise invisible: two charts can sit right next to
+    each other in the same fill colour) stay legible."""
     width, height = size
     img = np.zeros((height, width, 3), dtype=np.uint8)
     xs = np.clip((corner_uvs[:, :, 0] * (width - 1)).round().astype(np.int32), 0, width - 1)
@@ -167,6 +174,11 @@ def _barycentric_fill(size, corner_uvs, corner_values, ao_values):
         shade = float(ao_values[tri])
         img[y0:y1 + 1, x0:x1 + 1] = np.clip(
             corner_values[tri].astype(np.float32) * shade, 0, 255).astype(np.uint8)
+    # A second pass, after every fill, so no triangle's wireframe edge is
+    # ever painted over by a neighbour's bounding-box fill.
+    for tri in range(len(corner_uvs)):
+        points = list(zip(xs[tri].tolist(), ys[tri].tolist()))
+        draw_polyline(img, points, WIREFRAME_RGB, closed=True)
     return img
 
 

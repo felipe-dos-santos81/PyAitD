@@ -27,6 +27,21 @@ def _stub_body():
     )
 
 
+def _point_body():
+    """A body with a vertex but no triangle primitive -- the shape real
+    bodies 85, 142, 156, 158 and 160 in aitd1 turned out to have: a valid
+    Body with vertices and one Point primitive (type 2), nothing for xatlas
+    to unwrap."""
+    from types import SimpleNamespace
+    from PyAitD.engine.data.formats import Primitive
+    group = SimpleNamespace(start=0, num_vertices=1, num_group=0, org_group=-1,
+                            base_vertices=0)
+    return SimpleNamespace(
+        vertices=[(0, 0, 0)], groups=[group], group_order=[0], flags=2,
+        primitives=[Primitive(2, 0, 5, [0])],
+    )
+
+
 def test_unwrap_produces_per_corner_uvs_aligned_with_the_triangulation():
     from PyAitD.render.geometry import pose_geometry
     from tools.export_actor_uvs import unwrap_body
@@ -90,3 +105,97 @@ def test_unwrap_on_real_bodies_keeps_the_corner_order(data_dir, profile, body_nu
     bake = unwrap_body(body)
     assert bake.uvs.shape == (len(geo.tris), 3, 2)
     assert bake.uvs.min() >= 0.0 and bake.uvs.max() <= 1.0
+
+
+def test_barycentric_fill_paints_the_triangle_colour_ao_darkens_and_draws_a_wireframe_edge():
+    """Pure-function coverage for the guide renderer -- no igl, no game
+    data. A single triangle at known pixel corners in an 11x11 atlas, so
+    an interior pixel and an edge pixel are both known in advance."""
+    from tools.export_actor_uvs import WIREFRAME_RGB, _barycentric_fill
+    # corners land exactly on atlas pixels (1, 1), (7, 1), (1, 7) for an
+    # 11x11 image (xs = round(u * 10), ys = round((1 - v) * 10))
+    corner_uvs = np.array([[[0.1, 0.9], [0.7, 0.9], [0.1, 0.3]]], dtype=np.float32)
+    corner_values = np.array([[200, 100, 50]], dtype=np.uint8)
+
+    bright = _barycentric_fill((11, 11), corner_uvs, corner_values, np.array([1.0], dtype=np.float32))
+    dark = _barycentric_fill((11, 11), corner_uvs, corner_values, np.array([0.5], dtype=np.float32))
+
+    assert bright.shape == (11, 11, 3)
+    # (2, 2) sits inside the bounding box and off every edge: the flat fill
+    interior = (2, 2)
+    assert tuple(int(c) for c in bright[interior]) == (200, 100, 50)
+    # the same pixel is darkened when the corners' mean openness drops
+    assert tuple(int(c) for c in dark[interior]) == (100, 50, 25)
+    # (1, 4) sits on the top edge (y=1, x in [1, 7]): the wireframe, not
+    # the fill, whichever the openness
+    edge = (1, 4)
+    assert tuple(int(c) for c in bright[edge]) == WIREFRAME_RGB
+    assert tuple(int(c) for c in dark[edge]) == WIREFRAME_RGB
+
+
+def test_guide_image_matches_the_atlas_size_and_darkens_with_lower_ao():
+    from PyAitD.render.geometry import pose_geometry
+    from tools.export_actor_uvs import guide_image, unwrap_body
+    body = _stub_body()
+    geo = pose_geometry(body, [(0, (0, 0, 0))] * len(body.groups))
+    bake = unwrap_body(body)
+    palette = np.zeros((256, 3), dtype=np.uint8)
+    palette[10] = (200, 100, 50)   # matches _stub_body's Primitive color index
+    bright_ao = np.ones(len(geo.vertices), dtype=np.float32)
+    dark_ao = np.full(len(geo.vertices), 0.5, dtype=np.float32)
+
+    bright = guide_image(body, bake, palette, bright_ao)
+    dark = guide_image(body, bake, palette, dark_ao)
+
+    assert bright.shape == (bake.height, bake.width, 3)
+    # the stub's own palette colour is painted somewhere in the chart
+    assert (bright == (200, 100, 50)).all(axis=-1).any()
+    # lower corner openness darkens the whole image (the wireframe pixels
+    # are the same dark grey in both, so only the fill can move the sum)
+    assert int(dark.astype(np.int32).sum()) < int(bright.astype(np.int32).sum())
+
+
+def test_export_bodies_writes_the_sidecar_and_guide_and_skips_bodies_with_no_triangles(tmp_path, monkeypatch):
+    """export_bodies against fakes standing in for the archives: one body
+    with triangles (baked, one record, both files written) and one without
+    (85/142/156/158/160 in the real aitd1 archives -- skipped, not raised)."""
+    from types import SimpleNamespace
+    import tools.export_actor_uvs as export_actor_uvs
+
+    mesh_body = _stub_body()
+    point_body = _point_body()
+
+    class _FakeAssets:
+        def __init__(self, data_dir, profile, hero=0):
+            self._bodies = {0: mesh_body, 1: point_body} if hero == 0 else {}
+            self.num_bodies = len(self._bodies)
+
+        def body(self, num):
+            if num not in self._bodies:
+                raise KeyError(num)
+            return self._bodies[num]
+
+    monkeypatch.setattr(export_actor_uvs, "Assets", _FakeAssets)
+    monkeypatch.setattr(
+        "PyAitD.engine.data.floor.Floor",
+        lambda data_dir, number, profile: SimpleNamespace(palette=np.zeros((256, 3), dtype=np.uint8)),
+    )
+    saved = {}
+
+    def fake_save(path, rgb):
+        saved[str(path)] = rgb
+
+    records = export_actor_uvs.export_bodies("ignored", "ignored", tmp_path, save=fake_save)
+
+    assert [r["body"] for r in records] == [0]   # the point body never gets a record
+    uv_path = tmp_path / export_actor_uvs.body_uv_rel_path(0)
+    assert uv_path.is_file()
+    payload = json.loads(uv_path.read_text())
+    assert payload["schema"] == 1
+    assert len(payload["uvs"]) == 2   # the stub body's two triangles
+    guide_path = str(tmp_path / export_actor_uvs.body_guide_rel_path(0))
+    assert guide_path in saved
+    assert saved[guide_path].shape == (records[0]["size"][1], records[0]["size"][0], 3)
+    # the point body wrote nothing at all
+    assert not (tmp_path / export_actor_uvs.body_uv_rel_path(1)).exists()
+    assert str(tmp_path / export_actor_uvs.body_guide_rel_path(1)) not in saved

@@ -75,6 +75,24 @@ def test_main_skips_missing_floor_with_warning(tmp_path, monkeypatch, capsys):
     assert "floor 01" in capsys.readouterr().err
 
 
+def test_main_writes_manifest_when_the_uv_bake_is_unavailable(tmp_path, monkeypatch, capsys):
+    """The tools extra (xatlas, libigl) is optional and `make install` does
+    not install it -- a stock `make export-textures` must still finish and
+    write the manifest even when the bake stage cannot even be imported."""
+    _patch_floors(monkeypatch, {0})
+    import tools.export_actor_uvs as export_actor_uvs
+
+    def boom(*args, **kwargs):
+        raise ImportError("No module named 'xatlas'")
+    monkeypatch.setattr(export_actor_uvs, "export_bodies", boom)
+    out = tmp_path / "ov"
+    rc = xb.main([str(tmp_path), "--out", str(out), "--floors", "0"])
+    assert rc == 0
+    assert (out / "manifest.json").is_file()
+    err = capsys.readouterr().err
+    assert "tools extra" in err and "pip install" in err
+
+
 def test_main_exit_2_when_nothing_exported(tmp_path, monkeypatch):
     _patch_floors(monkeypatch, set())
     assert xb.main([str(tmp_path), "--out", str(tmp_path / "ov"), "--floors", "0-1"]) == 2
