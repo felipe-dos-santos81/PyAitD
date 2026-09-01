@@ -435,11 +435,21 @@ GBUFFER_FSH = """
 // ssao_reference/SSAO_FSH each reconstruct a position from it in their
 // own -z-forward space (ssao.py's _view_position sets z = -depth) --
 // neither side ever sees an engine-space position, so no sign decision
-// is needed here for depth. What this raw v_view.z does *not* carry is
-// this engine's own focal1 shift (see CameraState.project and
-// GLBackend._proj_xy's docstring) -- a separate, flagged-not-fixed
-// question about what "depth" ssao_reference's own reconstruction
-// should divide by, not a sign question.
+// is needed here for depth.
+//
+// focal1: this engine's actual perspective divide is by z + focal1, not
+// by bare z (CameraState.project: `depth = z + self.focal1`; see
+// GLBackend._proj_xy's docstring for how projection_matrix's `shift`
+// gets there). That is not a fudge factor -- this engine's projection
+// centre sits at -focal1 along z, so z + focal1 *is* the true pinhole
+// distance from the projection centre, the honest linear depth for this
+// camera. Writing it (rather than bare v_view.z) is what makes
+// `ndc = x * f / depth` exact, which is precisely the relation
+// ssao_reference's _view_position/_project and SSAO_FSH all assume --
+// with this term included, ssao.py needs no changes of its own to be
+// correct. focal1 is per camera, not per vertex, so it arrives as a
+// uniform GLBackend._render_gbuffer sets once per frame, the same way
+// mvp and rot are, rather than a varying.
 //
 // Normals are the one quantity that actually crosses the boundary
 // between the two spaces, and unlike depth they are not convention-free:
@@ -456,9 +466,10 @@ GBUFFER_FSH = """
 // approximation.
 in vec3 v_normal;
 in vec3 v_view;
+uniform float focal1;
 out vec4 f_gbuf;
 void main() {
-    f_gbuf = vec4(normalize(vec3(v_normal.xy, -v_normal.z)), v_view.z);
+    f_gbuf = vec4(normalize(vec3(v_normal.xy, -v_normal.z)), v_view.z + focal1);
 }
 """
 SHADOW_GEOM_VSH = """

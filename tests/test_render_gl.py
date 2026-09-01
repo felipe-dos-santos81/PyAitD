@@ -3096,7 +3096,8 @@ def test_the_gbuffer_carries_depth_and_normals_where_an_actor_stands(gl_ctx):
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth",
                                               lighting="scene", msaa=0, occlusion="ssao"))
     try:
-        backend.draw(_golden_frame())
+        frame = _golden_frame()
+        backend.draw(frame)
         gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
             backend._gbuf_size[1], backend._gbuf_size[0], 4)
         depth = gbuf[..., 3].astype(np.float32)
@@ -3104,6 +3105,16 @@ def test_the_gbuffer_carries_depth_and_normals_where_an_actor_stands(gl_ctx):
         assert covered.any(), "the prepass drew nothing"
         assert not covered.all(), "the prepass covered the whole frame"
         assert depth[covered].min() > 0.0
+        # Fix round 2: depth is v_view.z + focal1 (this engine's real
+        # perspective-divide denominator, not bare view-space z), and
+        # this engine's camera-space z is itself always positive for
+        # visible geometry -- so a correctly wired focal1 uniform means
+        # every covered depth exceeds focal1 alone. Pins the uniform is
+        # actually reaching the GPU shader (not just that the CPU-side
+        # arithmetic in _proj_xy's docstring/test is right): before the
+        # fix, this scene's covered depths topped out at 696.0, well
+        # under this camera's focal1 of 1000.
+        assert depth[covered].min() > float(frame.camera.state.focal1)
         n = gbuf[..., :3].astype(np.float32)[covered]
         assert np.allclose(np.linalg.norm(n, axis=1), 1.0, atol=2e-2)
     finally:
@@ -3159,33 +3170,34 @@ def test_the_gbuffer_bridges_the_camera_facing_normal_to_positive_z(gl_ctx):
         backend.release()
 
 
-def test_proj_xy_matches_the_signed_scale_the_real_projection_applies(gl_ctx):
-    """Fix round 1, replacing test_proj_xy_projects_a_known_point_where_
-    the_main_pass_does: that test was sign-invariant and could not have
-    caught a wrong sign on fx or fy. An on-axis point projects to (0, 0)
-    under any sign, and the off-axis check divided a common factor of fx
-    out of both sides of its own comparison -- neither case can tell a
-    correctly signed fy from -fy.
+def test_proj_xy_and_gbuffer_depth_reconstruct_the_real_projections_ndc(gl_ctx):
+    """Fix round 2, replacing fix round 1's
+    test_proj_xy_matches_the_signed_scale_the_real_projection_applies.
 
-    This test instead compares against `camera_matrix` -- the actual
-    `mvp` `_draw_frame` renders actors with -- applied to a point that is
-    off-axis on *both* x and y, so a sign error on either fx or fy shows
-    up as a sign-flipped assertion failure rather than a magnitude
-    mismatch.
+    That test compared fx/fy against clip.xy *before* the perspective
+    divide, specifically to sidestep a discrepancy it had just found:
+    dividing by bare view-space z (what GBUFFER_FSH wrote then) did not
+    reproduce this engine's real NDC, because this engine's actual
+    perspective divide is by z + state.focal1 (CameraState.project), not
+    by z alone. That was the right call at the time -- a sign-pinning
+    test should not silently launder an unrelated, unresolved gap into a
+    passing assertion -- but it means that test could not have caught the
+    missing `+ focal1` term either: it never divided by anything.
 
-    The comparison is against clip.xy directly, before the perspective
-    divide, not against NDC: `projection_matrix`'s x and y rows have zero
-    coefficient on z and w (`[fx,0,0,0]` and `[0,-fy,0,0]`), so clip.xy
-    depends on view-space x, y alone and nothing else -- in particular
-    nothing this engine's `state.focal1` shift does to clip.z and clip.w
-    (see CameraState.project's `depth = z + focal1`) reaches this
-    comparison. That isolates exactly the linear, signed x/y scale
-    `_proj_xy` is responsible for, from the separate question of what
-    `ssao_reference` should divide by to turn that scale into an NDC --
-    which is a real question (this engine's true perspective divide is by
-    `z + focal1`, not by the raw `v_view.z` GBUFFER_FSH writes; see the
-    fix-round-1 note in the report), but is not a question a sign-pinning
-    test for `_proj_xy` can or should have to answer."""
+    GBUFFER_FSH now adds `focal1` to the depth it writes
+    (`v_view.z + focal1`, via a uniform GLBackend._render_gbuffer sets
+    each frame from `frame.camera.state.focal1`), which is exactly the
+    fix this gap needed. That makes a full NDC comparison possible and
+    honest: this test reconstructs NDC from a known camera-space point
+    using `_proj_xy`'s fx/fy *and* the G-buffer's depth convention
+    (view-space z plus focal1), off-axis on both x and y so a sign error
+    on either axis is caught too, and asserts it matches
+    `camera_matrix`'s real clip.xy / clip.w exactly. Confirmed this test
+    fails on the pre-fix code: reconstructing with bare view-space z
+    (dropping the `+ state.focal1` below) gives ndc (0.30444, 0.18489)
+    against the real (0.14421, 0.08758) for this camera -- the ~2.1x
+    (1900 / 900, i.e. (z + focal1) / z for this camera's z=900,
+    focal1=1000) originally measured and flagged in the task-3 report."""
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat",
                                               lighting="scene", msaa=0, occlusion="ssao"))
     try:
@@ -3195,8 +3207,10 @@ def test_proj_xy_matches_the_signed_scale_the_real_projection_applies(gl_ctx):
         world = np.array([137.0, -52.0, 900.0, 1.0], dtype=np.float64)
         mvp = camera_matrix(frame.camera, backend._options.scale).astype(np.float64)
         clip = mvp @ world
+        ndc_real = clip[:2] / clip[3]
         view_pos = (view_matrix(frame.camera).astype(np.float64) @ world)[:3]
-        assert math.isclose(clip[0], fx * view_pos[0], rel_tol=1e-5)
-        assert math.isclose(clip[1], -fy * view_pos[1], rel_tol=1e-5)
+        depth = view_pos[2] + frame.camera.state.focal1
+        ndc_recon = np.array([view_pos[0] * fx / depth, -view_pos[1] * fy / depth])
+        assert np.allclose(ndc_recon, ndc_real, atol=1e-6)
     finally:
         backend.release()

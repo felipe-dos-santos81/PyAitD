@@ -1136,7 +1136,15 @@ class GLBackend:
         are pure functions of the camera alone, so this is the same value
         _draw_frame's own `mvp`/`rot` locals hold, not a second derivation
         that could drift. `view` is set once per frame, alongside the other
-        actor programs, in _draw_frame's own view-uniform loop."""
+        actor programs, in _draw_frame's own view-uniform loop.
+
+        `focal1` is threaded through the same way: read straight off
+        `frame.camera.state` -- the same state camera_matrix and
+        projection_matrix both build their matrices from -- so it cannot
+        drift from the `mvp` this same frame is drawn with. GBUFFER_FSH
+        adds it to v_view.z because this engine's actual perspective
+        divide is by z + focal1, not bare z (see GBUFFER_FSH's and
+        _proj_xy's comments)."""
         self._gbuf_fbo.use()
         self._ctx.viewport = (0, 0, *self._gbuf_size)
         # Alpha 0 is "no actor here" -- the value both SSAO sides read as
@@ -1149,6 +1157,7 @@ class GLBackend:
         self._gbuf_prog["mvp"].write(mvp.T.tobytes())
         self._gbuf_prog["rot"].write(rot.T.tobytes())
         self._gbuf_prog["project"].value = 0
+        self._gbuf_prog["focal1"].value = float(frame.camera.state.focal1)
         for inst in instances:
             if inst is not None:
                 self._render_instanced(self._gbuf_prog, self._gbuf_layout, inst[0], inst[1], level)
@@ -1165,27 +1174,26 @@ class GLBackend:
         divide -- `projection_matrix(state)`'s x and y rows are `[fx,
         0, 0, 0]` and `[0, -fy, 0, 0]`, zero coefficient on z and w, so
         `clip.xy == (fx * x, -fy * y)` for a camera-space (x, y, z)
-        regardless of z. `test_proj_xy_matches_the_signed_scale_the_real_
-        projection_applies` pins exactly this, sign included on both
-        axes -- the direct successor to a now-removed on-axis/off-axis
-        test that could not tell a correctly signed fy from -fy.
+        regardless of z. Neither row depends on `state.focal1` either
+        (only row 2 -- the depth-buffer z -- and row 3 -- w -- do, via
+        `projection_matrix`'s `shift`), so fx and fy need no adjustment
+        of their own for it: `focal1` is entirely the depth side's
+        concern, folded into GBUFFER_FSH's alpha channel instead (`v_view.z
+        + focal1`, set from a `focal1` uniform `_render_gbuffer` writes
+        each frame) rather than into this pair.
 
-        What `_proj_xy` deliberately does *not* claim to reproduce is
-        this engine's actual NDC: this engine's true perspective divide
-        is by `z + state.focal1` (see `CameraState.project`, and
-        `projection_matrix`'s `shift`, whose composition puts `focal1`
-        into row 3 -- `w = z + focal1`, not the `w = z` its literal
-        `[0, 0, 1.0, 0]` array entry alone would suggest), while
-        `ssao_reference`'s `_view_position`/`_project` divide by `depth`
-        alone -- the raw `v_view.z` GBUFFER_FSH writes, with no `focal1`
-        term anywhere in that path. For a camera whose `focal1` is large
-        relative to scene depth (the golden frame's camera: focal1=1000
-        against actor depths of 564.5-696.0), that gap measurably distorts
-        the physical scale `ssao_reference` reconstructs positions at.
-        That is a real, separate question -- what "depth" SSAO's own
-        reconstruction should divide by -- and not one a sign-pinning
-        test for `_proj_xy`'s two scale factors can or should answer;
-        flagged in the task-3 report rather than guessed at here.
+        With that in place, `ndc = (x / depth) * f` -- `ssao_reference`'s
+        and SSAO_FSH's own relation -- now holds exactly against this
+        engine's real NDC for every reconstruction the G-buffer feeds,
+        `focal1` included: `test_proj_xy_and_gbuffer_depth_reconstruct_
+        the_real_projections_ndc` pins the full pair (fx/fy plus the
+        depth convention) against `camera_matrix`'s actual clip.xy /
+        clip.w for an off-axis point, and fails without the `focal1` term
+        (measured before the fix: ndc off by the golden frame's camera's
+        z=900 vs depth=z+focal1=1900, roughly 2.1x on both axes) --
+        replacing an earlier, narrower version of this test that only
+        pinned fx/fy's sign, pre-division, and could not have caught a
+        missing depth term.
 
         Read off `projection_matrix` -- the same function camera_matrix
         builds `mvp` out of -- rather than re-deriving focal2/focal3 by
