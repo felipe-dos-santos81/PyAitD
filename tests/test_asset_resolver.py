@@ -453,3 +453,38 @@ def test_a_corrupt_body_texture_warns_once_and_falls_back(tmp_path, caplog):
     assert resolver.body_texture(12) is None
     assert any(rec.levelname == "WARNING" for rec in caplog.records)
     assert resolver.failures                       # corrupt is recorded, missing is not
+
+
+def test_body_texture_falls_back_silently_when_only_the_sidecar_exists(tmp_path):
+    # sidecar baked, paint not yet saved -- a real mid-work painter state.
+    # A UV sidecar with no PNG has nothing to sample, so it must fall back
+    # exactly like a fully-absent pair: no warning, nothing in failures.
+    import json
+    import numpy as np
+    from PyAitD.render.asset_resolver import AssetResolver
+    from PyAitD.render.texture_export import body_uv_rel_path
+    (tmp_path / "bodies").mkdir(parents=True)
+    (tmp_path / body_uv_rel_path(12)).write_text(json.dumps({
+        "schema": 1, "size": [8, 8], "chart_count": 1,
+        "tris_sha256": "0" * 64,
+        "uvs": np.full((2, 3, 2), 0.5, dtype=np.float32).tolist(),
+    }), encoding="utf-8")
+    resolver = AssetResolver(None, tmp_path)
+    assert resolver.body_texture(12) is None
+    assert resolver.failures == {}
+
+
+def test_body_texture_falls_back_silently_when_only_the_paint_exists(tmp_path):
+    # a paint dropped in before the bake ran -- the mirror mid-work state.
+    # A PNG with no UV sidecar has no way to land on the mesh, so it must
+    # fall back exactly like a fully-absent pair: no warning, nothing in
+    # failures.
+    import numpy as np
+    from PyAitD.render.asset_resolver import AssetResolver
+    from PyAitD.render.texture_export import body_texture_rel_path
+    from tools.export_textures import save_png
+    (tmp_path / "bodies").mkdir(parents=True)
+    save_png(tmp_path / body_texture_rel_path(12), np.zeros((8, 8, 3), np.uint8))
+    resolver = AssetResolver(None, tmp_path)
+    assert resolver.body_texture(12) is None
+    assert resolver.failures == {}
