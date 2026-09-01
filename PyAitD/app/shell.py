@@ -1609,6 +1609,10 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
             )
         else:
             accumulator = 0
+            # not PLAY this frame: the accumulator restarts, so the old
+            # snapshot must not survive to blend against on the resume
+            # frame (it would pop the actor backward by up to one tick)
+            motion_prev = None
             session.elapsed_ms += elapsed
             _auto_dismiss_picture(game, session)
             if isinstance(game.active_modal, ShowTitle):

@@ -420,17 +420,23 @@ def _legacy_stub_scene(game, floor, resolver):
     return out
 
 
-def _stub_scene():
+def _stub_scene(beta=0):
     """A minimal one-actor scene for the motion-blend tests. The body has a
     single group so build_frame's anim==-1 default states (one entry) has a
     different length from snapshot()'s empty states for a player-less actor
     (zero entries): blend_actor then takes the state-length-mismatch path,
     which still blends angles and position and still returns the float
-    pose_fn, without needing to patch anim_player_for at all."""
+    pose_fn, without needing to patch anim_player_for at all.
+
+    `beta` seeds the actor's initial rotation: with the body's single group
+    non-empty (group_order=[0]), pose_vertices_float injects the actor
+    angles as group 0's delta, so a caller that moves beta between the
+    snapshot and the live state gets a real rotation through the blend,
+    not an identity no-op."""
     body = Body(flags=0, zv=(0, 0, 0, 0, 0, 0), scratch=(),
                 vertices=[(0, 0, 0), (50, 0, 0), (0, 50, 0)],
                 groups=[Group(0, 3, 0, 0xFF, 0, 0, 0, 0)], group_order=[0], primitives=[])
-    actor = _StubActor(0, 0, -1, (0, 0, 500), (0, 0, 0), (0, 0, 0), room=0, zv=(0, 0, 0, 0, 0, 0))
+    actor = _StubActor(0, 0, -1, (0, 0, 500), (0, 0, 0), (0, beta, 0), room=0, zv=(0, 0, 0, 0, 0, 0))
     game = _StubGame(current_room=0, num_camera=0, actors=[actor])
     room = Room(world_x=0, world_y=0, world_z=0, camera_indices=[0],
                 hard_cols=[], sce_zones=[], offset_to_hard_col=0, offset_to_sce_zones=0)
@@ -442,10 +448,13 @@ def _stub_scene():
 
 def test_build_frame_blend_moves_geometry_but_not_the_logical_projection():
     from PyAitD.render.motion import snapshot
-    game, floor, resolver = _stub_scene()
+    game, floor, resolver = _stub_scene(beta=100)
     snap = snapshot(game)
-    # move the live actor a full step after the snapshot
+    # the pose at the moment of the snapshot -- one endpoint of the blend
+    snapshot_frame, _ = build_frame(game, floor, resolver)
+    # move the live actor a full step and rotate it after the snapshot
     game.actors[0].world_x += 100
+    game.actors[0].beta = 200
     blended, blended_draw = build_frame(game, floor, resolver, blend=(snap, 0.5))
     moved, moved_draw = build_frame(game, floor, resolver)
     # position blends halfway
@@ -453,9 +462,16 @@ def test_build_frame_blend_moves_geometry_but_not_the_logical_projection():
     # the logical projection and draw_list ignore the blend entirely
     assert blended_draw == moved_draw
     assert blended.actors[0].logical.points == moved.actors[0].logical.points
+    # the blended geometry sits strictly between the two poses -- proof
+    # pose_fn actually reached pose_geometry through build_frame and
+    # interpolated, rather than snapping to either the snapshot or the
+    # live pose
+    assert not np.array_equal(blended.actors[0].geometry.vertices, moved.actors[0].geometry.vertices)
+    assert not np.array_equal(
+        blended.actors[0].geometry.vertices, snapshot_frame.actors[0].geometry.vertices)
 
 
-def test_build_frame_blend_snaps_on_a_camera_or_floor_mismatch():
+def test_build_frame_blend_snaps_on_a_camera_floor_or_room_mismatch():
     from dataclasses import replace as _replace
     from PyAitD.render.motion import snapshot
     game, floor, resolver = _stub_scene()
@@ -467,6 +483,12 @@ def test_build_frame_blend_snaps_on_a_camera_or_floor_mismatch():
     assert frame.actors[0].position == unblended.actors[0].position
     stale_floor = _replace(snap, floor=snap.floor + 1)
     frame, _ = build_frame(game, floor, resolver, blend=(stale_floor, 0.5))
+    assert frame.actors[0].position == unblended.actors[0].position
+    # Minor 5: `camera` is only a slot index into room.camera_indices, not a
+    # camera identity, so a same-slot room change (a real cut) must be
+    # caught by `room` even though `floor` and `camera` both still match.
+    stale_room = _replace(snap, room=snap.room + 1)
+    frame, _ = build_frame(game, floor, resolver, blend=(stale_room, 0.5))
     assert frame.actors[0].position == unblended.actors[0].position
 
 

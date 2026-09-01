@@ -195,9 +195,15 @@ def build_frame(game, floor, resolver, blend=None):
     snap, alpha = (None, 0.0)
     if blend is not None:
         snap, alpha = blend
-        if snap.floor != game.current_floor or snap.camera != game.num_camera:
-            # a camera cut or floor change since the snapshot: every actor
-            # renders unblended this frame rather than smearing across it
+        if (snap.floor != game.current_floor or snap.room != game.current_room
+                or snap.camera != game.num_camera):
+            # a camera cut, room change or floor change since the snapshot:
+            # every actor renders unblended this frame rather than smearing
+            # across it. `camera` alone is not enough -- it is only a slot
+            # index into room.camera_indices, not a camera identity, so a
+            # same-slot room change (the best camera for the new room also
+            # sitting at the old num_camera slot) is a real cut with
+            # `camera` unchanged; `room` catches it.
             snap = None
     masks = tuple(floor.mask_draws(cam_idx))
     actors = []

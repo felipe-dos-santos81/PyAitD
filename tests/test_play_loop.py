@@ -287,6 +287,63 @@ def test_escape_opens_the_system_menu_and_pauses_play_ticks(data_dir, profile, m
     assert calls == ["present"] * 4
 
 
+def test_motion_prev_does_not_survive_a_play_to_menu_to_play_round_trip(
+    data_dir, profile, monkeypatch,
+):
+    # Minor 6: the non-PLAY branch (the system menu here) resets accumulator
+    # to 0 but must also drop motion_prev, or the resume frame -- if no new
+    # tick runs before the next present -- blends against the stale,
+    # pre-menu snapshot and the actor pops backward by up to one tick.
+    import PyAitD.app.shell as main
+    from PyAitD.app.config import default_settings
+    from PyAitD.engine.script.game import Game
+
+    frame = np.zeros((200, 320, 3), dtype=np.uint8)
+    blends = []
+
+    def spy_scene_frame(_g, _f, _r, _resolver, blend=None):
+        blends.append(blend)
+        return frame, []
+
+    escape = SimpleNamespace(type=main.pygame.KEYDOWN, key=main.pygame.K_ESCAPE)
+    # frame 1: PLAY, elapsed 25ms -- one tick runs, motion_prev is set.
+    # frame 2: escape opens the system menu (not PLAY this frame).
+    # frame 3: escape closes it (PLAY again), elapsed 5ms -- no new tick.
+    # frame 4: quit.
+    event_batches = iter([[], [escape], [escape], [SimpleNamespace(type=main.pygame.QUIT)]])
+    times = iter([0, 25, 30, 35, 35])
+
+    monkeypatch.setattr(
+        Game, "load_floor",
+        lambda self, number: SimpleNamespace(number=0, rooms=[SimpleNamespace(camera_indices=[0])]),
+    )
+    monkeypatch.setattr(main, "Renderer", lambda *_a, **_k: SimpleNamespace(
+        fallback_notice=None, present=lambda image: None, close=lambda: None,
+    ))
+    monkeypatch.setattr(main, "play_tick", lambda *args: True)
+    monkeypatch.setattr(main, "_scene_frame", spy_scene_frame)
+    monkeypatch.setattr(main, "render_active_mode", lambda *args: painter_from_frame(frame))
+    monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda value: None)
+    monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
+    monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: next(times))
+    monkeypatch.setattr(
+        main.pygame.time, "Clock", lambda: SimpleNamespace(tick=lambda *args: None)
+    )
+
+    game = init_game(data_dir, profile)
+    session = ModalSession(settings=default_settings())
+    assert session.settings.render.motion == "smooth"          # the shipped default
+    with _pygame_runtime():
+        assert main.run(game, session=session) == 0
+
+    # scene_frame is only called in PLAY frames: pre-loop, frame 1, frame 3
+    # (the menu-open frame skips it entirely) and frame 4.
+    assert len(blends) == 4
+    assert blends[2] is None, (
+        "the resume frame must not blend against the pre-menu snapshot"
+    )
+
+
 def test_run_skips_scene_recompute_and_caption_on_transition_frames(profile, monkeypatch, tmp_path):
     # M3a draw_ready gate: a floor/room-change tick leaves num_camera == -1
     # with current_room stale until the next tick's change_salle, so the loop
@@ -551,10 +608,12 @@ def test_run_builds_one_resolver_and_threads_it_through_scene_frame_calls(monkey
             built.append(self)
 
     seen_resolvers = []
+    blends_seen = []
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
 
-    def spy_scene_frame(_g, _f, _r, resolver, _blend=None):
+    def spy_scene_frame(_g, _f, _r, resolver, blend=None):
         seen_resolvers.append(resolver)
+        blends_seen.append(blend)
         return frame, []
 
     event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])
@@ -579,6 +638,12 @@ def test_run_builds_one_resolver_and_threads_it_through_scene_frame_calls(monkey
     assert built[0].texture_dir == "/tmp/custom-override"
     assert len(seen_resolvers) >= 2  # the pre-loop call and at least one per-frame call
     assert all(resolver is built[0] for resolver in seen_resolvers)
+    # the pre-loop call never blends (no prior tick to blend from), but a
+    # PLAY-loop call must receive the tick's blend argument -- pins that
+    # run() actually threads it through rather than regressing to
+    # `_scene_frame(game, floor, renderer, resolver)` with no blend at all
+    assert blends_seen[0] is None
+    assert any(b is not None for b in blends_seen[1:])
 
 
 def test_resolver_for_wraps_new_assets_with_the_given_texture_dir():

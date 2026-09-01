@@ -645,9 +645,11 @@ def test_motion_cli_override_is_session_only_and_alone():
     from PyAitD.app.config import default_settings
     from PyAitD.app.shell import apply_render_overrides, parse_args
     base = default_settings()
-    only = apply_render_overrides(base, parse_args(["--motion", "smooth"]))
+    assert base.render.motion == "smooth"                    # the shipped default
+    only = apply_render_overrides(base, parse_args(["--motion", "tick"]))
     # exactly the motion field moved, nothing else
-    assert only.render == replace(base.render, motion="smooth")
+    assert only.render == replace(base.render, motion="tick")
+    # no flag: the default persists, unmodified
     assert apply_render_overrides(base, parse_args([])).render.motion == "smooth"
 
 

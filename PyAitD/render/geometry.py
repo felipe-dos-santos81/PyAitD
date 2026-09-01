@@ -1,8 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Float mesh view of a posed FITD body for the enhanced renderer.
 
-Shares skel.pose_vertices with the logical projection, so pose can never
-disagree; only projection differs. Pygame/GL free."""
+Poses with skel.pose_vertices by default, the same integer path the
+logical projection uses. `pose_geometry`'s `pose_fn` seam lets the
+caller substitute a presentation-only float twin (render/motion.py's
+`pose_vertices_float`) for inter-tick blending; when it does, the
+rendered pose can disagree with the logical projection by the twin's
+bounded divergence (see tests/test_motion.py). Pygame/GL free."""
 from dataclasses import dataclass
 import functools
 
@@ -138,6 +142,9 @@ def _vertex_normals(vertices, tris, groups):
 
 
 def pose_geometry(body, group_states, actor_angles=None, ao=None, refinement=None, pose_fn=None):
+    # pose_fn: override for skel.pose_vertices, e.g. render/motion.py's
+    # pose_vertices_float for the inter-tick blend; None runs the default
+    # integer path, byte-identical to before this seam existed.
     pose = pose_vertices if pose_fn is None else pose_fn
     vertices = np.array(pose(body, group_states, actor_angles), dtype=np.float32).reshape(-1, 3)
     tris, tri_colors, lines, line_colors, spheres, points, point_sizes, point_colors = _triangulate(body)

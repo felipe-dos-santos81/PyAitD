@@ -169,7 +169,7 @@ def test_configuration_graphics_row_opens_the_graphics_page():
     assert (state.page, state.cursor, state.hover) == (SystemMenuPage.GRAPHICS, 0, None)
 
 
-def test_graphics_rows_cycle_render_options():
+def test_graphics_and_realism_rows_cycle_render_options():
     from PyAitD.app.ui import (
         GRAPHICS_CYCLES, GRAPHICS_ROWS, REALISM_CYCLES, REALISM_ROWS,
         graphics_row_count, realism_row_count,
@@ -198,10 +198,16 @@ def test_graphics_rows_cycle_render_options():
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(shadows="hard")
     state.cursor = 2
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(realism="classic")
+    state.cursor = 3
+    # Minor 12: REALISM_CYCLES[3] (cycle_integration) was otherwise pinned
+    # only by identity (test_smoothing_integration_and_motion_cycle_slots_
+    # are_pinned) and by label rendering, never by an actual
+    # reduce_system_menu(ACCEPT) asserting the resulting settings.render
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(integration=3)
     assert state.page is SystemMenuPage.REALISM  # a cycle never leaves the page
 
 
-def test_the_integration_row_cycles_from_the_graphics_page():
+def test_smoothing_integration_and_motion_cycle_slots_are_pinned():
     from PyAitD.app.ui import GRAPHICS_CYCLES, REALISM_CYCLES
     from PyAitD.render.render_options import cycle_integration, cycle_motion, cycle_smoothing
     assert GRAPHICS_CYCLES[4] is cycle_smoothing

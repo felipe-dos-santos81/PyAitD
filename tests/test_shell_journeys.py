@@ -332,6 +332,50 @@ def test_menu_realism_page_cycle_and_save_journey(data_dir, profile, monkeypatch
     assert payload["render"]["realism"] == "classic"
 
 
+def test_menu_graphics_page_cycle_and_save_journey(data_dir, profile, monkeypatch, tmp_path):
+    # Minor 9: the page split retargeted the mouse journey above to Realism
+    # (the knob it cycled moved there) but left config_rows[-3] -- the
+    # Graphics... row -- with no end-to-end mouse coverage of its own. ESC
+    # -> Configuration -> Graphics... -> Shading (cycles to flat) -> Back ->
+    # Back to Menu -> Return to Game -> quit: the cycled field is what the
+    # save wrote, and the page transitions happened by mouse.
+    game = init_game(data_dir, profile)
+    path = tmp_path / "settings.json"
+    session = load_runtime_session(path)
+    state = {"frames": 0}
+    config_rows = SystemMenuLayout.rows(SystemMenuPage.CONFIG)
+    graphics_rows = SystemMenuLayout.rows(SystemMenuPage.GRAPHICS)
+
+    def next_events():
+        state["frames"] += 1
+        frames = state["frames"]
+        assert frames < 200, "graphics journey exceeded its budget"
+        if frames == 1:
+            return [_key(pygame.K_ESCAPE)]
+        if frames == 2:
+            return [_left_click(SystemMenuLayout.MAIN_ROWS[4].center)]
+        if frames == 3:
+            return [_left_click(config_rows[-3].center)]          # Graphics...
+        if frames == 4:
+            assert session.system_menu.page is SystemMenuPage.GRAPHICS, "fixture"
+            return [_left_click(graphics_rows[1].center)]         # Shading
+        if frames == 5:
+            return [_left_click(graphics_rows[-1].center)]        # Back
+        if frames == 6:
+            assert session.system_menu.page is SystemMenuPage.CONFIG, "fixture"
+            return [_left_click(config_rows[-1].center)]          # Back to Menu
+        if frames == 7:
+            return [_left_click(SystemMenuLayout.MAIN_ROWS[0].center)]
+        if frames >= 9:
+            return [_quit()]
+        return []
+
+    _run_shell(monkeypatch, game, session, next_events)
+    assert session.settings.render.shading == "flat"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["render"]["shading"] == "flat"
+
+
 def test_capture_consumes_the_captured_key_exclusively(data_dir, profile, monkeypatch):
     # During ACTION capture a Return press becomes the binding; it must not
     # also reach the reducer and activate/toggle a row in the same frame.

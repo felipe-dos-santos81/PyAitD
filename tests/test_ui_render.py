@@ -821,7 +821,7 @@ def test_big_cadre_spans_its_exact_scaled_box(data_dir, profile, scale, top, bot
     assert (int(ink[:, 1].min()), int(ink[:, 1].max())) == (0, right)
 
 
-def test_graphics_page_rows_fit_the_screen_and_do_not_overlap():
+def test_graphics_and_realism_page_rows_fit_the_screen_and_do_not_overlap():
     from PyAitD.app.ui import SystemMenuLayout, graphics_row_count, realism_row_count
     assert len(SystemMenuLayout.rows(SystemMenuPage.GRAPHICS)) == graphics_row_count()
     assert len(SystemMenuLayout.rows(SystemMenuPage.REALISM)) == realism_row_count()
@@ -834,7 +834,7 @@ def test_graphics_page_rows_fit_the_screen_and_do_not_overlap():
                 assert not hit[a].colliderect(hit[b])
 
 
-def test_graphics_labels_match_the_cycles_one_per_row():
+def test_graphics_and_realism_labels_match_the_cycles_one_per_row():
     from PyAitD.app.ui import (
         GRAPHICS_CYCLES, GRAPHICS_ROWS, REALISM_CYCLES, REALISM_ROWS,
         SMOOTHING_LABELS, graphics_labels, realism_labels,

@@ -65,7 +65,7 @@ def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoo
         # frame renders every actor 32 units (11 degrees) short of its
         # live beta, which is visibly between the two, deterministically
         snap = motion_snapshot(game)
-        shifted = MotionSnapshot(snap.floor, snap.camera, {
+        shifted = MotionSnapshot(snap.floor, snap.room, snap.camera, {
             index: dataclasses.replace(
                 entry, angles=(entry.angles[0], (entry.angles[1] - 64.0) % 1024.0, entry.angles[2]))
             for index, entry in snap.actors.items()
@@ -87,13 +87,22 @@ def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoo
 
 
 def output_paths(out_dir, smoothing=None, shadows=None, integration=None, motion=None):
-    """(name, mode, realism, smoothing, shadows, integration, motion_blend, path) for
-    every fixture x shading-mode x realism combination at `smoothing`, `shadows`
-    and `integration` (the RenderOptions defaults when None), then one
-    flat-mesh (smoothing 0), one hard-shadow (shadows "hard"), one
-    un-composited (integration 0), one over-composited (integration 3) and
-    one motion-blended file per fixture beside the smooth-enhanced render,
-    in the order rendered and printed by `main`.
+    """(name, mode, realism, smoothing, shadows, integration, motion_blend,
+    label, path) for every fixture x shading-mode x realism combination at
+    `smoothing`, `shadows` and `integration` (the RenderOptions defaults
+    when None), then one flat-mesh (smoothing 0), one hard-shadow (shadows
+    "hard"), one un-composited (integration 0), one over-composited
+    (integration 3) and one motion-blended file per fixture beside the
+    smooth-enhanced render, in the order rendered and printed by `main`.
+
+    `label` is the row's own identity ("" for a main combination, else the
+    filename suffix its variant renders with) -- it is what the filename is
+    built from, and it stays distinct per row regardless of what
+    `motion_blend` happens to evaluate to. Without it, the `-tickmotion`
+    row's other six fields collide with the plain smooth-enhanced main
+    row's whenever `motion_blend` is False (i.e. --motion tick), which
+    would silently drop one of the two from any de-duplication keyed on
+    those fields alone.
 
     The `-strong` and `-nocomposite` pair bracket the integration level the
     main renders use: 0 and 3 are the ends of the range, and the default
@@ -109,25 +118,25 @@ def output_paths(out_dir, smoothing=None, shadows=None, integration=None, motion
     mode_motion = defaults.motion if motion is None else motion
     blend = (mode_motion == "smooth")
     paths = [
-        (name, mode, realism, level, mode_shadows, mode_integration, False,
+        (name, mode, realism, level, mode_shadows, mode_integration, False, "",
          out_dir / f"{name}-{mode}-{realism}.png")
         for name in FIXTURES
         for mode in SHADING_MODES
         for realism in REALISM_MODES
     ]
-    paths += [(name, "smooth", "enhanced", 0, mode_shadows, mode_integration, False,
+    paths += [(name, "smooth", "enhanced", 0, mode_shadows, mode_integration, False, "flatmesh",
                out_dir / f"{name}-smooth-enhanced-flatmesh.png")
               for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, "hard", mode_integration, False,
+    paths += [(name, "smooth", "enhanced", level, "hard", mode_integration, False, "hardshadow",
                out_dir / f"{name}-smooth-enhanced-hardshadow.png")
               for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, mode_shadows, 0, False,
+    paths += [(name, "smooth", "enhanced", level, mode_shadows, 0, False, "nocomposite",
                out_dir / f"{name}-smooth-enhanced-nocomposite.png")
               for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, mode_shadows, 3, False,
+    paths += [(name, "smooth", "enhanced", level, mode_shadows, 3, False, "strong",
                out_dir / f"{name}-smooth-enhanced-strong.png")
               for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, mode_shadows, mode_integration, blend,
+    paths += [(name, "smooth", "enhanced", level, mode_shadows, mode_integration, blend, "tickmotion",
                out_dir / f"{name}-smooth-enhanced-tickmotion.png")
               for name in FIXTURES]
     return paths
@@ -169,7 +178,7 @@ def main(argv=None):
 
     try:
         args.out.mkdir(parents=True, exist_ok=True)
-        for name, mode, realism, level, shadows, integration, blend, path in output_paths(
+        for name, mode, realism, level, shadows, integration, blend, _label, path in output_paths(
                 args.out, args.smoothing, args.shadows, args.integration, args.motion):
             rgb = render_fixture(args.data, name, args.scale, mode, ctx, realism, level,
                                  shadows, integration, blend)

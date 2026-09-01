@@ -687,6 +687,62 @@ def test_held_push_on_the_rocking_horse_never_wedges_the_hero(data_dir, profile)
     assert start_x - (hero.room_x + hero.step_x) > 500, "hero cannot walk after the push"
 
 
+def test_teleport_limit_has_headroom_over_a_real_run_step(data_dir, profile):
+    # Minor 11 of the final whole-branch review: render/motion.py's
+    # TELEPORT_LIMIT = 500 is justified only by a comment claiming "the
+    # fastest legitimate travel (run, speed 5) moves well under 100 world
+    # units per 20 ms tick", with nothing measuring it. This drives the
+    # hero at a real, navmesh-resolved run (apply_click_intent's run=True,
+    # the same nav_decision.run path _process_track_mouse and the hero's
+    # own life-script ANIM_MOVE opcode answer with the run animation) and
+    # measures the actual per-tick (world+step) delta -- the same
+    # quantity blend_actor's teleport check compares snapshot to live
+    # state with -- turning the comment into a guard.
+    from PyAitD.engine.actor.actors import check_hard_col
+    from PyAitD.engine.nav.navmesh import agent_extent
+    from PyAitD.engine.script.interaction import apply_click_intent
+    from PyAitD.render.motion import TELEPORT_LIMIT
+
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    buf = InputBuffer()
+    play_tick(game, floor, buf)
+    play_tick(game, floor, buf)   # settle the camera, as other fixtures do
+
+    hero = game.actors[game.current_camera_target_actor]
+    mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
+    origin_cell = mesh.cell_of(hero.room_x, hero.room_z)
+    nx, nz = mesh.shape
+    # the walkable cell farthest from the hero, so the run has room to
+    # actually reach and hold top speed instead of arriving in a step or two
+    _dist, far_cell = max(
+        ((i - origin_cell[0]) ** 2 + (j - origin_cell[1]) ** 2, (i, j))
+        for i in range(nx) for j in range(nz) if mesh.walkable[i, j]
+    )
+    dest = mesh.center_of(*far_cell)
+    buf.pointer_held = True
+    apply_click_intent(game, dest[0], dest[1], hero.room, run=True)
+    assert not check_hard_col(hero.zv, floor.rooms[hero.room].hard_cols), "fixture"
+
+    worst = 0.0
+    start = (hero.world_x + hero.step_x, hero.world_y + hero.step_y, hero.world_z + hero.step_z)
+    prev = start
+    run_ticks = 0
+    for _ in range(300):
+        play_tick(game, floor, buf)
+        cur = (hero.world_x + hero.step_x, hero.world_y + hero.step_y, hero.world_z + hero.step_z)
+        worst = max(worst, max(abs(c - p) for c, p in zip(cur, prev)))
+        prev = cur
+        if hero.speed == 5:
+            run_ticks += 1
+    assert run_ticks > 100, "fixture: the hero must actually reach and hold run speed"
+    total_moved = max(abs(c - s) for c, s in zip(prev, start))
+    assert total_moved > 1000, "fixture: the hero must actually travel, not stall in place"
+    # the comment's own claim
+    assert worst < 100.0, f"a real run step moved {worst} units/tick, not well under 100"
+    assert worst < TELEPORT_LIMIT
+
+
 @pytest.mark.parametrize(
     "buf", [InputBuffer(pointer_held=False), InputBuffer(pointer_held=True, focused=False)],
     ids=["released", "unfocused"],

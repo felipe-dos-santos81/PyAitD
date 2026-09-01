@@ -14,7 +14,10 @@ import numpy as np
 
 # The largest per-tick movement still treated as motion. The fastest
 # legitimate travel (run, speed 5) moves well under 100 world units per
-# 20 ms tick; anything past this is a script teleport and snaps.
+# 20 ms tick (measured ~41 units/tick worst case driving the hero at a
+# real, navmesh-resolved run -- see
+# tests/test_playworld.py::test_teleport_limit_has_headroom_over_a_real_run_step);
+# anything past this is a script teleport and snaps.
 TELEPORT_LIMIT = 500
 
 
@@ -31,6 +34,11 @@ class ActorMotion:
 @dataclass(frozen=True)
 class MotionSnapshot:
     floor: int
+    room: int         # game.current_room; `camera` is only a slot index
+                       # into room.camera_indices, not a camera identity,
+                       # so a same-slot room change is a real cut this
+                       # field is needed to detect (build_frame compares
+                       # both).
     camera: int
     actors: dict      # actor index -> ActorMotion
 
@@ -67,7 +75,8 @@ def snapshot(game):
             states=states,
         )
     return MotionSnapshot(
-        floor=game.current_floor, camera=game.num_camera, actors=actors,
+        floor=game.current_floor, room=game.current_room,
+        camera=game.num_camera, actors=actors,
     )
 
 

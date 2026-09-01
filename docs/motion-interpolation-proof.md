@@ -19,6 +19,84 @@ integer pose. `motion=tick` renders exactly the pre-change frames.
 Picking, masks, the draw_list and the mouse contract read the tick pose
 throughout. Rendered motion lags the simulation by up to one tick.
 
+## Float pose divergence
+
+`pose_vertices_float` (render/motion.py) diverges from the authoritative
+integer `pose_vertices` only by fixed-point truncation, the way
+`CameraView.project` diverges from `skel.skin` by ~6 world units (measured
+across a wide distance sweep -- see `render/scene.py`'s `CameraView.project`
+docstring). The float pose's own divergence is larger than CameraView's,
+because it compounds through the body's group hierarchy -- a limb vertex
+rotates once per ancestor group, and each rotation amplifies the previous
+one's truncation error by the radius -- rather than through one rotation
+chain.
+
+The final whole-branch review found the branch's original parity test
+measured the one pose shape that cannot exercise that compounding (every
+group's delta zero except the root, which `actor_angles` overrides, so
+`pose_vertices`' `if dx or dy or dz` gate skips every other group and each
+vertex rotates exactly once). Driving a real `AnimPlayer` over a body's own
+animations -- a genuinely hierarchical pose, where group_states carries a
+different non-zero delta per group -- measures the real number:
+
+```
+$ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -c "
+import numpy as np
+from PyAitD.games.aitd1.profile import AITD1
+from PyAitD.engine.data.assets import Assets
+from PyAitD.engine.actor.anim import AnimPlayer
+from PyAitD.engine.actor.skel import pose_vertices
+from PyAitD.render.motion import pose_vertices_float
+assets = Assets('data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK', AITD1)
+for body_num in (1, 12, 30):
+    body = assets.body(body_num)
+    worst, worst_anim = 0.0, None
+    for anim_num in range(assets.num_anims):
+        try:
+            anim = assets.anim(anim_num)
+        except KeyError:
+            continue
+        player = AnimPlayer(body, anim, start_tick=0)
+        tick = 0
+        for _ in range(anim.num_frames * 20):
+            player.advance(tick)
+            states = player.group_states()
+            integer = np.array(pose_vertices(body, states, actor_angles=(0, 300, 0)), dtype=np.float64)
+            floats = pose_vertices_float(body, states, actor_angles=(0, 300, 0))
+            d = float(np.max(np.abs(floats - integer)))
+            if d > worst:
+                worst, worst_anim = d, anim_num
+            tick += 1
+            if player.wrapped:
+                break
+    print(f'body {body_num} ({len(body.groups)} groups): worst {worst:.4f} (anim {worst_anim})')
+"
+body 1 (2 groups): worst 5.6189 (anim 119)
+body 12 (17 groups, the hero): worst 42.6753 (anim 119)
+body 30 (20 groups): worst 50.0407 (anim 11)
+```
+
+Sweeping every one of a body's own animations, not just the 0-24 range the
+review's own measurement used, does not raise the worst above ~50.04
+either. `tests/test_motion.py::test_pose_vertices_float_parity_on_real_animations`
+covers the same measurement over the same 0-24 range (fast enough to run
+every gate) and is pinned at `_HIERARCHICAL_PARITY_BOUND = 60.0` --
+headroom over the measured ~50 units, not the old, honestly-false `16.0`
+the single-rotation case could not have exceeded regardless of a real
+accumulation defect. The old zero-states case is kept as a cheap,
+non-regression-guard floor (`test_pose_vertices_float_parity_zero_states_baseline`,
+bound `10.0`, measured ~2.8-7.25 units across bodies 1 and 12).
+
+This divergence is presentation-only and frame-to-frame consistent: it
+never reaches `skel.skin`, the `draw_list`, picking, masks or combat, and
+it changes smoothly tick to tick along with the blend it comes from. It is
+largest at snap boundaries -- a camera cut, room change, floor change,
+identity change or teleport -- where `build_frame` flips an actor from the
+float pose back to the integer one (or vice versa) rather than blending
+across the discontinuity; even there it is bounded by the numbers above,
+not by TELEPORT_LIMIT's much larger 500-unit position snap threshold,
+which is a different quantity (position, not pose-vertex divergence).
+
 ## Automated gates
 
 ```

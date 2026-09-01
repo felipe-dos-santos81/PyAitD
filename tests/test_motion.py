@@ -169,9 +169,16 @@ def test_pose_vertices_float_base_vertex_inside_and_outside_span():
 
 
 @pytest.mark.parametrize("body_num", [1, 12])
-def test_pose_vertices_float_parity_on_real_bodies(data_dir, profile, body_num):
-    """Divergence from the integer pose is truncation-bounded, the way
-    CameraView's divergence from skel.skin is (~6 world units measured)."""
+def test_pose_vertices_float_parity_zero_states_baseline(data_dir, profile, body_num):
+    """NOT the accumulation guard -- states = [(0, (0, 0, 0))] * len(groups)
+    means every group but group 0 (which actor_angles overrides) has a
+    zero delta, so pose_vertices' `if dx or dy or dz` gate skips every
+    group but the root: each vertex rotates exactly once and truncation
+    cannot compound through the hierarchy. Kept only as a cheap floor on
+    the single-rotation case; see
+    test_pose_vertices_float_parity_on_real_animations below for the case
+    that actually exercises per-ancestor-group accumulation. Bound is the
+    measured baseline (body 1 ~4.3, body 12 ~7.25) plus headroom."""
     import numpy as np
     from PyAitD.engine.data.assets import Assets
     from PyAitD.engine.actor.skel import pose_vertices
@@ -181,7 +188,65 @@ def test_pose_vertices_float_parity_on_real_bodies(data_dir, profile, body_num):
     states = [(0, (0, 0, 0))] * len(body.groups)
     integer = np.array(pose_vertices(body, states, actor_angles=(0, 300, 0)), dtype=np.float64)
     floats = pose_vertices_float(body, states, actor_angles=(0, 300, 0))
-    assert float(np.max(np.abs(floats - integer))) <= 16.0
+    assert float(np.max(np.abs(floats - integer))) <= 10.0
+
+
+# The regression guard for finding 1 of the final whole-branch review: a real
+# hierarchical pose rotates a limb vertex once per ancestor group, and each
+# rotation amplifies the previous one's truncation error by the radius, so
+# the bound here has to come from driving real animation data, not from the
+# single-rotation zero-states case above. Measured (see
+# tests/test_motion.py's parity method, or
+# docs/motion-interpolation-proof.md's "Float pose divergence" section) by
+# driving a real AnimPlayer over every one of a body's own animations
+# (indices 0-24) to a wrapped keyframe, taking the worst per-tick
+# max-abs-difference against the integer pose at each committed/interpolated
+# frame: body 1 (2 groups) ~4.26, body 12 (hero, 17 groups) ~39.85 (anim
+# 11), body 30 (20 groups) ~50.04 (anim 11). Sweeping all 305 shipped
+# animations (not just 0-24) does not raise the worst above ~50.04 either.
+# CameraView's own truncation against skel.skin is ~6 world units (see
+# render/scene.py's CameraView.project docstring) for comparison -- pose
+# divergence is larger because it compounds through the group hierarchy
+# rather than through one rotation chain.
+_HIERARCHICAL_PARITY_BOUND = 60.0
+
+
+@pytest.mark.parametrize("body_num", [1, 12, 30])
+def test_pose_vertices_float_parity_on_real_animations(data_dir, profile, body_num):
+    """Drives a real AnimPlayer over each of a body's own animations
+    (0-24, the range the reviewer measured) so group_states carries a
+    genuinely different, non-zero delta per group -- pose_vertices_float's
+    hierarchy recursion (_rotate_group_float) actually compounds truncation
+    from ancestor to descendant group here, unlike the zero-states case
+    above. This is the test that would catch a real accumulation defect in
+    the recursion; see _HIERARCHICAL_PARITY_BOUND's comment for the
+    measurement this bound is set from."""
+    import numpy as np
+    from PyAitD.engine.actor.anim import AnimPlayer
+    from PyAitD.engine.data.assets import Assets
+    from PyAitD.engine.actor.skel import pose_vertices
+    from PyAitD.render.motion import pose_vertices_float
+    assets = Assets(data_dir, profile)
+    body = assets.body(body_num)
+    worst = 0.0
+    for anim_num in range(25):
+        try:
+            anim = assets.anim(anim_num)
+        except KeyError:
+            continue
+        player = AnimPlayer(body, anim, start_tick=0)
+        tick = 0
+        for _ in range(anim.num_frames * 20):  # generous cap; loop breaks on wrap
+            player.advance(tick)
+            states = player.group_states()
+            integer = np.array(
+                pose_vertices(body, states, actor_angles=(0, 300, 0)), dtype=np.float64)
+            floats = pose_vertices_float(body, states, actor_angles=(0, 300, 0))
+            worst = max(worst, float(np.max(np.abs(floats - integer))))
+            tick += 1
+            if player.wrapped:
+                break
+    assert worst <= _HIERARCHICAL_PARITY_BOUND
 
 
 def test_snapshot_reads_live_actors_and_players():
@@ -203,12 +268,13 @@ def test_snapshot_reads_live_actors_and_players():
 
     class _Game:
         current_floor = 4
+        current_room = 1
         num_camera = 2
         actors = [_Actor(0, 12, 5), _Actor(-1, 12, 5), _Actor(3, -1, 5), _Actor(7, 4, -1)]
         anim_players = {0: _Player()}
 
     snap = snapshot(_Game())
-    assert snap.floor == 4 and snap.camera == 2
+    assert snap.floor == 4 and snap.room == 1 and snap.camera == 2
     assert set(snap.actors) == {0, 3}          # dead slot and body -1 skipped
     entry = snap.actors[0]
     assert entry.position == (11.0, 22.0, 33.0)
