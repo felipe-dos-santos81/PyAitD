@@ -40,6 +40,8 @@ from PyAitD.render.glsl import (
     SHADOW_FSH as _SHADOW_FSH,
     SHADOW_CAST_FSH as _SHADOW_CAST_FSH,
     SHADOW_BLUR_FSH as _SHADOW_BLUR_FSH,
+    RECEIVER_VSH as _RECEIVER_VSH,
+    RECEIVER_FSH as _RECEIVER_FSH,
     COMPOSITE_FSH as _COMPOSITE_FSH,
 )
 from PyAitD.render.lighting import (_clamp_downward, light_view_matrix, project_to_plane,
@@ -281,6 +283,12 @@ def _plane_y(actor):
     return float(max(actor.zv[2], actor.zv[3]))
 
 
+def _quad_triangles(corners):
+    """A ReceiverQuad's (4, 3) counter-clockwise corners -> (6, 3): the two
+    triangles GL_TRIANGLES needs, corners[0, 1, 2] and corners[0, 2, 3]."""
+    return np.asarray(corners, dtype=np.float32)[[0, 1, 2, 0, 2, 3]]
+
+
 class GLBackend:
     def __init__(self, ctx, options):
         self._ctx = ctx
@@ -356,6 +364,9 @@ class GLBackend:
         self._ssao_vao = None
         self._ssao_blur_prog = None
         self._ssao_blur_vao = None
+        self._receiver_prog = None
+        self._receiver_buf = None
+        self._receiver_vao = None
         self._subpatch_bufs = {}
         self._tess_layout = self._tess_shadow_layout = None
         self._released = False
@@ -620,6 +631,22 @@ class GLBackend:
             _set_uniform(self._ssao_prog, "radius", SSAO_RADIUS)
             _set_uniform(self._ssao_prog, "bias", SSAO_BIAS)
 
+            # shadows="room": the room's floor and hard_col tops, sampled
+            # against the same light-view depth map self_shadow uses.
+            # World-space quads, not a fullscreen pass, so they need their
+            # own vertex shader (RECEIVER_VSH) rather than _STENCIL_VSH.
+            # The buffer is written fresh every _draw_receivers call --
+            # six vertices per receiver, orphaned and rewritten to that
+            # frame's count -- so a 12-byte placeholder reserve here is
+            # only ever read back by orphan()'s resize, never by a draw.
+            self._receiver_prog = ctx.program(
+                vertex_shader=_RECEIVER_VSH, fragment_shader=_RECEIVER_FSH)
+            _set_uniform(self._receiver_prog, "shadow_map", 4)
+            _set_uniform(self._receiver_prog, "mask_tex", 1)
+            self._receiver_buf = ctx.buffer(reserve=12, dynamic=True)
+            self._receiver_vao = ctx.vertex_array(
+                self._receiver_prog, [(self._receiver_buf, "3f", "in_pos")])
+
             # Every level, 0 included: subpatch(0) is the flat triangle with
             # exact corners, so the soft-shadow passes can draw every actor
             # through the instanced programs whatever `smoothing` says.
@@ -648,6 +675,10 @@ class GLBackend:
             self._gbuf_prog, self._gbuf_fbo, self._gbuf_tex, self._gbuf_depth,
             self._ssao_prog, self._ssao_fbo, self._ssao_tex,
             self._ssao_blur_prog, self._ssao_blur_fbo, self._ssao_blur_tex, self._ssao_noise_tex,
+            # Its own buffer, not `_shadow_quad`: released here, VAO ahead
+            # of the buffer it is built on, for the same reason as the group
+            # below.
+            self._receiver_vao, self._receiver_prog, self._receiver_buf,
             # All five VAOs are built on `_shadow_quad`, so all five come
             # before it: every other pair in this tuple frees the VAO ahead of its
             # buffer, and deleting a buffer does not unbind it from a VAO
@@ -720,7 +751,10 @@ class GLBackend:
 
     def _draw_frame(self, frame):
         scene_lit = self._options.lighting == "scene"
-        soft = scene_lit and self._options.shadows == "soft"
+        # "room" implies everything "soft" does -- the gathered ground
+        # shadow, the light-view depth map, self-shadowing -- and adds the
+        # receiver pass over it (see the `soft:` branch below).
+        soft = scene_lit and self._options.shadows in ("soft", "room")
         level = self._options.smoothing
         # Under lighting="scene" only: `fixed` runs the single-target path
         # byte for byte whatever `integration` says.
@@ -804,6 +838,8 @@ class GLBackend:
 
             if soft:
                 self._gather_shadows(frame, instances, mask_by_id, travel, mvp, rot, level)
+                if self._options.shadows == "room":
+                    self._draw_receivers(frame, mvp, shadow)
             elif integrate and scene_lit:
                 # The hard casts have to reach the *plate* layer, so under
                 # `on` they all run here, before any body, instead of
@@ -1186,6 +1222,51 @@ class GLBackend:
         if cast:
             self._soften_shadows()
             self._composite_shadow(frame.light, soft=True)
+
+    def _draw_receivers(self, frame, mvp, shadow):
+        """The room's floor and hard_col tops, darkened through the same
+        light-view depth map self-shadowing reads, into the coverage
+        texture the ground shadow just used and back out through the same
+        `_composite_shadow` -- so the room's masks erase a receiver's cast
+        exactly as they erase everything else composited through that
+        texture, and the hero's shadow can drape over the crate the
+        hard_col stands in for instead of stopping at the floor.
+
+        Called only under shadows="room", after _gather_shadows and before
+        any body is drawn. A no-op when there is nothing to receive onto
+        (frame.receivers is empty -- see room_receivers) or nothing to
+        receive from (`shadow` is None, exactly when _render_shadow_map
+        found no actor with anything to cast)."""
+        if not frame.receivers or shadow is None:
+            return
+        light_vp, depth_bias = shadow
+        # The room's whole mask set, not any one actor's mask_ids: a
+        # receiver casts nothing of its own for a per-actor mask to erase,
+        # but a static foreground occluder still has to hide the floor or
+        # box top behind it, the same as it hides an actor standing there.
+        self._rasterize_masks(frame.masks)
+        self._shadow_fbo.use()
+        self._ctx.viewport = (0, 0, *self.size)
+        self._ctx.disable(moderngl.DEPTH_TEST)
+        self._shadow_fbo.clear(0.0, 0.0, 0.0, 0.0)
+        verts = np.concatenate([_quad_triangles(r.corners) for r in frame.receivers])
+        self._receiver_buf.orphan(verts.nbytes)
+        self._receiver_buf.write(np.ascontiguousarray(verts, dtype="f4").tobytes())
+        prog = self._receiver_prog
+        prog["mvp"].write(mvp.T.astype("f4").tobytes())
+        prog["light_vp"].write(np.ascontiguousarray(light_vp, dtype="f4").tobytes())
+        prog["depth_bias"].value = depth_bias
+        prog["normal_offset"].value = NORMAL_OFFSET
+        prog["target_size"].value = self.size
+        self._mask_tex.use(location=1)
+        self._shadow_map.use(location=4)
+        self._ctx.enable(moderngl.BLEND)
+        self._ctx.blend_func = moderngl.ONE, moderngl.ONE
+        self._ctx.blend_equation = moderngl.MAX
+        self._receiver_vao.render(moderngl.TRIANGLES, vertices=len(verts))
+        self._ctx.blend_equation = moderngl.FUNC_ADD
+        self._ctx.disable(moderngl.BLEND)
+        self._composite_shadow(frame.light, soft=True)
 
     def _soften_shadows(self):
         """Two passes of the radius-driven blur over the coverage texture:

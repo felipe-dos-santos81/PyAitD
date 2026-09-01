@@ -195,7 +195,9 @@ def test_graphics_and_realism_rows_cycle_render_options():
     state = SystemMenuPresenter(page=SystemMenuPage.REALISM, cursor=0)
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(lighting="fixed")
     state.cursor = 1
-    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(shadows="hard")
+    # shadows cycles hard -> soft -> room; the default is "soft", so one
+    # ACCEPT from the default moves it to "room", not "hard".
+    assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(shadows="room")
     state.cursor = 2
     assert reduce_system_menu(state, Command.ACCEPT, settings).settings.render == RenderOptions(realism="classic")
     state.cursor = 3

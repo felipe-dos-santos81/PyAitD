@@ -14,9 +14,15 @@ SMOOTHING_LEVELS = (0, 1, 2, 3)   # 2**level segments per edge; 0 draws the flat
 # hard: today's per-actor projected silhouette, thresholded, verbatim.
 # soft: a penumbra that hardens at contact, every actor's shadow gathered
 # into one pass before any body is drawn, and a light-view depth map that
-# lets bodies shadow themselves and each other. Both under lighting="scene"
-# only; "fixed" casts nothing either way.
-SHADOW_MODES = ("hard", "soft")
+# lets bodies shadow themselves and each other. room: everything soft
+# does, plus a receiver pass that rasterises the room's floor and its
+# hard_col tops and darkens them through that same light-view depth map --
+# so a shadow can drape over the box standing in for a table instead of
+# stopping dead at its edge. hard_cols are collision proxies, not the
+# painted furniture, so "room" is a menu choice only; the default stays
+# "soft" until a human looks at real frames and decides otherwise. All
+# three under lighting="scene" only; "fixed" casts nothing either way.
+SHADOW_MODES = ("hard", "soft", "room")
 # How much of the plate the actor layer takes on. Level 0 is the
 # single-target path -- bodies drawn straight over the plate, at the
 # internal resolution, with the plate's tone and dither ignored. Levels 1-3

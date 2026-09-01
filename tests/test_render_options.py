@@ -111,12 +111,14 @@ def test_invalid_smoothing_falls_back_alone():
 
 def test_shadows_defaults_to_soft_and_cycles():
     from PyAitD.render.render_options import SHADOW_MODES, cycle_shadows
-    assert SHADOW_MODES == ("hard", "soft")
+    assert SHADOW_MODES == ("hard", "soft", "room")
     options = RenderOptions()
     assert options.shadows == "soft"
-    assert cycle_shadows(options).shadows == "hard"
+    assert cycle_shadows(options).shadows == "room"
+    assert cycle_shadows(RenderOptions(shadows="room")).shadows == "hard"
     assert cycle_shadows(RenderOptions(shadows="hard")).shadows == "soft"
     assert RenderOptions(shadows="hard").to_payload()["shadows"] == "hard"
+    assert RenderOptions(shadows="room").to_payload()["shadows"] == "room"
 
 
 def test_invalid_shadows_falls_back_alone():

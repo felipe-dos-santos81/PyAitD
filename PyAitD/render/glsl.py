@@ -703,6 +703,42 @@ void main() {
     f_color = vec4(min(cover, 1.0), 1.0 - reach / float(r_max), 0.0, 0.0);
 }
 """
+RECEIVER_VSH = """
+#version 330
+uniform mat4 mvp; uniform mat4 light_vp; uniform float normal_offset;
+in vec3 in_pos;
+out vec4 v_shadow;
+void main() {
+    // Horizontal faces only, so the receiver normal is always straight
+    // up and the push along it is a push in y -- the same normal_offset
+    // the actor receivers use, for the same acne.
+    v_shadow = light_vp * vec4(in_pos + vec3(0.0, -normal_offset, 0.0), 1.0);
+    gl_Position = mvp * vec4(in_pos, 1.0);
+}
+"""
+RECEIVER_FSH = """
+#version 330
+// How much of the light the shadow map says this surface loses, written
+// into the same gathered coverage texture the ground shadow uses -- so
+// the composite that follows treats a receiver's cast exactly like an
+// actor's. Unlike SHADOW_CAST_FSH's per-actor mask (a receiver casts
+// nothing of its own to erase under one actor's mask_ids), the mask
+// tested here is the room's whole mask set: a static foreground occluder
+// hides whatever floor or box top sits behind it, the same as it hides
+// an actor standing there.
+uniform sampler2DShadow shadow_map;
+uniform sampler2D mask_tex;
+uniform vec2 target_size;
+uniform float depth_bias;
+in vec4 v_shadow;
+out vec4 f_color;
+void main() {
+    if (texture(mask_tex, gl_FragCoord.xy / target_size).r > 0.5) discard;
+    vec3 c = v_shadow.xyz / v_shadow.w;
+    float vis = textureProj(shadow_map, vec4(c.xy, c.z - depth_bias, 1.0));
+    f_color = vec4(1.0 - vis, 0.0, 0.0, 1.0);
+}
+"""
 COMPOSITE_FSH = """
 #version 330
 // The one full-target pass that puts the actor layer back onto the plate.

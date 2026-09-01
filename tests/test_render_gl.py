@@ -12,7 +12,7 @@ from PyAitD.render.geometry import BodyGeometry
 from PyAitD.engine.data.mask_geometry import MaskDraw
 from PyAitD.render.render_gl import GLBackend, camera_matrix, projection_matrix, view_matrix
 from PyAitD.render.render_options import RenderOptions
-from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription
+from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription, ReceiverQuad
 from PyAitD.engine.actor.skel import RenderResult
 from PyAitD.engine.space.world import CameraState
 
@@ -871,6 +871,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         "_gbuf_prog", "_gbuf_fbo", "_gbuf_tex", "_gbuf_depth",
         "_ssao_tex", "_ssao_fbo", "_ssao_blur_tex", "_ssao_blur_fbo", "_ssao_noise_tex",
         "_ssao_prog", "_ssao_vao", "_ssao_blur_prog", "_ssao_blur_vao",
+        "_receiver_prog", "_receiver_buf", "_receiver_vao",
     ):
         resource = getattr(backend, attr)
         assert resource is not None, f"{attr} was never allocated before the failure"
@@ -880,7 +881,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
     for level, buf in backend._subpatch_bufs.items():
         assert isinstance(buf.mglo, moderngl.InvalidObject), f"subpatch buffer {level} leaked"
         leak_checked += 1
-    assert leak_checked == 57  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 60  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
@@ -1886,6 +1887,151 @@ def test_a_sphere_casts_a_soft_shadow_even_on_the_flat_mesh(gl_ctx):
     soft = _soft_frame_render(gl_ctx, "soft", [actor], plate, (0.0, -0.5, 0.85))
     assert int((hard[137:] < plain[137:] - 5).any(axis=2).sum()) == 0
     assert int((soft[137:] < plain[137:] - 5).any(axis=2).sum()) > 50
+
+
+# ---- shadows="room": the receiver pass over the floor and hard_col tops ----
+
+def _sphere_and_phantom_floor(x, y, z, radius, floor_y, color=1):
+    """A visible sphere plus one extra, undrawn vertex far below it.
+
+    _world_box (and so the shadow map's frustum, tightly fit to the
+    casting actor's own geometry -- see NORMAL_OFFSET) reads every vertex
+    in `geometry.vertices` unconditionally, whether or not a triangle or
+    a sphere ever references it. The phantom vertex here belongs to
+    neither, so nothing draws it, but it still stretches the frustum's
+    far plane down to `floor_y` -- otherwise a receiver placed clear of
+    the visible sphere's own on-screen silhouette would fall outside the
+    valid shadow map and sample its clamped edge instead of a real
+    depth."""
+    vertices = np.array([[x, y, z], [x, floor_y, z]], np.float32)
+    normals = np.tile([0.0, 0.0, -1.0], (2, 1)).astype(np.float32)
+    return BodyGeometry(vertices, normals, np.zeros((0, 3), np.int32), np.zeros(0, np.uint8),
+                        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), ((0, radius, color),),
+                        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+
+
+def _frame_with_box_under_the_hero():
+    """A caster (a sphere resting high above the scene, its own rendered
+    silhouette clipped near the top of the frame) and one hand-built
+    box-top receiver sitting far below it on screen -- inside the
+    sphere's own straight-down shadow footprint (its horizontal distance
+    from the sphere's axis is under the sphere's radius), and inside the
+    shadow map's frustum only because of the phantom vertex `geometry`
+    carries. The light travels straight down (0, 1, 0) so the shadow's
+    world x/z footprint exactly follows the sphere's, with no lateral
+    correction to reason about, and the untilted test camera maps world
+    y to screen row directly, with no x/z entanglement -- so placing the
+    sphere far above (very negative y) and the receiver far below (a
+    large positive y) is what keeps the receiver's own screen position
+    from landing inside the sphere's rendered body and reading its
+    colour back instead of the darkened plate."""
+    geometry = _sphere_and_phantom_floor(0.0, -500.0, 600.0, radius=250.0, floor_y=320.0)
+    # feet_y sits near the sphere's own top, far (on screen) from the
+    # receiver below -- so the old, unrelated flattened ground-shadow
+    # this actor also casts under shadows="soft" cannot land on the same
+    # pixels _box_top_pixels reads and confound the comparison.
+    hero = _standing_actor(0, geometry, feet_y=-700)
+    light = _scene_light((0.0, -1.0, 0.0))
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    floor = ReceiverQuad(np.array(
+        [[-200.0, 300.0, 350.0], [200.0, 300.0, 350.0],
+         [200.0, 300.0, 850.0], [-200.0, 300.0, 850.0]], np.float32))
+    top = ReceiverQuad(np.array(
+        [[-40.0, 300.0, 450.0], [40.0, 300.0, 450.0],
+         [40.0, 300.0, 750.0], [-40.0, 300.0, 750.0]], np.float32))
+    return FrameDescription(_view(), ImageAsset(plate, False), _palette(), (hero,), (),
+                            light=light, receivers=(floor, top))
+
+
+def _frame_with_box_under_the_hero_and_a_mask_over_it():
+    """The same fixture, plus a full-screen static mask -- unrelated to
+    the hero's own mask_ids, exactly as a room's mask polygons are: a
+    receiver casts nothing of its own for a per-actor mask to erase, so
+    the only way a mask can reach it is through the room's whole mask
+    set, `frame.masks`."""
+    frame = _frame_with_box_under_the_hero()
+    poly = np.array([[0, 0], [319, 0], [319, 199], [0, 199]], np.int16)
+    mask = MaskDraw(0, (poly,), (0, 0, 319, 199), 0, ())
+    from dataclasses import replace as _replace
+    return _replace(frame, masks=(mask,))
+
+
+def _frame_with_no_boxes():
+    """A caster with nothing to receive its shadow: frame.receivers is
+    empty, the input _draw_receivers treats as a no-op -- the neutral
+    identity `shadows="room"` has to collapse to `shadows="soft"` under."""
+    geometry = _sphere_and_phantom_floor(0.0, -500.0, 600.0, radius=250.0, floor_y=320.0)
+    hero = _standing_actor(0, geometry, feet_y=-700)
+    light = _scene_light((0.0, -1.0, 0.0))
+    plate = np.full((200, 320, 3), 200, np.uint8)
+    return FrameDescription(_view(), ImageAsset(plate, False), _palette(), (hero,), (), light=light)
+
+
+def _box_top_pixels(frame):
+    """The screen rectangle frame.receivers[1] (the box-top quad) covers,
+    shrunk by a couple of pixels so antialiasing at the quad's own
+    screen-space edges cannot leak into the comparison. The quad is a
+    horizontal (constant-y) surface seen nearly edge-on by this untilted
+    camera, so its own z extent -- not a large one -- is what buys the
+    handful of screen rows this needs; the margin has to stay small
+    enough not to invert that thin a range."""
+    top = frame.receivers[1]
+    proj = frame.camera.project(top.corners)[:, :2]
+    x0, y0 = proj.min(axis=0)
+    x1, y1 = proj.max(axis=0)
+    margin = 2
+    return (slice(int(round(y0)) + margin, int(round(y1)) - margin),
+            slice(int(round(x0)) + margin, int(round(x1)) - margin))
+
+
+def _render_shadows_with(gl_ctx, frame, shadows):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", shadows=shadows))
+    backend.draw(frame)
+    out = backend.read_rgb().astype(int)
+    backend.release()
+    return out
+
+
+def _render_baseline_soft(gl_ctx, frame):
+    """`frame` rendered under shadows="soft" with its receivers stripped
+    out -- i.e. exactly the FrameDescription shadows="soft" rendered
+    before this task, since `receivers` did not exist yet. The pass/fail
+    line for "soft has to stay byte-identical" is this against
+    _render_shadows_with(..., "soft") on the *unstripped* frame."""
+    from dataclasses import replace as _replace
+    return _render_shadows_with(gl_ctx, _replace(frame, receivers=()), "soft")
+
+
+def test_a_caster_over_a_box_top_darkens_it_through_the_shadow_map(gl_ctx):
+    frame = _frame_with_box_under_the_hero()
+    lit = _render_shadows_with(gl_ctx, frame, "soft")
+    received = _render_shadows_with(gl_ctx, frame, "room")
+    top = _box_top_pixels(frame)
+    assert received[top].mean() < lit[top].mean() - 2.0
+
+
+def test_the_room_receiver_pass_leaves_soft_output_untouched(gl_ctx):
+    """The whole receiver feature is gated behind the third mode: `soft`
+    must be byte-identical to what it was before this task."""
+    frame = _frame_with_box_under_the_hero()
+    assert np.array_equal(_render_shadows_with(gl_ctx, frame, "soft"),
+                          _render_baseline_soft(gl_ctx, frame))
+
+
+def test_a_mask_erases_the_receiver_pass(gl_ctx):
+    """Receivers are drawn through the same gathered composite the ground
+    shadow uses, so the room's masks erase them exactly as they erase it."""
+    frame = _frame_with_box_under_the_hero_and_a_mask_over_it()
+    received = _render_shadows_with(gl_ctx, frame, "room")
+    top = _box_top_pixels(frame)
+    assert np.array_equal(received[top], _render_shadows_with(gl_ctx, frame, "soft")[top])
+
+
+def test_room_with_no_hard_col_in_view_matches_soft(gl_ctx):
+    """The neutral identity for this mode."""
+    frame = _frame_with_no_boxes()
+    assert np.array_equal(_render_shadows_with(gl_ctx, frame, "room"),
+                          _render_shadows_with(gl_ctx, frame, "soft"))
 
 
 def test_world_box_encloses_vertices_and_spheres():
