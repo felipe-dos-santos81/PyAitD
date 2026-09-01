@@ -1182,16 +1182,19 @@ def _flat_backend(gl_ctx, level, scale=1):
     return GLBackend(gl_ctx, RenderOptions(scale=scale, shading="flat", lighting="fixed", msaa=0, smoothing=level))
 
 
-def _instance_rows(corners, normals, straight):
+def _instance_rows(corners, normals, straight, uv=None):
     """(M,51) float32 rows in GLBackend._instance_data's layout -- per corner
     (pos.xyz, ao), (normal.xyz, straight), (rgb, index), rest, uv -- with
-    ao=1, black, index 0, rest 0 and uv 0: only positions, normals and
-    flags matter to the tessellation itself."""
+    ao=1, black, index 0 and rest 0: only positions, normals, flags and
+    (when given) uv matter to the tessellation itself. `uv` is (M,3,2);
+    omitted, every corner's uv is 0."""
     m = len(corners)
+    if uv is None:
+        uv = np.zeros((m, 3, 2))
     parts = []
     for k in range(3):
         parts += [corners[:, k], np.ones((m, 1)), normals[:, k], straight[:, k:k + 1],
-                  np.zeros((m, 3)), np.zeros((m, 1)), np.zeros((m, 3)), np.zeros((m, 2))]
+                  np.zeros((m, 3)), np.zeros((m, 1)), np.zeros((m, 3)), uv[:, k]]
     return np.concatenate(parts, axis=1).astype("f4")
 
 
@@ -1251,6 +1254,58 @@ def test_tessellation_shader_matches_the_numpy_reference(gl_ctx):
         projected = np.frombuffer(out.read(), "f4").reshape(len(corners), len(bary), 6)[..., :3]
         expected = project_to_plane(ref_pos.reshape(-1, 3), travel, 250.0).reshape(ref_pos.shape)
         assert np.allclose(projected, expected, atol=0.05)
+    for resource in (vao, out, inst_buf, bary_buf, prog):
+        resource.release()
+
+
+def test_tess_vsh_blends_uv_by_the_same_corner_order_as_position_and_normal(gl_ctx):
+    """Round 2 of the task-5 review: a pixel test comparing a painted
+    render against a fully unpainted one cannot catch a scrambled corner
+    order in TESS_VSH's `v_uv = in_uv0 * u + in_uv1 * v + in_uv2 * w` --
+    painting with the wrong corner order still differs from painting
+    nothing at all, by the same pixel count as painting it right (verified
+    directly: swapping in_uv0/in_uv1 left the painted-vs-plain pixel count
+    exactly unchanged at 12793, while it moved 8333 of those 12793 pixels
+    relative to the correctly-ordered render -- see task-5-report.md, fix
+    round 2). That is a defect in what a before/after pixel comparison can
+    see, not something a stronger atlas fixes: no atlas or per-corner uv
+    choice changes which pixels a "differs from unpainted" assertion looks
+    at.
+
+    This test instead reads v_uv straight off the GPU via transform
+    feedback -- the same mechanism
+    test_tessellation_shader_matches_the_numpy_reference already uses for
+    v_world/v_normal, extended to the third instance-buffer varying this
+    task added -- and compares it to the identical barycentric blend
+    computed independently in numpy. A scrambled corner order cannot
+    survive that: the two blends are different functions of (u, v, w)
+    whenever the three corner uv values differ, which random per-corner
+    uv guarantees with probability 1."""
+    from PyAitD.render import refine
+    from PyAitD.render.render_gl import _TESS_VSH, instance_layout
+    rng = np.random.default_rng(11)
+    corners = rng.uniform(-300.0, 300.0, (4, 3, 3))
+    normals = rng.normal(size=(4, 3, 3))
+    normals /= np.linalg.norm(normals, axis=2, keepdims=True)
+    straight = np.zeros((4, 3))
+    uv = rng.uniform(0.0, 1.0, (4, 3, 2))
+    bary = refine.subpatch(2)                      # (P,3): u, v, w per subpatch vertex
+    expected = np.einsum("ick,pc->ipk", uv, bary)   # same blend TESS_VSH computes for v_uv
+
+    prog = gl_ctx.program(vertex_shader=_TESS_VSH, varyings=["v_uv"])
+    _write_if_present(prog, "rot", np.eye(3, dtype="f4"))
+    _write_if_present(prog, "mvp", np.eye(4, dtype="f4"))
+    prog["project"].value = 0
+    prog["travel"].value = (0.0, 1.0, 0.0)
+    prog["plane_y"].value = 0.0
+    bary_buf = gl_ctx.buffer(np.ascontiguousarray(bary, dtype="f4").tobytes())
+    inst_buf = gl_ctx.buffer(_instance_rows(corners, normals, straight, uv).tobytes())
+    fmt, names = instance_layout(prog)
+    vao = gl_ctx.vertex_array(prog, [(bary_buf, "3f", "in_bary"), (inst_buf, fmt, *names)])
+    out = gl_ctx.buffer(reserve=len(corners) * len(bary) * 2 * 4)
+    vao.transform(out, moderngl.POINTS, vertices=len(bary), instances=len(corners))
+    got = np.frombuffer(out.read(), "f4").reshape(len(corners), len(bary), 2)
+    assert np.allclose(got, expected, atol=1e-5)
     for resource in (vao, out, inst_buf, bary_buf, prog):
         resource.release()
 
@@ -2789,22 +2844,47 @@ def test_the_tone_match_still_meets_the_room_at_both_extremes(gl_ctx):
 
 
 def _painted_frame():
-    """_golden_frame with every body given a flat blue atlas and a dummy
-    per-corner UV, so both the tessellated and flat actor paths have
-    something to sample. Blue, not the brief's red: _golden_frame's textured
-    body is palette index 1, which _palette() sets to (255, 0, 0) -- a red
-    atlas would land on exactly the same value the palette ramp already
-    produces, so the substitution would be a silent no-op and the test
-    would pass whether or not albedo substitution actually worked."""
+    """_golden_frame with every body given a four-quadrant atlas and a
+    distinct per-corner UV, so both the tessellated and flat actor paths
+    have something to sample -- and so a wrong corner order or a wrong
+    barycentric term actually moves pixels instead of landing on the same
+    colour everywhere.
+
+    Round 1 of the task-5 review flagged that a *red* atlas is a no-op:
+    _golden_frame's textured body is palette index 1, which _palette()
+    sets to (255, 0, 0) -- painting it red would land on exactly the value
+    the untextured ramp already produces. Round 2 flagged that a *uniform*
+    atlas is also a no-op for a different reason: with every corner UV
+    equal (as a single np.full(...) fill gave every corner), any set of
+    barycentric weights summing to 1 blends three identical values back to
+    that same value, so a scrambled corner order or a transposed
+    interpolation term is invisible no matter what colour the atlas holds.
+    Both defects have to be avoided together: distinct colours across the
+    atlas (avoiding _palette()'s red and green, which are unused by the
+    tessellated triangle actor but avoided anyway for the same reason as
+    red) and distinct UVs per corner, so a corner swap in TESS_VSH's
+    `v_uv = in_uv0 * u + in_uv1 * v + in_uv2 * w` relocates which colour
+    lands where on screen rather than leaving the picture unchanged."""
     import dataclasses
     frame = _golden_frame()
-    texture = ImageAsset(np.tile([[[0, 0, 255]]], (8, 8, 1)).astype(np.uint8), True)
+    atlas = np.zeros((8, 8, 3), np.uint8)
+    atlas[:4, :4] = (0, 0, 255)      # low u, low v:  blue
+    atlas[:4, 4:] = (0, 255, 255)    # high u, low v: cyan
+    atlas[4:, :4] = (255, 0, 255)    # low u, high v: magenta
+    atlas[4:, 4:] = (255, 255, 0)    # high u, high v: yellow (unreached by the corner triangle below,
+                                      # which is the point: a scrambled order can pull it in)
+    texture = ImageAsset(atlas, True)
+    # Deep inside three different quadrants -- (0.15, 0.15), (0.85, 0.15),
+    # (0.15, 0.85) -- clear of the quadrant boundaries and clear of
+    # (0.85, 0.85), which the correct blend never reaches but a scrambled
+    # corner order can.
+    corner_uv = np.array([[0.15, 0.15], [0.85, 0.15], [0.15, 0.85]], np.float32)
     painted_actors = tuple(
         dataclasses.replace(
             actor,
             geometry=dataclasses.replace(
                 actor.geometry,
-                uv=np.full((len(actor.geometry.tris), 3, 2), 0.5, np.float32)),
+                uv=np.tile(corner_uv, (len(actor.geometry.tris), 1, 1)).astype(np.float32)),
             texture=texture,
         )
         for actor in frame.actors
@@ -2851,13 +2931,13 @@ def test_drawing_the_same_unpainted_body_twice_is_self_consistent(gl_ctx):
 
 
 def test_a_painted_body_changes_pixels_and_classic_ignores_it(gl_ctx):
-    """A flat blue atlas over every corner must move pixels under
-    realism=enhanced and move none under realism=classic."""
+    """A four-quadrant atlas over distinct per-corner UVs must move pixels
+    under realism=enhanced and move none under realism=classic."""
     from PyAitD.render.render_gl import GLBackend
     from PyAitD.render.render_options import RenderOptions
 
     plain = _golden_frame()
-    painted = _painted_frame()                 # same frame, uv + blue texture (helper above)
+    painted = _painted_frame()                 # same frame, distinct per-corner uv + atlas (helper above)
 
     def render(frame, realism):
         options = RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
@@ -2882,25 +2962,24 @@ def test_a_painted_body_changes_pixels_through_the_tessellated_path_too(gl_ctx):
     (test_smoothing_zero_draws_through_the_legacy_path names it as such);
     this pins that the tessellated path -- TESS_VSH's in_uv0/1/2 wiring,
     _draw_actor_tessellated's texture bind, has_body_texture/body_albedo on
-    _tess_prog -- is exercised end to end at all, at exactly 16 of the
+    _tess_prog -- is exercised end to end, at exactly 16 of the
     tessellated layout's 16 vertex-attribute slots.
-    NOTE what this does not prove: _painted_frame gives every corner of
-    every triangle the same uv (0.5, 0.5) over a single flat colour, so a
-    wrong corner order or transposed barycentric term in
-    `v_uv = in_uv0 * u + in_uv1 * v + in_uv2 * w` would still sample the
-    same flat colour and this test would not catch it -- any weights
-    summing to 1 blend three identical values to that same value. Nothing
-    in this suite feeds TESS_VSH distinguishable per-corner uv values and
-    reads v_uv back (test_tessellation_shader_matches_the_numpy_reference's
-    transform feedback captures v_world/v_normal only, not v_uv or
-    v_color); the CPU side is pinned corner-by-corner
-    (test_instance_data_packs_each_corners_own_columns), and on the GPU
-    side v_uv's blend is the textually identical pattern to v_color's line
-    just above it, which is the only thing standing behind its
-    correctness today.
-    Same blue atlas as the flat-path test and for the same reason:
-    _golden_frame's textured body is palette index 1 (red), so a red atlas
-    would be just as signal-free here."""
+
+    What this does NOT prove, even with _painted_frame's four-quadrant
+    atlas and distinct per-corner UVs: correctness of the corner order in
+    `v_uv = in_uv0 * u + in_uv1 * v + in_uv2 * w`. Painting with a
+    scrambled corner order still differs from painting nothing at all, by
+    the same pixel count as painting it right -- a before/after comparison
+    against the unpainted frame cannot see a wrong-but-different paint job
+    as wrong. Verified directly (task-5-report.md, fix round 2): swapping
+    in_uv0/in_uv1 in TESS_VSH left this test green, with the exact same
+    12793-pixel painted-vs-plain diff as the correct shader, even though
+    8333 of those 12793 pixels actually changed colour relative to the
+    correct render. That gap is closed instead by
+    test_tess_vsh_blends_uv_by_the_same_corner_order_as_position_and_normal,
+    which reads v_uv back via transform feedback and compares it to an
+    independent numpy reference -- the only thing in this suite that a
+    scrambled corner order cannot survive."""
     from PyAitD.render.render_gl import GLBackend
     from PyAitD.render.render_options import RenderOptions
 
