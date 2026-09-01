@@ -36,6 +36,12 @@ from PyAitD.engine.data.formats import SCREEN_PIXELS, decode_image
 from PyAitD.engine.data.pak import PakError, find_pak
 from PyAitD.games import load_profile
 from PyAitD.render.asset_resolver import texture_palette_path
+# Run as a script (`python tools/export_textures.py`), sys.path[0] is tools/,
+# not the repo root, so the sibling tools.export_actor_uvs module main()
+# imports lazily is only reachable through the package when the root is
+# added explicitly (same idiom as tools/check_textures.py).
+if __package__ in (None, ""):
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 
 # This tool exports AITD1 data and has no Game to take a profile from, so it
@@ -234,6 +240,8 @@ def _parse_args(argv):
     p.add_argument("--guide-scale", type=int, default=4, help="guide image scale (default 4)")
     p.add_argument("--screens", action=argparse.BooleanOptionalAction, default=True,
                     help="also export the ITD_RESS full-screen resources (default on)")
+    p.add_argument("--uvs", action=argparse.BooleanOptionalAction, default=True,
+                    help="bake actor UV sidecars and painter guides (needs the tools extra)")
     p.add_argument("--force", action="store_true",
                     help="re-export even if --out already holds backgrounds/ (overwrites regenerated files)")
     return p.parse_args(argv)
@@ -283,6 +291,15 @@ def main(argv=None):
             print(f"screens: {len(screens)}")
         except (PakError, FileNotFoundError, OSError, ValueError) as exc:
             print(f"warning: screens skipped: {exc}", file=sys.stderr)
+    # body_records: consumed by export_manifest(bodies=...) in Task 3
+    body_records = []
+    if args.uvs:
+        try:
+            from tools.export_actor_uvs import export_bodies
+            body_records = export_bodies(args.data, PROFILE, args.out)
+            print(f"body uvs: {len(body_records)}")
+        except (PakError, FileNotFoundError, OSError, ValueError) as exc:
+            print(f"warning: body uvs skipped: {exc}", file=sys.stderr)
     # alt_backgrounds: respect --floors filter, warn and continue on failure
     try:
         alt_records = export_alt_backgrounds(args.data, args.out, args.guide_scale, floors=floors)

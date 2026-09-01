@@ -345,3 +345,27 @@ def screen_guide(pixels, entry, scale):
     _draw_segments(img, layout_segments(screen_layout(entry)), COLOR_BLIT, scale)
     _draw_legend_footer(img, h)
     return img
+
+
+def body_uv_rel_path(num):
+    return f"bodies/body{num:03d}.uv.json"
+
+
+def body_texture_rel_path(num):
+    return f"bodies/body{num:03d}.png"
+
+
+def body_guide_rel_path(num):
+    return f"bodies/body{num:03d}-guide.png"
+
+
+def sha256_tris(tris):
+    """Content hash of a body's triangulation, so a UV sidecar baked against
+    a different triangulation is detectable. Hashes the index array in a
+    fixed dtype and byte order, plus its length, so the digest is stable
+    across platforms and numpy versions."""
+    arr = np.ascontiguousarray(tris, dtype="<i4")
+    h = hashlib.sha256()
+    h.update(str(arr.shape).encode("ascii"))
+    h.update(arr.tobytes())
+    return h.hexdigest()
