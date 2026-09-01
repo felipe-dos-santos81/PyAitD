@@ -1155,17 +1155,47 @@ class GLBackend:
         self._ctx.disable(moderngl.DEPTH_TEST)
 
     def _proj_xy(self, frame):
-        """(fx, fy): the pinhole projection pair `ssao_reference` and
+        """(fx, fy): the pinhole scale factors `ssao_reference` and
         SSAO_FSH both use to turn (screen position, linear depth) into a
-        view-space position, via `ndc = (x / -z) * f` on each axis.
+        position, each in its own space.
+
+        These two numbers are convention-free, unlike the G-buffer's
+        normals (see GBUFFER_FSH): fx and fy are exactly the linear x/y
+        scale this engine's own projection applies before its perspective
+        divide -- `projection_matrix(state)`'s x and y rows are `[fx,
+        0, 0, 0]` and `[0, -fy, 0, 0]`, zero coefficient on z and w, so
+        `clip.xy == (fx * x, -fy * y)` for a camera-space (x, y, z)
+        regardless of z. `test_proj_xy_matches_the_signed_scale_the_real_
+        projection_applies` pins exactly this, sign included on both
+        axes -- the direct successor to a now-removed on-axis/off-axis
+        test that could not tell a correctly signed fy from -fy.
+
+        What `_proj_xy` deliberately does *not* claim to reproduce is
+        this engine's actual NDC: this engine's true perspective divide
+        is by `z + state.focal1` (see `CameraState.project`, and
+        `projection_matrix`'s `shift`, whose composition puts `focal1`
+        into row 3 -- `w = z + focal1`, not the `w = z` its literal
+        `[0, 0, 1.0, 0]` array entry alone would suggest), while
+        `ssao_reference`'s `_view_position`/`_project` divide by `depth`
+        alone -- the raw `v_view.z` GBUFFER_FSH writes, with no `focal1`
+        term anywhere in that path. For a camera whose `focal1` is large
+        relative to scene depth (the golden frame's camera: focal1=1000
+        against actor depths of 564.5-696.0), that gap measurably distorts
+        the physical scale `ssao_reference` reconstructs positions at.
+        That is a real, separate question -- what "depth" SSAO's own
+        reconstruction should divide by -- and not one a sign-pinning
+        test for `_proj_xy`'s two scale factors can or should answer;
+        flagged in the task-3 report rather than guessed at here.
 
         Read off `projection_matrix` -- the same function camera_matrix
         builds `mvp` out of -- rather than re-deriving focal2/focal3 by
         hand, so this can never drift from what the actors are actually
-        projected with. Both this codebase's projection_matrix rows carry
-        a sign (row 1 is negated, to flip screen-space y) that has nothing
-        to do with the sign of a pinhole scale factor, so both are taken
-        as magnitudes."""
+        projected with. Row 1 of projection_matrix is negated (to flip
+        screen-space y, a real sign this engine's own NDC needs) which is
+        exactly the reason both rows are read as magnitudes here: that
+        negation is a screen-axis convention, not a statement about which
+        way the view axis points, and abs() strips it without touching
+        the reasoning above."""
         proj = projection_matrix(frame.camera.state)
         return abs(float(proj[0][0])), abs(float(proj[1][1]))
 

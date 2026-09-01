@@ -430,12 +430,35 @@ GBUFFER_FSH = """
 // FITD-derived convention, not OpenGL's -z-forward), confirmed against
 // the golden frame -- an actor at world z in [580, 820] renders covered
 // pixels with v_view.z in [564.5, 696.0], and -v_view.z on the same
-// scene is negative everywhere a pixel is covered.
+// scene is negative everywhere a pixel is covered. Depth is otherwise
+// convention-free: it is a positive distance along the view axis, and
+// ssao_reference/SSAO_FSH each reconstruct a position from it in their
+// own -z-forward space (ssao.py's _view_position sets z = -depth) --
+// neither side ever sees an engine-space position, so no sign decision
+// is needed here for depth. What this raw v_view.z does *not* carry is
+// this engine's own focal1 shift (see CameraState.project and
+// GLBackend._proj_xy's docstring) -- a separate, flagged-not-fixed
+// question about what "depth" ssao_reference's own reconstruction
+// should divide by, not a sign question.
+//
+// Normals are the one quantity that actually crosses the boundary
+// between the two spaces, and unlike depth they are not convention-free:
+// a surface facing the camera has its normal pointing toward -z in this
+// engine's +z-forward space, but ssao.py was written for a -z-forward
+// space, where a camera-facing normal points toward +z. Left unmirrored,
+// every normal this pass writes would be flipped end-to-end through
+// Task 4's whole pipeline -- consistently wrong on both the numpy twin
+// and the shader, so the twin-vs-shader parity test would still pass
+// while a flat, camera-facing surface occluded itself. diag(1, 1, -1) is
+// the fix, applied here rather than in ssao.py (a self-contained
+// reference this bridges into, not the space that should change): a
+// mirror on z is its own inverse-transpose, so this is exact, not an
+// approximation.
 in vec3 v_normal;
 in vec3 v_view;
 out vec4 f_gbuf;
 void main() {
-    f_gbuf = vec4(normalize(v_normal), v_view.z);
+    f_gbuf = vec4(normalize(vec3(v_normal.xy, -v_normal.z)), v_view.z);
 }
 """
 SHADOW_GEOM_VSH = """

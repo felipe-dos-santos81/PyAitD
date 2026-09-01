@@ -3122,24 +3122,81 @@ def test_the_prepass_does_not_run_with_occlusion_off(gl_ctx):
         backend.release()
 
 
-def test_proj_xy_projects_a_known_point_where_the_main_pass_does(gl_ctx):
-    """The twin and the shader share this pair, so it has to be the same
-    projection the actors are drawn with -- not a second derivation."""
+def test_the_gbuffer_bridges_the_camera_facing_normal_to_positive_z(gl_ctx):
+    """Fix round 1, Important 3 (controller ruling): this engine's camera
+    space is +z-forward (see GBUFFER_FSH's and _proj_xy's comments), so a
+    surface facing the camera has its normal pointing toward -z here --
+    but ssao.py was written for a -z-forward space, where a camera-facing
+    normal points toward +z. GBUFFER_FSH mirrors the z component
+    (diag(1, 1, -1)) to bridge the two conventions.
+
+    Pinned against a real frame, not a synthetic buffer, because a
+    synthetic buffer could encode either convention by construction and
+    would prove nothing about whether the bridge is actually wired into
+    the shader: _golden_frame's two actors (a flat triangle and a sphere)
+    are camera-facing by construction (that's what makes them visible at
+    all -- a back-facing triangle would be culled/invisible and the
+    sphere is drawn whole, so only its near, camera-facing hemisphere
+    ends up depth-tested to the front), so the covered pixels' normals
+    should be predominantly +z once the bridge is applied. Measured on
+    this scene: 100% of covered pixels have normal.z > 0, mean 0.867 --
+    the assertions below sit well inside that margin so a future
+    unrelated change to the golden geometry does not make this flaky."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        backend.draw(_golden_frame())
+        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
+            backend._gbuf_size[1], backend._gbuf_size[0], 4)
+        depth = gbuf[..., 3].astype(np.float32)
+        covered = depth > 0.0
+        assert covered.any(), "the prepass drew nothing"
+        normal_z = gbuf[..., 2].astype(np.float32)[covered]
+        assert (normal_z > 0.0).mean() > 0.9, \
+            "covered normals are not predominantly +z -- the bridge looks unwired"
+        assert normal_z.mean() > 0.5
+    finally:
+        backend.release()
+
+
+def test_proj_xy_matches_the_signed_scale_the_real_projection_applies(gl_ctx):
+    """Fix round 1, replacing test_proj_xy_projects_a_known_point_where_
+    the_main_pass_does: that test was sign-invariant and could not have
+    caught a wrong sign on fx or fy. An on-axis point projects to (0, 0)
+    under any sign, and the off-axis check divided a common factor of fx
+    out of both sides of its own comparison -- neither case can tell a
+    correctly signed fy from -fy.
+
+    This test instead compares against `camera_matrix` -- the actual
+    `mvp` `_draw_frame` renders actors with -- applied to a point that is
+    off-axis on *both* x and y, so a sign error on either fx or fy shows
+    up as a sign-flipped assertion failure rather than a magnitude
+    mismatch.
+
+    The comparison is against clip.xy directly, before the perspective
+    divide, not against NDC: `projection_matrix`'s x and y rows have zero
+    coefficient on z and w (`[fx,0,0,0]` and `[0,-fy,0,0]`), so clip.xy
+    depends on view-space x, y alone and nothing else -- in particular
+    nothing this engine's `state.focal1` shift does to clip.z and clip.w
+    (see CameraState.project's `depth = z + focal1`) reaches this
+    comparison. That isolates exactly the linear, signed x/y scale
+    `_proj_xy` is responsible for, from the separate question of what
+    `ssao_reference` should divide by to turn that scale into an NDC --
+    which is a real question (this engine's true perspective divide is by
+    `z + focal1`, not by the raw `v_view.z` GBUFFER_FSH writes; see the
+    fix-round-1 note in the report), but is not a question a sign-pinning
+    test for `_proj_xy` can or should have to answer."""
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat",
                                               lighting="scene", msaa=0, occlusion="ssao"))
     try:
         frame = _golden_frame()
         fx, fy = backend._proj_xy(frame)
         assert fx > 0.0 and fy > 0.0
-        # A point on the camera axis projects to the centre of the screen
-        # under any pinhole, whatever fx and fy are.
-        p = np.array([0.0, 0.0, -500.0], dtype=np.float32)
-        ndc_x = p[0] * fx / -p[2]
-        ndc_y = p[1] * fy / -p[2]
-        assert abs(ndc_x) < 1e-6 and abs(ndc_y) < 1e-6
-        # Off-axis, doubling the distance halves the screen offset.
-        q = np.array([50.0, 0.0, -500.0], dtype=np.float32)
-        r = np.array([50.0, 0.0, -1000.0], dtype=np.float32)
-        assert abs((q[0] * fx / -q[2]) / 2.0 - (r[0] * fx / -r[2])) < 1e-6
+        world = np.array([137.0, -52.0, 900.0, 1.0], dtype=np.float64)
+        mvp = camera_matrix(frame.camera, backend._options.scale).astype(np.float64)
+        clip = mvp @ world
+        view_pos = (view_matrix(frame.camera).astype(np.float64) @ world)[:3]
+        assert math.isclose(clip[0], fx * view_pos[0], rel_tol=1e-5)
+        assert math.isclose(clip[1], -fy * view_pos[1], rel_tol=1e-5)
     finally:
         backend.release()
