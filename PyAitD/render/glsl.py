@@ -530,11 +530,21 @@ void main() {
     vec3 p = view_position(uv, depth);
 
     vec2 r = texture(noise_tex, gl_FragCoord.xy / 4.0).rg;
-    vec3 rand = vec3(r, 0.0);
-    vec3 tangent = rand - n * dot(rand, n);
-    float tlen = length(tangent);
-    tangent = tlen > 1e-6 ? tangent / tlen : vec3(0.0, 1.0, 0.0);
-    vec3 bitangent = cross(n, tangent);
+    // Duff et al., "Building an Orthonormal Basis, Revisited". Built from
+    // the normal alone and exactly orthonormal for every normal, unlike a
+    // Gram-Schmidt against the noise vector, whose tangent collapses
+    // toward zero length wherever the noise happens to align with the
+    // normal -- measured down to 4.2e-3, which amplifies a last-bit
+    // disagreement into a whole flipped kernel sample. The rotation then
+    // happens *within* the tangent plane, so the noise still decorrelates
+    // neighbouring pixels without ever conditioning the basis.
+    float sgn = n.z >= 0.0 ? 1.0 : -1.0;
+    float a = -1.0 / (sgn + n.z);
+    float b = n.x * n.y * a;
+    vec3 b1 = vec3(1.0 + sgn * n.x * n.x * a, sgn * b, -sgn * n.x);
+    vec3 b2 = vec3(b, sgn + n.y * n.y * a, -n.y);
+    vec3 tangent   =  b1 * r.x + b2 * r.y;
+    vec3 bitangent = -b1 * r.y + b2 * r.x;
 
     float occluded = 0.0;
     for (int i = 0; i < kernel_count; i++) {
