@@ -268,3 +268,29 @@ def test_a_body_with_no_texture_is_not_a_finding(tmp_path, data_dir, profile):
     from PyAitD.render.texture_check import check_body_textures
     (tmp_path / "bodies").mkdir(parents=True)
     assert check_body_textures(tmp_path, data_dir, profile) == []
+
+
+def test_body_texture_for_a_body_no_archive_exposes_is_a_finding(tmp_path, data_dir, profile):
+    """Ruling A's namesake case: a paint for a body number neither hero
+    archive has at all. The hero probe (hero=0, then hero=1) must exhaust
+    both before this fires -- it is not a missing-sidecar or bad-UV
+    problem, the body itself does not exist."""
+    import json
+    import numpy as np
+    from PyAitD.render.texture_check import check_body_textures
+    from PyAitD.render.texture_export import body_texture_rel_path, body_uv_rel_path
+    from tools.export_textures import save_png
+
+    num = 99999  # out of range for both hero archives (0..271 in aitd1)
+    (tmp_path / "bodies").mkdir(parents=True)
+    (tmp_path / body_uv_rel_path(num)).write_text(json.dumps({
+        "schema": 1, "size": [4, 4], "chart_count": 1,
+        "tris_sha256": "0" * 64, "uvs": [],
+    }), encoding="utf-8")
+    save_png(tmp_path / body_texture_rel_path(num), np.zeros((4, 4, 3), dtype=np.uint8))
+
+    findings = check_body_textures(tmp_path, data_dir, profile)
+    assert len(findings) == 1
+    f = findings[0]
+    assert (f.floor, f.camera, f.kind) == (-3, num, "invalid")
+    assert f.detail == f"body {num} is not in either hero archive; the game has no such body"
