@@ -181,6 +181,22 @@ def test_the_nohaze_twin_differs_from_the_default(tmp_path, gl_ctx, data_dir):
         default = render_fixture(data_dir, fixture, 1, "smooth", gl_ctx)
         nohaze = render_fixture(data_dir, fixture, 1, "smooth", gl_ctx, atmosphere="off")
         assert not np.array_equal(default, nohaze), fixture
+        # An anti-collapse floor, deliberately not a pin on the tuned value.
+        # `not array_equal` alone is satisfied by a difference no eye could
+        # find, which is how an on-by-default knob becomes an inert feature
+        # -- the failure class this repo keeps re-learning. Measured peaks
+        # at this scale, sweeping HAZE_DENSITY: 3.5e-5 (shipped) gives
+        # attic 22 / combat 34; 1.2e-5 gives 9 / 16; 4e-6 gives 5 / 8; and
+        # 0.0 still gives 3 / 4, because the two depth *grades* keep acting
+        # after the haze term is gone. So this floor cannot be set at the
+        # shipped value's own magnitude without pinning taste, and it is
+        # not: 6 sits above the 3-4 the grades alone produce and below the
+        # 9 the previously-shipped density produced, so a human retuning by
+        # eye keeps real room in both directions. Whether 1.2e-5 was *too
+        # weak* is a judgement recorded in docs/atmosphere-proof.md and
+        # left to the attestation table, not encoded here.
+        delta = np.abs(default.astype(np.int32) - nohaze.astype(np.int32)).max()
+        assert delta >= 6, f"{fixture}: peak haze is {delta} counts -- all but invisible"
 
 
 def test_parse_args_atmosphere_defaults_to_the_render_default():

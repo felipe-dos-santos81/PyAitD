@@ -199,7 +199,7 @@ toe/shoulder/grain constants.
 
 | Constant | Plan's value | Shipped | What moved it |
 |---|---|---|---|
-| `HAZE_DENSITY` | 0.00035 | **0.000012** | Measured fixture depths (below) |
+| `HAZE_DENSITY` | 0.00035 | **0.000035** | Measured fixture depths (below), then measured pixel deltas (review round 1) |
 | `HAZE_START` | 900.0 (plan) → 1600.0 (Task 3) | **2500.0** | Measured fixture depths (below) |
 | `SIGMA_DEPTH_SLOPE` | 0.25 | **0.03** | Rescaled with `HAZE_START` |
 | `GRAIN_DEPTH_SLOPE` | 0.35 | **0.04** | Rescaled with `HAZE_START` |
@@ -286,34 +286,73 @@ attic near actor 10 (mean)        1600    0.000    1.000    1.000
 attic p05                         1518    0.000    1.000    1.000
 attic median                      4780    0.671    1.497    1.696
 attic p95                        11848    0.972    2.601    3.242
-attic far actor 12 (mean)        15366    0.992    3.151    4.011
-attic max                        12792    0.980    2.749    3.448
+attic max (deepest visible)      12840    0.980    2.756    3.459
+attic actor 12, off-camera       15366    0.992    3.151    4.011
 combat min                       22128    0.999    4.207    5.490
 combat median                    24912    1.000    4.643    6.099
 combat max                       29488    1.000    5.357    7.100
 
-=== candidate: HAZE_START=2500.0 HAZE_DENSITY=1.2e-05 SIGMA_DEPTH_SLOPE=0.03 GRAIN_DEPTH_SLOPE=0.04
+=== Task 4 first pass (superseded): HAZE_START=2500.0 HAZE_DENSITY=1.2e-05 SIGMA_DEPTH_SLOPE=0.03 GRAIN_DEPTH_SLOPE=0.04
 depth sample                     depth     haze  sigma x  grain x
 attic near actor 10 (mean)        1600    0.000    1.000    1.000
 attic p05                         1518    0.000    1.000    1.000
 attic median                      4780    0.027    1.027    1.036
 attic p95                        11848    0.106    1.112    1.150
-attic far actor 12 (mean)        15366    0.143    1.154    1.206
-attic max                        12792    0.116    1.124    1.165
+attic max (deepest visible)      12840    0.117    1.124    1.165
+attic actor 12, off-camera       15366    0.143    1.154    1.206
 combat min                       22128    0.210    1.236    1.314
 combat median                    24912    0.236    1.269    1.359
 combat max                       29488    0.277    1.324    1.432
+
+=== shipped: HAZE_START=2500.0 HAZE_DENSITY=3.5e-05 SIGMA_DEPTH_SLOPE=0.03 GRAIN_DEPTH_SLOPE=0.04
+depth sample                     depth     haze  sigma x  grain x
+attic near actor 10 (mean)        1600    0.000    1.000    1.000
+attic p05                         1518    0.000    1.000    1.000
+attic median                      4780    0.077    1.027    1.036
+attic p95                        11848    0.279    1.112    1.150
+attic max (deepest visible)      12840    0.304    1.124    1.165
+attic actor 12, off-camera       15366    0.363    1.154    1.206
+combat min                       22128    0.497    1.236    1.314
+combat median                    24912    0.544    1.269    1.359
+combat max                       29488    0.611    1.324    1.432
 ```
+
+**All three settings are kept side by side on purpose.** The pending
+manual attestation can move this either way — up toward the plan's
+saturation or back down toward the first pass — without anyone
+re-measuring anything. `HAZE_DENSITY` is the only constant to turn;
+`HAZE_START` and the two slopes are settled.
+
+`attic max (deepest visible)` is the depth of the deepest pixel the
+attic frame actually *renders* (12840 at scale 4). The row below it,
+actor 12 at 15366, is the frame's farthest actor by position but it is
+**not covered in the rendered image** — it is listed because the
+per-actor survey names it, not as evidence a reader can see. Where this
+document quotes one number for "the attic's far end", it quotes the
+visible 12840 / 0.304.
 
 At the plan's values the *median* attic actor pixel is 67% of the way to
 flat ambient tone with 1.7x grain, and **every single covered pixel in the
 combat fixture is at haze 1.000** — the entire visible cast rendered as
 featureless ambient colour, with up to 7x grain on top. That is precisely
 the "far actors read as washed out" failure the manual attestation table
-below exists to catch, and it would have shipped on by default. At the
-values now in `plate.py`, the attic's farthest actor reaches 0.14 and the
-deepest pixel in either fixture reaches 0.28, while the nearest actor in
-each fixture is at exactly 0.
+below exists to catch, and it would have shipped on by default.
+
+At the values now in `plate.py`, the deepest visible attic pixel reaches
+0.304, the deepest pixel in either fixture (combat's) reaches 0.611, and
+the nearest actor in each fixture is at exactly 0.
+
+`HAZE_DENSITY` was itself corrected once more, in review round 1. This
+task first shipped 0.000012, which is a defensible *shape* — near actor
+untouched, no saturation anywhere — but the wrong *amount*: measured, it
+moved the attic's affected pixels by a mean of 1.71 counts and a maximum
+of 10, which is below what an eye reliably resolves on a dithered actor.
+A knob that is on by default and changes nothing anyone can see is an
+inert feature wearing a different hat, which is this project's dominant
+defect class. 0.000035 is the measured replacement: it lands the attic's
+far end at 0.30 rather than 0.12, still nowhere near the 1.000 that made
+the plan's value unshippable, and the pixel counts below show what it
+buys.
 
 `HAZE_START = 2500` was chosen to sit above the attic's nearest actor
 (eye depth 1503-1728) with margin and below everything else measured. It
@@ -330,18 +369,40 @@ is now recorded in `plate.py` and in `AGENTS.md`.
 
 Two test fixtures had to move with the constants, and both moves are
 recorded in their own docstrings. `_near_and_far_frame`'s far actor sat
-at eye depth 2400, which at the recalibrated density is a 0.5% haze —
-under one 8-bit count. Left there, `test_neutral_tunables_are_an_exact_identity`'s
-second half and `test_a_far_actor_moves_toward_the_ambient_tone_and_a_near_one_does_not`
-would both have quietly become inert. It now sits at 15000, the attic's
-own far actor. `_far_flat_actor_frame` moved the same way, from 2500 to
-15000 — with a lengthened lens (`focal2 = focal3 = 3200`) rather than a
+at eye depth 2400 and `_far_flat_actor_frame`'s at 2500 — **both at or
+below the new `HAZE_START` of 2500, so both would have hazed by exactly
+zero.** Not weakened: inert. `test_neutral_tunables_are_an_exact_identity`'s
+second half, `test_a_far_actor_moves_toward_the_ambient_tone_and_a_near_one_does_not`,
+`test_softness_and_grain_increase_with_depth` and
+`test_haze_unpremultiplies_depth_at_partially_covered_edges` would all
+have been comparing two identical unhazed renders while still passing.
+Both fixtures now sit at eye depth 15000. `_far_flat_actor_frame` got
+there with a lengthened lens (`focal2 = focal3 = 3200`) rather than a
 scaled-up triangle, because the enhanced material's detail field is
 world-space and a 6x larger triangle alone moved that test's measured
 edge-vs-interior gap from 0.3 counts to 20, past its own 6.0 threshold,
-with no bug present.
+with no bug present. The lens grew 10x against a 6x depth change, so
+that silhouette is about 1.67x larger on screen than before (64 edge and
+1540 interior pixels, against 114 and 435), which is harmless for a test
+that compares two means and asserts a 20-pixel floor on each region
+first.
 
-Both moves were mutation-checked. With `d / a.a` in `COMPOSITE_FSH`
+One thing the tunables are **not**: pinned by a test at their tuned
+value. Reverting `HAZE_DENSITY` from 0.000035 to the superseded 0.000012
+leaves the whole suite green, because the suite asserts that the haze is
+nonzero and directional, never that it has a particular magnitude — and
+that is the right call, since a magnitude assertion would freeze a taste
+decision the attestation table is meant to be able to revisit. What the
+suite does now carry is an anti-collapse floor in
+`test_the_nohaze_twin_differs_from_the_default`: the twin's peak channel
+delta must reach 6 counts on both fixtures. Measured sweep at scale 1 —
+3.5e-5 gives attic 22 / combat 34, 1.2e-5 gives 9 / 16, 4e-6 gives 5 / 8,
+and 0.0 still gives 3 / 4 because the two depth grades keep acting after
+the haze term is gone. The floor therefore sits above what the grades
+alone produce and below the previously-shipped density, catching a
+collapse toward inertness without deciding how strong the haze should be.
+
+Both fixture moves were mutation-checked. With `d / a.a` in `COMPOSITE_FSH`
 mutated to bare `d`, `test_haze_unpremultiplies_depth_at_partially_covered_edges`
 is still the only test in the file that fails (`1 failed, 147 passed`),
 which is the same unique-catch property Task 3 recorded for it. Zeroing
@@ -379,27 +440,38 @@ for fixture in ('attic', 'combat'):
     npix = (diff.max(axis=2) > 0).sum()
     print('nohaze', fixture, 'equal?', np.array_equal(a, b), 'pixels differing:', npix, '/', a.shape[0]*a.shape[1], 'max abs diff', diff.max(), 'mean abs diff', diff.mean())
 "
-nohaze attic equal? False pixels differing: 48914 / 1024000 max abs diff 10 mean abs diff 0.0494384765625
-nohaze combat equal? False pixels differing: 4152 / 1024000 max abs diff 15 mean abs diff 0.0132353515625
+nohaze attic equal? False pixels differing: 56800 / 1024000 max abs diff 22 mean abs diff 0.124765625
+nohaze combat equal? False pixels differing: 4423 / 1024000 max abs diff 30 mean abs diff 0.029056966145833335
 ```
 
 The twin differs on **both** fixtures, which the task brief did not take
 for granted — the attic is nominally the small-room case the haze is
 built to leave alone. Measured, it is not: the attic's camera has
-`focal1 = 1431` and its ten actors spread from eye depth 1503 to 16021,
-so most of its cast is past `HAZE_START` and only its nearest actor is
-genuinely untouched. 48,914 pixels move on the attic (4.8% of the frame,
-which is about three quarters of its 64,604 covered actor pixels), by at
-most 10 counts. The combat venue moves fewer pixels (its whole cast is
-small on screen) but harder — at most 15 counts, mean 4.8 over the pixels
-that move — because its entire visible cast sits at eye depth
-22,128-29,488.
+`focal1 = 1431` and its ten actors spread from eye depth 1503 to 16021
+(covered depths 1431 to 12840), so most of its cast is past `HAZE_START`
+and only its nearest actor is genuinely untouched. 56,800 pixels move on
+the attic — 5.5% of the frame, about seven eighths of its 64,604 covered
+actor pixels — by at most 22 counts. The combat venue moves fewer pixels
+(its whole cast is small on screen) but harder, at most 30 counts,
+because its entire visible cast sits at eye depth 22,128-29,488.
 
-**The effect is genuinely subtle in absolute terms: a maximum of 10
-counts on the attic.** That is a deliberate choice over the alternative
-documented above, and it is the single thing most worth a human's eye
-below. The constant to turn is `HAZE_DENSITY`, and "The tunables" gives
-the haze fraction at every fixture depth for two settings of it.
+Per-pixel magnitude over the pixels that actually move, taken directly
+rather than from the PNGs (this is the max-channel delta at each moved
+pixel, averaged):
+
+```
+$ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python scratch_pixels.py
+attic: frame 1280x800  differing pixels 56800 (5.55% of frame)  max channel delta 22  mean |delta| over differing px 3.57
+combat: frame 1280x800  differing pixels 4423 (0.43% of frame)  max channel delta 30  mean |delta| over differing px 9.83
+```
+
+At this task's first density (0.000012) those same two lines read 10 /
+1.71 and 15 / 4.81 — a shift small enough to be argued away as dither.
+At 0.000035 the attic's affected pixels average 3.6 counts and reach 22,
+and the combat venue's average 9.8 and reach 30, while the near actor in
+each fixture still moves by exactly nothing. That is the trade this
+document exists to hand a human: the numbers for three settings are in
+"The tunables", and `HAZE_DENSITY` is the only constant to turn.
 
 The near-versus-far measurement
 `test_a_far_actor_moves_toward_the_ambient_tone_and_a_near_one_does_not`
@@ -408,14 +480,14 @@ asserts on, reproduced directly:
 ```
 $ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python scratch_pixels.py
 near actor (eye depth 1500, under HAZE_START): mean |on-off| = 0.0000 counts over 903 px
-far  actor (eye depth 15000):                  mean |on-off| = 12.8053 counts over 351 px
-far actor's mean distance from the ambient tone: 91.44 -> 78.64 counts
+far  actor (eye depth 15000):                  mean |on-off| = 32.3561 counts over 351 px
+far actor's mean distance from the ambient tone: 91.44 -> 59.09 counts
 ```
 
 The near actor moves by **exactly zero** counts across 903 pixels — the
 "a small room is untouched" guarantee, measured rather than argued. The
-far actor moves 12.8 counts on average, and moves *toward* the ambient
-tone: its mean distance from it falls from 91.44 to 78.64.
+far actor moves 32.4 counts on average, and moves *toward* the ambient
+tone: its mean distance from it falls from 91.44 to 59.09.
 
 ## Frame time
 
@@ -429,29 +501,43 @@ bus — a fixed ~5 ms the real game never pays, since it presents the frame
 interleaved A/B/A/B inside one loop rather than measured in separate
 loops, so clock and thermal drift land on both sides.
 
+Re-measured at the shipped `HAZE_DENSITY` of 0.000035 — the density does
+not change the instruction count (the `exp` runs either way), so this was
+not expected to move, but the document must not carry a number taken at a
+different setting:
+
 ```
 $ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python scratch_frametime.py
 --- L alone: the atmosphere knob, everything else at its shipping default (n=64 interleaved, attic, scale 4, msaa 4, smoothing 2)
-  atmosphere=off                                     cpu   3.41  gpu   8.24  frame  11.66 ms  (median  11.26, min   9.95)
-  atmosphere=on (the new default)                    cpu   3.38  gpu   8.45  frame  11.83 ms  (median  11.29, min  10.19)
-  ratio b/a = 1.015 whole frame, 1.025 GPU only
+  atmosphere=off                                     cpu   3.42  gpu   8.23  frame  11.65 ms  (median  11.22, min  10.09)
+  atmosphere=on (the new default)                    cpu   3.38  gpu   8.22  frame  11.60 ms  (median  11.04, min  10.32)
+  ratio b/a = 0.995 whole frame, 0.998 GPU only
 
 --- roadmap 2: I + J + K + L all off versus all on (n=64 interleaved, attic, scale 4, msaa 4, smoothing 2)
-  I tick, J unpainted, K occlusion=off, L atmosphere=off cpu   3.46  gpu   8.30  frame  11.76 ms  (median  11.39, min  10.37)
-  I smooth, J painted, K ssao, L atmosphere=on       cpu   3.74  gpu   8.53  frame  12.27 ms  (median  11.73, min  10.46)
-  ratio b/a = 1.044 whole frame, 1.028 GPU only   budget <= 1.5: MET
+  I tick, J unpainted, K occlusion=off, L atmosphere=off cpu   3.48  gpu   8.31  frame  11.78 ms  (median  11.45, min   9.90)
+  I smooth, J painted, K ssao, L atmosphere=on       cpu   3.72  gpu   8.31  frame  12.03 ms  (median  11.54, min  10.74)
+  ratio b/a = 1.021 whole frame, 1.001 GPU only   budget <= 1.5: MET
 ```
 
-A second back-to-back run of the same script, unmodified, on this shared
-and noisy machine:
+Three further back-to-back runs of the same script, unmodified, on this
+shared and noisy machine:
 
 ```
-  ratio b/a = 1.013 whole frame, 1.025 GPU only
-  ratio b/a = 1.043 whole frame, 1.027 GPU only   budget <= 1.5: MET
+run 1:  ratio b/a = 0.993 whole frame (L alone)  |  1.026 whole frame (roadmap)   budget <= 1.5: MET
+run 2:  ratio b/a = 0.992 whole frame (L alone)  |  1.052 whole frame (roadmap)   budget <= 1.5: MET
+run 3:  ratio b/a = 1.001 whole frame (L alone)  |  1.048 whole frame (roadmap)   budget <= 1.5: MET
 ```
 
-**The roadmap's closing budget is met: 1.044x (1.043x on the repeat)
-against a 1.5x ceiling.** This is the number the spec asked for at
+**L alone is at or below this machine's noise floor.** Across four runs
+its ratio was 0.995, 0.993, 0.992, 1.001 — straddling 1.0, which is not a
+claim that the composite's extra arithmetic is free, only that it is
+smaller than the run-to-run spread of a 11.6 ms frame here. The honest
+statement is that L's cost is not measurable on this fixture at this
+resolution, not that it is zero.
+
+**The roadmap's closing budget is met with a wide margin: 1.021, 1.026,
+1.052 and 1.048 across four runs (mean 1.037), against a 1.5x ceiling.**
+This is the number the spec asked for at
 `docs/superpowers/specs/2026-08-31-actor-realism-roadmap-2-design.md:375-378`,
 and sub-project L is the last of the four, so this is the first and only
 point at which it could be measured.
@@ -470,10 +556,14 @@ Three caveats on that number, all of which cut against it:
    `_actor_depth_tex` (and `_ms_depth_color`) every frame; only the
    composite's arithmetic is switched off. This was reviewed and accepted
    in Task 2 — gating it would mean rebuilding framebuffers on an option
-   change — but it means the 1.044x above **understates** L's true cost
+   change — but it means the ~1.04x above **understates** L's true cost
    against a pre-roadmap baseline that had no second colour attachment at
    all. The honest statement is that the *switchable* part of all four
-   sub-projects costs 4.4%, not that all four cost 4.4%.
+   sub-projects costs about 4%, not that all four cost about 4%. It also
+   explains why "L alone" measures at the noise floor: the allocation and
+   the per-fragment depth write, which are the parts with a real cost,
+   happen on both sides of that particular ratio, leaving only the
+   composite's extra arithmetic to be seen.
 3. **The attic is a small-actor fixture.** Its ten actors cover 64,604
    of 1,024,000 pixels at scale 4 (6.3%), and every one of roadmap 2's
    GPU-side features acts on the actor layer only. Most of this frame's
@@ -491,19 +581,21 @@ Three caveats on that number, all of which cut against it:
 | The haze is invisible in a small room | pending |
 | Grain and softness change with depth without the near actor looking touched | pending |
 | Nothing crawls as an actor walks toward the camera | pending |
-| The effect is strong enough to be worth having at all (max 10 counts on the attic — see "Pixel evidence") | pending |
+| The effect is the right strength — not too weak to see, not washed out (attic: mean 3.6 / max 22 counts over the pixels it moves; combat: 9.8 / 30 — see "Pixel evidence", and "The tunables" for two other settings) | pending |
 
 ## Known limitations
 
 - **Haze and the two grades are tuned by eye, and no eye has seen them
   yet.** The four constants were settled here against *measured* fixture
-  depths, which is a real improvement on the plan's reasoning-from-scale,
-  but "how much haze looks right" is not a measurable quantity. The
-  numbers in "The tunables" are chosen to be conservative — the near
-  actor exactly untouched, the deepest pixel in either fixture at 0.28 —
-  on the argument that too little is recoverable by turning one constant
-  and too much shipped by default is not. The last row of the attestation
-  table is the one that closes this.
+  depths and *measured* pixel deltas, which is a real improvement on the
+  plan's reasoning-from-scale, but "how much haze looks right" is not a
+  measurable quantity — measurement can only bound it, by ruling out the
+  saturating end (haze 1.000 on the whole combat cast) and the invisible
+  end (a 1.7-count mean on the attic). The shipped setting sits between
+  those bounds; where exactly it should sit inside them is the last row
+  of the attestation table. "The tunables" carries all three settings so
+  that decision needs no new measurement, and `HAZE_DENSITY` is the only
+  constant that should move.
 - **The depth grade softens within the existing radius and can never
   sharpen past it.** `radius` stays a uniform because the composite's
   blur loop depends on uniform control flow; only the weight falloff

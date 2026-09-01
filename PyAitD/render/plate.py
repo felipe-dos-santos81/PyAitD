@@ -59,7 +59,7 @@ NEUTRAL_PLATE = PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), 0.0)
 # Distances are in the game's world units. AITD1's actors are about 200
 # units tall; a room, measured rather than guessed, is tens of thousands
 # of units deep from the camera's eye (see the block below HAZE_DENSITY).
-HAZE_DENSITY = 0.000012     # per unit beyond HAZE_START
+HAZE_DENSITY = 0.000035     # per unit beyond HAZE_START
 # `f_depth` (render_gl.py's GBUFFER_FSH derivation) carries `v_view.z +
 # focal1` -- eye distance from the pinhole, not from the camera plane --
 # so HAZE_START has to clear focal1 itself: the minimum depth any pixel
@@ -86,8 +86,11 @@ HAZE_DENSITY = 0.000012     # per unit beyond HAZE_START
 # pixel at 1.000 -- the whole cast rendered as flat ambient tone, with
 # 3-7x grain on top. That is the "washed out" failure the manual
 # attestation exists to catch, shipped on by default. The values here put
-# the attic's farthest actor at 0.14 haze and the deepest pixel in either
-# fixture at 0.28, with the nearest actor in each at exactly 0.
+# the deepest *visible* attic pixel at 0.30 haze and the deepest pixel in
+# either fixture (combat's, at 29488) at 0.61, with the nearest actor in
+# each fixture at exactly 0. Turn HAZE_DENSITY, not HAZE_START, to move
+# the strength: docs/atmosphere-proof.md tabulates the haze at every
+# fixture depth for three settings of it.
 HAZE_START = 2500.0        # below this, no haze at all -- a small room is untouched
 # Both slopes multiply `beyond = max(0, depth - HAZE_START) / HAZE_START`,
 # so they are denominated in HAZE_START and have to be rescaled with it.

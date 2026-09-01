@@ -590,7 +590,12 @@ def test_view_matrix_is_camera_matrixs_view_half():
 
 
 def test_flat_triangle_lands_where_the_logical_projection_says(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
+    # atmosphere="off": this test asserts an exact primary colour, so it
+    # belongs to the identity net and names the field rather than
+    # inheriting it. It happens to pass either way today -- its actors sit
+    # at eye depth 2000, under HAZE_START -- but that is a silent
+    # dependency on a tunable, not a property of what it tests.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", atmosphere="off"))
     geometry = _tri_geometry(z=1000.0, color=1)
     backend.draw(_frame([_actor(0, geometry)]))
     rgb = backend.read_rgb()
@@ -639,7 +644,12 @@ def test_painter_order_across_actors_ignores_depth(gl_ctx):
 
 
 def test_stencil_mask_erases_only_the_flagged_actor(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
+    # atmosphere="off": this test asserts an exact primary colour, so it
+    # belongs to the identity net and names the field rather than
+    # inheriting it. It happens to pass either way today -- its actors sit
+    # at eye depth 2000, under HAZE_START -- but that is a silent
+    # dependency on a tunable, not a property of what it tests.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", atmosphere="off"))
     poly = np.array([[0, 0], [319, 0], [319, 199], [0, 199]], np.int16)
     mask = MaskDraw(0, (poly,), (0, 0, 319, 199), 0, ())
     a, b = _tri_geometry(1000.0, 1), _tri_geometry(900.0, 2)
@@ -654,7 +664,12 @@ def test_stencil_mask_erases_only_the_covered_region(gl_ctx):
     poly = np.array([[160, 0], [319, 0], [319, 199], [160, 199]], np.int16)
     mask = MaskDraw(0, (poly,), (160, 0, 319, 199), 0, ())
     geometry = _tri_geometry(1000.0, 1, span=100000.0)  # covers the whole screen
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
+    # atmosphere="off": this test asserts an exact primary colour, so it
+    # belongs to the identity net and names the field rather than
+    # inheriting it. It happens to pass either way today -- its actors sit
+    # at eye depth 2000, under HAZE_START -- but that is a silent
+    # dependency on a tunable, not a property of what it tests.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", atmosphere="off"))
     backend.draw(_frame([_actor(0, geometry, mask_ids=(0,))], [mask]))
     rgb = backend.read_rgb()
     assert tuple(rgb[100, 50]) == (255, 0, 0)  # left of the mask: still visible
@@ -681,7 +696,12 @@ def test_actors_and_mask_render_correctly_above_scale_one(gl_ctx):
     # triangle's real coverage (verified against a coverage render with
     # mask_ids=()), so it actually exercises GPU mask erasure.
     geometry = _tri_geometry(1000.0, 1, span=100000.0)
-    backend = GLBackend(gl_ctx, RenderOptions(scale=3, shading="flat"))
+    # atmosphere="off": this test asserts an exact primary colour, so it
+    # belongs to the identity net and names the field rather than
+    # inheriting it. It happens to pass either way today -- its actors sit
+    # at eye depth 2000, under HAZE_START -- but that is a silent
+    # dependency on a tunable, not a property of what it tests.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=3, shading="flat", atmosphere="off"))
     backend.draw(_frame([_actor(0, geometry, mask_ids=(0,))], [mask]))
     rgb = backend.read_rgb()
     assert rgb.shape == (600, 960, 3)
@@ -750,7 +770,12 @@ def test_shading_modes_differ(gl_ctx):
 
 
 def test_sphere_and_line_and_point_render(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", msaa=0))
+    # atmosphere="off": this test asserts an exact primary colour, so it
+    # belongs to the identity net and names the field rather than
+    # inheriting it. It happens to pass either way today -- its actors sit
+    # at eye depth 2000, under HAZE_START -- but that is a silent
+    # dependency on a tunable, not a property of what it tests.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", atmosphere="off", msaa=0))
     # y=2.0 (not 0.0) on both endpoints: a perfectly horizontal line at
     # world y=0 projects to exactly sy=100, so the line's half-width-0.5
     # quad spans logical y [99.5, 100.5] -- both of those are themselves
@@ -1039,9 +1064,12 @@ def _near_and_far_frame():
     depth ~15400, the combat venue's cast at 22000-29500 -- and 2400 is
     not a far actor in this game at all; it is barely past HAZE_START.
     Left there, every assertion below about a far actor would have been
-    measuring a 0.5% haze, under one 8-bit count, which would have made
-    this whole group of tests inert the moment the tunables were
-    recalibrated to real content. z=14000 is the attic's own far actor.
+    measuring exactly no haze at all: 2400 is *below* the recalibrated
+    HAZE_START of 2500, so `max(0, depth - haze_start)` is exactly 0
+    there and the "far" actor would have been as untouched as the near
+    one -- this whole group of tests inert, not merely weakened, the
+    moment the tunables were fitted to real content. z=14000 is the
+    attic's own far actor.
 
     `x_offset` and `span` are scaled by the same 6.25 the depth is, so the
     far actor's *screen* footprint is unchanged: same columns, same rows,
@@ -1286,10 +1314,11 @@ def _far_flat_actor_frame():
 
     z=14000, so eye depth 15000 at focal1 1000 -- the attic fixture's own
     far actor. It sat at z=1500 (depth 2500) until Task 4 remeasured the
-    fixtures against real data and recalibrated the tunables; at the new
-    values 2500 is a 0.006 haze, and the bug this test exists to catch
-    would have moved the edge by a fraction of a count against a 6.0-count
-    threshold -- a live test quietly turned inert.
+    fixtures against real data and recalibrated the tunables. 2500 is now
+    exactly HAZE_START, so `max(0, depth - haze_start)` there is exactly
+    0 and the haze this test measures would have been exactly nothing:
+    not a weakened test, an entirely inert one, passing its `< 6.0`
+    assertion because both sides of the comparison were unhazed.
 
     The lens is lengthened (focal2 = focal3 = 3200 against `_view()`'s
     320) rather than the triangle enlarged, which is why this helper does
@@ -1300,7 +1329,17 @@ def _far_flat_actor_frame():
     pixels, which alone moved the measured edge-vs-interior gap from 0.3
     counts to 20 -- past the threshold, with no bug present. Measured
     both ways. Only focal1 feeds the depth this test is about, and it is
-    unchanged."""
+    unchanged.
+
+    The lens grew 10x while the depth grew 6x, so the silhouette is about
+    1.67x larger on screen than it used to be -- 64 partially-covered
+    edge pixels and 1540 interior ones, against 114 and 435 before. That
+    is harmless for what this test measures, and mildly helpful: the
+    assertion is a comparison of two *means* (edge against interior),
+    both still far above the 20-pixel floor the test asserts before it
+    measures anything, and a larger interior region makes the interior
+    mean the steadier of the two. What would matter is the edge pixel
+    count falling below that floor, and the test would say so by name."""
     from PyAitD.render.lighting import SceneLight
     light = SceneLight((0.3, -0.5, -0.8), (0.9, 0.8, 0.7), (0.2, 0.2, 0.3), 0.7)
     far = _standing_actor(0, _offset_facing_tri(14000.0, 1, (0.0, 0.0, -1.0), 0.0, span=150.0), 400.0)
