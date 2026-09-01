@@ -11,6 +11,10 @@ import pytest
 pytestmark = pytest.mark.tools
 
 xatlas = pytest.importorskip("xatlas")
+# export_bodies also needs igl.embree (ambient_occlusion); importorskip only
+# xatlas here would mean a half-installed tools extra errors instead of
+# skipping this module, contradicting the module docstring above.
+pytest.importorskip("igl.embree")
 
 
 def _stub_body():
@@ -107,18 +111,20 @@ def test_unwrap_on_real_bodies_keeps_the_corner_order(data_dir, profile, body_nu
     assert bake.uvs.min() >= 0.0 and bake.uvs.max() <= 1.0
 
 
-def test_barycentric_fill_paints_the_triangle_colour_ao_darkens_and_draws_a_wireframe_edge():
+def test_bbox_fill_paints_the_triangle_colour_ao_darkens_and_draws_a_wireframe_edge():
     """Pure-function coverage for the guide renderer -- no igl, no game
     data. A single triangle at known pixel corners in an 11x11 atlas, so
     an interior pixel and an edge pixel are both known in advance."""
-    from tools.export_actor_uvs import WIREFRAME_RGB, _barycentric_fill
+    from tools.export_actor_uvs import WIREFRAME_RGB, _bbox_fill
     # corners land exactly on atlas pixels (1, 1), (7, 1), (1, 7) for an
-    # 11x11 image (xs = round(u * 10), ys = round((1 - v) * 10))
-    corner_uvs = np.array([[[0.1, 0.9], [0.7, 0.9], [0.1, 0.3]]], dtype=np.float32)
+    # 11x11 image (xs = round(u * 10), ys = round(v * 10) -- no flip: v=0
+    # is row 0, matching the runtime's top-down upload, see
+    # test_guide_orientation_matches_the_runtimes_top_down_upload below)
+    corner_uvs = np.array([[[0.1, 0.1], [0.7, 0.1], [0.1, 0.7]]], dtype=np.float32)
     corner_values = np.array([[200, 100, 50]], dtype=np.uint8)
 
-    bright = _barycentric_fill((11, 11), corner_uvs, corner_values, np.array([1.0], dtype=np.float32))
-    dark = _barycentric_fill((11, 11), corner_uvs, corner_values, np.array([0.5], dtype=np.float32))
+    bright = _bbox_fill((11, 11), corner_uvs, corner_values, np.array([1.0], dtype=np.float32))
+    dark = _bbox_fill((11, 11), corner_uvs, corner_values, np.array([0.5], dtype=np.float32))
 
     assert bright.shape == (11, 11, 3)
     # (2, 2) sits inside the bounding box and off every edge: the flat fill
@@ -131,6 +137,32 @@ def test_barycentric_fill_paints_the_triangle_colour_ao_darkens_and_draws_a_wire
     edge = (1, 4)
     assert tuple(int(c) for c in bright[edge]) == WIREFRAME_RGB
     assert tuple(int(c) for c in dark[edge]) == WIREFRAME_RGB
+
+
+def test_guide_orientation_matches_the_runtimes_top_down_upload():
+    """Guide<->runtime orientation contract: `_bbox_fill` must place a known
+    UV at row `round(v * (H - 1))`, with no flip, because that is the
+    convention the runtime's texture upload actually uses --
+    `self._ctx.texture((w, h), 3, data)` at
+    PyAitD/render/render_gl.py:918 -- a top-down CPU upload (the same
+    convention `_bg_tex` uses, documented at render_gl.py:426-431), so at
+    sample time v=0 reads row 0, the top. If a future edit reintroduces a
+    (1 - v) flip here, this test pins the row it painted and the row it
+    deliberately left untouched, so the drift is caught immediately rather
+    than only showing up as an upside-down paint in the game."""
+    from tools.export_actor_uvs import _bbox_fill
+    # All three corners share v=0.2 -- a degenerate, one-pixel-tall bbox --
+    # so the fill lands on exactly one row: round(0.2 * 10) = row 2 of an
+    # 11x11 atlas (height - 1 = 10). The mirrored row a (1 - v) flip would
+    # use instead -- round((1 - 0.2) * 10) = row 8 -- must stay untouched.
+    corner_uvs = np.array([[[0.1, 0.2], [0.9, 0.2], [0.1, 0.2]]], dtype=np.float32)
+    corner_values = np.array([[200, 100, 50]], dtype=np.uint8)
+
+    img = _bbox_fill((11, 11), corner_uvs, corner_values, np.array([1.0], dtype=np.float32))
+
+    painted_row, flipped_row, col = 2, 8, 5
+    assert tuple(int(c) for c in img[painted_row, col]) != (0, 0, 0)
+    assert tuple(int(c) for c in img[flipped_row, col]) == (0, 0, 0)
 
 
 def test_guide_image_matches_the_atlas_size_and_darkens_with_lower_ao():

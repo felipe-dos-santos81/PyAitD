@@ -78,19 +78,41 @@ def test_main_skips_missing_floor_with_warning(tmp_path, monkeypatch, capsys):
 def test_main_writes_manifest_when_the_uv_bake_is_unavailable(tmp_path, monkeypatch, capsys):
     """The tools extra (xatlas, libigl) is optional and `make install` does
     not install it -- a stock `make export-textures` must still finish and
-    write the manifest even when the bake stage cannot even be imported."""
-    _patch_floors(monkeypatch, {0})
-    import tools.export_actor_uvs as export_actor_uvs
+    write the manifest even when xatlas is genuinely unimportable.
 
-    def boom(*args, **kwargs):
-        raise ImportError("No module named 'xatlas'")
-    monkeypatch.setattr(export_actor_uvs, "export_bodies", boom)
+    xatlas is imported lazily, deep inside unwrap_body -- not at
+    tools/export_actor_uvs.py's own top level -- so simulating "missing"
+    by monkeypatching export_bodies to raise ImportError (this test's old
+    approach) no longer matches what main() actually guards against
+    (Finding 8 of the whole-branch review narrowed the try to the
+    xatlas/igl.embree imports themselves, not the whole export_bodies(...)
+    call). `sys.modules[name] = None` is the standard trick for making
+    `import xatlas` raise ImportError deterministically without actually
+    uninstalling it."""
+    import sys
+    _patch_floors(monkeypatch, {0})
+    monkeypatch.setitem(sys.modules, "xatlas", None)
     out = tmp_path / "ov"
     rc = xb.main([str(tmp_path), "--out", str(out), "--floors", "0"])
     assert rc == 0
     assert (out / "manifest.json").is_file()
     err = capsys.readouterr().err
     assert "tools extra" in err and "pip install" in err
+
+
+def test_main_does_not_relabel_an_unrelated_import_error_inside_the_bake(tmp_path, monkeypatch):
+    """Finding 8: only a genuinely missing xatlas/igl is "install the tools
+    extra" -- an ImportError raised anywhere else inside export_bodies is a
+    real bug and must surface as one, not be swallowed and mislabeled as a
+    missing dependency."""
+    _patch_floors(monkeypatch, {0})
+    import tools.export_actor_uvs as export_actor_uvs
+
+    def broken(*args, **kwargs):
+        raise ImportError("an unrelated import actually broke")
+    monkeypatch.setattr(export_actor_uvs, "export_bodies", broken)
+    with pytest.raises(ImportError, match="unrelated import actually broke"):
+        xb.main([str(tmp_path), "--out", str(tmp_path / "ov"), "--floors", "0"])
 
 
 def test_main_exit_2_when_nothing_exported(tmp_path, monkeypatch):

@@ -48,22 +48,32 @@ for the GL sampling path, `test_prove_graphics` for this task's twin):
 ```
 $ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/pytest tests/test_asset_resolver.py tests/test_export_actor_uvs.py tests/test_export_textures.py tests/test_layering.py tests/test_prove_graphics.py tests/test_render_gl.py tests/test_texture_check.py tests/test_texture_export.py -q
 ........................................................................ [ 27%]
-........................................................................ [ 55%]
-........................................................................ [ 82%]
-.............................................                            [100%]
-261 passed in 21.25s
+........................................................................ [ 54%]
+........................................................................ [ 81%]
+.................................................                        [100%]
+265 passed in 21.45s
 ```
 
 The full gate:
 
 ```
 $ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/pytest -q
-1570 passed, 1 skipped, 1 xfailed, 26 warnings in 59.60s
+1576 passed, 1 skipped, 1 xfailed, 26 warnings in 59.98s
 ```
 
-This matches the pre-task baseline (`1570 passed, 1 skipped, 1 xfailed`)
-exactly — Task 6 adds no new test function (it extends two existing pins
-in `test_prove_graphics.py`), so the counts don't move.
+**Re-run after the 2026-09-01 whole-branch-review fix wave** (the two
+counts above were 261 and 1570 before it): the fix wave's own final report,
+`.superpowers/sdd/2026-08-31-actor-textures/final-fix-report.md`, adds six
+tests — the guide<->runtime orientation contract
+(`test_guide_orientation_matches_the_runtimes_top_down_upload`), the
+mismatched-sidecar-does-not-crash guard at both the geometry and the
+render level, the attribute-budget tripwire's GL-less half, a direct test
+of `_merge_manifest_records(..., key="bodies")`, and a test pinning that
+an unrelated `ImportError` inside the bake is not mislabeled as a missing
+tools extra — which is exactly the +4 and +6 the two counts above show.
+`1576` is the new baseline the fix wave's own report cites; it does not
+match the `1570` figure quoted just above from before that wave, and that
+is expected, not a discrepancy to chase.
 
 **The `-painted` pair actually renders differently from the plain
 `-smooth-enhanced` render, and `realism=classic` ignores it**, confirmed
@@ -372,3 +382,17 @@ measurement and is not part of the shipped repo.
 - **The bake covers every body the archives expose (272 per hero), not just
   the ones a floor can show.** That is deliberate — the archive is the unit
   the game loads from — but it means a full bake writes a guide per body.
+- **Five real aitd1 bodies (85, 142, 156, 158, 160) have vertices but no
+  triangle primitives** — point/sprite entries, valid `Body`s with nothing
+  for xatlas to unwrap or a painter to paint. `export_bodies` skips them
+  (see "The bake" above, `probed 272` vs. `267 baked`), and they never get
+  a `bodies/body<NNN>.uv.json`, guide, or manifest record; a paint dropped
+  at one of those five numbers is simply never read.
+- **The guide's vertical orientation is pinned by a test.** The painter's
+  guide and the runtime's texture upload must agree on which row `v = 0`
+  lands on, or every paint ships mirrored. `_bbox_fill` maps `v = 0` to row
+  0 (top), matching the runtime's own top-down `ctx.texture(...)` upload
+  (`PyAitD/render/render_gl.py:918`); the guide<->runtime orientation
+  contract is pinned by
+  `tests/test_export_actor_uvs.py::test_guide_orientation_matches_the_runtimes_top_down_upload`,
+  so the two conventions cannot silently drift apart again.

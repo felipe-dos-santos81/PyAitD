@@ -207,3 +207,21 @@ def test_pose_geometry_carries_the_uv_through():
     uv = np.full((len(tris), 3, 2), 0.25, dtype=np.float32)
     geo = pose_geometry(body, [], None, uv=uv)
     assert geo.uv is uv
+
+
+def test_body_geometry_drops_a_uv_whose_corner_count_disagrees_with_tris():
+    """A sidecar baked against a different triangulation -- a paint copied
+    from another body number, or a re-triangulated body with a stale
+    sidecar -- must not reach render_gl's per-corner concatenation with a
+    mismatched M: that raises ValueError there (both the flat and the
+    tessellated instance-data paths). BodyGeometry is the one place both
+    `uv` and `tris` are known together, so it drops the mismatch back to
+    None -- the same "unpainted" state a missing paint produces -- rather
+    than let the game crash over a texture."""
+    import numpy as np
+    from PyAitD.render.geometry import pose_geometry
+    body = _cube_body()
+    tris = pose_geometry(body, [], None).tris
+    short_uv = np.full((len(tris) - 1, 3, 2), 0.25, dtype=np.float32)
+    geo = pose_geometry(body, [], None, uv=short_uv)
+    assert geo.uv is None

@@ -155,19 +155,26 @@ def ambient_occlusion(body):
     return (1.0 - np.asarray(occlusion, dtype=np.float32)).clip(0.0, 1.0)
 
 
-def _barycentric_fill(size, corner_uvs, corner_values, ao_values):
+def _bbox_fill(size, corner_uvs, corner_values, ao_values):
     """Rasterise each triangle's chart into an (H, W, 3) uint8 image.
 
-    Flat-fills each triangle's bounding box with its own palette colour
-    scaled by the mean openness of its corners -- enough for a painter to
-    read shape and cavity without pulling in a rasteriser dependency -- then
-    draws every triangle's three edges over the fill in a dark wireframe, so
-    chart boundaries (otherwise invisible: two charts can sit right next to
-    each other in the same fill colour) stay legible."""
+    Neither barycentric nor per-triangle-faithful: each triangle flat-fills
+    its own bounding box (not its actual footprint) with its own palette
+    colour scaled by the mean openness of its corners -- enough for a
+    painter to read shape and cavity without pulling in a rasteriser
+    dependency -- then draws every triangle's three edges over the fill in
+    a dark wireframe. A later triangle's box overwrites an earlier
+    neighbour's box wherever they overlap, and can spill into the 4-texel
+    chart gutters (up to 109 charts on the largest bodies), so the guide's
+    *colours* do not reliably identify a chart -- only the wireframe does.
+
+    `ys` maps v=0 to row 0 (top) with no flip, matching the runtime's own
+    top-down upload convention -- see the guide<->runtime orientation
+    contract pinned in test_export_actor_uvs.py."""
     width, height = size
     img = np.zeros((height, width, 3), dtype=np.uint8)
     xs = np.clip((corner_uvs[:, :, 0] * (width - 1)).round().astype(np.int32), 0, width - 1)
-    ys = np.clip(((1.0 - corner_uvs[:, :, 1]) * (height - 1)).round().astype(np.int32), 0, height - 1)
+    ys = np.clip((corner_uvs[:, :, 1] * (height - 1)).round().astype(np.int32), 0, height - 1)
     for tri in range(len(corner_uvs)):
         x0, x1 = int(xs[tri].min()), int(xs[tri].max())
         y0, y1 = int(ys[tri].min()), int(ys[tri].max())
@@ -189,7 +196,7 @@ def guide_image(body, bake, palette, ao):
     geo = rest_geometry(body)
     tri_rgb = np.asarray(palette, dtype=np.uint8)[np.asarray(geo.tri_colors, dtype=np.int32)]
     tri_ao = np.asarray(ao, dtype=np.float32)[np.asarray(geo.tris, dtype=np.int32)].mean(axis=1)
-    return _barycentric_fill((bake.width, bake.height), bake.uvs, tri_rgb, tri_ao)
+    return _bbox_fill((bake.width, bake.height), bake.uvs, tri_rgb, tri_ao)
 
 
 def export_bodies(data_dir, profile, out_dir, *, save=None):

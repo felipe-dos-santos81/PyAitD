@@ -59,6 +59,16 @@ class BodyGeometry:
                                np.asarray(self.normals, dtype=np.float32)[self.tris].reshape(-1, 3, 3))
         if self.straight is None:
             object.__setattr__(self, "straight", np.zeros((len(self.tris), 3), dtype=np.float32))
+        # A UV sidecar baked against a different triangulation -- a paint
+        # copied from another body number, or a sidecar surviving a
+        # triangulation change -- has a corner count that disagrees with
+        # `tris`. render_gl's per-corner concatenation (both the flat and
+        # the tessellated instance-data paths) assumes they agree and
+        # raises ValueError the moment they don't, so this is the one place
+        # the mismatch is caught before it reaches either path: drop back
+        # to None (unpainted) rather than let the game crash over a texture.
+        if self.uv is not None and len(self.uv) != len(self.tris):
+            object.__setattr__(self, "uv", None)
 
     @property
     def corner_normals(self):

@@ -302,14 +302,30 @@ def main(argv=None):
     body_records = []
     if args.uvs:
         try:
-            from tools.export_actor_uvs import export_bodies
-            body_records = export_bodies(args.data, PROFILE, args.out)
-            print(f"body uvs: {len(body_records)}")
+            # The tools-extra dependencies export_bodies actually needs are
+            # imported lazily, deep inside unwrap_body/ambient_occlusion
+            # (tools/export_actor_uvs.py), not at that module's own top
+            # level -- `from tools.export_actor_uvs import export_bodies`
+            # below succeeds even without the extra installed. Preflighting
+            # the two real imports here is the narrow "import statement"
+            # this try/except covers: only a genuinely missing xatlas/igl
+            # is reported as "install the tools extra"; an ImportError
+            # raised anywhere else inside the bake is a real bug and must
+            # not be relabelled as a missing dependency (Finding 8 of the
+            # whole-branch review -- the previous version of this try
+            # wrapped the entire export_bodies(...) call).
+            import xatlas   # noqa: F401
+            import igl.embree   # noqa: F401
         except ImportError as exc:
             print(f"warning: actor UV bake skipped (install the tools extra: "
                   f'pip install -e ".[tools]"): {exc}', file=sys.stderr)
-        except (PakError, FileNotFoundError, OSError, ValueError) as exc:
-            print(f"warning: body uvs skipped: {exc}", file=sys.stderr)
+        else:
+            from tools.export_actor_uvs import export_bodies
+            try:
+                body_records = export_bodies(args.data, PROFILE, args.out)
+                print(f"body uvs: {len(body_records)}")
+            except (PakError, FileNotFoundError, OSError, ValueError) as exc:
+                print(f"warning: body uvs skipped: {exc}", file=sys.stderr)
     # alt_backgrounds: respect --floors filter, warn and continue on failure
     try:
         alt_records = export_alt_backgrounds(args.data, args.out, args.guide_scale, floors=floors)

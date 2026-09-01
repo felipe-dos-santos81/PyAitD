@@ -765,6 +765,7 @@ def test_build_frame_falls_back_to_the_neutral_plate_for_a_resolver_without_one(
 
 def test_build_frame_carries_the_body_uv_when_the_resolver_has_one():
     from PyAitD.render.asset_resolver import ImageAsset
+    from PyAitD.engine.data.formats import Primitive
 
     uvs = np.full((1, 3, 2), 0.5, dtype=np.float32)
     asset = ImageAsset(np.zeros((4, 4, 3), np.uint8), True)
@@ -773,7 +774,17 @@ def test_build_frame_carries_the_body_uv_when_the_resolver_has_one():
         def body_texture(self, num):
             return (uvs, asset) if num == 0 else None
 
-    body_a = _flat_body([(0, 0, 0), (50, 0, 0), (0, 50, 0)])
+    # body_a needs one real triangle primitive, matching uvs' single
+    # corner-row: BodyGeometry.__post_init__ now drops a uv whose length
+    # disagrees with the body's own triangulation back to None (Finding 2,
+    # the whole-branch review's mismatched-sidecar-crashes-the-renderer
+    # fix), and _flat_body's bare vertex list with no primitives produces
+    # zero triangles, which would trip that guard here for the wrong
+    # reason -- this test wants "the resolver had one", not "the sidecar
+    # disagreed with the geometry".
+    body_a = Body(flags=0, zv=(0, 0, 0, 0, 0, 0), scratch=(),
+                  vertices=[(0, 0, 0), (50, 0, 0), (0, 50, 0)],
+                  groups=[], group_order=[], primitives=[Primitive(1, 0, 10, [0, 1, 2])])
     body_b = _flat_body([(0, 0, 0), (30, 10, 0), (0, 30, 20)])
     actor_a = _StubActor(0, 0, -1, (0, 0, 500), (0, 0, 0), (0, 0, 0), room=0, zv=(0, 0, 0, 0, 0, 0))
     actor_b = _StubActor(1, 1, -1, (0, 0, 1500), (0, 0, 0), (0, 0, 0), room=0, zv=(0, 0, 0, 0, 0, 0))

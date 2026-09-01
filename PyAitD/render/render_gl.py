@@ -844,10 +844,21 @@ class GLBackend:
     def _draw_actor_tessellated(self, actor, frame, palette, instances, level):
         if instances is not None:
             self._tess_prog["project"].value = 0
+            geometry = actor.geometry
             texture = self._body_texture(actor.texture)
-            textured = texture is not None and self._options.realism != "classic"
+            # geometry.uv is None both when the body is genuinely unpainted
+            # and when BodyGeometry.__post_init__ dropped a mismatched
+            # sidecar back to None (a stale triangulation hash, or a paint
+            # copied from another body number) -- either way there are no
+            # real per-corner UVs to sample, so treat it exactly like
+            # "unpainted" rather than sampling every corner at (0, 0).
+            textured = (texture is not None and geometry.uv is not None
+                        and self._options.realism != "classic")
             if textured:
-                texture.use(5)                    # unit 5: 0-4 are taken
+                # unit 5: shared with the composite's plate texture
+                # (_plate_tex.use(location=5) below); each pass rebinds it
+                # before sampling, so the two never collide within a frame
+                texture.use(5)
             _set_uniform(self._tess_prog, "body_albedo", 5)
             _set_uniform(self._tess_prog, "has_body_texture", 1 if textured else 0)
             self._render_instanced(self._tess_prog, self._tess_layout, instances[0], instances[1], level)
@@ -1253,9 +1264,19 @@ class GLBackend:
         tri_data = self._triangle_data(geometry, position, palette)
         if len(tri_data):
             texture = self._body_texture(actor.texture)
-            textured = texture is not None and self._options.realism != "classic"
+            # geometry.uv is None both when the body is genuinely unpainted
+            # and when BodyGeometry.__post_init__ dropped a mismatched
+            # sidecar back to None (a stale triangulation hash, or a paint
+            # copied from another body number) -- either way there are no
+            # real per-corner UVs to sample, so treat it exactly like
+            # "unpainted" rather than sampling every corner at (0, 0).
+            textured = (texture is not None and geometry.uv is not None
+                        and self._options.realism != "classic")
             if textured:
-                texture.use(5)                    # unit 5: 0-4 are taken
+                # unit 5: shared with the composite's plate texture
+                # (_plate_tex.use(location=5) below); each pass rebinds it
+                # before sampling, so the two never collide within a frame
+                texture.use(5)
             _set_uniform(self._actor_prog, "body_albedo", 5)
             _set_uniform(self._actor_prog, "has_body_texture", 1 if textured else 0)
             self._render_triangles(tri_data)

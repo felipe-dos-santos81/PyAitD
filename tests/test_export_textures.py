@@ -46,3 +46,11 @@ def test_main_respects_floors_filter_and_force(tmp_path, data_dir):
     m = json.loads((out / "manifest.json").read_text())
     assert len(m["alt_cameras"]) == 3  # 06/0,06/5,06/8
     assert all(r["floor"] == 6 for r in m["alt_cameras"])
+
+
+def test_merge_manifest_records_merges_bodies_by_body_number(tmp_path):
+    from tools.export_textures import _merge_manifest_records
+    (tmp_path / "manifest.json").write_text(json.dumps(
+        {"schema": 4, "bodies": [{"body": 1, "x": "old"}, {"body": 2, "x": "keep"}]}))
+    merged = _merge_manifest_records(tmp_path, [{"body": 1, "x": "new"}], key="bodies")
+    assert sorted(merged, key=lambda r: r["body"]) == [{"body": 1, "x": "new"}, {"body": 2, "x": "keep"}]

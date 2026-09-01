@@ -2899,15 +2899,30 @@ def _painted_frame():
     return dataclasses.replace(frame, actors=painted_actors)
 
 
-def test_instance_layout_uses_no_more_than_the_guaranteed_attribute_slots(gl_ctx):
-    """The tessellated actor path packs 12 per-corner attributes plus the
-    per-vertex barycentric, and adding the UVs takes it to 16 -- exactly
-    GL 3.3's guaranteed minimum. This pin is the tripwire: the next
-    per-corner attribute does not fit, and must find room by packing into
-    an existing one instead."""
+def test_instance_layout_has_15_per_corner_attribute_names():
+    """The two assertions that actually bite -- the ones the next person to
+    add a per-corner attribute needs to see fail -- pinned with no GL
+    context, so this tripwire fires on a GL-less host too, not only under
+    the gl_ctx-gated test below. The tessellated actor path packs 12
+    per-corner attributes plus the per-vertex barycentric, and adding the
+    UVs takes it to 15 names (16 slots with the barycentric) -- exactly GL
+    3.3's guaranteed minimum of GL_MAX_VERTEX_ATTRIBS. If a future edit
+    grows this past 15, it must find room by packing into an existing
+    attribute instead of adding a new one."""
     from PyAitD.render.render_gl import INSTANCE_FLOATS, _INSTANCE_NAMES
     assert INSTANCE_FLOATS == 51
     assert len(_INSTANCE_NAMES) == 15          # 5 per corner x 3 corners
+
+
+def test_instance_layout_uses_no_more_than_the_guaranteed_attribute_slots(gl_ctx):
+    """The GL-dependent half of the attribute-budget tripwire: reads the
+    real GL_MAX_VERTEX_ATTRIBS on this host and confirms the 15 named
+    attributes plus the barycentric (16 total) still fit within it. The
+    name count itself is pinned with no GL context in
+    test_instance_layout_has_15_per_corner_attribute_names above, so that
+    part of the tripwire still fires on a GL-less host, where this test
+    just skips (tests/conftest.py's gl_ctx fixture)."""
+    from PyAitD.render.render_gl import _INSTANCE_NAMES
     assert len(_INSTANCE_NAMES) + 1 <= gl_ctx.info["GL_MAX_VERTEX_ATTRIBS"]
     assert gl_ctx.info["GL_MAX_VERTEX_ATTRIBS"] >= 16
 
@@ -3006,3 +3021,57 @@ def test_a_painted_body_changes_pixels_through_the_tessellated_path_too(gl_ctx):
 
     assert not np.array_equal(render(plain, "enhanced"), render(painted, "enhanced"))
     assert np.array_equal(render(plain, "classic"), render(painted, "classic"))
+
+
+def _mismatched_uv_frame():
+    """`_painted_frame` with each body's per-corner UVs one row short of its
+    own triangulation -- the shape a paint baked against a stale
+    triangulation, or copied from another body number, produces. This is
+    exactly what `scene.py`'s `build_frame` would hand `ActorDraw` if
+    `AssetResolver.body_texture`'s sidecar disagreed with the body's live
+    `tris`: `.texture` (the ImageAsset) is still set from the resolver
+    pair, independent of whether the corner count lines up.
+    `BodyGeometry.__post_init__` (PyAitD/render/geometry.py) must drop the
+    mismatched `.uv` back to None; `_draw_actor`/`_draw_actor_tessellated`
+    (PyAitD/render/render_gl.py) must then treat the actor as unpainted
+    (`textured` requires `geometry.uv is not None`, not just `.texture`)
+    rather than sample every corner at UV (0, 0)."""
+    import dataclasses
+    frame = _painted_frame()
+    mismatched_actors = tuple(
+        dataclasses.replace(actor, geometry=dataclasses.replace(
+            actor.geometry, uv=actor.geometry.uv[:-1]))
+        for actor in frame.actors
+    )
+    return dataclasses.replace(frame, actors=mismatched_actors)
+
+
+def test_a_mismatched_uv_sidecar_renders_as_unpainted_instead_of_raising(gl_ctx):
+    """Finding 2 of the whole-branch review: a UV sidecar whose corner
+    count disagrees with the body's current triangulation must never reach
+    render_gl's per-corner concatenation (a bare ValueError there, in both
+    the flat and the tessellated instance-data paths) -- it must render as
+    if the body were never painted at all, on both draw paths."""
+    from PyAitD.render.render_gl import GLBackend
+    from PyAitD.render.render_options import RenderOptions
+
+    plain = _golden_frame()
+    mismatched = _mismatched_uv_frame()
+    # sanity: the fixture actually carries a live mismatch and a texture,
+    # not an accidental no-op
+    textured_actor = next(a for a in mismatched.actors if a.texture is not None)
+    assert textured_actor.geometry.uv is None
+
+    def render(frame, smoothing):
+        options = RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
+                                realism="enhanced", smoothing=smoothing, shadows="hard",
+                                integration=0, motion="tick")
+        backend = GLBackend(gl_ctx, options)
+        try:
+            backend.draw(frame)          # must not raise
+            return backend.read_rgb()
+        finally:
+            backend.release()
+
+    for smoothing in (0, 2):             # the flat path, then the tessellated path
+        assert np.array_equal(render(plain, smoothing), render(mismatched, smoothing))

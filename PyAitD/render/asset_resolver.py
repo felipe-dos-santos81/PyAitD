@@ -76,9 +76,16 @@ def _validate_body_override(data):
 
 def _require_body_uvs(data):
     """One verdict per bodies/body<NNN>.uv.json. Shape and range only -- the
-    triangulation hash is `make check-textures`' job, not the game's: a
-    stale sidecar still renders, just wrongly, and the game never refuses to
-    start over a texture."""
+    triangulation hash is `make check-textures`' job, not the game's, and
+    this validator has no triangle count to check against here regardless
+    (the resolver loads a sidecar independently of any live geometry). A
+    sidecar whose corner count disagrees with the body's current
+    triangulation -- baked against a stale triangulation, or a paint copied
+    from another body number -- passes this check but is caught one layer
+    down, in `BodyGeometry.__post_init__` (PyAitD/render/geometry.py),
+    which drops a mismatched `uv` back to None. So a stale sidecar renders
+    unpainted, not wrongly, and the game never refuses to start -- or
+    crashes -- over a texture."""
     uvs = np.asarray(data["uvs"], dtype=np.float32)
     if uvs.ndim != 3 or uvs.shape[1:] != (3, 2):
         raise ValueError(f"uvs must be (M, 3, 2), got {uvs.shape}")
