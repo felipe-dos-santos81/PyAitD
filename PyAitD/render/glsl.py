@@ -144,10 +144,15 @@ float detail_noise(vec3 p, int kind) {
 
 void main() {
     if (texture(mask_tex, gl_FragCoord.xy / target_size).r > 0.5) discard;
+    // One write covering every path. `discard` above suppresses all
+    // outputs, and every reachable exit wants this same expression, so
+    // hoisting it here is exactly equivalent to writing it at each
+    // return -- and the next early return added below cannot silently
+    // ship depth 0.
+    f_depth = vec4(v_view.z + focal1, 0.0, 0.0, 1.0);
     if (shading == 0) {
         // unshaded: flat palette colour, and the only path lines and points take
         f_color = vec4(v_color, 1.0);
-        f_depth = vec4(v_view.z + focal1, 0.0, 0.0, 1.0);
         return;
     }
     vec3 n = (shading == 1)
@@ -158,7 +163,6 @@ void main() {
         // the pre-scene-light rig, kept byte-identical: abs() because FITD
         // polygons have no consistent winding
         f_color = vec4(v_color * (0.55 + 0.45 * abs(dot(n, l))), 1.0);
-        f_depth = vec4(v_view.z + focal1, 0.0, 0.0, 1.0);
         return;
     }
     // Orient rather than fold: -z is toward the camera, so a normal with a
@@ -337,7 +341,6 @@ void main() {
     // the hemisphere comment above warns about; it is the same identity
     // `occl`'s mix(1.0, v_ao, preset_a.z) has always rested on.
     f_color = vec4(mix(shaded, albedo, preset_c.z * m2.z), 1.0);
-    f_depth = vec4(v_view.z + focal1, 0.0, 0.0, 1.0);
 }
 """
 TESS_VSH = """

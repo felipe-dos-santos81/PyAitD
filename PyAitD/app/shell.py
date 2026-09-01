@@ -160,6 +160,25 @@ def parse_args(argv):
     return p.parse_args(argv)
 
 
+# (argparse dest, settings-payload key) for every override copied straight
+# through. All but --render-scale share a name with their payload key; the
+# Nth render option is one line here rather than a fourth `if` block.
+_RENDER_OVERRIDES = (
+    ("render_scale", "scale"),
+    ("shading", "shading"),
+    ("background_filter", "background_filter"),
+    ("lighting", "lighting"),
+    ("msaa", "msaa"),
+    ("realism", "realism"),
+    ("smoothing", "smoothing"),
+    ("shadows", "shadows"),
+    ("integration", "integration"),
+    ("motion", "motion"),
+    ("occlusion", "occlusion"),
+    ("atmosphere", "atmosphere"),
+)
+
+
 def apply_render_overrides(settings, args):
     """Session-only CLI overrides for settings.render: pure, never persisted.
 
@@ -168,31 +187,12 @@ def apply_render_overrides(settings, args):
     rejected or passed through unclamped.
     """
     payload = settings.render.to_payload()
-    if args.render_scale is not None:
-        payload["scale"] = args.render_scale
-    if args.shading is not None:
-        payload["shading"] = args.shading
-    if args.background_filter is not None:
-        payload["background_filter"] = args.background_filter
-    if args.lighting is not None:
-        payload["lighting"] = args.lighting
-    if args.msaa is not None:
-        payload["msaa"] = args.msaa
-    if args.realism is not None:
-        payload["realism"] = args.realism
-    if args.smoothing is not None:
-        payload["smoothing"] = args.smoothing
-    if args.shadows is not None:
-        payload["shadows"] = args.shadows
-    if args.integration is not None:
-        payload["integration"] = args.integration
-    if args.motion is not None:
-        payload["motion"] = args.motion
-    if args.occlusion is not None:
-        payload["occlusion"] = args.occlusion
-    if args.atmosphere is not None:
-        payload["atmosphere"] = args.atmosphere
+    for arg_name, key in _RENDER_OVERRIDES:
+        value = getattr(args, arg_name)
+        if value is not None:
+            payload[key] = value
     if args.textures is not None:
+        # The one override whose value is transformed rather than copied.
         payload["texture_dir"] = str(args.textures)
     render, _error = validate_render_options(payload)
     return replace(settings, render=render)

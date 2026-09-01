@@ -458,6 +458,7 @@ class GLBackend:
             for prog in (self._actor_prog, self._screen_prog):
                 _set_uniform(prog, "shadow_map", 4)
                 _set_uniform(prog, "self_shadow", 0)
+                _set_uniform(prog, "ssao_tex", 7)
 
             quad = np.array([
                 -1, -1, 0, 1,
@@ -544,8 +545,7 @@ class GLBackend:
             self._actor_tex.repeat_y = False
             # R16F is enough for a linear depth in world units -- half-float
             # holds integers exactly to 2048 and the game's rooms are far
-            # smaller than that -- and it keeps the resolve cheap. Nothing
-            # reads this yet (Task 3 does); this task only lands the MRT.
+            # smaller than that -- and it keeps the resolve cheap.
             self._actor_depth_tex = ctx.texture(self.size, 1, dtype="f2")
             self._actor_depth_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
             self._actor_depth_tex.repeat_x = self._actor_depth_tex.repeat_y = False
@@ -566,6 +566,7 @@ class GLBackend:
             self._tess_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_ACTOR_FSH)
             _set_uniform(self._tess_prog, "shadow_map", 4)
             _set_uniform(self._tess_prog, "self_shadow", 0)
+            _set_uniform(self._tess_prog, "ssao_tex", 7)
             self._tess_shadow_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_STENCIL_FSH)
             # Seeded on the shadow program, not _tess_prog: _tess_prog always
             # writes project=0 itself (_draw_actor_tessellated), so travel is
@@ -683,6 +684,20 @@ class GLBackend:
                 vertex_shader=_RECEIVER_VSH, fragment_shader=_RECEIVER_FSH)
             _set_uniform(self._receiver_prog, "shadow_map", 4)
             _set_uniform(self._receiver_prog, "mask_tex", 1)
+
+            # The programs that share _ACTOR_FSH, and therefore share its
+            # uniforms. Named once so the next uniform is one loop rather
+            # than a fifth hand-written membership -- the last four each
+            # spelled a different subset, one of them (`shadow_map`,
+            # `self_shadow`) excluding _tess_prog only because it had not
+            # been constructed yet.
+            self._actor_fsh_progs = (self._actor_prog, self._screen_prog, self._tess_prog)
+            # `mask_tex` is a sampler unit, not a value: it is 1 at every
+            # site in this file and never varies, so it belongs here beside
+            # shadow_map and ssao_tex rather than in the per-actor loop.
+            for prog in self._actor_fsh_progs + (self._cast_prog, self._tess_shadow_prog,
+                                                 self._shadow_prog):
+                _set_uniform(prog, "mask_tex", 1)
             self._receiver_buf = ctx.buffer(reserve=12, dynamic=True)
             self._receiver_vao = ctx.vertex_array(
                 self._receiver_prog, [(self._receiver_buf, "3f", "in_pos")])
@@ -852,7 +867,7 @@ class GLBackend:
                         instances[i] = (self._ctx.buffer(data.tobytes()), len(data))
 
             if ssao_on:
-                self._render_gbuffer(frame, instances, level)
+                self._render_gbuffer(frame, instances, level, mvp, rot)
                 self._render_ssao(frame)
                 self._blur_ssao()
             # Bound and set unconditionally, like the shadow map below
@@ -861,8 +876,7 @@ class GLBackend:
             # `occlusion_on` is what makes the value irrelevant rather than
             # the binding.
             self._ssao_tex.use(location=7)
-            for prog in (self._actor_prog, self._tess_prog, self._screen_prog):
-                _set_uniform(prog, "ssao_tex", 7)
+            for prog in self._actor_fsh_progs:
                 _set_uniform(prog, "occlusion_on", 1 if ssao_on else 0)
                 # Atmosphere depth. On _screen_prog specifically, _SCREEN_VSH
                 # writes v_view = vec3(0.0), so a line or point reports
@@ -930,7 +944,7 @@ class GLBackend:
                     self._cast_hard_shadow(actor, inst, mask_by_id, frame, travel, mvp, level)
 
             if integrate:
-                self._resolve_into(self._plate_fbo, self._ms_color_only)
+                self._resolve_into(self._plate_fbo)
                 self._target = self._ms_fbo or self._actor_fbo
                 self._target.use()
                 self._ctx.viewport = (0, 0, *self.size)
@@ -965,10 +979,6 @@ class GLBackend:
                 self._target.use()
 
                 self._mask_tex.use(location=1)
-                self._actor_prog["mask_tex"].value = 1
-                self._screen_prog["mask_tex"].value = 1
-                if level:
-                    self._tess_prog["mask_tex"].value = 1
 
                 if scene_lit:
                     self._actor_prog["plane_y"].value = _plane_y(actor)
@@ -995,7 +1005,7 @@ class GLBackend:
             # non-integrate path), so this goes through `_ms_color_only`
             # for the same reason the plate resolve does: `_ms_fbo` now
             # carries two.
-            self._resolve_into(self._fbo, self._ms_color_only)
+            self._resolve_into(self._fbo)
 
     def _set_frame_uniforms(self, prog, frame, mvp, rot, scene_lit, shadow=None):
         """Everything an actor program needs once per frame. Shared by
@@ -1289,7 +1299,6 @@ class GLBackend:
         prog["tan_source"].value = TAN_SOURCE
         prog["r_max"].value = float(self._r_max())
         prog["target_size"].value = self.size
-        prog["mask_tex"].value = 1
         cast = False
         for actor, inst in zip(frame.actors, instances):
             if inst is None:
@@ -1429,7 +1438,7 @@ class GLBackend:
         self._ssao_tex, self._ssao_blur_tex = self._ssao_blur_tex, self._ssao_tex
         self._ssao_fbo, self._ssao_blur_fbo = self._ssao_blur_fbo, self._ssao_fbo
 
-    def _render_gbuffer(self, frame, instances, level):
+    def _render_gbuffer(self, frame, instances, level, mvp, rot):
         """Every actor once, into a half-resolution normal+depth buffer.
 
         The per-actor depth clears the main loop needs for painter's order
@@ -1438,11 +1447,11 @@ class GLBackend:
         Lines and points are excluded for the same reason they never cast:
         they never reach the instanced path at all.
 
-        mvp and rot are recomputed here from `frame.camera` rather than
-        threaded through as parameters -- camera_matrix and rotation_matrix
-        are pure functions of the camera alone, so this is the same value
-        _draw_frame's own `mvp`/`rot` locals hold, not a second derivation
-        that could drift. `view` is set once per frame, alongside the other
+        mvp and rot are threaded in from _draw_frame, which has already
+        derived both for the main actor pass -- deriving them again here
+        from the same `frame.camera` gave the same values, but paid for
+        them twice a frame and left two derivations to keep in step.
+        `view` is set once per frame, alongside the other
         actor programs, in _draw_frame's own view-uniform loop.
 
         `focal1` is threaded through the same way: read straight off
@@ -1459,8 +1468,6 @@ class GLBackend:
         self._gbuf_fbo.clear(0.0, 0.0, 0.0, 0.0)
         self._ctx.enable(moderngl.DEPTH_TEST)
         self._ctx.depth_func = "<="
-        mvp = camera_matrix(frame.camera, self._options.scale)
-        rot = rotation_matrix(frame.camera.state).astype("f4")
         self._gbuf_prog["mvp"].write(mvp.T.tobytes())
         self._gbuf_prog["rot"].write(rot.T.tobytes())
         self._gbuf_prog["project"].value = 0
@@ -1582,7 +1589,6 @@ class GLBackend:
         self._shadow_tex.use(location=2)
         self._mask_tex.use(location=1)
         self._shadow_prog["shadow_tex"].value = 2
-        self._shadow_prog["mask_tex"].value = 1
         self._shadow_prog["target_size"].value = self.size
         self._shadow_prog["shadow_color"].value = tuple(float(c) for c in light.ambient)
         self._shadow_prog["opacity"].value = shadow_opacity(light.contrast)
@@ -1607,19 +1613,19 @@ class GLBackend:
         if cast:
             self._composite_shadow(frame.light)
 
-    def _resolve_into(self, fbo, src=None):
-        """Resolve `src` (default `self._ms_fbo`) into `fbo`'s single-sampled
-        texture. A no-op when msaa is off: `fbo` was the render target
-        itself, and its texture already holds the result.
+    def _resolve_into(self, fbo):
+        """Resolve the multisample twin into `fbo`'s single-sampled texture.
+        A no-op when msaa is off: `fbo` was the render target itself, and
+        its texture already holds the result.
 
-        `src` exists for the plate resolve: `_ms_fbo` now carries two colour
-        attachments (colour and atmosphere depth) so the actor resolve below
-        can move both, but `ctx.copy_framebuffer` refuses a 2-attachment
-        source into `_plate_fbo`'s single attachment. `_ms_color_only` is a
-        second framebuffer over the same renderbuffers, colour-attachment
-        count matched to `_plate_fbo`, so the plate's caller passes that
-        instead of relying on the default."""
-        source = src if src is not None else self._ms_fbo
+        Which twin is a function of `fbo` alone, so it is derived here
+        rather than passed: `ctx.copy_framebuffer` refuses a 2-attachment
+        source into a 1-attachment destination, so `_actor_fbo` (colour
+        plus atmosphere depth) resolves from `_ms_fbo` while `_fbo` and
+        `_plate_fbo` resolve from `_ms_color_only` -- a second framebuffer
+        over the same renderbuffers with only the colour attachment. Same
+        dispatch `_set_color_mask` makes, for the same reason."""
+        source = self._ms_fbo if len(fbo.color_attachments) > 1 else self._ms_color_only
         if source is not None:
             self._ctx.copy_framebuffer(fbo, source)
 
@@ -1663,7 +1669,7 @@ class GLBackend:
         self._ctx.viewport = (0, 0, *self.size)
         self._ctx.disable(moderngl.DEPTH_TEST)
         self._ctx.disable(moderngl.BLEND)
-        self._fbo.color_mask = (True, True, True, True)
+        _set_color_mask(self._fbo, (True, True, True, True))
         # Defensive, not corrective: with the composite running nothing rebinds
         # _fbo as a render target between the assignment above and this
         # line, so the colour mask can't actually have drifted from the GL

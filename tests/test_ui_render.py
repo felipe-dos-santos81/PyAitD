@@ -844,8 +844,10 @@ def test_graphics_and_realism_labels_match_the_cycles_one_per_row():
     render = default_settings().render
     graphics = graphics_labels(render)
     realism = realism_labels(render)
-    assert len(graphics) == GRAPHICS_ROWS == len(GRAPHICS_CYCLES)
-    assert len(realism) == REALISM_ROWS == len(REALISM_CYCLES)
+    # ROWS is now len() of the cycle tuple, so the label lists are what
+    # these still pin -- one label per cycle, which is the drift that matters.
+    assert len(graphics) == GRAPHICS_ROWS
+    assert len(realism) == REALISM_ROWS
     # every other row's label is total over its option; the Smoothing and
     # Integration rows index a tuple, so a level with no label would
     # IndexError (or, below zero, silently wrap) instead of drawing

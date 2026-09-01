@@ -56,68 +56,55 @@ def test_parse_args_overrides():
 
 def test_output_paths_cover_every_combination_plus_the_twins():
     from PyAitD.render.render_options import RenderOptions
-    paths = output_paths("docs/graphics-proof")
-    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 9 * len(FIXTURES)
+    rows = output_paths("docs/graphics-proof")
     default = RenderOptions()
+    base = dict(smoothing=default.smoothing, shadows=default.shadows,
+                integration=default.integration, occlusion=default.occlusion,
+                atmosphere=default.atmosphere)
+    # One entry per twin, mirroring VARIANTS -- kept as a literal here
+    # rather than imported from the tool, so a field dropped from the
+    # tool's own table fails this instead of agreeing with itself.
+    twins = {
+        "flatmesh": {"smoothing": 0},
+        "hardshadow": {"shadows": "hard"},
+        "nocomposite": {"integration": 0},
+        "strong": {"integration": 3},
+        "tickmotion": {},
+        "painted": {},
+        "nossao": {"occlusion": "off"},
+        "roomshadow": {"shadows": "room"},
+        "nohaze": {"atmosphere": "off"},
+    }
+    assert len(rows) == (len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES)
+                         + len(twins) * len(FIXTURES))
     # keyed on `label`, not `motion_blend` -- Minor 8: motion_blend alone
     # collides between the plain smooth-enhanced main row and the
-    # -tickmotion row whenever motion_blend is False (--motion tick), which
-    # a set keyed on the other seven fields would silently collapse -- and
-    # the -painted row's motion_blend is always False too, so it needs the
-    # same distinct-label treatment to avoid colliding with either
-    names = {(name, mode, realism, level, shadows, integration, occlusion, atmosphere, label)
-             for name, mode, realism, level, shadows, integration, occlusion, atmosphere,
-             _motion_blend, label, _ in paths}
-    expected = {(n, m, r, default.smoothing, default.shadows, default.integration,
-                 default.occlusion, default.atmosphere, "")
+    # -tickmotion row whenever motion_blend is False (--motion tick), and
+    # the -painted row's motion_blend is always False too
+    got = {(r.name, r.shading, r.realism, r.label, tuple(sorted(r.forced.items())))
+           for r in rows}
+    expected = {(n, m, r, "", tuple(sorted(base.items())))
                 for n in FIXTURES for m in SHADING_MODES for r in REALISM_MODES}
-    expected |= {(n, "smooth", "enhanced", 0, default.shadows, default.integration, default.occlusion,
-                  default.atmosphere, "flatmesh")
-                 for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, "hard", default.integration,
-                  default.occlusion, default.atmosphere, "hardshadow")
-                 for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 0, default.occlusion,
-                  default.atmosphere, "nocomposite")
-                 for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 3, default.occlusion,
-                  default.atmosphere, "strong")
-                 for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
-                  default.occlusion, default.atmosphere, "tickmotion")
-                 for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
-                  default.occlusion, default.atmosphere, "painted")
-                 for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
-                  "off", default.atmosphere, "nossao")
-                 for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, "room", default.integration,
-                  default.occlusion, default.atmosphere, "roomshadow")
-                 for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
-                  default.occlusion, "off", "nohaze")
-                 for n in FIXTURES}
-    assert names == expected
+    expected |= {(n, "smooth", "enhanced", label, tuple(sorted({**base, **forced}.items())))
+                 for label, forced in twins.items() for n in FIXTURES}
+    assert got == expected
     # Each twin forces the *non-default* value of the field it is named
     # for, or it renders the same image twice and proves nothing (the
     # mistake -roomshadow's first draft made). `nohaze` is the newest and
-    # the one whose default moved in this very task.
+    # the one whose default moved in sub-project L.
     assert default.atmosphere == "on"
-    assert {a for *_r, a, _b, label, _p in paths if label == "nohaze"} == {"off"}
+    assert {r.forced["atmosphere"] for r in rows if r.label == "nohaze"} == {"off"}
+    assert {r.forced["occlusion"] for r in rows if r.label == "nossao"} == {"off"}
+    assert {r.forced["shadows"] for r in rows if r.label == "roomshadow"} == {"room"}
     # the -tickmotion row's motion_blend still tracks the "smooth" default
     # regardless of its distinct label
-    tickmotion_blends = {motion_blend
-                         for *_, motion_blend, label, _ in paths if label == "tickmotion"}
-    assert tickmotion_blends == {default.motion == "smooth"}
-    # the -painted row never motion-blends, regardless of --motion
-    painted_blends = {motion_blend
-                      for *_, motion_blend, label, _ in paths if label == "painted"}
-    assert painted_blends == {False}
-    for (name, mode, realism, level, shadows, integration, occlusion, atmosphere, motion_blend,
-         label, path) in paths:
-        suffix = f"-{label}" if label else ""
-        assert path == pathlib.Path("docs/graphics-proof") / f"{name}-{mode}-{realism}{suffix}.png"
+    assert {r.motion_blend for r in rows if r.label == "tickmotion"} == {default.motion == "smooth"}
+    # -painted is the only row that paints, and it never motion-blends
+    assert {r.label for r in rows if r.painted} == {"painted"}
+    assert {r.motion_blend for r in rows if r.label == "painted"} == {False}
+    for r in rows:
+        suffix = f"-{r.label}" if r.label else ""
+        assert r.path == pathlib.Path("docs/graphics-proof") / f"{r.name}-{r.shading}-{r.realism}{suffix}.png"
 
 
 def test_parse_args_smoothing_and_shadows_default_to_the_render_defaults():
@@ -161,13 +148,13 @@ def test_render_fixture_is_importable_with_the_documented_signature():
                       "atmosphere"]
 
 
-def test_the_nossao_twin_differs_from_the_default(tmp_path, gl_ctx, data_dir):
+def test_the_nossao_twin_differs_from_the_default(gl_ctx, data_dir):
     default = render_fixture(data_dir, "attic", 1, "smooth", gl_ctx)
     nossao = render_fixture(data_dir, "attic", 1, "smooth", gl_ctx, occlusion="off")
     assert not np.array_equal(default, nossao)
 
 
-def test_the_nohaze_twin_differs_from_the_default(tmp_path, gl_ctx, data_dir):
+def test_the_nohaze_twin_differs_from_the_default(gl_ctx, data_dir):
     # The attic is the small-room case the haze is designed to leave
     # alone, so this pair was not guaranteed to differ -- but measured, it
     # does: the attic's own camera has focal1 1431 and its covered actor
@@ -214,7 +201,7 @@ def test_parse_args_atmosphere_defaults_to_the_render_default():
     assert _parse_args(["d", "--atmosphere", "off"]).atmosphere == "off"
 
 
-def test_the_roomshadow_twin_differs_from_the_default(tmp_path, gl_ctx, data_dir):
+def test_the_roomshadow_twin_differs_from_the_default(gl_ctx, data_dir):
     # Unlike -nossao, this pair is not guaranteed to differ on every
     # fixture: the room receiver pass only darkens pixels a hard_col top
     # actually receives a shadow on (test_room_with_no_hard_col_in_view_

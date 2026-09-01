@@ -24,10 +24,6 @@ from PyAitD.render.render_options import (
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.data.text import BookToken
 
-GRAPHICS_ROWS = 5          # rows on the Graphics page above Back, in GRAPHICS_CYCLES order
-REALISM_ROWS = 7           # rows on the Realism page above Back, in REALISM_CYCLES order
-
-
 def config_row_count():
     # Sticky Action, one row per remappable control, "Graphics...",
     # "Realism...", "Back to Menu"
@@ -421,6 +417,12 @@ GRAPHICS_CYCLES = (cycle_scale, cycle_shading, cycle_filter, cycle_msaa, cycle_s
 # sub-projects append their rows here, keeping the same index alignment.
 REALISM_CYCLES = (cycle_lighting, cycle_shadows, cycle_realism, cycle_integration, cycle_motion, cycle_occlusion,
                   cycle_atmosphere)
+
+# Rows on each page above Back, in cycle order. Derived, not hand-kept: a
+# new row is one tuple entry and one label, and the two can no longer
+# disagree.
+GRAPHICS_ROWS = len(GRAPHICS_CYCLES)
+REALISM_ROWS = len(REALISM_CYCLES)
 
 
 def _leave_graphics(state):
@@ -1312,7 +1314,7 @@ def realism_labels(render):
         f"Integration: {INTEGRATION_LABELS[render.integration]}",
         f"Motion: {render.motion.title()}",
         f"Occlusion: {'SSAO' if render.occlusion == 'ssao' else 'Off'}",
-        f"Atmosphere: {'On' if render.atmosphere == 'on' else 'Off'}",
+        f"Atmosphere: {render.atmosphere.title()}",
     ]
 
 

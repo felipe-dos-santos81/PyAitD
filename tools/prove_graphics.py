@@ -99,17 +99,14 @@ def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoo
     # have used on its own. `occlusion` needs no such threading -- it only
     # ever reaches the backend below, never build_frame. `atmosphere` is
     # the same: it lives entirely in the composite pass.
-    options = RenderOptions(scale=scale, shading=shading, realism=realism)
-    if smoothing is not None:
-        options = replace(options, smoothing=smoothing)
-    if shadows is not None:
-        options = replace(options, shadows=shadows)
-    if integration is not None:
-        options = replace(options, integration=integration)
-    if occlusion is not None:
-        options = replace(options, occlusion=occlusion)
-    if atmosphere is not None:
-        options = replace(options, atmosphere=atmosphere)
+    # One `replace` over whatever was actually passed, rather than one
+    # `if x is not None` block per field: None means "leave the
+    # RenderOptions default alone", and the Nth proof option is a tuple
+    # entry rather than a sixth near-identical branch.
+    forced = {field: value for field, value in (
+        ("smoothing", smoothing), ("shadows", shadows), ("integration", integration),
+        ("occlusion", occlusion), ("atmosphere", atmosphere)) if value is not None}
+    options = replace(RenderOptions(scale=scale, shading=shading, realism=realism), **forced)
 
     game, floor = _boot(data_dir, name)
     resolver = AssetResolver(game.assets)
@@ -158,103 +155,91 @@ def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoo
         backend.release()
 
 
+@dataclasses.dataclass(frozen=True)
+class ProofRow:
+    """One rendered PNG: which fixture, which options force it, where it lands.
+
+    `forced` holds exactly the RenderOptions fields this row pins, ready to
+    splat into `render_fixture`. Carrying a dict rather than one positional
+    field per option is what keeps a new proof option to one VARIANTS line
+    and one `base` entry, instead of widening a tuple in nine places and
+    every consumer that unpacks it.
+    """
+    name: str
+    shading: str
+    realism: str
+    forced: dict
+    motion_blend: bool
+    painted: bool
+    label: str
+    path: pathlib.Path
+
+
 def output_paths(out_dir, smoothing=None, shadows=None, integration=None, motion=None,
                  occlusion=None, atmosphere=None):
-    """(name, mode, realism, smoothing, shadows, integration, occlusion,
-    atmosphere, motion_blend, label, path) for every fixture x
-    shading-mode x realism combination at `smoothing`, `shadows`,
-    `integration`, `occlusion` and `atmosphere` (the RenderOptions
-    defaults when None), then one flat-mesh (smoothing 0), one
-    hard-shadow (shadows "hard"), one un-composited (integration 0), one
-    over-composited (integration 3), one motion-blended, one
-    synthetically-painted, one SSAO-off (occlusion "off"), one
-    room-shadow (shadows "room") and one un-hazed (atmosphere "off") file
-    per fixture beside the smooth-enhanced render, in the order rendered
-    and printed by `main`.
+    """A ProofRow for every fixture x shading-mode x realism combination at
+    `smoothing`, `shadows`, `integration`, `occlusion` and `atmosphere`
+    (the RenderOptions defaults when None), then one twin per entry in
+    VARIANTS below per fixture, in the order rendered and printed by
+    `main`.
 
     `label` is the row's own identity ("" for a main combination, else the
     filename suffix its variant renders with) -- it is what the filename is
     built from, and it stays distinct per row regardless of what
-    `motion_blend` happens to evaluate to. Without it, the `-tickmotion`
-    row's other seven fields collide with the plain smooth-enhanced main
-    row's whenever `motion_blend` is False (i.e. --motion tick), which
+    `motion_blend` and `forced` happen to hold. Without it, the
+    `-tickmotion` row's other fields collide with the plain smooth-enhanced
+    main row's whenever `motion_blend` is False (i.e. --motion tick), which
     would silently drop one of the two from any de-duplication keyed on
-    those fields alone.
+    those fields alone. `-painted` needs it for the same reason.
 
-    The `-strong` and `-nocomposite` pair bracket the integration level the
-    main renders use: 0 and 3 are the ends of the range, and the default
-    sits between them, so the proof shows the grading rather than only its
-    middle. The `-tickmotion` pair renders mid-blend (alpha 0.5) when
-    `motion` (the RenderOptions default when None) is "smooth", and
-    unblended -- the escape hatch -- when it is "tick". The `-painted`
-    pair renders with a synthetic checker atlas standing in for a real
-    body paint (this repo never ships one); its `motion_blend` field is
-    always False -- it needs its own `"painted"` label, not the boolean,
-    to be told apart from the plain smooth-enhanced main row, exactly as
-    `-tickmotion` needs `label` when `motion_blend` is False. The
-    `-nossao` pair forces `occlusion="off"` against the "ssao" default,
-    which `RenderOptions().occlusion` has been since Task 4 -- the two
-    genuinely differ. The `-roomshadow` pair forces `shadows="room"`
-    against the "soft" default; naming it after "soft" the way the brief's
-    first draft did (forcing "soft" against a "room" default) would have
-    compared two identical renders, since `RenderOptions.shadows` has
-    never moved off "soft". The `-nohaze` pair forces
-    `atmosphere="off"` against the "on" default, for that same reason:
-    naming it after "on" would render the pair twice and diff to
-    nothing."""
+    Every twin forces the *non-default* value of the field it is named
+    for, or it renders the same image twice and proves nothing -- the
+    mistake `-roomshadow`'s first draft made by forcing "soft" against a
+    default that has never moved off "soft", and the reason `-nohaze`
+    forces "off" against the "on" default rather than the other way round.
+    `-nocomposite` and `-strong` are the exception by design: they bracket
+    the default integration level from both ends, 0 and 3, so the proof
+    shows the grading rather than only its middle."""
     out_dir = pathlib.Path(out_dir)
     defaults = RenderOptions()
-    level = defaults.smoothing if smoothing is None else smoothing
-    mode_shadows = defaults.shadows if shadows is None else shadows
-    mode_integration = defaults.integration if integration is None else integration
-    mode_motion = defaults.motion if motion is None else motion
-    mode_occlusion = defaults.occlusion if occlusion is None else occlusion
-    mode_atmosphere = defaults.atmosphere if atmosphere is None else atmosphere
-    blend = (mode_motion == "smooth")
-    paths = [
-        (name, mode, realism, level, mode_shadows, mode_integration, mode_occlusion,
-         mode_atmosphere, False, "", out_dir / f"{name}-{mode}-{realism}.png")
-        for name in FIXTURES
-        for mode in SHADING_MODES
-        for realism in REALISM_MODES
-    ]
-    paths += [(name, "smooth", "enhanced", 0, mode_shadows, mode_integration, mode_occlusion,
-               mode_atmosphere, False, "flatmesh",
-               out_dir / f"{name}-smooth-enhanced-flatmesh.png")
-              for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, "hard", mode_integration, mode_occlusion,
-               mode_atmosphere, False, "hardshadow",
-               out_dir / f"{name}-smooth-enhanced-hardshadow.png")
-              for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, mode_shadows, 0, mode_occlusion,
-               mode_atmosphere, False, "nocomposite",
-               out_dir / f"{name}-smooth-enhanced-nocomposite.png")
-              for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, mode_shadows, 3, mode_occlusion,
-               mode_atmosphere, False, "strong",
-               out_dir / f"{name}-smooth-enhanced-strong.png")
-              for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, mode_shadows, mode_integration, mode_occlusion,
-               mode_atmosphere, blend, "tickmotion",
-               out_dir / f"{name}-smooth-enhanced-tickmotion.png")
-              for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, mode_shadows, mode_integration, mode_occlusion,
-               mode_atmosphere, False, "painted",
-               out_dir / f"{name}-smooth-enhanced-painted.png")
-              for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, mode_shadows, mode_integration, "off",
-               mode_atmosphere, False, "nossao",
-               out_dir / f"{name}-smooth-enhanced-nossao.png")
-              for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, "room", mode_integration, mode_occlusion,
-               mode_atmosphere, False, "roomshadow",
-               out_dir / f"{name}-smooth-enhanced-roomshadow.png")
-              for name in FIXTURES]
-    paths += [(name, "smooth", "enhanced", level, mode_shadows, mode_integration, mode_occlusion,
-               "off", False, "nohaze",
-               out_dir / f"{name}-smooth-enhanced-nohaze.png")
-              for name in FIXTURES]
-    return paths
+    base = {
+        "smoothing": defaults.smoothing if smoothing is None else smoothing,
+        "shadows": defaults.shadows if shadows is None else shadows,
+        "integration": defaults.integration if integration is None else integration,
+        "occlusion": defaults.occlusion if occlusion is None else occlusion,
+        "atmosphere": defaults.atmosphere if atmosphere is None else atmosphere,
+    }
+    # The -tickmotion twin renders mid-blend (alpha 0.5) when `motion` is
+    # "smooth" and unblended -- the escape hatch -- when it is "tick". The
+    # -painted twin renders with a synthetic checker atlas standing in for
+    # a real body paint (this repo never ships one) and never blends.
+    blend = ((defaults.motion if motion is None else motion) == "smooth")
+    # (label, forced-field overrides, motion_blend, painted)
+    VARIANTS = (
+        ("flatmesh", {"smoothing": 0}, False, False),
+        ("hardshadow", {"shadows": "hard"}, False, False),
+        ("nocomposite", {"integration": 0}, False, False),
+        ("strong", {"integration": 3}, False, False),
+        ("tickmotion", {}, blend, False),
+        ("painted", {}, False, True),
+        ("nossao", {"occlusion": "off"}, False, False),
+        ("roomshadow", {"shadows": "room"}, False, False),
+        ("nohaze", {"atmosphere": "off"}, False, False),
+    )
+
+    def row(name, shading, realism, forced, motion_blend, painted, label):
+        suffix = f"-{label}" if label else ""
+        return ProofRow(name, shading, realism, forced, motion_blend, painted, label,
+                        out_dir / f"{name}-{shading}-{realism}{suffix}.png")
+
+    rows = [row(name, mode, realism, dict(base), False, False, "")
+            for name in FIXTURES
+            for mode in SHADING_MODES
+            for realism in REALISM_MODES]
+    rows += [row(name, "smooth", "enhanced", {**base, **forced}, motion_blend, painted, label)
+             for label, forced, motion_blend, painted in VARIANTS
+             for name in FIXTURES]
+    return rows
 
 
 def _parse_args(argv):
@@ -299,16 +284,13 @@ def main(argv=None):
 
     try:
         args.out.mkdir(parents=True, exist_ok=True)
-        for (name, mode, realism, level, shadows, integration, occlusion, atmosphere, blend,
-             label, path) in output_paths(
-                args.out, args.smoothing, args.shadows, args.integration, args.motion,
-                args.occlusion, args.atmosphere):
-            rgb = render_fixture(args.data, name, args.scale, mode, ctx, realism, level,
-                                 shadows, integration, blend, label == "painted", occlusion,
-                                 atmosphere)
+        for r in output_paths(args.out, args.smoothing, args.shadows, args.integration,
+                              args.motion, args.occlusion, args.atmosphere):
+            rgb = render_fixture(args.data, r.name, args.scale, r.shading, ctx, r.realism,
+                                 motion_blend=r.motion_blend, painted=r.painted, **r.forced)
             surface = pygame.surfarray.make_surface(np.ascontiguousarray(rgb.swapaxes(0, 1)))
-            pygame.image.save(surface, str(path))
-            print(path)
+            pygame.image.save(surface, str(r.path))
+            print(r.path)
     finally:
         ctx.release()
     return 0

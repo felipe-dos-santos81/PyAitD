@@ -168,7 +168,13 @@ def validate_render_options(payload):
     if atmosphere not in ATMOSPHERE_MODES:
         errors.append(f"atmosphere must be one of {', '.join(ATMOSPHERE_MODES)}")
         atmosphere = defaults.atmosphere
-    options = RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration, motion, occlusion, atmosphere)
+    # Keyword, not positional: this call once carried 13 positional
+    # arguments, so a field inserted anywhere but the end silently
+    # remapped every value after it.
+    options = RenderOptions(
+        scale=scale, shading=shading, background_filter=background_filter, texture_dir=texture_dir,
+        lighting=lighting, msaa=msaa, realism=realism, smoothing=smoothing, shadows=shadows,
+        integration=integration, motion=motion, occlusion=occlusion, atmosphere=atmosphere)
     return options, ("; ".join(errors) or None)
 
 
