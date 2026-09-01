@@ -57,7 +57,7 @@ def test_parse_args_overrides():
 def test_output_paths_cover_every_combination_plus_the_twins():
     from PyAitD.render.render_options import RenderOptions
     paths = output_paths("docs/graphics-proof")
-    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 8 * len(FIXTURES)
+    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 9 * len(FIXTURES)
     default = RenderOptions()
     # keyed on `label`, not `motion_blend` -- Minor 8: motion_blend alone
     # collides between the plain smooth-enhanced main row and the
@@ -65,36 +65,46 @@ def test_output_paths_cover_every_combination_plus_the_twins():
     # a set keyed on the other seven fields would silently collapse -- and
     # the -painted row's motion_blend is always False too, so it needs the
     # same distinct-label treatment to avoid colliding with either
-    names = {(name, mode, realism, level, shadows, integration, occlusion, label)
-             for name, mode, realism, level, shadows, integration, occlusion, _motion_blend, label, _
-             in paths}
-    expected = {(n, m, r, default.smoothing, default.shadows, default.integration, default.occlusion, "")
+    names = {(name, mode, realism, level, shadows, integration, occlusion, atmosphere, label)
+             for name, mode, realism, level, shadows, integration, occlusion, atmosphere,
+             _motion_blend, label, _ in paths}
+    expected = {(n, m, r, default.smoothing, default.shadows, default.integration,
+                 default.occlusion, default.atmosphere, "")
                 for n in FIXTURES for m in SHADING_MODES for r in REALISM_MODES}
     expected |= {(n, "smooth", "enhanced", 0, default.shadows, default.integration, default.occlusion,
-                  "flatmesh")
+                  default.atmosphere, "flatmesh")
                  for n in FIXTURES}
     expected |= {(n, "smooth", "enhanced", default.smoothing, "hard", default.integration,
-                  default.occlusion, "hardshadow")
+                  default.occlusion, default.atmosphere, "hardshadow")
                  for n in FIXTURES}
     expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 0, default.occlusion,
-                  "nocomposite")
+                  default.atmosphere, "nocomposite")
                  for n in FIXTURES}
     expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 3, default.occlusion,
-                  "strong")
+                  default.atmosphere, "strong")
                  for n in FIXTURES}
     expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
-                  default.occlusion, "tickmotion")
+                  default.occlusion, default.atmosphere, "tickmotion")
                  for n in FIXTURES}
     expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
-                  default.occlusion, "painted")
+                  default.occlusion, default.atmosphere, "painted")
                  for n in FIXTURES}
     expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
-                  "off", "nossao")
+                  "off", default.atmosphere, "nossao")
                  for n in FIXTURES}
     expected |= {(n, "smooth", "enhanced", default.smoothing, "room", default.integration,
-                  default.occlusion, "roomshadow")
+                  default.occlusion, default.atmosphere, "roomshadow")
+                 for n in FIXTURES}
+    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
+                  default.occlusion, "off", "nohaze")
                  for n in FIXTURES}
     assert names == expected
+    # Each twin forces the *non-default* value of the field it is named
+    # for, or it renders the same image twice and proves nothing (the
+    # mistake -roomshadow's first draft made). `nohaze` is the newest and
+    # the one whose default moved in this very task.
+    assert default.atmosphere == "on"
+    assert {a for *_r, a, _b, label, _p in paths if label == "nohaze"} == {"off"}
     # the -tickmotion row's motion_blend still tracks the "smooth" default
     # regardless of its distinct label
     tickmotion_blends = {motion_blend
@@ -104,7 +114,8 @@ def test_output_paths_cover_every_combination_plus_the_twins():
     painted_blends = {motion_blend
                       for *_, motion_blend, label, _ in paths if label == "painted"}
     assert painted_blends == {False}
-    for name, mode, realism, level, shadows, integration, occlusion, motion_blend, label, path in paths:
+    for (name, mode, realism, level, shadows, integration, occlusion, atmosphere, motion_blend,
+         label, path) in paths:
         suffix = f"-{label}" if label else ""
         assert path == pathlib.Path("docs/graphics-proof") / f"{name}-{mode}-{realism}{suffix}.png"
 
@@ -146,13 +157,36 @@ def test_render_fixture_is_importable_with_the_documented_signature():
     import inspect
     params = list(inspect.signature(render_fixture).parameters)
     assert params == ["data_dir", "name", "scale", "shading", "ctx", "realism", "smoothing",
-                      "shadows", "integration", "motion_blend", "painted", "occlusion"]
+                      "shadows", "integration", "motion_blend", "painted", "occlusion",
+                      "atmosphere"]
 
 
 def test_the_nossao_twin_differs_from_the_default(tmp_path, gl_ctx, data_dir):
     default = render_fixture(data_dir, "attic", 1, "smooth", gl_ctx)
     nossao = render_fixture(data_dir, "attic", 1, "smooth", gl_ctx, occlusion="off")
     assert not np.array_equal(default, nossao)
+
+
+def test_the_nohaze_twin_differs_from_the_default(tmp_path, gl_ctx, data_dir):
+    # The attic is the small-room case the haze is designed to leave
+    # alone, so this pair was not guaranteed to differ -- but measured, it
+    # does: the attic's own camera has focal1 1431 and its covered actor
+    # depths run 1431..12840 (median 4780), so most of its cast is past
+    # HAZE_START = 2500 and hazes. Only its nearest actor (depth
+    # 1503..1728) is genuinely untouched. Asserted on both fixtures
+    # because the combat venue -- whose whole visible cast sits at depth
+    # 22000..29500 -- is the unambiguous far case, and a twin that held on
+    # one fixture only would be worth knowing about.
+    for fixture in ("attic", "combat"):
+        default = render_fixture(data_dir, fixture, 1, "smooth", gl_ctx)
+        nohaze = render_fixture(data_dir, fixture, 1, "smooth", gl_ctx, atmosphere="off")
+        assert not np.array_equal(default, nohaze), fixture
+
+
+def test_parse_args_atmosphere_defaults_to_the_render_default():
+    from PyAitD.render.render_options import RenderOptions
+    assert _parse_args(["d"]).atmosphere == RenderOptions().atmosphere == "on"
+    assert _parse_args(["d", "--atmosphere", "off"]).atmosphere == "off"
 
 
 def test_the_roomshadow_twin_differs_from_the_default(tmp_path, gl_ctx, data_dir):

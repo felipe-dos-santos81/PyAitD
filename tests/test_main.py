@@ -683,12 +683,12 @@ def test_the_atmosphere_flag_overrides_only_its_own_field():
     from PyAitD.app.config import default_settings
     from PyAitD.app.shell import apply_render_overrides, parse_args
     base = default_settings()
-    assert base.render.atmosphere == "off"                    # the shipped default
-    only = apply_render_overrides(base, parse_args(["--atmosphere", "on"]))
+    assert base.render.atmosphere == "on"                     # the shipped default
+    only = apply_render_overrides(base, parse_args(["--atmosphere", "off"]))
     # exactly the atmosphere field moved, nothing else
-    assert only.render == replace(base.render, atmosphere="on")
+    assert only.render == replace(base.render, atmosphere="off")
     # no flag: the default persists, unmodified
-    assert apply_render_overrides(base, parse_args([])).render.atmosphere == "off"
+    assert apply_render_overrides(base, parse_args([])).render.atmosphere == "on"
     with pytest.raises(SystemExit):
         parse_args(["--atmosphere", "foggy"])  # argparse choices reject it
 

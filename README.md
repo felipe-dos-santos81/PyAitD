@@ -95,11 +95,11 @@ control the port consumes while playing (keyboard input mode) into it, for
 side-by-side comparison. macOS only; needs `dosbox-x` and a one-time
 Accessibility grant; see `docs/compare-original-proof.md`.
 
-The in-game Configuration screen's Graphics and Realism pages, and twelve CLI
+The in-game Configuration screen's Graphics and Realism pages, and thirteen CLI
 flags for a single session, control the enhanced renderer: Graphics holds the
 display knobs (scale, shading, background filter, AA, mesh smoothing) and
 Realism the lighting and motion ones (lighting, shadows, realism preset, plate
-integration, motion, occlusion). `--render-scale N` (1-8, the
+integration, motion, occlusion, atmosphere). `--render-scale N` (1-8, the
 internal render resolution as a multiple of 320x200), `--shading
 {flat,lambert,smooth}` (the per-actor shading model: where surface normals
 come from), `--background-filter {nearest,bilinear,xbr}` (how the original
@@ -145,6 +145,14 @@ frame — and attenuates the fill light's share where it finds contact
 occlusion; `off` runs today's renderer verbatim. Additive to the baked
 rest-pose occlusion every body already carries, which cannot see pose or
 neighbours),
+`--atmosphere {off,on}` (`on`, the default, gives the actor layer distance:
+the composite reads a per-pixel linear eye depth alongside colour and, past
+2500 world units, fades an actor toward the room's own ambient tone while
+grading its softness and grain mildly upward with distance, so a far figure
+reads as far away rather than as a sharp cut-out. A near actor is untouched
+by construction, and a small room shows nothing at all; `off` runs today's
+composite verbatim. Applies under `--lighting scene` and `--integration 1`
+or above only — every term lives in the composite pass),
 `--integration {0,1,2,3}` (how much of the room's own picture the actors take
 on: any level above 0 resolves the bodies into their own layer and composites
 them back — softened or pixelated to the plate's cell, clamped into the

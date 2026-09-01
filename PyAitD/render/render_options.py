@@ -74,7 +74,7 @@ class RenderOptions:
     integration: int = 2
     motion: str = "smooth"
     occlusion: str = "ssao"
-    atmosphere: str = "off"
+    atmosphere: str = "on"
 
     def to_payload(self):
         return {

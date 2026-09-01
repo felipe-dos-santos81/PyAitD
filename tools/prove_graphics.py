@@ -8,8 +8,9 @@ hard-shadow (`shadows=hard`), one un-composited (`integration=0`), one
 over-composited (`integration=3`), one motion-blended (mid-tick,
 alpha 0.5), one synthetically-painted (a generated checker atlas
 sampled non-uniformly per triangle, since this repo never ships a real
-body paint), one SSAO-off (`occlusion=off`) and one room-shadow
-(`shadows=room`) PNG per fixture beside the smooth-enhanced render:
+body paint), one SSAO-off (`occlusion=off`), one room-shadow
+(`shadows=room`) and one un-hazed (`atmosphere=off`) PNG per fixture
+beside the smooth-enhanced render:
 
 - `attic`: the M1/M2 attic debug start (`init_game`, floor 0).
 - `combat`: the shared floor-5 debug venue (`scenario.enter_combat_venue`).
@@ -25,9 +26,10 @@ for the per-material-class one the `-enhanced` renders feed,
 `docs/motion-interpolation-proof.md` for the one the two `-tickmotion`
 files feed, `docs/actor-textures-proof.md` for the one the two
 `-painted` files feed, and `docs/light-transport-proof.md` for the one
-the `-nossao` and `-roomshadow` pairs feed. The two `-strong` files are
-the top of the integration range, which the `-nocomposite` pair floors
-and the default renders sit between.
+the `-nossao` and `-roomshadow` pairs feed, and
+`docs/atmosphere-proof.md` for the one the two `-nohaze` files feed.
+The two `-strong` files are the top of the integration range, which the
+`-nocomposite` pair floors and the default renders sit between.
 """
 import argparse
 import dataclasses
@@ -42,8 +44,8 @@ from PyAitD.engine.script.game import init_game
 from PyAitD.render.motion import MotionSnapshot, snapshot as motion_snapshot
 from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import (
-    INTEGRATION_LEVELS, MOTION_MODES, OCCLUSION_MODES, REALISM_MODES, SHADING_MODES,
-    SHADOW_MODES, SMOOTHING_LEVELS, RenderOptions,
+    ATMOSPHERE_MODES, INTEGRATION_LEVELS, MOTION_MODES, OCCLUSION_MODES, REALISM_MODES,
+    SHADING_MODES, SHADOW_MODES, SMOOTHING_LEVELS, RenderOptions,
 )
 from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.render.scene import build_frame
@@ -85,7 +87,7 @@ def _triangle_index_uv(num_tris, squares=8):
 
 def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoothing=None,
                    shadows=None, integration=None, motion_blend=False, painted=False,
-                   occlusion=None):
+                   occlusion=None, atmosphere=None):
     # options is built before either build_frame call below and its
     # .shadows read back into them -- the same "read it off the resolved
     # options" shape shell.py's _scene_frame uses against renderer.options
@@ -95,7 +97,8 @@ def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoo
     # RenderOptions' and build_frame's own default is "soft", so an unset
     # `shadows` here still resolves to the same mode either call would
     # have used on its own. `occlusion` needs no such threading -- it only
-    # ever reaches the backend below, never build_frame.
+    # ever reaches the backend below, never build_frame. `atmosphere` is
+    # the same: it lives entirely in the composite pass.
     options = RenderOptions(scale=scale, shading=shading, realism=realism)
     if smoothing is not None:
         options = replace(options, smoothing=smoothing)
@@ -105,6 +108,8 @@ def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoo
         options = replace(options, integration=integration)
     if occlusion is not None:
         options = replace(options, occlusion=occlusion)
+    if atmosphere is not None:
+        options = replace(options, atmosphere=atmosphere)
 
     game, floor = _boot(data_dir, name)
     resolver = AssetResolver(game.assets)
@@ -154,16 +159,18 @@ def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoo
 
 
 def output_paths(out_dir, smoothing=None, shadows=None, integration=None, motion=None,
-                 occlusion=None):
+                 occlusion=None, atmosphere=None):
     """(name, mode, realism, smoothing, shadows, integration, occlusion,
-    motion_blend, label, path) for every fixture x shading-mode x realism
-    combination at `smoothing`, `shadows`, `integration` and `occlusion`
-    (the RenderOptions defaults when None), then one flat-mesh (smoothing
-    0), one hard-shadow (shadows "hard"), one un-composited (integration
-    0), one over-composited (integration 3), one motion-blended, one
-    synthetically-painted, one SSAO-off (occlusion "off") and one
-    room-shadow (shadows "room") file per fixture beside the
-    smooth-enhanced render, in the order rendered and printed by `main`.
+    atmosphere, motion_blend, label, path) for every fixture x
+    shading-mode x realism combination at `smoothing`, `shadows`,
+    `integration`, `occlusion` and `atmosphere` (the RenderOptions
+    defaults when None), then one flat-mesh (smoothing 0), one
+    hard-shadow (shadows "hard"), one un-composited (integration 0), one
+    over-composited (integration 3), one motion-blended, one
+    synthetically-painted, one SSAO-off (occlusion "off"), one
+    room-shadow (shadows "room") and one un-hazed (atmosphere "off") file
+    per fixture beside the smooth-enhanced render, in the order rendered
+    and printed by `main`.
 
     `label` is the row's own identity ("" for a main combination, else the
     filename suffix its variant renders with) -- it is what the filename is
@@ -191,7 +198,10 @@ def output_paths(out_dir, smoothing=None, shadows=None, integration=None, motion
     against the "soft" default; naming it after "soft" the way the brief's
     first draft did (forcing "soft" against a "room" default) would have
     compared two identical renders, since `RenderOptions.shadows` has
-    never moved off "soft"."""
+    never moved off "soft". The `-nohaze` pair forces
+    `atmosphere="off"` against the "on" default, for that same reason:
+    naming it after "on" would render the pair twice and diff to
+    nothing."""
     out_dir = pathlib.Path(out_dir)
     defaults = RenderOptions()
     level = defaults.smoothing if smoothing is None else smoothing
@@ -199,45 +209,50 @@ def output_paths(out_dir, smoothing=None, shadows=None, integration=None, motion
     mode_integration = defaults.integration if integration is None else integration
     mode_motion = defaults.motion if motion is None else motion
     mode_occlusion = defaults.occlusion if occlusion is None else occlusion
+    mode_atmosphere = defaults.atmosphere if atmosphere is None else atmosphere
     blend = (mode_motion == "smooth")
     paths = [
-        (name, mode, realism, level, mode_shadows, mode_integration, mode_occlusion, False, "",
-         out_dir / f"{name}-{mode}-{realism}.png")
+        (name, mode, realism, level, mode_shadows, mode_integration, mode_occlusion,
+         mode_atmosphere, False, "", out_dir / f"{name}-{mode}-{realism}.png")
         for name in FIXTURES
         for mode in SHADING_MODES
         for realism in REALISM_MODES
     ]
     paths += [(name, "smooth", "enhanced", 0, mode_shadows, mode_integration, mode_occlusion,
-               False, "flatmesh",
+               mode_atmosphere, False, "flatmesh",
                out_dir / f"{name}-smooth-enhanced-flatmesh.png")
               for name in FIXTURES]
     paths += [(name, "smooth", "enhanced", level, "hard", mode_integration, mode_occlusion,
-               False, "hardshadow",
+               mode_atmosphere, False, "hardshadow",
                out_dir / f"{name}-smooth-enhanced-hardshadow.png")
               for name in FIXTURES]
     paths += [(name, "smooth", "enhanced", level, mode_shadows, 0, mode_occlusion,
-               False, "nocomposite",
+               mode_atmosphere, False, "nocomposite",
                out_dir / f"{name}-smooth-enhanced-nocomposite.png")
               for name in FIXTURES]
     paths += [(name, "smooth", "enhanced", level, mode_shadows, 3, mode_occlusion,
-               False, "strong",
+               mode_atmosphere, False, "strong",
                out_dir / f"{name}-smooth-enhanced-strong.png")
               for name in FIXTURES]
     paths += [(name, "smooth", "enhanced", level, mode_shadows, mode_integration, mode_occlusion,
-               blend, "tickmotion",
+               mode_atmosphere, blend, "tickmotion",
                out_dir / f"{name}-smooth-enhanced-tickmotion.png")
               for name in FIXTURES]
     paths += [(name, "smooth", "enhanced", level, mode_shadows, mode_integration, mode_occlusion,
-               False, "painted",
+               mode_atmosphere, False, "painted",
                out_dir / f"{name}-smooth-enhanced-painted.png")
               for name in FIXTURES]
     paths += [(name, "smooth", "enhanced", level, mode_shadows, mode_integration, "off",
-               False, "nossao",
+               mode_atmosphere, False, "nossao",
                out_dir / f"{name}-smooth-enhanced-nossao.png")
               for name in FIXTURES]
     paths += [(name, "smooth", "enhanced", level, "room", mode_integration, mode_occlusion,
-               False, "roomshadow",
+               mode_atmosphere, False, "roomshadow",
                out_dir / f"{name}-smooth-enhanced-roomshadow.png")
+              for name in FIXTURES]
+    paths += [(name, "smooth", "enhanced", level, mode_shadows, mode_integration, mode_occlusion,
+               "off", False, "nohaze",
+               out_dir / f"{name}-smooth-enhanced-nohaze.png")
               for name in FIXTURES]
     return paths
 
@@ -261,6 +276,9 @@ def _parse_args(argv):
     p.add_argument("--occlusion", choices=OCCLUSION_MODES, default=RenderOptions().occlusion,
                    help="screen-space ambient occlusion for the main renders "
                         "(the -nossao pair is always off)")
+    p.add_argument("--atmosphere", choices=ATMOSPHERE_MODES, default=RenderOptions().atmosphere,
+                   help="depth haze and the depth-graded softness and grain for the main "
+                        "renders (the -nohaze pair is always off)")
     return p.parse_args(argv)
 
 
@@ -281,10 +299,13 @@ def main(argv=None):
 
     try:
         args.out.mkdir(parents=True, exist_ok=True)
-        for name, mode, realism, level, shadows, integration, occlusion, blend, label, path in output_paths(
-                args.out, args.smoothing, args.shadows, args.integration, args.motion, args.occlusion):
+        for (name, mode, realism, level, shadows, integration, occlusion, atmosphere, blend,
+             label, path) in output_paths(
+                args.out, args.smoothing, args.shadows, args.integration, args.motion,
+                args.occlusion, args.atmosphere):
             rgb = render_fixture(args.data, name, args.scale, mode, ctx, realism, level,
-                                 shadows, integration, blend, label == "painted", occlusion)
+                                 shadows, integration, blend, label == "painted", occlusion,
+                                 atmosphere)
             surface = pygame.surfarray.make_surface(np.ascontiguousarray(rgb.swapaxes(0, 1)))
             pygame.image.save(surface, str(path))
             print(path)

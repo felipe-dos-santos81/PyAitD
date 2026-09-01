@@ -202,5 +202,5 @@ def test_save_writes_schema_2_with_render(tmp_path):
                                  "background_filter": "xbr", "texture_dir": None,
                                  "lighting": "scene", "msaa": 4, "realism": "enhanced",
                                  "smoothing": 2, "shadows": "soft", "integration": 2, "motion": "smooth",
-                                 "occlusion": "ssao", "atmosphere": "off"}
+                                 "occlusion": "ssao", "atmosphere": "on"}
     assert load_settings(path) == (settings, None)

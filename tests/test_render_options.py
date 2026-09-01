@@ -231,35 +231,41 @@ def test_occlusion_round_trips_through_the_payload():
     assert restored.occlusion == "ssao" and error is None
 
 
-def test_atmosphere_defaults_off_and_cycles():
+def test_atmosphere_defaults_on_and_cycles():
+    # ATMOSPHERE_MODES stays ("off", "on") -- the tuple is the menu's cycle
+    # order, not a statement about the default -- so cycling from the "on"
+    # default wraps to "off" first, exactly as occlusion's ("off", "ssao")
+    # cycles from its "ssao" default.
     from PyAitD.render.render_options import ATMOSPHERE_MODES, cycle_atmosphere
     options = RenderOptions()
-    assert options.atmosphere == "off"
+    assert options.atmosphere == "on"
     assert ATMOSPHERE_MODES == ("off", "on")
-    assert cycle_atmosphere(options).atmosphere == "on"
-    assert cycle_atmosphere(cycle_atmosphere(options)).atmosphere == "off"
+    assert cycle_atmosphere(options).atmosphere == "off"
+    assert cycle_atmosphere(cycle_atmosphere(options)).atmosphere == "on"
 
 
 def test_atmosphere_is_last_so_positional_construction_still_works():
     options = RenderOptions(4, "smooth", "bilinear", None, "scene", 4, "enhanced", 2)
-    assert options.atmosphere == "off"
+    assert options.atmosphere == "on"
 
 
 def test_invalid_or_missing_atmosphere_falls_back_alone():
     payload = RenderOptions().to_payload()
     payload["atmosphere"] = "foggy"
     options, error = validate_render_options(payload)
-    assert options.atmosphere == "off"
+    assert options.atmosphere == "on"
     assert options.integration == RenderOptions().integration    # neighbour undisturbed
     assert "atmosphere" in error
     del payload["atmosphere"]   # a settings file from before this option
     options, error = validate_render_options(payload)
-    assert options.atmosphere == "off" and "atmosphere" in error
+    assert options.atmosphere == "on" and "atmosphere" in error
 
 
 def test_atmosphere_round_trips_through_the_payload():
+    # The non-default value, so this is a round trip and not a restatement
+    # of the fallback the test above already covers.
     from dataclasses import replace
-    options = replace(RenderOptions(), atmosphere="on")
-    assert options.to_payload()["atmosphere"] == "on"
+    options = replace(RenderOptions(), atmosphere="off")
+    assert options.to_payload()["atmosphere"] == "off"
     restored, error = validate_render_options(options.to_payload())
-    assert restored.atmosphere == "on" and error is None
+    assert restored.atmosphere == "off" and error is None
