@@ -935,6 +935,14 @@ void main() {
     sample_layers(p, size, grade, a, d);
     vec3 plate = texelFetch(plate_tex, p, 0).rgb;
     vec3 c = vec3(0.0);
+    // The coverage gate. Every line inside divides by a.a -- the colour
+    // unpremultiply, and the depth one right after it -- so at zero
+    // coverage this guard is what stands between the frame and a 0/0.
+    // Untested, and on this driver untestable: with `if (true)` the whole
+    // suite passes and the attic fixture comes back byte-identical, because
+    // the hardware flushes the 0/0 to a finite value and the final
+    // `c * a.a` multiplies it by zero regardless. That is a property of
+    // this GPU, not of the shader. Keep the gate.
     if (a.a > 0.0) {
         c = a.rgb / a.a;                        // unpremultiply to tone-match
         float depth = d / a.a;                     // unpremultiply with the same coverage

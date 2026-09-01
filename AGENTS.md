@@ -280,7 +280,19 @@ a rule — add the test with the rule.
   never `radius` — the composite's blur loop depends on `radius` being a
   uniform for uniform control flow, so a per-pixel tap count is not
   available. The consequence is a real, documented bound: the depth grade
-  can only soften within the existing radius and can never sharpen past it.
+  can only soften within the existing radius and can never sharpen past
+  it. **Stronger than a bound: whenever `radius <= 0` or `pixelate` is
+  set, `sample_layers` takes an early return that never reads `grade` at
+  all, so `SIGMA_DEPTH_SLOPE` is not merely limited, it is completely
+  inert.** That covers `--render-scale 1` (where `plate.softness` yields
+  cell <= 1 and `radius` is 0) and `--background-filter nearest` at any
+  scale. Measured on both proof fixtures: sigma-graded-only against
+  atmosphere-off moves 0 pixels at scale 1, 0 pixels under `nearest` at
+  scale 4, and 6930 (attic) / 2048 (combat) pixels at scale 4 bilinear,
+  by at most 2-4 counts even there. Do not reach for `SIGMA_DEPTH_SLOPE`
+  to make a depth cue stronger; it does nothing on a large share of the
+  supported settings, and `GRAIN_DEPTH_SLOPE` and `HAZE_DENSITY` are the
+  two that always act.
 - **Atmosphere's four tunables live in `render/plate.py`**, beside the
   composite's own toe/shoulder/grain constants, and reach the shader as
   lowercase uniforms (`haze_density`, `haze_start`, `sigma_depth_slope`,

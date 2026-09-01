@@ -864,11 +864,22 @@ class GLBackend:
             for prog in (self._actor_prog, self._tess_prog, self._screen_prog):
                 _set_uniform(prog, "ssao_tex", 7)
                 _set_uniform(prog, "occlusion_on", 1 if ssao_on else 0)
-                # Atmosphere depth (Task 3 reads f_depth; consumed by
-                # nothing yet). Load-bearing on _screen_prog specifically:
-                # _SCREEN_VSH writes v_view = vec3(0.0), so a line or point
-                # reports depth == focal1 exactly -- the nearest possible
-                # depth, so the haze leaves it alone once Task 3 lands.
+                # Atmosphere depth. On _screen_prog specifically, _SCREEN_VSH
+                # writes v_view = vec3(0.0), so a line or point reports
+                # depth == focal1 exactly rather than 0 -- the nearest depth
+                # that camera can produce, which is what a screen-space
+                # primitive should claim.
+                #
+                # This used to say the binding was load-bearing and that the
+                # task's own test would fail without it. That was true when
+                # HAZE_START was 1600, and stopped being true when Task 4
+                # remeasured it to 2500: zeroing this uniform now leaves all
+                # 1637 tests green, because at focal1 = 0 a line reports
+                # depth 0, and 0 and focal1 are both under HAZE_START, so
+                # both haze by exactly nothing. **No test currently covers
+                # depth on the _screen_prog path.** Anything that lowers
+                # HAZE_START below a camera's focal1 makes this binding
+                # visible again, with nothing watching.
                 _set_uniform(prog, "focal1", float(frame.camera.state.focal1))
 
             shadow = None

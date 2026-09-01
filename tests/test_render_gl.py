@@ -605,7 +605,12 @@ def test_flat_triangle_lands_where_the_logical_projection_says(gl_ctx):
 
 
 def test_depth_test_keeps_the_near_face_within_one_actor(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
+    # atmosphere="off", like its sibling
+    # test_painter_order_across_actors_ignores_depth: this asserts an exact
+    # primary colour, and its far face is deliberately at eye depth 4000,
+    # past HAZE_START, so the shipping default tints it. Depth testing is
+    # what is under test.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", atmosphere="off"))
     near, far = _tri_geometry(500.0, 1), _tri_geometry(3000.0, 2, span=1200.0)
     # far is vstacked first (indices 0-2) but *submitted last* (tris[1]):
     # with depth test off this would paint far (green) over near, so this
@@ -2154,9 +2159,16 @@ FULL_SHADOW_ON_200 = 74
 
 
 def _soft_frame_render(gl_ctx, shadows, actors, plate, direction, masks=(), level=0, shading="flat",
-                       realism="enhanced", palette=None):
+                       realism="enhanced", palette=None, atmosphere=None):
+    # `atmosphere` defaults to None -- inherit whatever RenderOptions ships
+    # -- because almost every caller here compares two renders of the same
+    # frame, where a term applied identically to both cancels. Only a
+    # caller asserting an *absolute* value needs to name it; see
+    # test_an_emissive_surface_renders_its_palette_colour.
+    extra = {} if atmosphere is None else {"atmosphere": atmosphere}
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading=shading, lighting="scene", msaa=0,
-                                              realism=realism, smoothing=level, shadows=shadows))
+                                              realism=realism, smoothing=level, shadows=shadows,
+                                              **extra))
     backend.draw(FrameDescription(_view(), ImageAsset(plate, False),
                                   _palette() if palette is None else palette,
                                   tuple(actors), tuple(masks), _scene_light(direction)))
@@ -2768,7 +2780,8 @@ KEY_FROM_ABOVE = (0.0, -0.85, -0.5)
 
 
 def _material_square(gl_ctx, table, z=600.0, realism="enhanced", shading="smooth",
-                     normal=(0.0, 0.0, -1.0), palette=None, light=KEY_FROM_ABOVE):
+                     normal=(0.0, 0.0, -1.0), palette=None, light=KEY_FROM_ABOVE,
+                     atmosphere=None):
     """A camera-facing square lit by the scene light, with `table` as its
     material table. Returns the rendered frame.
 
@@ -2786,7 +2799,8 @@ def _material_square(gl_ctx, table, z=600.0, realism="enhanced", shading="smooth
     actor = ActorDraw(0, geometry, (0.0, 0.0, 0.0), 0, (0, 0, 0, 200, 0, 0),
                       RenderResult([], []), (), materials=table)
     return _soft_frame_render(gl_ctx, "hard", [actor], plate, light,
-                              shading=shading, realism=realism, palette=palette)
+                              shading=shading, realism=realism, palette=palette,
+                              atmosphere=atmosphere)
 
 
 def _bump_pair(gl_ctx, name, monkeypatch, **kwargs):
@@ -3157,8 +3171,15 @@ def test_an_emissive_surface_renders_its_palette_colour(gl_ctx):
     body = (slice(70, 130), slice(120, 200))
     away = (0.0, -0.5, 0.85)          # behind the square: it stands in its own shade
 
+    # atmosphere="off": alone in this material family, this test asserts an
+    # absolute value (`== 200`, the raw palette colour) rather than
+    # comparing two renders, so a haze term does not cancel out of it. It
+    # is green today only because this square sits at eye depth 1600, under
+    # HAZE_START -- a silent dependency on a tunable, not a property of
+    # emissive shading.
     def square(name, light):
-        return _material_square(gl_ctx, _table_of(name), palette=_grey_palette(), light=light)
+        return _material_square(gl_ctx, _table_of(name), palette=_grey_palette(), light=light,
+                                atmosphere="off")
 
     lit, unlit = square("emissive", KEY_FROM_ABOVE), square("emissive", away)
     assert (lit[body] == 200).all() and (unlit[body] == 200).all()
@@ -3212,7 +3233,17 @@ def _gradient_plate():
 
 
 def _integration_options(**kw):
-    base = dict(scale=1, shading="smooth", lighting="scene", msaa=0)
+    # atmosphere="off" for the whole plate/composite family this helper
+    # builds options for. Every one of them asserts an exact value -- an
+    # equality against integration=0, an exact resolved texture, an exact
+    # unsoftened frame -- so they all belong to the identity net, and the
+    # net names every option that can touch a pixel rather than inheriting
+    # it. test_integration_at_full_matches_off_pixel_for_pixel_at_msaa_zero
+    # is the K-C1 shape exactly: an identity across integration 0 versus 2,
+    # where a defaulted-on composite feature is inert on the 0 side and
+    # live on the 2 side. A caller that actually wants haze passes
+    # atmosphere="on" through **kw.
+    base = dict(scale=1, shading="smooth", lighting="scene", msaa=0, atmosphere="off")
     base.update(kw)
     return RenderOptions(**base)
 
@@ -3333,15 +3364,22 @@ def test_integration_at_full_still_resolves_msaa_into_the_same_texture(gl_ctx):
         _view(), ImageAsset(plate, False), _palette(),
         (_standing_actor(0, _tri_geometry(600.0, 1), 400.0),), (),
         SceneLight((0.3, -0.6, -0.7), (1.0, 1.0, 1.0), (0.2, 0.2, 0.2), 1.0))
+    # atmosphere="off" on both sides, and this test builds its own options
+    # rather than going through _integration_options, so it needs saying
+    # here too. It is the K-C1 shape: an identity across integration 2
+    # versus 0, where a defaulted-on composite feature is live on one side
+    # and structurally inert on the other -- at integration 0 there is no
+    # composite at all. Any haze would land entirely on `on` and be scored
+    # against a <= 2 count tolerance that exists for msaa quantisation.
     backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
-                                              msaa=4, integration=2))
+                                              msaa=4, integration=2, atmosphere="off"))
     backend.draw(frame)
     on = backend.read_rgb().copy()
     assert on.shape == (400, 640, 3)
     assert backend.thumbnail().shape == (200, 320, 3)
     backend.release()
     direct = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
-                                             msaa=4, integration=0))
+                                             msaa=4, integration=0, atmosphere="off"))
     direct.draw(frame)
     off = direct.read_rgb().copy()
     direct.release()
@@ -3468,9 +3506,15 @@ def _composited_centre(gl_ctx, profile, palette=None, colour=1, plate_value=0,
     frame = FD(_view(), ImageAsset(plate, False), palette,
                (_standing_actor(0, _tri_geometry(600.0, colour), 400.0),), (),
                _scene_light((0.0, 0.0, -1.0)), profile)
+    # atmosphere="off": every caller compares two composited centre pixels
+    # to isolate what the tone curve did, and several assert an exact
+    # equality against a hand-computed value. The haze is a second thing
+    # acting on that same pixel, so it is named off here rather than left
+    # to happen to be zero -- which is all that keeps these green today,
+    # this triangle sitting at eye depth 1600, under HAZE_START.
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=1, shading="smooth", lighting="scene", msaa=0,
-        realism="classic", integration=integration))
+        realism="classic", integration=integration, atmosphere="off"))
     backend.draw(frame)
     got = _centre(backend.read_rgb())
     backend.release()
@@ -3522,9 +3566,16 @@ def _grey_grain_render(gl_ctx, grain, scale=1, integration=2):
                (_actor(0, _tri_geometry(600.0, 1)),), (),
                _scene_light((0.0, 0.0, -1.0)),
                PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), grain))
+    # atmosphere="off": these tests measure the composite grain's RMS
+    # against `plate_grain` exactly (GAIN is sqrt(12) precisely so the two
+    # match). GRAIN_DEPTH_SLOPE scales that same field by depth, so with
+    # atmosphere on the measured amplitude is the plate's times the depth
+    # grade -- a second, unrelated factor in a test asserting a 5% relative
+    # tolerance on the first. Named off rather than left to this triangle
+    # happening to sit at eye depth 1600, under HAZE_START.
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=scale, shading="smooth", lighting="scene", msaa=0,
-        realism="classic", integration=integration))
+        realism="classic", integration=integration, atmosphere="off"))
     backend.draw(frame)
     out = backend.read_rgb().copy()
     backend.release()

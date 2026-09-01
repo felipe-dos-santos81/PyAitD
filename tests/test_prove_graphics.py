@@ -187,14 +187,23 @@ def test_the_nohaze_twin_differs_from_the_default(tmp_path, gl_ctx, data_dir):
         # -- the failure class this repo keeps re-learning. Measured peaks
         # at this scale, sweeping HAZE_DENSITY: 3.5e-5 (shipped) gives
         # attic 22 / combat 34; 1.2e-5 gives 9 / 16; 4e-6 gives 5 / 8; and
-        # 0.0 still gives 3 / 4, because the two depth *grades* keep acting
-        # after the haze term is gone. So this floor cannot be set at the
-        # shipped value's own magnitude without pinning taste, and it is
-        # not: 6 sits above the 3-4 the grades alone produce and below the
-        # 9 the previously-shipped density produced, so a human retuning by
-        # eye keeps real room in both directions. Whether 1.2e-5 was *too
-        # weak* is a judgement recorded in docs/atmosphere-proof.md and
-        # left to the attestation table, not encoded here.
+        # 0.0 still gives 3 / 4 -- from the *grain* grade alone, not from
+        # "the two grades" as this comment first claimed. Measured by
+        # zeroing each term in turn at this scale: grain-only gives 3 / 4,
+        # sigma-only gives 0 / 0, all three zero gives 0 / 0. The sigma
+        # grade contributes exactly nothing here because these renders are
+        # scale 1, where `plate.softness` yields cell <= 1, `radius` is 0
+        # and `sample_layers` takes an early return that never reads
+        # `grade` at all (see the same note in docs/atmosphere-proof.md's
+        # limitations).
+        #
+        # So this floor cannot be set at the shipped value's own magnitude
+        # without pinning taste, and it is not: 6 sits above the 3-4 the
+        # grain grade alone produces and below the 9 the previously-shipped
+        # density produced, so a human retuning by eye keeps real room in
+        # both directions. Whether 1.2e-5 was *too weak* is a judgement
+        # recorded in docs/atmosphere-proof.md and left to the attestation
+        # table, not encoded here.
         delta = np.abs(default.astype(np.int32) - nohaze.astype(np.int32)).max()
         assert delta >= 6, f"{fixture}: peak haze is {delta} counts -- all but invisible"
 

@@ -397,10 +397,38 @@ suite does now carry is an anti-collapse floor in
 `test_the_nohaze_twin_differs_from_the_default`: the twin's peak channel
 delta must reach 6 counts on both fixtures. Measured sweep at scale 1 —
 3.5e-5 gives attic 22 / combat 34, 1.2e-5 gives 9 / 16, 4e-6 gives 5 / 8,
-and 0.0 still gives 3 / 4 because the two depth grades keep acting after
-the haze term is gone. The floor therefore sits above what the grades
-alone produce and below the previously-shipped density, catching a
-collapse toward inertness without deciding how strong the haze should be.
+and 0.0 still gives 3 / 4. That residual is the **grain grade alone**, not
+"the two grades" as this document first said: these renders are scale 1,
+where by the limitation above the sigma grade contributes exactly nothing.
+Decomposed directly, at the floor test's own scale:
+
+```
+$ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python scratch_decomp.py
+  attic: all three live            peak  22
+  attic: haze 0, sigma+grain live  peak   3
+  attic: haze 0, grain only        peak   3
+  attic: haze 0, sigma only        peak   0
+  attic: all three zero            peak   0
+  combat: all three live            peak  34
+  combat: haze 0, sigma+grain live  peak   4
+  combat: haze 0, grain only        peak   4
+  combat: haze 0, sigma only        peak   0
+  combat: all three zero            peak   0
+```
+
+(The last row of each block is also the neutral-tunables identity holding
+on real game data rather than on a synthetic frame.) The floor therefore
+sits above what the grain grade alone produces and below the
+previously-shipped density, catching a collapse toward inertness without
+deciding how strong the haze should be.
+
+**That floor lives in a `data_dir`-gated test.**
+`test_the_nohaze_twin_differs_from_the_default` needs real game data and
+skips without it, so on a machine with no `data/aitd1` the feature's only
+magnitude guard silently disappears — the rest of the suite still pins
+that the haze is nonzero and directional, but nothing then checks that it
+is large enough to see. This repo ships no game data, so that is the
+default state for a fresh clone.
 
 Both fixture moves were mutation-checked. With `d / a.a` in `COMPOSITE_FSH`
 mutated to bare `d`, `test_haze_unpremultiplies_depth_at_partially_covered_edges`
@@ -596,12 +624,40 @@ Three caveats on that number, all of which cut against it:
   of the attestation table. "The tunables" carries all three settings so
   that decision needs no new measurement, and `HAZE_DENSITY` is the only
   constant that should move.
-- **The depth grade softens within the existing radius and can never
-  sharpen past it.** `radius` stays a uniform because the composite's
-  blur loop depends on uniform control flow; only the weight falloff
-  (`inv_sigma2`) is graded. A far actor can be made blurrier up to the
-  radius the plate's own softness already set, and a near actor can never
-  be made crisper than that radius allows.
+- **`SIGMA_DEPTH_SLOPE` is entirely inert on a large share of the
+  supported settings — not merely bounded.** The documented bound is real:
+  `radius` stays a uniform because the composite's blur loop depends on
+  uniform control flow, so only the weight falloff (`inv_sigma2`) is
+  graded, and the grade can soften within the existing radius but never
+  sharpen past it. The stronger fact is that `sample_layers` has two early
+  returns — `pixelate != 0`, and `radius <= 0` — and **neither reads
+  `grade` at all**. So whenever the plate cell is at most one target pixel
+  (`plate.softness` returns `sigma = 0`, hence `radius = 0`) or the
+  background filter is `nearest`, the softness grade does nothing
+  whatsoever. That includes `--render-scale 1` outright, and
+  `--background-filter nearest` at every scale.
+
+  Measured on both fixtures, rendering the sigma grade alone (haze density
+  and grain slope zeroed) against `atmosphere="off"`:
+
+  ```
+  $ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python scratch_sigma.py
+    attic scale=1 filter=bilinear  sigma-grade-only vs off:      0 px differ, peak   0
+    attic scale=4 filter=bilinear  sigma-grade-only vs off:   6930 px differ, peak   2
+    attic scale=4 filter=nearest   sigma-grade-only vs off:      0 px differ, peak   0
+    attic scale=2 filter=bilinear  sigma-grade-only vs off:   2311 px differ, peak   2
+   combat scale=1 filter=bilinear  sigma-grade-only vs off:      0 px differ, peak   0
+   combat scale=4 filter=bilinear  sigma-grade-only vs off:   2048 px differ, peak   4
+   combat scale=4 filter=nearest   sigma-grade-only vs off:      0 px differ, peak   0
+   combat scale=2 filter=bilinear  sigma-grade-only vs off:    625 px differ, peak   4
+  ```
+
+  Zero pixels at scale 1 and under `nearest`; and even where it does act,
+  at most 2-4 counts. Of the three terms this sub-project ships, one of
+  them is doing nothing at all for a player at the default scale of 1, and
+  very little anywhere. `GRAIN_DEPTH_SLOPE` and `HAZE_DENSITY` are the two
+  that always act — anyone reaching for a stronger depth cue should turn
+  those, not this.
 - **The two grades interfere, and that is a property of the look, not a
   measurement artifact.** `test_softness_and_grain_increase_with_depth`
   has to isolate the two slopes into separate renders because, graded
@@ -639,15 +695,31 @@ Three caveats on that number, all of which cut against it:
   consequence would only ever be *less* haze, but any future reasoning
   that treats `focal1` as a hard lower bound on depth is reasoning about
   a guarantee this code does not make.
-- **The composite's `if (a.a > 0.0)` coverage gate is untested.**
-  Replacing it with `if (true)` leaves the entire suite green
-  (`1637 passed, 1 skipped, 1 xfailed`). This is pre-existing — the gate
-  predates this plan and was not introduced by it — and it is benign in
-  practice, since at `a.a == 0` the final line
-  `plate * (1 - a.a) + c * a.a` multiplies whatever `c` holds by zero.
-  It is recorded because a future change that makes `c` non-finite at
-  zero coverage (an unguarded divide, an `Inf` depth) would turn a
-  currently-untested guard into the only thing preventing NaN pixels.
+- **The composite's `if (a.a > 0.0)` coverage gate is untested, and on
+  this driver untestable.** Replacing it with `if (true)` leaves the entire
+  suite green (`1637 passed, 1 skipped, 1 xfailed`) *and* leaves the attic
+  fixture byte-identical — verified both ways. Every line inside the gate
+  divides by `a.a` (the colour unpremultiply, and the depth one right
+  after it), so at zero coverage the guard is what stands between the
+  frame and a 0/0; this GPU simply flushes that 0/0 to a finite value,
+  and the closing `plate * (1 - a.a) + c * a.a` multiplies it by zero
+  regardless. A portable test that fails today therefore cannot be
+  written, so the shader now carries a comment saying what the gate is
+  for instead. Pre-existing — the gate predates this plan — but recorded
+  because a future change that makes `c` non-finite at zero coverage
+  would turn an untested guard into the only thing preventing NaN pixels
+  on hardware less forgiving than this one.
+- **Nothing covers depth on the `_screen_prog` path.** `_SCREEN_VSH`
+  writes `v_view = vec3(0.0)`, so lines and points report `depth ==
+  focal1` — the nearest depth their camera can produce — via a `focal1`
+  uniform bound in `_draw_frame`. `render_gl.py` used to claim that
+  binding was load-bearing and that this plan's own test would fail
+  without it. It was, at the `HAZE_START` of 1600; at 2500 it is not.
+  Zeroing the uniform now leaves all 1637 tests green, because 0 and
+  `focal1` are both under the threshold and both haze by exactly nothing.
+  The comment is corrected, and the gap recorded: lowering `HAZE_START`
+  below some camera's `focal1` makes that binding visible again with
+  nothing watching it.
 - **No depth of field.** Decision 9 of the spec rules it out, and it is
   honoured here by omission: the depth grade scales an existing plate-
   matching blur mildly with distance, which is not a focus model and is
@@ -659,5 +731,6 @@ Three caveats on that number, all of which cut against it:
 The scratch scripts these measurements were taken with
 (`scratch_depths.py`, `scratch_depths2.py`, `scratch_focal.py`,
 `scratch_tune.py`, `scratch_pixels.py`, `scratch_frametime.py`,
-`scratch_near.py`) are not part of the shipped repo; `.gitignore` covers
+`scratch_near.py`, `scratch_floor.py`, `scratch_sigma.py`,
+`scratch_decomp.py`) are not part of the shipped repo; `.gitignore` covers
 `scratch_*.py` for exactly this convention.
