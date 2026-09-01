@@ -68,6 +68,19 @@ def _checker_atlas(size=64, squares=8):
     return np.repeat(atlas, 3, axis=-1)
 
 
+def _triangle_index_uv(num_tris, squares=8):
+    """(num_tris, 3, 2) float32 -- one flat (all-three-corners-equal) UV
+    per triangle, keyed to the triangle's own index, spread across an
+    8x8 grid of texel-centred sample points (never a grid-line
+    intersection, so mipmapped bilinear filtering never averages a
+    sample into the same mid-grey a flat colour would already give)."""
+    idx = np.arange(num_tris, dtype=np.float32)
+    u = ((idx % squares) + 0.5) / squares
+    v = ((idx // squares % squares) + 0.5) / squares
+    pair = np.stack([u, v], axis=-1)[:, None, :]      # (num_tris, 1, 2)
+    return np.full((num_tris, 3, 2), pair, dtype=np.float32)
+
+
 def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoothing=None,
                    shadows=None, integration=None, motion_blend=False, painted=False):
     game, floor = _boot(data_dir, name)
@@ -88,18 +101,22 @@ def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoo
         # No paint ships with this repo, so synthesise one: a generated
         # checker atlas, sampled non-uniformly across each body by keying
         # every triangle's (flat, all-three-corners-equal) UV to its own
-        # index -- so the atlas is visibly tiled across the mesh rather
-        # than sampled at one flat point, without needing a UV bake.
+        # index. U and V are independent (U cycles every 8 triangles, V
+        # every 64) and offset to texel centres ((k + 0.5) / 8), so
+        # triangles land on varied squares across the whole 8x8 grid
+        # rather than only its diagonal, and mipmapped bilinear filtering
+        # never samples a grid-line intersection -- u == v == k/8 (no
+        # offset) would put every non-zero index on a corner shared by
+        # two light and two dark squares, which LINEAR_MIPMAP_LINEAR
+        # blends to near-uniform mid-grey, defeating the point of a
+        # checker over a flat colour.
         texture = ImageAsset(_checker_atlas(), True)
         painted_actors = tuple(
             dataclasses.replace(
                 actor,
                 geometry=dataclasses.replace(
                     actor.geometry,
-                    uv=np.full(
-                        (len(actor.geometry.tris), 3, 2),
-                        (np.arange(len(actor.geometry.tris), dtype=np.float32) % 8.0).reshape(-1, 1, 1) / 8.0,
-                        dtype=np.float32)),
+                    uv=_triangle_index_uv(len(actor.geometry.tris))),
                 texture=texture,
             )
             for actor in frame.actors

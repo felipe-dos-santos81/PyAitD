@@ -89,9 +89,9 @@ try:
 finally:
     ctx.release()
 "
-attic enhanced: equal? False pixels differing: 76144 / 1024000
+attic enhanced: equal? False pixels differing: 75428 / 1024000
 attic classic: equal? True
-combat enhanced: equal? False pixels differing: 4990 / 1024000
+combat enhanced: equal? False pixels differing: 4729 / 1024000
 combat classic: equal? True
 ```
 
@@ -115,7 +115,7 @@ docs/graphics-proof/combat-smooth-enhanced-painted.png
 flatmesh, hardshadow, nocomposite, strong, tickmotion — plus the new
 painted pair). Diffing the two files written by that run against their
 plain twins reproduces the same pixel counts as the direct `render_fixture`
-call above (76,144 / 1,024,000 for attic, 4,990 / 1,024,000 for combat),
+call above (75,428 / 1,024,000 for attic, 4,729 / 1,024,000 for combat),
 confirming `main()`'s own path (argument parsing, `output_paths`, the
 `label == "painted"` wiring) produces the identical frame the direct call
 does, not just a different code path that happens to also differ from
@@ -167,10 +167,6 @@ output:
 ```
 skipped [85, 142, 156, 158, 160]
 ```
-
-Atlas sizes and chart counts, parsed from the run above: chart counts
-range from 1 to 109 across the 267 bodies; atlas area ranges from a
-488x418 body to a 1182x487 one.
 
 `make export-textures uvs=1 force=1` (the full pipeline: backgrounds,
 alts, screens, palette, the UV bake, then the materials survey/emit
@@ -226,6 +222,27 @@ num bodies entries 267
   "charts": 15,
   "tris_sha256": "0a0388695d82fb36a3ca177dab3864244e1f27ae86901c1933c47921ece02cd8"
 }
+```
+
+Chart-count and atlas-size range, computed the same way (min/max over every
+body record's own `charts` and `size` fields, not eyeballed from the
+elided run above):
+
+```
+$ .venv/bin/python -c "
+import json
+m = json.load(open('data/aitd1/textures/manifest.json'))
+bodies = m['bodies']
+charts = [b['charts'] for b in bodies]
+print('charts: min', min(charts), 'max', max(charts))
+by_area = sorted(bodies, key=lambda b: b['size'][0]*b['size'][1])
+lo, hi = by_area[0], by_area[-1]
+print('smallest atlas: body', lo['body'], tuple(lo['size']))
+print('largest atlas: body', hi['body'], tuple(hi['size']))
+"
+charts: min 1 max 109
+smallest atlas: body 16 (488, 418)
+largest atlas: body 56 (1182, 487)
 ```
 
 `make check-textures` against the freshly-baked directory — with no
