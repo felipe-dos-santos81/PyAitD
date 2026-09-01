@@ -2825,9 +2825,16 @@ def test_instance_layout_uses_no_more_than_the_guaranteed_attribute_slots(gl_ctx
     assert gl_ctx.info["GL_MAX_VERTEX_ATTRIBS"] >= 16
 
 
-def test_an_unpainted_body_renders_byte_identically_with_the_texture_path_compiled(gl_ctx):
-    """The whole feature is opt-in per body: a frame whose actors carry no
-    uv must produce exactly the pixels it produced before textures existed."""
+def test_drawing_the_same_unpainted_body_twice_is_self_consistent(gl_ctx):
+    """NOT the regression net for "unpainted stays unchanged" -- drawing the
+    same frame twice agrees with itself whether or not texture substitution
+    works at all, so this only pins that compiling the texture-substitution
+    code path introduces no per-draw nondeterminism (stale cache state,
+    uninitialised uniforms) for a body that never sets has_body_texture.
+    The actual byte-for-byte guarantee lives in
+    test_classic_realism_matches_the_pre_materials_golden (unmodified,
+    still matches tests/golden/scene_lit_classic.npy) and in ACTOR_FSH's
+    unconditional `albedo = v_color` whenever has_body_texture == 0."""
     from PyAitD.render.render_gl import GLBackend
     from PyAitD.render.render_options import RenderOptions
     options = RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
@@ -2855,6 +2862,54 @@ def test_a_painted_body_changes_pixels_and_classic_ignores_it(gl_ctx):
     def render(frame, realism):
         options = RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
                                 realism=realism, smoothing=0, shadows="hard",
+                                integration=0, motion="tick")
+        backend = GLBackend(gl_ctx, options)
+        try:
+            backend.draw(frame)
+            return backend.read_rgb()
+        finally:
+            backend.release()
+
+    assert not np.array_equal(render(plain, "enhanced"), render(painted, "enhanced"))
+    assert np.array_equal(render(plain, "classic"), render(painted, "classic"))
+
+
+def test_a_painted_body_changes_pixels_through_the_tessellated_path_too(gl_ctx):
+    """RenderOptions.smoothing defaults to 2, and _draw_frame routes every
+    actor through _draw_actor_tessellated whenever smoothing is nonzero --
+    the configuration players actually run. The flat-path test above only
+    exercised the non-default smoothing=0 fallback
+    (test_smoothing_zero_draws_through_the_legacy_path names it as such);
+    this pins that the tessellated path -- TESS_VSH's in_uv0/1/2 wiring,
+    _draw_actor_tessellated's texture bind, has_body_texture/body_albedo on
+    _tess_prog -- is exercised end to end at all, at exactly 16 of the
+    tessellated layout's 16 vertex-attribute slots.
+    NOTE what this does not prove: _painted_frame gives every corner of
+    every triangle the same uv (0.5, 0.5) over a single flat colour, so a
+    wrong corner order or transposed barycentric term in
+    `v_uv = in_uv0 * u + in_uv1 * v + in_uv2 * w` would still sample the
+    same flat colour and this test would not catch it -- any weights
+    summing to 1 blend three identical values to that same value. Nothing
+    in this suite feeds TESS_VSH distinguishable per-corner uv values and
+    reads v_uv back (test_tessellation_shader_matches_the_numpy_reference's
+    transform feedback captures v_world/v_normal only, not v_uv or
+    v_color); the CPU side is pinned corner-by-corner
+    (test_instance_data_packs_each_corners_own_columns), and on the GPU
+    side v_uv's blend is the textually identical pattern to v_color's line
+    just above it, which is the only thing standing behind its
+    correctness today.
+    Same blue atlas as the flat-path test and for the same reason:
+    _golden_frame's textured body is palette index 1 (red), so a red atlas
+    would be just as signal-free here."""
+    from PyAitD.render.render_gl import GLBackend
+    from PyAitD.render.render_options import RenderOptions
+
+    plain = _golden_frame()
+    painted = _painted_frame()
+
+    def render(frame, realism):
+        options = RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
+                                realism=realism, smoothing=2, shadows="hard",
                                 integration=0, motion="tick")
         backend = GLBackend(gl_ctx, options)
         try:
