@@ -27,7 +27,7 @@ from PyAitD.engine.script.save import (
 from PyAitD.engine.script.playworld import TICK_MS, play_tick
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import (
-    BACKGROUND_FILTERS, LIGHTING_MODES, MSAA_LEVELS, REALISM_MODES, SHADING_MODES,
+    ATMOSPHERE_MODES, BACKGROUND_FILTERS, LIGHTING_MODES, MSAA_LEVELS, REALISM_MODES, SHADING_MODES,
     INTEGRATION_LEVELS, LEGACY_INTEGRATION, MOTION_MODES, OCCLUSION_MODES,
     SHADOW_MODES, SMOOTHING_LEVELS, validate_render_options,
 )
@@ -137,6 +137,10 @@ def parse_args(argv):
         help="screen-space ambient occlusion on actors (session only)",
     )
     p.add_argument(
+        "--atmosphere", choices=ATMOSPHERE_MODES, default=None,
+        help="depth-driven haze and depth-graded softness and grain on actors (session only)",
+    )
+    p.add_argument(
         "--textures", type=pathlib.Path, default=None, help="asset texture directory",
     )
     p.add_argument(
@@ -186,6 +190,8 @@ def apply_render_overrides(settings, args):
         payload["motion"] = args.motion
     if args.occlusion is not None:
         payload["occlusion"] = args.occlusion
+    if args.atmosphere is not None:
+        payload["atmosphere"] = args.atmosphere
     if args.textures is not None:
         payload["texture_dir"] = str(args.textures)
     render, _error = validate_render_options(payload)
@@ -688,7 +694,7 @@ def _route_game_over_command(game, session, modal_command):
 # `texture_dir` has no menu row at all, so it is never in this set and a save
 # can never pick it up from the in-memory, possibly CLI-set,
 # session.settings.render.
-_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism", "smoothing", "shadows", "integration", "motion", "occlusion")
+_MENU_RENDER_FIELDS = ("scale", "shading", "background_filter", "lighting", "msaa", "realism", "smoothing", "shadows", "integration", "motion", "occlusion", "atmosphere")
 
 
 def _persisted_render(session):

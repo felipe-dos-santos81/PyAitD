@@ -16,7 +16,7 @@ make test-meta     # the repo's own rules (package layering, test grouping)
 make test-journey  # real run() event pump and long real-data simulations
 make proof-mouse   # navmesh for every camera-visible room, every floor (needs game data)
 make proof-combat  # venue, real enemy damage, player arms, game over (needs game data)
-make proof-graphics # attic + combat fixtures per shading mode x realism preset x smoothing default, plus a flat-mesh pair, a hard-shadow pair, the integration range's two ends -- an un-composited pair and an over-composited one -- and a motion-blended tickmotion pair (needs GL + game data)
+make proof-graphics # attic + combat fixtures per shading mode x realism preset x smoothing default, plus a flat-mesh pair, a hard-shadow pair, the integration range's two ends -- an un-composited pair and an over-composited one -- a motion-blended tickmotion pair, a painted pair, an SSAO-off nossao pair, a room-shadow roomshadow pair and an un-hazed nohaze pair (needs GL + game data)
 make proof-intro   # opening cutscene: headless gate + one GL render per visited camera
 make prove-persistence # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract
 make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, textures=DIR defaults to data/aitd1/textures (textures= disables), data="..." trace=/tmp/t.log optional
@@ -256,6 +256,72 @@ a rule — add the test with the rule.
   rule); `hard_cols` are collision proxies, not painted furniture, so `room`
   stays a menu choice behind `RenderOptions.shadows`, which still defaults
   to `"soft"` pending a human's eye on real fixtures.
+- **Depth travels the way colour does: premultiplied by coverage.**
+  `atmosphere`'s linear eye depth is a second colour attachment on the same
+  FBO as the actor layer (`_actor_depth_tex`, R16F, and `_ms_depth_color`
+  on the multisample path), written as `v_view.z + focal1` — eye distance
+  from the pinhole, the same quantity `GBUFFER_FSH` writes, never the depth
+  attachment's projective value. It is a *colour* attachment on purpose: an
+  MSAA resolve averages it, and a partially-covered silhouette pixel must
+  end up with the coverage-weighted average of the depths that actually
+  covered it. So every read unpremultiplies — `depth = d / a.a`, using the
+  same `a.a` that premultiplied it, exactly as the colour term does. At
+  `msaa=0` coverage is 0 or 1 and `d / a.a == d` identically, which makes a
+  dropped unpremultiply invisible to almost the whole suite; one test
+  (`test_haze_unpremultiplies_depth_at_partially_covered_edges`, at msaa 4)
+  is the only thing standing between that bug and green. The blur in
+  `sample_layers` gathers colour and depth in one loop with identical
+  weights for the same reason — two loops drift, and a soft edge whose
+  depth came from different taps than its colour hazes by the wrong amount
+  along exactly the pixels the eye checks first.
+- **The depth grade reads the centre pixel's own unblurred depth**, never
+  the blurred one: the blur's weights are what the grade sets, so grading
+  from the blurred value is circular. And the grade scales `inv_sigma2`,
+  never `radius` — the composite's blur loop depends on `radius` being a
+  uniform for uniform control flow, so a per-pixel tap count is not
+  available. The consequence is a real, documented bound: the depth grade
+  can only soften within the existing radius and can never sharpen past
+  it. **Stronger than a bound: whenever `radius <= 0` or `pixelate` is
+  set, `sample_layers` takes an early return that never reads `grade` at
+  all, so `SIGMA_DEPTH_SLOPE` is not merely limited, it is completely
+  inert.** That covers `--render-scale 1` (where `plate.softness` yields
+  cell <= 1 and `radius` is 0) and `--background-filter nearest` at any
+  scale. Measured on both proof fixtures: sigma-graded-only against
+  atmosphere-off moves 0 pixels at scale 1, 0 pixels under `nearest` at
+  scale 4, and 6930 (attic) / 2048 (combat) pixels at scale 4 bilinear,
+  by at most 2-4 counts even there. Do not reach for `SIGMA_DEPTH_SLOPE`
+  to make a depth cue stronger; it does nothing on a large share of the
+  supported settings, and `GRAIN_DEPTH_SLOPE` and `HAZE_DENSITY` are the
+  two that always act.
+- **Atmosphere's four tunables live in `render/plate.py`**, beside the
+  composite's own toe/shoulder/grain constants, and reach the shader as
+  lowercase uniforms (`haze_density`, `haze_start`, `sigma_depth_slope`,
+  `grain_depth_slope`) — the same CPU/GLSL casing split every other
+  constant in that file follows. All four are zero-collapsible, and the
+  `atmosphere="off"` branch works by setting three of them to 0.0 rather
+  than by taking a different code path, which is what makes "off" and "on
+  with neutral tunables" byte-identical
+  (`test_neutral_tunables_are_an_exact_identity`). Two of them —
+  `SIGMA_DEPTH_SLOPE` and `GRAIN_DEPTH_SLOPE` — multiply
+  `beyond = max(0, depth - HAZE_START) / HAZE_START`, so they are
+  denominated in `HAZE_START` and must be rescaled whenever it moves.
+  **Tune these against the real fixtures, never against this suite's
+  synthetic camera**: the test camera's focal1 is 1000 and its actors sit
+  at eye depth 1500-2400, while the game's own rooms measure 1400-30000
+  (`docs/atmosphere-proof.md` has the survey). Task 3 settled the constants
+  on the synthetic scale and Task 4 found they drove every actor in both
+  fixtures to flat ambient tone.
+- **To find every test a rendering constant silently holds up, perturb the
+  constant and run the whole gate — never grep for an assertion idiom.**
+  Sub-project L swept the same net three times by grepping (`array_equal`
+  against a golden, `tuple(rgb[y, x]) ==`, ...) and was wrong all three
+  times, because each sweep saw only the idiom it searched for. Setting
+  `HAZE_START = 1.0` and running `pytest -q` once found all 16 in a minute.
+  The same one-line move works for any constant with an off value: set it
+  where it cannot possibly be neutral, and every test that depended on it
+  without naming it fails. A test that asserts an exact pixel and does not
+  name the option that moved it is this project's dominant defect, and
+  this is the only sweep that reliably finds one.
 - The UI layer is painted through `app.ui.UIPainter`, which owns a surface at
   `(320*s, 200*s)` and scales logical coordinates on every call. Presenters
   author in logical 320x200 and never build their own surface; `s` comes from

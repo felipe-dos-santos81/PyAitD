@@ -50,6 +50,56 @@ class PlateProfile:
 NEUTRAL_PLATE = PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), 0.0)
 
 
+# Atmosphere's four constants, settled against the fixtures and recorded
+# in docs/atmosphere-proof.md -- the same standing the composite's own
+# toe/shoulder/grain constants have. All four are zero-collapsible: with
+# any of them at 0 its term vanishes exactly, which is what makes
+# atmosphere="on" an identity before it is a look.
+#
+# Distances are in the game's world units. AITD1's actors are about 200
+# units tall; a room, measured rather than guessed, is tens of thousands
+# of units deep from the camera's eye (see the block below HAZE_DENSITY).
+HAZE_DENSITY = 0.000035     # per unit beyond HAZE_START
+# `f_depth` (render_gl.py's GBUFFER_FSH derivation) carries `v_view.z +
+# focal1` -- eye distance from the pinhole, not from the camera plane --
+# so HAZE_START has to clear focal1 itself: the minimum depth any pixel
+# can ever report is exactly focal1 (a line or point, per render_gl.py's
+# `f_depth = vec4(v_view.z + focal1, ...)` comment). A threshold read off
+# bare world/view z, ignoring that offset, would put HAZE_START below
+# every depth the engine can produce and haze everything unconditionally.
+#
+# All four values below were re-measured in Task 4 against the two real
+# proof fixtures, and all four moved. Task 3 settled them against this
+# test suite's synthetic camera (focal1 = 1000, actors at depth 1500 and
+# 2400 -- see `_view()` in tests/test_render_gl.py), which turns out to
+# be nothing like the game's own scale. Measured on real data, with the
+# actor layer's depth attachment read back directly:
+#
+#   attic  (focal1 1431): covered depths 1431 .. 12840, median 4780;
+#                         its nearest actor 1503..1728, its farthest ~15400
+#   combat (focal1  141): covered depths 22128 .. 29488, median 24912
+#   focal1 over all 144 cameras of all 8 floors: 40 .. 2850, median 101
+#
+# So a room is tens of thousands of units deep, not the "few thousand"
+# this comment used to claim, and the plan's HAZE_DENSITY = 0.00035 put
+# the attic's median actor pixel at 0.67 haze and every single combat
+# pixel at 1.000 -- the whole cast rendered as flat ambient tone, with
+# 3-7x grain on top. That is the "washed out" failure the manual
+# attestation exists to catch, shipped on by default. The values here put
+# the deepest *visible* attic pixel at 0.30 haze and the deepest pixel in
+# either fixture (combat's, at 29488) at 0.61, with the nearest actor in
+# each fixture at exactly 0. Turn HAZE_DENSITY, not HAZE_START, to move
+# the strength: docs/atmosphere-proof.md tabulates the haze at every
+# fixture depth for three settings of it.
+HAZE_START = 2500.0        # below this, no haze at all -- a small room is untouched
+# Both slopes multiply `beyond = max(0, depth - HAZE_START) / HAZE_START`,
+# so they are denominated in HAZE_START and have to be rescaled with it.
+# At the values above, `beyond` reaches 5.1 on the attic's farthest actor
+# and 10.8 at the combat fixture's deepest pixel.
+SIGMA_DEPTH_SLOPE = 0.03    # extra blur sigma per HAZE_START-worth of extra depth
+GRAIN_DEPTH_SLOPE = 0.04    # extra grain gain, likewise
+
+
 def estimate_plate(pixels):
     """A PlateProfile for a camera, read off its background image.
 

@@ -22,3 +22,6 @@ textures-*/
 .claude/
 .taskmaster/
 tools/.cache/
+# Proof documents are measured with throwaway scripts at the repo root
+# (see docs/*-proof.md); they are written, run and deleted, never shipped.
+scratch_*.py

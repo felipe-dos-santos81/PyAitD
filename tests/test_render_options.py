@@ -40,14 +40,14 @@ def test_each_invalid_field_falls_back_alone():
     options, error = validate_render_options(
         {"scale": 99, "shading": "smooth", "background_filter": "bilinear", "texture_dir": None,
          "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on", "motion": "tick",
-         "occlusion": "off"})
-    assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick", "off")  # clamped, not rejected
+         "occlusion": "off", "atmosphere": "off"})
+    assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick", "off", "off")  # clamped, not rejected
     assert error is None
     options, error = validate_render_options(
         {"scale": "x", "shading": "neon", "background_filter": "bilinear", "texture_dir": 3,
          "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on", "motion": "tick",
-         "occlusion": "off"})
-    assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick", "off")
+         "occlusion": "off", "atmosphere": "off"})
+    assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick", "off", "off")
     assert "scale" in error and "shading" in error and "texture_dir" in error
 
 
@@ -229,3 +229,43 @@ def test_occlusion_round_trips_through_the_payload():
     assert options.to_payload()["occlusion"] == "ssao"
     restored, error = validate_render_options(options.to_payload())
     assert restored.occlusion == "ssao" and error is None
+
+
+def test_atmosphere_defaults_on_and_cycles():
+    # ATMOSPHERE_MODES stays ("off", "on") -- the tuple is the menu's cycle
+    # order, not a statement about the default -- so cycling from the "on"
+    # default wraps to "off" first, exactly as occlusion's ("off", "ssao")
+    # cycles from its "ssao" default.
+    from PyAitD.render.render_options import ATMOSPHERE_MODES, cycle_atmosphere
+    options = RenderOptions()
+    assert options.atmosphere == "on"
+    assert ATMOSPHERE_MODES == ("off", "on")
+    assert cycle_atmosphere(options).atmosphere == "off"
+    assert cycle_atmosphere(cycle_atmosphere(options)).atmosphere == "on"
+
+
+def test_atmosphere_is_last_so_positional_construction_still_works():
+    options = RenderOptions(4, "smooth", "bilinear", None, "scene", 4, "enhanced", 2)
+    assert options.atmosphere == "on"
+
+
+def test_invalid_or_missing_atmosphere_falls_back_alone():
+    payload = RenderOptions().to_payload()
+    payload["atmosphere"] = "foggy"
+    options, error = validate_render_options(payload)
+    assert options.atmosphere == "on"
+    assert options.integration == RenderOptions().integration    # neighbour undisturbed
+    assert "atmosphere" in error
+    del payload["atmosphere"]   # a settings file from before this option
+    options, error = validate_render_options(payload)
+    assert options.atmosphere == "on" and "atmosphere" in error
+
+
+def test_atmosphere_round_trips_through_the_payload():
+    # The non-default value, so this is a round trip and not a restatement
+    # of the fallback the test above already covers.
+    from dataclasses import replace
+    options = replace(RenderOptions(), atmosphere="off")
+    assert options.to_payload()["atmosphere"] == "off"
+    restored, error = validate_render_options(options.to_payload())
+    assert restored.atmosphere == "off" and error is None

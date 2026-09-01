@@ -10,7 +10,7 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 - Python 3.12, `.venv/`; deps: pygame-ce, moderngl, numpy, pytest — no more.
   `tools/bootstrap_materials.py` reaches Gemini through the `agy` CLI
   (`subprocess`), so the one external service costs no Python dependency
-- Version 0.7.0 (`pyproject.toml`); GPL-2.0-only
+- Version 0.8.0 (`pyproject.toml`); GPL-2.0-only
 
 ## Commands
 
@@ -27,7 +27,7 @@ make test-meta                 # the repo's own rules (package layering, test gr
 make test-journey              # real run() event pump and long real-data simulations
 make proof-mouse               # navmesh for every camera-visible room, every floor (needs game data)
 make proof-combat              # venue, real enemy damage, player arms, game over (needs game data)
-make proof-graphics            # attic + combat fixtures at every shading mode, plus flat-mesh, hard-shadow, un-composited and over-composited pairs, -> docs/graphics-proof/ (needs GL + game data)
+make proof-graphics            # attic + combat fixtures at every shading mode, plus flat-mesh, hard-shadow, un-composited, over-composited, tickmotion, painted, nossao, roomshadow and nohaze pairs, -> docs/graphics-proof/ (needs GL + game data; motion=, occlusion=, atmosphere= set the main renders' modes)
 make proof-intro               # opening cutscene: headless gate + one GL render per visited camera
 make prove-persistence         # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract (headless)
 make export-textures         # originals + 5 KILLED_SORCERER alts + palette + guides + per-body UV sidecars/painter guides + manifest schema 4 -> data/aitd1/textures, then palette ramps + body usage -> <out>/materials-survey + PyAitD/render/materials.json (out=, floors=, scale=, force=1, screens=0 skips screens, uvs=0 skips the actor UV bake, materials=0 skips materials, vision=1 asks Gemini through agy)
@@ -64,6 +64,8 @@ below for what pins each alias to the files it historically ran.
 | Motion interpolation (roadmap 2 I) | Inter-tick pose/position blending behind a Motion knob, float pose twin, Graphics/Realism menu split | automated gates green; windowed attestation pending (`docs/motion-interpolation-proof.md`) |
 | Actor surface textures (roadmap 2 J) | xatlas UV bake, per-corner sidecar + painter guide, manifest schema 4, albedo atlas sampled in the actor shader | automated gates green; windowed attestation pending (docs/actor-textures-proof.md) |
 | Light transport (roadmap 2 K) | Half-resolution G-buffer prepass + SSAO pass (`occlusion` knob) attenuating the fill share, and a third `shadows="room"` mode with a floor + hard_col-top receiver pass | automated gates green; fixture-review gate on `shadows`'s default and windowed attestation both pending (docs/light-transport-proof.md) |
+| Atmosphere (roadmap 2 L) | A linear eye-depth MRT resolved beside the actor layer, distance haze toward the room's ambient tone, and depth-graded softness and grain, behind an `atmosphere` knob that defaults on | automated gates green; windowed attestation pending (`docs/atmosphere-proof.md`) |
+| **Actor realism roadmap 2 (I + J + K + L)** | All four sub-projects landed. The spec's closing frame-time budget -- attic at scale 4, msaa 4, smoothing 2, all four on versus all four off -- measured 1.02-1.05x across four runs against a 1.5x ceiling | **complete** -- automated gates green across all four; every windowed attestation still pending |
 | Texture export + check | Export originals + structure guides + manifest for an external texture tool, validate texture dirs as the game loads them; the same target surveys palette ramps and emits the material table | done — `make export-textures` / `check-textures` (regeneration itself moved to an external tool) |
 | Engine package reorganization | engine / render / games / app split + GameProfile | done — `tests/test_layering.py` |
 | Engine domain subpackages | data/space/actor/script/nav + 12 GameProfile seam fields | done — docs/superpowers/specs/2026-08-31-engine-domain-subpackages-design.md |

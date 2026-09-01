@@ -10,7 +10,7 @@ from PyAitD.engine.data.formats import Body, Primitive
 from PyAitD.render.asset_resolver import ImageAsset
 from PyAitD.render.geometry import BodyGeometry
 from PyAitD.engine.data.mask_geometry import MaskDraw
-from PyAitD.render.render_gl import GLBackend, camera_matrix, projection_matrix, view_matrix
+from PyAitD.render.render_gl import GLBackend, MAX_BLUR_RADIUS, camera_matrix, projection_matrix, view_matrix
 from PyAitD.render.render_options import RenderOptions
 from PyAitD.render.scene import ActorDraw, CameraView, FrameDescription, ReceiverQuad
 from PyAitD.engine.actor.skel import RenderResult
@@ -590,7 +590,12 @@ def test_view_matrix_is_camera_matrixs_view_half():
 
 
 def test_flat_triangle_lands_where_the_logical_projection_says(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
+    # atmosphere="off": this test asserts an exact primary colour, so it
+    # belongs to the identity net and names the field rather than
+    # inheriting it. It happens to pass either way today -- its actors sit
+    # at eye depth 2000, under HAZE_START -- but that is a silent
+    # dependency on a tunable, not a property of what it tests.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", atmosphere="off"))
     geometry = _tri_geometry(z=1000.0, color=1)
     backend.draw(_frame([_actor(0, geometry)]))
     rgb = backend.read_rgb()
@@ -600,7 +605,12 @@ def test_flat_triangle_lands_where_the_logical_projection_says(gl_ctx):
 
 
 def test_depth_test_keeps_the_near_face_within_one_actor(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
+    # atmosphere="off", like its sibling
+    # test_painter_order_across_actors_ignores_depth: this asserts an exact
+    # primary colour, and its far face is deliberately at eye depth 4000,
+    # past HAZE_START, so the shipping default tints it. Depth testing is
+    # what is under test.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", atmosphere="off"))
     near, far = _tri_geometry(500.0, 1), _tri_geometry(3000.0, 2, span=1200.0)
     # far is vstacked first (indices 0-2) but *submitted last* (tris[1]):
     # with depth test off this would paint far (green) over near, so this
@@ -624,7 +634,14 @@ def test_depth_test_keeps_the_near_face_within_one_actor(gl_ctx):
 
 
 def test_painter_order_across_actors_ignores_depth(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
+    # atmosphere="off" for the same reason
+    # test_integration_at_full_with_a_neutral_plate_reproduces_the_golden
+    # names occlusion="off": this test asserts an exact primary colour, and
+    # its far triangle sits at eye depth 4000 -- past HAZE_START, so the
+    # shipping default hazes it 1.8% toward the ambient tone and (0, 255, 0)
+    # arrives as (3, 250, 3). Draw order is what is under test here, not
+    # the composite.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", atmosphere="off"))
     near, far = _tri_geometry(500.0, 1), _tri_geometry(3000.0, 2, span=1200.0)
     backend.draw(_frame([_actor(0, near), _actor(1, far)]))  # far drawn last: covers near
     assert tuple(backend.read_rgb()[100, 140]) == (0, 255, 0)
@@ -632,7 +649,12 @@ def test_painter_order_across_actors_ignores_depth(gl_ctx):
 
 
 def test_stencil_mask_erases_only_the_flagged_actor(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
+    # atmosphere="off": this test asserts an exact primary colour, so it
+    # belongs to the identity net and names the field rather than
+    # inheriting it. It happens to pass either way today -- its actors sit
+    # at eye depth 2000, under HAZE_START -- but that is a silent
+    # dependency on a tunable, not a property of what it tests.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", atmosphere="off"))
     poly = np.array([[0, 0], [319, 0], [319, 199], [0, 199]], np.int16)
     mask = MaskDraw(0, (poly,), (0, 0, 319, 199), 0, ())
     a, b = _tri_geometry(1000.0, 1), _tri_geometry(900.0, 2)
@@ -647,7 +669,12 @@ def test_stencil_mask_erases_only_the_covered_region(gl_ctx):
     poly = np.array([[160, 0], [319, 0], [319, 199], [160, 199]], np.int16)
     mask = MaskDraw(0, (poly,), (160, 0, 319, 199), 0, ())
     geometry = _tri_geometry(1000.0, 1, span=100000.0)  # covers the whole screen
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat"))
+    # atmosphere="off": this test asserts an exact primary colour, so it
+    # belongs to the identity net and names the field rather than
+    # inheriting it. It happens to pass either way today -- its actors sit
+    # at eye depth 2000, under HAZE_START -- but that is a silent
+    # dependency on a tunable, not a property of what it tests.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", atmosphere="off"))
     backend.draw(_frame([_actor(0, geometry, mask_ids=(0,))], [mask]))
     rgb = backend.read_rgb()
     assert tuple(rgb[100, 50]) == (255, 0, 0)  # left of the mask: still visible
@@ -674,7 +701,12 @@ def test_actors_and_mask_render_correctly_above_scale_one(gl_ctx):
     # triangle's real coverage (verified against a coverage render with
     # mask_ids=()), so it actually exercises GPU mask erasure.
     geometry = _tri_geometry(1000.0, 1, span=100000.0)
-    backend = GLBackend(gl_ctx, RenderOptions(scale=3, shading="flat"))
+    # atmosphere="off": this test asserts an exact primary colour, so it
+    # belongs to the identity net and names the field rather than
+    # inheriting it. It happens to pass either way today -- its actors sit
+    # at eye depth 2000, under HAZE_START -- but that is a silent
+    # dependency on a tunable, not a property of what it tests.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=3, shading="flat", atmosphere="off"))
     backend.draw(_frame([_actor(0, geometry, mask_ids=(0,))], [mask]))
     rgb = backend.read_rgb()
     assert rgb.shape == (600, 960, 3)
@@ -743,7 +775,12 @@ def test_shading_modes_differ(gl_ctx):
 
 
 def test_sphere_and_line_and_point_render(gl_ctx):
-    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", msaa=0))
+    # atmosphere="off": this test asserts an exact primary colour, so it
+    # belongs to the identity net and names the field rather than
+    # inheriting it. It happens to pass either way today -- its actors sit
+    # at eye depth 2000, under HAZE_START -- but that is a silent
+    # dependency on a tunable, not a property of what it tests.
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", atmosphere="off", msaa=0))
     # y=2.0 (not 0.0) on both endpoints: a perfectly horizontal line at
     # world y=0 projects to exactly sy=100, so the line's half-width-0.5
     # quad spans logical y [99.5, 100.5] -- both of those are themselves
@@ -859,14 +896,14 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         "texture", "_depth", "_fbo", "_mask_tex", "_mask_fbo",
         "_shadow_tex", "_shadow_fbo", "_shadow_prog", "_shadow_geom_prog",
         "_shadow_quad", "_shadow_quad_vao",
-        "_ms_color", "_ms_depth", "_ms_fbo",
+        "_ms_color", "_ms_depth", "_ms_depth_color", "_ms_fbo", "_ms_color_only",
         "_bg_prog", "_actor_prog", "_screen_prog", "_stencil_prog",
         "_quad", "_quad_vao", "_thumb_tex", "_thumb_fbo",
         "_thumb_quad", "_thumb_quad_vao", "_material_tex",
         "_tess_prog", "_tess_shadow_prog",
         "_shadow_blur_tex", "_shadow_blur_fbo", "_cast_prog", "_blur_prog", "_blur_quad_vao",
         "_shadow_map", "_shadow_map_fbo",
-        "_plate_tex", "_plate_fbo", "_actor_tex", "_actor_fbo",
+        "_plate_tex", "_plate_fbo", "_actor_tex", "_actor_depth_tex", "_actor_fbo",
         "_composite_prog", "_composite_vao",
         "_gbuf_prog", "_gbuf_fbo", "_gbuf_tex", "_gbuf_depth",
         "_ssao_tex", "_ssao_fbo", "_ssao_blur_tex", "_ssao_blur_fbo", "_ssao_noise_tex",
@@ -881,7 +918,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
     for level, buf in backend._subpatch_bufs.items():
         assert isinstance(buf.mglo, moderngl.InvalidObject), f"subpatch buffer {level} leaked"
         leak_checked += 1
-    assert leak_checked == 60  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 63  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
@@ -981,12 +1018,564 @@ def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
                                               realism="classic", smoothing=0, shadows="hard",
                                               integration=0,
                                               # names every roadmap-2 field the identity holds at
-                                              motion="tick", occlusion="off"))
+                                              motion="tick", occlusion="off", atmosphere="off"))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
     assert GOLDEN.is_file(), f"{GOLDEN} is missing: the realism=classic identity net is disarmed"
     assert np.array_equal(out, np.load(GOLDEN))
+
+
+# ---- atmosphere's actor-depth MRT (Task 2: the plumbing only, nothing
+# reads it yet -- Task 3 does the arithmetic) ----
+
+def _read_actor_depth(backend):
+    """Unpremultiplied linear view depth: `_actor_depth_tex` divided by
+    `_actor_tex`'s own alpha wherever it is nonzero, which is exactly what
+    the composite will do once Task 3 wires it in. An uncovered pixel
+    (alpha 0) reports depth 0 rather than dividing by zero."""
+    w, h = backend.size
+    colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+    alpha = colour[..., 3].astype(np.float32) / 255.0
+    raw = np.frombuffer(backend._actor_depth_tex.read(), np.float16).reshape(h, w).astype(np.float32)
+    depth = np.zeros((h, w), np.float32)
+    covered = alpha > 0
+    depth[covered] = raw[covered] / alpha[covered]
+    return depth
+
+
+def _offset_facing_tri(z, color, normal, x_offset, span=100.0):
+    """`_facing_tri`, but shifted along world x so two of these placed at
+    different x_offsets project to non-overlapping screen columns."""
+    v = np.array([[x_offset - span, -span, z], [x_offset + span, -span, z],
+                  [x_offset - span, span, z]], np.float32)
+    n = np.tile(normal, (3, 1)).astype(np.float32)
+    return BodyGeometry(v, n, np.array([[0, 1, 2]], np.int32), np.array([color], np.uint8),
+                        np.zeros((0, 2), np.int32), np.zeros(0, np.uint8), (),
+                        np.zeros(0, np.int32), np.zeros(0, np.uint8), np.zeros(0, np.uint8))
+
+
+def _near_and_far_frame():
+    """Two facing triangles side by side on screen (so their coverage never
+    overlaps) at very different depths: a near one at world/view z=500 and
+    a far one at z=14000. This camera sits at the origin with all angles
+    zero, so view-space position equals world position exactly (rotate and
+    translate are both identity) -- world z *is* view z here, with no
+    projection math needed to know which actor is farther. At this
+    camera's focal1 of 1000 that is eye depth 1500 and 15000.
+
+    The far actor used to sit at z=1400 (depth 2400). Task 4 measured what
+    the real fixtures produce -- the attic's farthest actor is at eye
+    depth ~15400, the combat venue's cast at 22000-29500 -- and 2400 is
+    not a far actor in this game at all; it is barely past HAZE_START.
+    Left there, every assertion below about a far actor would have been
+    measuring exactly no haze at all: 2400 is *below* the recalibrated
+    HAZE_START of 2500, so `max(0, depth - haze_start)` is exactly 0
+    there and the "far" actor would have been as untouched as the near
+    one -- this whole group of tests inert, not merely weakened, the
+    moment the tunables were fitted to real content. z=14000 is the
+    attic's own far actor.
+
+    `x_offset` and `span` are scaled by the same 6.25 the depth is, so the
+    far actor's *screen* footprint is unchanged: same columns, same rows,
+    same pixel count as at z=1400. That does make it a 6.25x larger object
+    in world units, which the enhanced material's world-space detail field
+    notices -- it renders with finer detail than it used to. Harmless
+    here, and deliberately not worked around: every assertion built on
+    this frame compares one actor against *itself* across two renders of
+    this same frame, never the near actor against the far one.
+    (`_far_flat_actor_frame`, whose whole premise is a uniform silhouette,
+    cannot afford that and lengthens the lens instead.)"""
+    from PyAitD.render.lighting import SceneLight
+    light = SceneLight((0.3, -0.5, -0.8), (0.9, 0.8, 0.7), (0.2, 0.2, 0.3), 0.7)
+    near = _standing_actor(0, _offset_facing_tri(500.0, 1, (0.0, 0.0, -1.0), -250.0), 400.0)
+    far = _standing_actor(1, _offset_facing_tri(14000.0, 2, (0.0, 0.0, -1.0), 1562.5, span=625.0),
+                          400.0)
+    return FrameDescription(_view(), ImageAsset(np.full((200, 320, 3), 40, np.uint8), False),
+                            _palette(), (near, far), (), light)
+
+
+def _solo_actor_pixels(gl_ctx, actor):
+    """The screen pixels one actor alone covers, at the same render options
+    `_near_and_far_frame`'s callers use it under -- so `_near_actor_pixels`
+    and `_far_actor_pixels` can locate each actor's own pixels in the
+    combined frame without hand-deriving NDC bounds."""
+    from PyAitD.render.lighting import SceneLight
+    light = SceneLight((0.3, -0.5, -0.8), (0.9, 0.8, 0.7), (0.2, 0.2, 0.3), 0.7)
+    frame = FrameDescription(_view(), ImageAsset(np.full((200, 320, 3), 40, np.uint8), False),
+                             _palette(), (actor,), (), light)
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=0, integration=2, atmosphere="on"))
+    try:
+        backend.draw(frame)
+        w, h = backend.size
+        colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+        return colour[..., 3] > 0
+    finally:
+        backend.release()
+
+
+def _near_actor_pixels(gl_ctx, frame):
+    return _solo_actor_pixels(gl_ctx, frame.actors[0])
+
+
+def _far_actor_pixels(gl_ctx, frame):
+    return _solo_actor_pixels(gl_ctx, frame.actors[1])
+
+
+def _render_with_atmosphere(gl_ctx, frame, atmosphere, integration=2):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=0, integration=integration, atmosphere=atmosphere))
+    try:
+        backend.draw(frame)
+        return backend.read_rgb().copy()
+    finally:
+        backend.release()
+
+
+def _render_with_tunables(gl_ctx, frame, atmosphere="on", integration=2,
+                           haze_density=None, sigma_slope=None, grain_slope=None):
+    """Like `_render_with_atmosphere`, but with the three tunables Task 3
+    reads off `render_gl` overridden for the duration of one render.
+
+    `render_gl.py` pulls `HAZE_DENSITY`, `SIGMA_DEPTH_SLOPE` and
+    `GRAIN_DEPTH_SLOPE` in with `from PyAitD.render.plate import ...`, so
+    they are names bound in *this* module's namespace by the time
+    `_composite` reads them -- patching `PyAitD.render.plate`'s copies
+    would leave render_gl's own binding untouched and the shader would
+    never see the override. `None` leaves a tunable at its real default;
+    only the ones a caller names are patched."""
+    import PyAitD.render.render_gl as render_gl_module
+    with pytest.MonkeyPatch.context() as mp:
+        if haze_density is not None:
+            mp.setattr(render_gl_module, "HAZE_DENSITY", haze_density)
+        if sigma_slope is not None:
+            mp.setattr(render_gl_module, "SIGMA_DEPTH_SLOPE", sigma_slope)
+        if grain_slope is not None:
+            mp.setattr(render_gl_module, "GRAIN_DEPTH_SLOPE", grain_slope)
+        return _render_with_atmosphere(gl_ctx, frame, atmosphere, integration=integration)
+
+
+def test_the_actor_layer_carries_linear_depth(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=0, integration=2, atmosphere="on"))
+    try:
+        backend.draw(_golden_frame())
+        depth = _read_actor_depth(backend)
+        w, h = backend.size
+        colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+        covered = colour[..., 3] > 0
+        assert covered.any() and not covered.all()
+        assert (depth[covered] > 0.0).all(), "a covered pixel must carry a depth"
+        assert (depth[~covered] == 0.0).all(), "an uncovered pixel must carry none"
+    finally:
+        backend.release()
+
+
+@pytest.mark.parametrize("msaa", [0, 4])
+def test_both_resolve_paths_carry_depth(gl_ctx, msaa):
+    """The MSAA path resolves two attachments where it used to resolve one;
+    a resolve that silently drops attachment 1 is the failure this catches."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=msaa, integration=2, atmosphere="on"))
+    try:
+        backend.draw(_golden_frame())
+        depth = _read_actor_depth(backend)
+        assert (depth > 0.0).any(), f"no depth survived the resolve at msaa={msaa}"
+    finally:
+        backend.release()
+
+
+def test_depth_grows_with_distance(gl_ctx):
+    """Two actors at known distances: the far one's depth must exceed the
+    near one's. This is what makes the value a depth rather than a number."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=0, integration=2, atmosphere="on"))
+    try:
+        frame = _near_and_far_frame()
+        backend.draw(frame)
+        depth = _read_actor_depth(backend)
+        near_mask = _near_actor_pixels(gl_ctx, frame)
+        far_mask = _far_actor_pixels(gl_ctx, frame)
+        near = depth[near_mask]
+        far = depth[far_mask]
+        assert near.size and far.size
+        assert far[far > 0].mean() > near[near > 0].mean()
+    finally:
+        backend.release()
+
+
+# ---- atmosphere's arithmetic (Task 3: haze, and the depth-graded softness
+# and grain) ----
+
+def _all_actors_nearer_than_haze_start():
+    """Both actors sit well inside HAZE_START (2500 world units, see
+    `plate.HAZE_START`): `max(0, depth - HAZE_START)` is exactly 0 for
+    every covered pixel here, so atmosphere="on" must render identically
+    to "off" by construction -- the small-room case the depth-driven haze
+    exists to leave untouched.
+
+    The depth `COMPOSITE_FSH` actually reads is `v_view.z + focal1` --
+    eye distance from the pinhole, not bare world/view z (see
+    `render_gl.py`'s GBUFFER_FSH derivation, and `_read_actor_depth`'s
+    own unpremultiply). This test camera's focal1 is 1000 (`_view()`'s
+    CameraState), so world z 100 and 300 land at depth 1100 and 1300 --
+    both comfortably under HAZE_START."""
+    from PyAitD.render.lighting import SceneLight
+    light = SceneLight((0.3, -0.5, -0.8), (0.9, 0.8, 0.7), (0.2, 0.2, 0.3), 0.7)
+    near = _standing_actor(0, _offset_facing_tri(100.0, 1, (0.0, 0.0, -1.0), -250.0), 400.0)
+    far = _standing_actor(1, _offset_facing_tri(300.0, 2, (0.0, 0.0, -1.0), 250.0), 400.0)
+    return FrameDescription(_view(), ImageAsset(np.full((200, 320, 3), 40, np.uint8), False),
+                            _palette(), (near, far), (), light)
+
+
+def _uncovered_pixels(gl_ctx, frame):
+    """Screen pixels no actor's coverage can reach even after
+    `sample_layers`'s blur spreads it -- raw zero-alpha pixels eroded by
+    `MAX_BLUR_RADIUS + 1`, the widest a Gaussian tap can ever pull colour
+    from (`grade` only reweights the existing taps; per `sample_layers`'s
+    own docstring it never adds more of them, so a pixel farther than the
+    tap radius from any raw coverage can never see nonzero post-blur alpha
+    under any grade). A pixel *within* that margin can end up genuinely
+    covered post-blur, with a post-blur `depth` of its own -- the haze and
+    grade terms are allowed to touch it, and do, which is exactly what a
+    naive raw-alpha-only mask would wrongly flag as a violation.
+
+    `_actor_tex.read()` comes back GL's bottom-up way; `read_rgb()` (what
+    `_render_with_atmosphere` returns, and what this mask is meant to
+    index) flips it to top-down row order before returning. The `[::-1]`
+    below is that same flip, applied here so the mask lines up with the
+    image it is used against."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=0, integration=2, atmosphere="on"))
+    try:
+        backend.draw(frame)
+        w, h = backend.size
+        colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+        covered = colour[..., 3] > 0
+    finally:
+        backend.release()
+    margin = MAX_BLUR_RADIUS + 1
+    size = 2 * margin + 1
+    padded = np.pad(covered, margin, mode="constant", constant_values=False)
+    reach = np.zeros_like(covered)
+    for dy in range(size):
+        for dx in range(size):
+            reach |= padded[dy:dy + covered.shape[0], dx:dx + covered.shape[1]]
+    return ~reach[::-1]
+
+
+def _box_mean(field, window):
+    """A `window`x`window` box mean of a 2D float field, edge-padded so
+    the result is defined at every pixel -- the same construction
+    `plate._grain` uses at window 3."""
+    height, width = field.shape
+    r = window // 2
+    padded = np.pad(field, r, mode="edge")
+    total = np.zeros_like(field)
+    for dy in range(window):
+        for dx in range(window):
+            total += padded[dy:dy + height, dx:dx + width]
+    return total / (window * window)
+
+
+def _luma(image):
+    return image.astype(np.float64) @ np.array([0.2126, 0.7152, 0.0722])
+
+
+def _local_variance(image, mask):
+    """A softness proxy over the pixels `mask` selects, deliberately blind
+    to single-pixel grain: the luma is box-smoothed at window 3 first
+    (which attenuates iid per-pixel noise roughly ninefold in variance),
+    *then* the residual of that smoothed field against its own window-7
+    neighbourhood is measured. What survives is multi-pixel-scale
+    structure -- an actor's silhouette edge, here, since the fixture's
+    triangles carry no interior texture -- which is exactly what the
+    Gaussian resample in `sample_layers` softens as `grade` grows. Grain,
+    added per-pixel after that resample, is mostly gone by the time this
+    residual is taken."""
+    smoothed = _box_mean(_luma(image), 3)
+    structure = smoothed - _box_mean(smoothed, 7)
+    return float(np.mean(structure[mask] ** 2))
+
+
+def _grain_energy(image, mask):
+    """The high-frequency residual over the pixels `mask` selects: each
+    pixel's luma against its own immediate (window-3) neighbourhood mean,
+    unsmoothed first -- the same construction `plate._grain` measures the
+    room's own dither with. A flat actor has none of this; the per-pixel
+    noise `grain_depth_slope` adds is exactly this kind of signal."""
+    luma = _luma(image)
+    residual = luma - _box_mean(luma, 3)
+    return float(np.mean(residual[mask] ** 2))
+
+
+def _far_flat_actor_frame():
+    """A single actor, flat and camera-facing -- constant view z across
+    its whole silhouette, the same construction `_facing_tri` uses --
+    placed well past HAZE_START. Every point on its face, edge or
+    interior, is the same true distance from the camera, so a correct
+    depth unpremultiply must haze its whole silhouette uniformly.
+
+    z=14000, so eye depth 15000 at focal1 1000 -- the attic fixture's own
+    far actor. It sat at z=1500 (depth 2500) until Task 4 remeasured the
+    fixtures against real data and recalibrated the tunables. 2500 is now
+    exactly HAZE_START, so `max(0, depth - haze_start)` there is exactly
+    0 and the haze this test measures would have been exactly nothing:
+    not a weakened test, an entirely inert one, passing its `< 6.0`
+    assertion because both sides of the comparison were unhazed.
+
+    The lens is lengthened (focal2 = focal3 = 3200 against `_view()`'s
+    320) rather than the triangle enlarged, which is why this helper does
+    not use `_view()`. Scaling `span` by the depth ratio keeps the screen
+    footprint too, but it changes the actor's size *in world units*, and
+    the enhanced material's procedural detail field is a world-space
+    field: a 6x bigger triangle samples 6x more of it across the same
+    pixels, which alone moved the measured edge-vs-interior gap from 0.3
+    counts to 20 -- past the threshold, with no bug present. Measured
+    both ways. Only focal1 feeds the depth this test is about, and it is
+    unchanged.
+
+    The lens grew 10x while the depth grew 6x, so the silhouette is about
+    1.67x larger on screen than it used to be -- 64 partially-covered
+    edge pixels and 1540 interior ones, against 114 and 435 before. That
+    is harmless for what this test measures, and mildly helpful: the
+    assertion is a comparison of two *means* (edge against interior),
+    both still far above the 20-pixel floor the test asserts before it
+    measures anything, and a larger interior region makes the interior
+    mean the steadier of the two. What would matter is the edge pixel
+    count falling below that floor, and the test would say so by name."""
+    from PyAitD.render.lighting import SceneLight
+    light = SceneLight((0.3, -0.5, -0.8), (0.9, 0.8, 0.7), (0.2, 0.2, 0.3), 0.7)
+    far = _standing_actor(0, _offset_facing_tri(14000.0, 1, (0.0, 0.0, -1.0), 0.0, span=150.0), 400.0)
+    long_lens = CameraView(CameraState(0, 0, 0, 0, 0, 0, 1000, 3200, 3200).angles())
+    return FrameDescription(long_lens, ImageAsset(np.full((200, 320, 3), 40, np.uint8), False),
+                            _palette(), (far,), (), light)
+
+
+def test_haze_unpremultiplies_depth_at_partially_covered_edges(gl_ctx):
+    """The composite's haze reads `float depth = d / a.a;` -- `d`
+    (`_actor_depth_tex`'s coverage-premultiplied value) divided by the
+    same coverage that premultiplied it, Task 2's whole contract for that
+    attachment -- not `d` alone. At msaa=0 nothing distinguishes the two
+    formulas: rasterised coverage is exactly 0 or 1 per pixel (no
+    supersampling to produce anything between), so `d / a.a == d`
+    identically and a bug here is invisible -- confirmed directly: with
+    `d / a.a` mutated to bare `d`, every one of this file's other 147
+    tests still passed (only this one caught it). msaa=4 resolves partially-covered silhouette
+    edges (0 < a.a < 1 in `_actor_tex`, from the MSAA average of covered
+    vs. uncovered samples), exactly where the two formulas diverge.
+
+    `_far_flat_actor_frame`'s single triangle is flat and camera-facing,
+    so edge and interior pixels alike carry the same true view depth --
+    under a correct unpremultiply the haze mixed into the final colour
+    must therefore be uniform across the whole silhouette. The bug scales
+    `d` down by the (smaller, fractional) coverage at edges without
+    correcting for it, understating `depth - haze_start` there and
+    reading those pixels as *nearer* than the interior -- less haze at
+    the edge, backwards from anything a real depth discontinuity would
+    produce, and measurable as a colour difference between the two
+    regions."""
+    frame = _far_flat_actor_frame()
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=4, integration=2, atmosphere="on"))
+    try:
+        backend.draw(frame)
+        rgb = backend.read_rgb().astype(np.float64)
+        w, h = backend.size
+        colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+        alpha = colour[..., 3]
+    finally:
+        backend.release()
+    # _actor_tex is GL's bottom-up row order; read_rgb() flips to
+    # top-down (see the matching comment on _uncovered_pixels).
+    alpha = alpha[::-1]
+    edge = (alpha > 0) & (alpha < 255)
+    full = alpha == 255
+    # Eroded by one box-mean pass at window 5: only pixels whose entire
+    # 5x5 neighbourhood is also fully covered count as "interior", so
+    # none of them are within a couple of pixels of an edge themselves.
+    interior = full & (_box_mean(full.astype(np.float64), 5) == 1.0)
+    assert edge.sum() >= 20, f"only {edge.sum()} partially-covered pixels at msaa=4 -- fixture too small to measure"
+    assert interior.sum() >= 20, f"only {interior.sum()} interior pixels -- fixture too small to measure"
+    # `f_color = plate * (1 - a.a) + c * a.a` -- the final AA blend toward
+    # the background at a partially-covered pixel is expected and correct,
+    # nothing to do with the bug this test is after. Undo it algebraically
+    # (`plate` is this frame's flat, constant background) to recover each
+    # pixel's own `c` -- the post-haze actor colour the composite shader
+    # computed -- before comparing edge against interior.
+    a = alpha.astype(np.float64) / 255.0
+    plate = 40.0
+    numerator = rgb - plate * (1.0 - a[..., None])
+    covered3 = np.repeat((a > 0)[..., None], 3, axis=-1)
+    c = np.divide(numerator, a[..., None], out=np.zeros_like(numerator), where=covered3)
+    edge_colour = c[edge].mean(axis=0)
+    interior_colour = c[interior].mean(axis=0)
+    assert np.abs(edge_colour - interior_colour).max() < 6.0, (edge_colour, interior_colour)
+
+
+def test_neutral_tunables_are_an_exact_identity(gl_ctx):
+    """The strongest guarantee in this plan: atmosphere on, every tunable
+    zero, and the frame is byte-identical to atmosphere off. Every term is
+    built so k=0 collapses it exactly, not nearly.
+
+    That identity alone is not enough to prove the feature does anything:
+    Step 5 sets these same three uniforms to zero on the atmosphere="off"
+    branch too, so a k=0-vs-k=0 comparison would still pass with the
+    entire feature deleted -- the exact defect class this project keeps
+    getting bitten by. The second half of this test closes that hole: at
+    the real default tunables (no monkeypatching), "on" must *differ*
+    from "off" -- on `_near_and_far_frame`, whose far actor sits well past
+    HAZE_START (depth 15000, at this test camera's `z + focal1`
+    convention; see `_all_actors_nearer_than_haze_start`'s docstring)."""
+    frame = _near_and_far_frame()
+    off = _render_with_atmosphere(gl_ctx, frame, atmosphere="off", integration=2)
+    on_neutral = _render_with_tunables(gl_ctx, frame, atmosphere="on", integration=2,
+                                       haze_density=0.0, sigma_slope=0.0, grain_slope=0.0)
+    assert np.array_equal(off, on_neutral)
+
+    on_default = _render_with_atmosphere(gl_ctx, frame, atmosphere="on", integration=2)
+    assert not np.array_equal(off, on_default)
+
+
+def test_a_far_actor_moves_toward_the_ambient_tone_and_a_near_one_does_not(gl_ctx):
+    frame = _near_and_far_frame()
+    off = _render_with_atmosphere(gl_ctx, frame, atmosphere="off", integration=2).astype(np.int32)
+    on = _render_with_atmosphere(gl_ctx, frame, atmosphere="on", integration=2).astype(np.int32)
+    # _near_actor_pixels/_far_actor_pixels read _actor_tex directly, in
+    # GL's bottom-up row order; off/on come from read_rgb(), which flips
+    # to top-down before returning. [::-1] re-aligns the mask to the row
+    # order off/on are actually in.
+    near_mask = _near_actor_pixels(gl_ctx, frame)[::-1]
+    far_mask = _far_actor_pixels(gl_ctx, frame)[::-1]
+    near_delta = np.abs(on[near_mask] - off[near_mask]).mean()
+    far_delta = np.abs(on[far_mask] - off[far_mask]).mean()
+    assert far_delta > near_delta + 1.0
+    # And it moves *toward* the ambient tone, not just anywhere.
+    ambient = np.array(frame.light.ambient) * 255.0
+    before = np.abs(off[far_mask].astype(np.float64) - ambient).mean()
+    after = np.abs(on[far_mask].astype(np.float64) - ambient).mean()
+    assert after < before
+
+
+def test_haze_starts_at_zero_before_haze_start(gl_ctx):
+    """max(0, depth - HAZE_START) means a small room is untouched by
+    construction -- the spec's whole argument for a depth-driven haze
+    over the plate-wide one the first roadmap dropped.
+
+    `COMPOSITE_FSH` has two independent `max(0.0, ... - haze_start)`
+    clamps: one inside the haze exponential itself, and one in `beyond`
+    (which feeds both the softness grade and the grain multiplier). At
+    `_all_actors_nearer_than_haze_start`'s own background size (cell <= 1,
+    so `sample_layers` never reads `grade` at all) and `NEUTRAL_PLATE`
+    (`grain = 0.0`, zeroing the grain term outright), only the first
+    clamp is actually exercised -- a negative, unclamped `beyond` would
+    slip past unnoticed. The shrunk background and grained plate below
+    (the same trick `test_softness_and_grain_increase_with_depth` uses)
+    put `radius > 0` and `plate_grain > 0` in play, so both clamps are on
+    the hook for this test to pass."""
+    from dataclasses import replace
+    from PyAitD.render.plate import PlateProfile
+    frame = replace(_all_actors_nearer_than_haze_start(),
+                    background=ImageAsset(np.full((100, 160, 3), 40, np.uint8), False),
+                    plate=PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), 0.08))
+    assert np.array_equal(_render_with_atmosphere(gl_ctx, frame, atmosphere="on", integration=2),
+                          _render_with_atmosphere(gl_ctx, frame, atmosphere="off", integration=2))
+
+
+def test_zero_coverage_pixels_are_untouched(gl_ctx):
+    frame = _golden_frame()
+    off = _render_with_atmosphere(gl_ctx, frame, atmosphere="off", integration=2)
+    on = _render_with_atmosphere(gl_ctx, frame, atmosphere="on", integration=2)
+    bare = _uncovered_pixels(gl_ctx, frame)
+    assert np.array_equal(off[bare], on[bare])
+
+
+
+def test_softness_and_grain_increase_with_depth(gl_ctx):
+    """Measured, not asserted by construction: a far actor's local
+    variance falls when its blur is graded up (softer) and its
+    high-frequency residual rises when its grain is graded up
+    (grainier), each relative to the same frame with both slopes zeroed.
+
+    Graded one at a time on purpose, not together: `dither()`'s noise is
+    seeded on screen position alone (see its own docstring -- "sits still
+    like the plate's dither"), so with `grain_slope=0` the grain term is
+    byte-identical between the zeroed baseline and the blur-only render,
+    leaving only the blur as a variable a plain local-variance measure
+    can see cleanly. Graded together, the far actor's own extra grain
+    (also depth-scaled) raises its measured variance enough to mask the
+    blur's reduction of it -- a real interaction, not a measurement bug,
+    but not what this test is isolating.
+
+    Two things `_near_and_far_frame` alone can't exercise, using its raw
+    background and plate as-is: at this test camera's 320x200 target and
+    a same-size background, `plate.softness` returns `cell <= 1` and
+    therefore `sigma = 0`, so `sample_layers` takes its `radius <= 0`
+    branch and never reads `grade` at all -- `sigma_depth_slope` would be
+    inert regardless of its value. And `_near_and_far_frame`'s frame
+    carries `NEUTRAL_PLATE` (`grain = 0.0`), which zeroes the grain term
+    the same way `grain_depth_slope = 0` would. The frame below shrinks
+    the background asset (forcing `cell = 2`, so `radius > 0`) and gives
+    the plate a nonzero grain, so both slopes actually have something to
+    grade -- its actors are otherwise `_near_and_far_frame`'s own (near
+    at depth 1500, under HAZE_START=2500 so `beyond` is exactly 0; far at
+    depth 15000, well past it -- `beyond` is 5.0 there)."""
+    from dataclasses import replace
+    from PyAitD.render.plate import PlateProfile
+    base = _near_and_far_frame()
+    frame = replace(base, background=ImageAsset(np.full((100, 160, 3), 40, np.uint8), False),
+                    plate=PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), 0.08))
+    flat = _render_with_tunables(gl_ctx, frame, atmosphere="on", integration=2,
+                                 sigma_slope=0.0, grain_slope=0.0)
+    soft_only = _render_with_tunables(gl_ctx, frame, atmosphere="on", integration=2,
+                                      grain_slope=0.0)
+    grain_only = _render_with_tunables(gl_ctx, frame, atmosphere="on", integration=2,
+                                       sigma_slope=0.0)
+    graded = _render_with_atmosphere(gl_ctx, frame, atmosphere="on", integration=2)
+    # See the matching comment in
+    # test_a_far_actor_moves_toward_the_ambient_tone_and_a_near_one_does_not:
+    # these masks are GL's bottom-up row order, flat/graded are read_rgb's
+    # top-down.
+    far_mask = _far_actor_pixels(gl_ctx, base)[::-1]
+    near_mask = _near_actor_pixels(gl_ctx, base)[::-1]
+    assert _local_variance(soft_only, far_mask) < _local_variance(flat, far_mask)
+    assert _grain_energy(grain_only, far_mask) > _grain_energy(flat, far_mask)
+    # The near actor is where the grade is meant to be near-nil: `beyond`
+    # is exactly 0 there, so the fully-graded render collapses to the
+    # zeroed one at every near-actor pixel `_local_variance`'s own
+    # windows don't reach past.
+    assert abs(_local_variance(graded, near_mask)
+               - _local_variance(flat, near_mask)) < _local_variance(flat, near_mask) * 0.1
+
+
+def test_atmosphere_is_inert_at_integration_zero(gl_ctx):
+    """Not a scaling test: at integration=0 `_composite` never runs at all
+    (`integrate = scene_lit and self._options.integration > 0`), so this
+    frame's plate never even sees `strength`, let alone the haze and grade
+    terms it multiplies. What this guards is that no *other* path -- one
+    that does not go through `_composite` -- has grown a depth read of its
+    own."""
+    frame = _near_and_far_frame()
+    assert np.array_equal(_render_with_atmosphere(gl_ctx, frame, atmosphere="on", integration=0),
+                          _render_with_atmosphere(gl_ctx, frame, atmosphere="off", integration=0))
+
+
+def test_msaa_resolve_still_carries_colour_after_the_second_attachment(gl_ctx):
+    """The non-integrate MSAA resolve (`elif self._ms_fbo is not None` in
+    `_draw_frame`) used to copy `_ms_fbo` straight into `_fbo`; now `_ms_fbo`
+    carries two colour attachments and `_fbo` carries one, so that copy has
+    to go through `_ms_color_only` or it raises the same
+    "different number of color attachments" error the plate resolve does.
+    lighting="fixed" makes the frame take the direct, non-integrate path
+    (see `_draw_frame`'s `integrate = scene_lit and ... integration > 0`)."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="fixed", msaa=4))
+    try:
+        backend.draw(_frame([_actor(0, _facing_tri(600.0, 1, (0.0, 0.0, -1.0)))]))
+        out = backend.read_rgb()
+        assert (out > 0).any()
+    finally:
+        backend.release()
 
 
 def test_fixed_lighting_is_unchanged_by_the_scene_light(gl_ctx):
@@ -1570,9 +2159,16 @@ FULL_SHADOW_ON_200 = 74
 
 
 def _soft_frame_render(gl_ctx, shadows, actors, plate, direction, masks=(), level=0, shading="flat",
-                       realism="enhanced", palette=None):
+                       realism="enhanced", palette=None, atmosphere=None):
+    # `atmosphere` defaults to None -- inherit whatever RenderOptions ships
+    # -- because almost every caller here compares two renders of the same
+    # frame, where a term applied identically to both cancels. Only a
+    # caller asserting an *absolute* value needs to name it; see
+    # test_an_emissive_surface_renders_its_palette_colour.
+    extra = {} if atmosphere is None else {"atmosphere": atmosphere}
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading=shading, lighting="scene", msaa=0,
-                                              realism=realism, smoothing=level, shadows=shadows))
+                                              realism=realism, smoothing=level, shadows=shadows,
+                                              **extra))
     backend.draw(FrameDescription(_view(), ImageAsset(plate, False),
                                   _palette() if palette is None else palette,
                                   tuple(actors), tuple(masks), _scene_light(direction)))
@@ -2184,7 +2780,8 @@ KEY_FROM_ABOVE = (0.0, -0.85, -0.5)
 
 
 def _material_square(gl_ctx, table, z=600.0, realism="enhanced", shading="smooth",
-                     normal=(0.0, 0.0, -1.0), palette=None, light=KEY_FROM_ABOVE):
+                     normal=(0.0, 0.0, -1.0), palette=None, light=KEY_FROM_ABOVE,
+                     atmosphere=None):
     """A camera-facing square lit by the scene light, with `table` as its
     material table. Returns the rendered frame.
 
@@ -2202,7 +2799,8 @@ def _material_square(gl_ctx, table, z=600.0, realism="enhanced", shading="smooth
     actor = ActorDraw(0, geometry, (0.0, 0.0, 0.0), 0, (0, 0, 0, 200, 0, 0),
                       RenderResult([], []), (), materials=table)
     return _soft_frame_render(gl_ctx, "hard", [actor], plate, light,
-                              shading=shading, realism=realism, palette=palette)
+                              shading=shading, realism=realism, palette=palette,
+                              atmosphere=atmosphere)
 
 
 def _bump_pair(gl_ctx, name, monkeypatch, **kwargs):
@@ -2573,8 +3171,15 @@ def test_an_emissive_surface_renders_its_palette_colour(gl_ctx):
     body = (slice(70, 130), slice(120, 200))
     away = (0.0, -0.5, 0.85)          # behind the square: it stands in its own shade
 
+    # atmosphere="off": alone in this material family, this test asserts an
+    # absolute value (`== 200`, the raw palette colour) rather than
+    # comparing two renders, so a haze term does not cancel out of it. It
+    # is green today only because this square sits at eye depth 1600, under
+    # HAZE_START -- a silent dependency on a tunable, not a property of
+    # emissive shading.
     def square(name, light):
-        return _material_square(gl_ctx, _table_of(name), palette=_grey_palette(), light=light)
+        return _material_square(gl_ctx, _table_of(name), palette=_grey_palette(), light=light,
+                                atmosphere="off")
 
     lit, unlit = square("emissive", KEY_FROM_ABOVE), square("emissive", away)
     assert (lit[body] == 200).all() and (unlit[body] == 200).all()
@@ -2628,7 +3233,17 @@ def _gradient_plate():
 
 
 def _integration_options(**kw):
-    base = dict(scale=1, shading="smooth", lighting="scene", msaa=0)
+    # atmosphere="off" for the whole plate/composite family this helper
+    # builds options for. Every one of them asserts an exact value -- an
+    # equality against integration=0, an exact resolved texture, an exact
+    # unsoftened frame -- so they all belong to the identity net, and the
+    # net names every option that can touch a pixel rather than inheriting
+    # it. test_integration_at_full_matches_off_pixel_for_pixel_at_msaa_zero
+    # is the K-C1 shape exactly: an identity across integration 0 versus 2,
+    # where a defaulted-on composite feature is inert on the 0 side and
+    # live on the 2 side. A caller that actually wants haze passes
+    # atmosphere="on" through **kw.
+    base = dict(scale=1, shading="smooth", lighting="scene", msaa=0, atmosphere="off")
     base.update(kw)
     return RenderOptions(**base)
 
@@ -2644,10 +3259,40 @@ def test_integration_at_full_with_a_neutral_plate_reproduces_the_golden(gl_ctx):
     # real SSAO here and this identity -- which is about integration, not
     # occlusion -- would stop holding for a reason unrelated to what it
     # tests.
+    #
+    # This is also the test that carries "the depth MRT (Task 2's second
+    # colour attachment) disturbs no pixel" -- integration=2 here means
+    # _composite runs, reading _actor_depth_tex the way atmosphere="on"
+    # does, and the byte-for-byte match against a golden that predates
+    # that attachment entirely is the strong form of that guarantee. A
+    # same-named test used to pin a weaker version of this on _golden_frame
+    # alone (comparing atmosphere on vs. off at zeroed tunables); it was
+    # deleted (fix round 1, I1) because that comparison is bit-identical
+    # by construction -- the "off" branch already zeroes those same three
+    # uniforms in _composite -- so it proved nothing beyond what this test
+    # already proves more strongly.
+    #
+    # atmosphere="off" is named for the same reason, one sub-project
+    # later -- it happened twice. This test predates atmosphere and rode
+    # sub-project L green only because the knob shipped off; the moment
+    # Task 4 flipped the default on, this test failed, because
+    # `_golden_frame`'s actors (eye depth 1564..1696 at this camera's
+    # focal1 of 1000) straddled the HAZE_START of 1600 that Task 3 had
+    # settled on and hazed. Same test, same trap: an identity that reads
+    # as green only because a defaulted-on feature happens to be inert.
+    #
+    # Stated exactly, because the honest version is the useful one: at the
+    # HAZE_START of 2500 that Task 4 then remeasured against the real
+    # fixtures, this frame is entirely under the threshold and the pin is
+    # NOT currently load-bearing -- verified by deleting it, which leaves
+    # the test green. It stays anyway. A golden identity names every
+    # option that can touch a pixel at the value it holds at, rather than
+    # inheriting a default, precisely so that the next person to move a
+    # tunable does not silently re-arm this trap for a third time.
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=1, shading="smooth", lighting="scene", msaa=0,
         realism="classic", smoothing=0, shadows="hard", integration=2,
-        occlusion="off"))
+        occlusion="off", atmosphere="off"))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
@@ -2719,15 +3364,22 @@ def test_integration_at_full_still_resolves_msaa_into_the_same_texture(gl_ctx):
         _view(), ImageAsset(plate, False), _palette(),
         (_standing_actor(0, _tri_geometry(600.0, 1), 400.0),), (),
         SceneLight((0.3, -0.6, -0.7), (1.0, 1.0, 1.0), (0.2, 0.2, 0.2), 1.0))
+    # atmosphere="off" on both sides, and this test builds its own options
+    # rather than going through _integration_options, so it needs saying
+    # here too. It is the K-C1 shape: an identity across integration 2
+    # versus 0, where a defaulted-on composite feature is live on one side
+    # and structurally inert on the other -- at integration 0 there is no
+    # composite at all. Any haze would land entirely on `on` and be scored
+    # against a <= 2 count tolerance that exists for msaa quantisation.
     backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
-                                              msaa=4, integration=2))
+                                              msaa=4, integration=2, atmosphere="off"))
     backend.draw(frame)
     on = backend.read_rgb().copy()
     assert on.shape == (400, 640, 3)
     assert backend.thumbnail().shape == (200, 320, 3)
     backend.release()
     direct = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
-                                             msaa=4, integration=0))
+                                             msaa=4, integration=0, atmosphere="off"))
     direct.draw(frame)
     off = direct.read_rgb().copy()
     direct.release()
@@ -2854,9 +3506,15 @@ def _composited_centre(gl_ctx, profile, palette=None, colour=1, plate_value=0,
     frame = FD(_view(), ImageAsset(plate, False), palette,
                (_standing_actor(0, _tri_geometry(600.0, colour), 400.0),), (),
                _scene_light((0.0, 0.0, -1.0)), profile)
+    # atmosphere="off": every caller compares two composited centre pixels
+    # to isolate what the tone curve did, and several assert an exact
+    # equality against a hand-computed value. The haze is a second thing
+    # acting on that same pixel, so it is named off here rather than left
+    # to happen to be zero -- which is all that keeps these green today,
+    # this triangle sitting at eye depth 1600, under HAZE_START.
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=1, shading="smooth", lighting="scene", msaa=0,
-        realism="classic", integration=integration))
+        realism="classic", integration=integration, atmosphere="off"))
     backend.draw(frame)
     got = _centre(backend.read_rgb())
     backend.release()
@@ -2908,9 +3566,16 @@ def _grey_grain_render(gl_ctx, grain, scale=1, integration=2):
                (_actor(0, _tri_geometry(600.0, 1)),), (),
                _scene_light((0.0, 0.0, -1.0)),
                PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), grain))
+    # atmosphere="off": these tests measure the composite grain's RMS
+    # against `plate_grain` exactly (GAIN is sqrt(12) precisely so the two
+    # match). GRAIN_DEPTH_SLOPE scales that same field by depth, so with
+    # atmosphere on the measured amplitude is the plate's times the depth
+    # grade -- a second, unrelated factor in a test asserting a 5% relative
+    # tolerance on the first. Named off rather than left to this triangle
+    # happening to sit at eye depth 1600, under HAZE_START.
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=scale, shading="smooth", lighting="scene", msaa=0,
-        realism="classic", integration=integration))
+        realism="classic", integration=integration, atmosphere="off"))
     backend.draw(frame)
     out = backend.read_rgb().copy()
     backend.release()
