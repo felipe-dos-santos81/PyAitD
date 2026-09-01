@@ -95,11 +95,11 @@ control the port consumes while playing (keyboard input mode) into it, for
 side-by-side comparison. macOS only; needs `dosbox-x` and a one-time
 Accessibility grant; see `docs/compare-original-proof.md`.
 
-The in-game Configuration screen's Graphics and Realism pages, and eleven CLI
+The in-game Configuration screen's Graphics and Realism pages, and twelve CLI
 flags for a single session, control the enhanced renderer: Graphics holds the
 display knobs (scale, shading, background filter, AA, mesh smoothing) and
 Realism the lighting and motion ones (lighting, shadows, realism preset, plate
-integration, motion). `--render-scale N` (1-8, the
+integration, motion, occlusion). `--render-scale N` (1-8, the
 internal render resolution as a multiple of 320x200), `--shading
 {flat,lambert,smooth}` (the per-actor shading model: where surface normals
 come from), `--background-filter {nearest,bilinear,xbr}` (how the original
@@ -126,13 +126,25 @@ against),
 `1`–`3` round every body with 4/16/64 curved sub-triangles per face, keeping
 edges sharper than 80° — overridable per body with a `"crease"` degrees key
 in `DIR/bodies/body<NNN>.json`),
-`--shadows {hard,soft}` (`hard` is the flat projected silhouette; `soft`
+`--shadows {hard,soft,room}` (`hard` is the flat projected silhouette; `soft`
 gives every shadow a penumbra that hardens where the actor meets the ground,
 composites every actor's shadow once before any body is drawn, and lets
-limbs and actors shadow each other through a light-view depth map),
+limbs and actors shadow each other through a light-view depth map; `room`
+does everything `soft` does and also darkens the room's floor and the tops
+of its `hard_col` collision boxes through that same shadow map, so a cast
+shadow can drape over furniture-proxy geometry instead of stopping dead at
+its edge — `hard_cols` are proxies, not painted furniture, so `soft` stays
+the default until a human reviews real fixtures),
 `--motion {tick,smooth}` (`smooth`, the default, blends actor motion between
 simulation ticks at the display rate; `tick` renders one pose per 50 Hz
 tick),
+`--occlusion {off,ssao}` (`ssao`, the default, adds a half-resolution
+screen-space ambient occlusion pass over the actor layer — reading a
+G-buffer prepass of view normals and depth, seeing pose and neighbours every
+frame — and attenuates the fill light's share where it finds contact
+occlusion; `off` runs today's renderer verbatim. Additive to the baked
+rest-pose occlusion every body already carries, which cannot see pose or
+neighbours),
 `--integration {0,1,2,3}` (how much of the room's own picture the actors take
 on: any level above 0 resolves the bodies into their own layer and composites
 them back — softened or pixelated to the plate's cell, clamped into the

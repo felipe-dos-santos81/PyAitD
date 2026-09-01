@@ -82,8 +82,8 @@ proof-mouse: install ## Navmesh proof: build it for every camera-visible room, e
 proof-combat: install ## Combat proof: venue, real enemy damage, player arms, game over
 	$(PYTHON) tools/prove_combat.py "$(data)"
 
-proof-graphics: install ## Graphics proof: attic + combat fixtures at scale 4 per shading mode x realism preset, plus a flat-mesh pair, a hard-shadow pair, an un-composited pair, an over-composited pair and a motion-blended tickmotion pair, to docs/graphics-proof/ (motion=tick renders that pair unblended)
-	$(PYTHON) tools/prove_graphics.py "$(data)" $(if $(motion),--motion "$(motion)")
+proof-graphics: install ## Graphics proof: attic + combat fixtures at scale 4 per shading mode x realism preset, plus a flat-mesh pair, a hard-shadow pair, an un-composited pair, an over-composited pair, a motion-blended tickmotion pair, a painted pair, an SSAO-off nossao pair and a room-shadow roomshadow pair, to docs/graphics-proof/ (motion=tick renders the tickmotion pair unblended; occlusion= sets the main renders' occlusion mode, the nossao pair is always off)
+	$(PYTHON) tools/prove_graphics.py "$(data)" $(if $(motion),--motion "$(motion)") $(if $(occlusion),--occlusion "$(occlusion)")
 
 proof-intro: install ## Opening cutscene proof: headless run to CutsceneFinished + one GL render per visited camera to docs/intro-proof/
 	$(HEADLESS) $(PYTHON) -m pytest tests/test_intro.py -q && $(PYTHON) tools/prove_intro.py "$(data)"
