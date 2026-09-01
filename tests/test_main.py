@@ -678,6 +678,26 @@ def test_menu_render_fields_cover_occlusion():
     assert "occlusion" in _MENU_RENDER_FIELDS
 
 
+def test_the_atmosphere_flag_overrides_only_its_own_field():
+    from dataclasses import replace
+    from PyAitD.app.config import default_settings
+    from PyAitD.app.shell import apply_render_overrides, parse_args
+    base = default_settings()
+    assert base.render.atmosphere == "off"                    # the shipped default
+    only = apply_render_overrides(base, parse_args(["--atmosphere", "on"]))
+    # exactly the atmosphere field moved, nothing else
+    assert only.render == replace(base.render, atmosphere="on")
+    # no flag: the default persists, unmodified
+    assert apply_render_overrides(base, parse_args([])).render.atmosphere == "off"
+    with pytest.raises(SystemExit):
+        parse_args(["--atmosphere", "foggy"])  # argparse choices reject it
+
+
+def test_menu_render_fields_cover_atmosphere():
+    from PyAitD.app.shell import _MENU_RENDER_FIELDS
+    assert "atmosphere" in _MENU_RENDER_FIELDS
+
+
 def test_motion_blend_helper_gates_on_mode_and_snapshot():
     from dataclasses import replace
     from PyAitD.app.config import default_settings

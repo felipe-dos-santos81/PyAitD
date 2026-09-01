@@ -18,14 +18,14 @@ from PyAitD.render.texture_export import (
 )
 from PyAitD.render.render_options import (
     INTEGRATION_LABELS,
-    RenderOptions, cycle_filter, cycle_integration, cycle_lighting, cycle_motion, cycle_msaa, cycle_occlusion,
-    cycle_realism, cycle_scale, cycle_shading, cycle_shadows, cycle_smoothing,
+    RenderOptions, cycle_atmosphere, cycle_filter, cycle_integration, cycle_lighting, cycle_motion, cycle_msaa,
+    cycle_occlusion, cycle_realism, cycle_scale, cycle_shading, cycle_shadows, cycle_smoothing,
 )
 from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.data.text import BookToken
 
 GRAPHICS_ROWS = 5          # rows on the Graphics page above Back, in GRAPHICS_CYCLES order
-REALISM_ROWS = 6           # rows on the Realism page above Back, in REALISM_CYCLES order
+REALISM_ROWS = 7           # rows on the Realism page above Back, in REALISM_CYCLES order
 
 
 def config_row_count():
@@ -419,7 +419,8 @@ GRAPHICS_CYCLES = (cycle_scale, cycle_shading, cycle_filter, cycle_msaa, cycle_s
 # One cycle per Realism-page row above Back; realism_labels draws them in
 # the same order, and tests pin that the two never drift apart. Later
 # sub-projects append their rows here, keeping the same index alignment.
-REALISM_CYCLES = (cycle_lighting, cycle_shadows, cycle_realism, cycle_integration, cycle_motion, cycle_occlusion)
+REALISM_CYCLES = (cycle_lighting, cycle_shadows, cycle_realism, cycle_integration, cycle_motion, cycle_occlusion,
+                  cycle_atmosphere)
 
 
 def _leave_graphics(state):
@@ -1311,6 +1312,7 @@ def realism_labels(render):
         f"Integration: {INTEGRATION_LABELS[render.integration]}",
         f"Motion: {render.motion.title()}",
         f"Occlusion: {'SSAO' if render.occlusion == 'ssao' else 'Off'}",
+        f"Atmosphere: {'On' if render.atmosphere == 'on' else 'Off'}",
     ]
 
 

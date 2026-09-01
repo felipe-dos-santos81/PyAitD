@@ -53,6 +53,11 @@ MOTION_MODES = ("tick", "smooth")
 # passes. Additive to the baked rest-pose AO in render/occlusion.py, which
 # cannot see pose or neighbours.
 OCCLUSION_MODES = ("off", "ssao")
+# Depth-driven haze and depth-graded softness and grain on the actor
+# layer. "off" runs today's composite verbatim. Applies only under
+# integration > 0 and lighting="scene": every term lives in the composite
+# pass, and at integration 0 there is no composite to modify.
+ATMOSPHERE_MODES = ("off", "on")
 
 
 @dataclass(frozen=True)
@@ -69,6 +74,7 @@ class RenderOptions:
     integration: int = 2
     motion: str = "smooth"
     occlusion: str = "ssao"
+    atmosphere: str = "off"
 
     def to_payload(self):
         return {
@@ -84,6 +90,7 @@ class RenderOptions:
             "integration": self.integration,
             "motion": self.motion,
             "occlusion": self.occlusion,
+            "atmosphere": self.atmosphere,
         }
 
 
@@ -153,7 +160,15 @@ def validate_render_options(payload):
     if occlusion not in OCCLUSION_MODES:
         errors.append(f"occlusion must be one of {', '.join(OCCLUSION_MODES)}")
         occlusion = defaults.occlusion
-    options = RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration, motion, occlusion)
+    # Bare .get(), like every sibling field: a MISSING key must produce a
+    # notice before falling back, not fall back silently. Every settings
+    # file written before this task lacks the key, so the missing case is
+    # the common one.
+    atmosphere = payload.get("atmosphere")
+    if atmosphere not in ATMOSPHERE_MODES:
+        errors.append(f"atmosphere must be one of {', '.join(ATMOSPHERE_MODES)}")
+        atmosphere = defaults.atmosphere
+    options = RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration, motion, occlusion, atmosphere)
     return options, ("; ".join(errors) or None)
 
 
@@ -207,3 +222,7 @@ def cycle_motion(options):
 
 def cycle_occlusion(options):
     return replace(options, occlusion=_cycle(OCCLUSION_MODES, options.occlusion))
+
+
+def cycle_atmosphere(options):
+    return replace(options, atmosphere=_cycle(ATMOSPHERE_MODES, options.atmosphere))
