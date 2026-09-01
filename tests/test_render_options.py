@@ -169,13 +169,13 @@ def test_integration_cycles_through_every_level():
     assert seen == [2, 3, 0, 1, 2]
 
 
-def test_motion_defaults_to_tick_and_cycles():
+def test_motion_defaults_to_smooth_and_cycles():
     from PyAitD.render.render_options import MOTION_MODES, RenderOptions, cycle_motion
     assert MOTION_MODES == ("tick", "smooth")
     options = RenderOptions()
-    assert options.motion == "tick"
-    assert cycle_motion(options).motion == "smooth"
-    assert cycle_motion(cycle_motion(options)).motion == "tick"
+    assert options.motion == "smooth"
+    assert cycle_motion(options).motion == "tick"
+    assert cycle_motion(cycle_motion(options)).motion == "smooth"
     assert RenderOptions(motion="smooth").to_payload()["motion"] == "smooth"
 
 
@@ -184,8 +184,8 @@ def test_invalid_or_missing_motion_falls_back_alone():
     payload = RenderOptions(scale=2).to_payload()
     payload["motion"] = "cinematic"
     options, error = validate_render_options(payload)
-    assert options.motion == "tick" and options.scale == 2
+    assert options.motion == "smooth" and options.scale == 2
     assert "motion" in error
     del payload["motion"]   # a settings file from before this option
     options, error = validate_render_options(payload)
-    assert options.motion == "tick" and "motion" in error
+    assert options.motion == "smooth" and "motion" in error

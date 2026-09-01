@@ -57,25 +57,29 @@ def test_parse_args_overrides():
 def test_output_paths_cover_every_combination_plus_the_twins():
     from PyAitD.render.render_options import RenderOptions
     paths = output_paths("docs/graphics-proof")
-    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 4 * len(FIXTURES)
+    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 5 * len(FIXTURES)
     default = RenderOptions()
-    names = {(name, mode, realism, level, shadows, integration)
-             for name, mode, realism, level, shadows, integration, _ in paths}
-    expected = {(n, m, r, default.smoothing, default.shadows, default.integration)
+    names = {(name, mode, realism, level, shadows, integration, motion_blend)
+             for name, mode, realism, level, shadows, integration, motion_blend, _ in paths}
+    expected = {(n, m, r, default.smoothing, default.shadows, default.integration, False)
                 for n in FIXTURES for m in SHADING_MODES for r in REALISM_MODES}
-    expected |= {(n, "smooth", "enhanced", 0, default.shadows, default.integration) for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, "hard", default.integration)
+    expected |= {(n, "smooth", "enhanced", 0, default.shadows, default.integration, False) for n in FIXTURES}
+    expected |= {(n, "smooth", "enhanced", default.smoothing, "hard", default.integration, False)
                  for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 0)
+    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 0, False)
                  for n in FIXTURES}
-    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 3)
+    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, 3, False)
+                 for n in FIXTURES}
+    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
+                  default.motion == "smooth")
                  for n in FIXTURES}
     assert names == expected
-    for name, mode, realism, level, shadows, integration, path in paths:
+    for name, mode, realism, level, shadows, integration, motion_blend, path in paths:
         suffix = ("-flatmesh" if level == 0
                   else "-hardshadow" if shadows == "hard"
                   else "-nocomposite" if integration == 0
-                  else "-strong" if integration == 3 else "")
+                  else "-strong" if integration == 3
+                  else "-tickmotion" if motion_blend else "")
         assert path == pathlib.Path("docs/graphics-proof") / f"{name}-{mode}-{realism}{suffix}.png"
 
 
@@ -116,4 +120,4 @@ def test_render_fixture_is_importable_with_the_documented_signature():
     import inspect
     params = list(inspect.signature(render_fixture).parameters)
     assert params == ["data_dir", "name", "scale", "shading", "ctx", "realism", "smoothing",
-                      "shadows", "integration"]
+                      "shadows", "integration", "motion_blend"]

@@ -241,7 +241,7 @@ def test_realism_page_cycles_motion_and_backs_out():
     settings = default_settings()
     state = SystemMenuPresenter(page=SystemMenuPage.REALISM, cursor=4)
     result = reduce_system_menu(state, Command.ACCEPT, settings)
-    assert result.settings.render.motion == "smooth"
+    assert result.settings.render.motion == "tick"
     state.cursor = realism_row_count() - 1
     result = reduce_system_menu(state, Command.ACCEPT, settings)
     assert result.save and state.page is SystemMenuPage.CONFIG

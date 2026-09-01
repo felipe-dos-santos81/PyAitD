@@ -648,7 +648,7 @@ def test_motion_cli_override_is_session_only_and_alone():
     only = apply_render_overrides(base, parse_args(["--motion", "smooth"]))
     # exactly the motion field moved, nothing else
     assert only.render == replace(base.render, motion="smooth")
-    assert apply_render_overrides(base, parse_args([])).render.motion == "tick"
+    assert apply_render_overrides(base, parse_args([])).render.motion == "smooth"
 
 
 def test_menu_render_fields_cover_motion():
@@ -657,17 +657,18 @@ def test_menu_render_fields_cover_motion():
 
 
 def test_motion_blend_helper_gates_on_mode_and_snapshot():
+    from dataclasses import replace
     from PyAitD.app.config import default_settings
     from PyAitD.app.shell import _motion_blend
     from PyAitD.engine.script.playworld import TICK_MS
 
     class _Session:
-        settings = default_settings()   # motion="tick" until Task 6
+        settings = replace(default_settings(),
+                            render=replace(default_settings().render, motion="tick"))
 
     session = _Session()
     sentinel = object()
     assert _motion_blend(session, sentinel, 10) is None      # tick mode: never
-    from dataclasses import replace
     session.settings = replace(session.settings,
                                render=replace(session.settings.render, motion="smooth"))
     assert _motion_blend(session, None, 10) is None          # no snapshot yet

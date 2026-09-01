@@ -853,7 +853,7 @@ def test_graphics_labels_match_the_cycles_one_per_row():
     assert len(INTEGRATION_LABELS) == len(INTEGRATION_LEVELS)
     assert graphics[0] == "Scale: 4x" and graphics[4] == "Smoothing: Medium"
     assert realism[1] == "Shadows: Soft" and realism[2] == "Realism: Enhanced"
-    assert realism[3] == "Integration: Full" and realism[4] == "Motion: Tick"
+    assert realism[3] == "Integration: Full" and realism[4] == "Motion: Smooth"
 
 
 def test_every_integration_level_draws_its_own_row_label():
@@ -871,7 +871,7 @@ def test_motion_label_titles_the_mode():
     from dataclasses import replace
     from PyAitD.app.ui import realism_labels
     render = default_settings().render
-    assert realism_labels(render)[4] == "Motion: Tick"
+    assert realism_labels(replace(render, motion="tick"))[4] == "Motion: Tick"
     assert realism_labels(replace(render, motion="smooth"))[4] == "Motion: Smooth"
 
 

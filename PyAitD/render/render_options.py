@@ -56,7 +56,7 @@ class RenderOptions:
     smoothing: int = 2
     shadows: str = "soft"
     integration: int = 2
-    motion: str = "tick"
+    motion: str = "smooth"
 
     def to_payload(self):
         return {

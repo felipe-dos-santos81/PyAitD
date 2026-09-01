@@ -975,7 +975,9 @@ def test_classic_realism_matches_the_pre_materials_golden(gl_ctx):
     # soft-shadow pass and the plate composite.
     backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene", msaa=0,
                                               realism="classic", smoothing=0, shadows="hard",
-                                              integration=0))
+                                              integration=0,
+                                              # names every roadmap-2 field the identity holds at
+                                              motion="tick"))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()

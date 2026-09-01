@@ -16,7 +16,7 @@ make test-meta     # the repo's own rules (package layering, test grouping)
 make test-journey  # real run() event pump and long real-data simulations
 make proof-mouse   # navmesh for every camera-visible room, every floor (needs game data)
 make proof-combat  # venue, real enemy damage, player arms, game over (needs game data)
-make proof-graphics # attic + combat fixtures per shading mode x realism preset x smoothing default, plus a flat-mesh pair, a hard-shadow pair and the integration range's two ends -- an un-composited pair and an over-composited one (needs GL + game data)
+make proof-graphics # attic + combat fixtures per shading mode x realism preset x smoothing default, plus a flat-mesh pair, a hard-shadow pair, the integration range's two ends -- an un-composited pair and an over-composited one -- and a motion-blended tickmotion pair (needs GL + game data)
 make proof-intro   # opening cutscene: headless gate + one GL render per visited camera
 make prove-persistence # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract
 make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, textures=DIR defaults to data/aitd1/textures (textures= disables), data="..." trace=/tmp/t.log optional
