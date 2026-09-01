@@ -405,3 +405,51 @@ def test_an_invalid_crease_rejects_the_whole_body_file_once(tmp_path, caplog):
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1 and "crease" in warnings[0].getMessage()
     assert path in resolver.failures
+
+
+def test_body_texture_is_none_without_a_texture_dir_and_when_the_paint_is_missing(tmp_path):
+    from PyAitD.render.asset_resolver import AssetResolver
+    assert AssetResolver(None).body_texture(12) is None
+    assert AssetResolver(None, tmp_path).body_texture(12) is None
+    # a plain absence never lands in failures: missing is the steady state
+    assert AssetResolver(None, tmp_path).failures == {}
+
+
+def test_body_texture_returns_uvs_and_pixels_and_memoises(tmp_path):
+    import json
+    import numpy as np
+    from PyAitD.render.asset_resolver import AssetResolver
+    from PyAitD.render.texture_export import body_texture_rel_path, body_uv_rel_path
+    from tools.export_textures import save_png
+    (tmp_path / "bodies").mkdir(parents=True)
+    uvs = np.full((2, 3, 2), 0.5, dtype=np.float32)
+    (tmp_path / body_uv_rel_path(12)).write_text(json.dumps({
+        "schema": 1, "size": [8, 8], "chart_count": 1,
+        "tris_sha256": "0" * 64, "uvs": uvs.tolist(),
+    }), encoding="utf-8")
+    save_png(tmp_path / body_texture_rel_path(12), np.zeros((8, 8, 3), np.uint8))
+    resolver = AssetResolver(None, tmp_path)
+    first = resolver.body_texture(12)
+    assert first is not None
+    got_uvs, asset = first
+    assert got_uvs.shape == (2, 3, 2) and got_uvs.dtype == np.float32
+    assert asset.pixels.shape == (8, 8, 3)
+    assert resolver.body_texture(12) is first      # memoised per body
+
+
+def test_a_corrupt_body_texture_warns_once_and_falls_back(tmp_path, caplog):
+    import json
+    import numpy as np
+    from PyAitD.render.asset_resolver import AssetResolver
+    from PyAitD.render.texture_export import body_texture_rel_path, body_uv_rel_path
+    (tmp_path / "bodies").mkdir(parents=True)
+    (tmp_path / body_uv_rel_path(12)).write_text(json.dumps({
+        "schema": 1, "size": [8, 8], "chart_count": 1,
+        "tris_sha256": "0" * 64,
+        "uvs": np.full((2, 3, 2), 0.5, dtype=np.float32).tolist(),
+    }), encoding="utf-8")
+    (tmp_path / body_texture_rel_path(12)).write_bytes(b"not a png")
+    resolver = AssetResolver(None, tmp_path)
+    assert resolver.body_texture(12) is None
+    assert any(rec.levelname == "WARNING" for rec in caplog.records)
+    assert resolver.failures                       # corrupt is recorded, missing is not

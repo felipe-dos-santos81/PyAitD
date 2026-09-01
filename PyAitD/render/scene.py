@@ -100,6 +100,7 @@ class ActorDraw:
     logical: RenderResult
     mask_ids: tuple[int, ...]
     materials: MaterialTable = field(default_factory=default_table)
+    texture: ImageAsset = None      # the body's albedo atlas, or None when unpainted
 
 
 @dataclass(frozen=True)
@@ -179,6 +180,14 @@ def _plate(resolver, floor, cam_idx, killed):
         return getter(floor, cam_idx)
 
 
+def _body_texture(resolver, body_num):
+    """The resolver's `(uvs, ImageAsset)` for a body, or None -- including
+    for a stub resolver that implements no `body_texture` at all, the same
+    tolerance `_plate` extends to resolvers without a `plate`."""
+    getter = getattr(resolver, "body_texture", None)
+    return None if getter is None else getter(body_num)
+
+
 def build_frame(game, floor, resolver, blend=None):
     """The per-frame scene: a float FrameDescription for the new renderers,
     and the unchanged draw_list (from the logical skin() bbox) so picking,
@@ -229,18 +238,21 @@ def build_frame(game, floor, resolver, blend=None):
                 snap.actors.get(index), actor.body_num, actor.room, actor.anim,
                 states, angles, position, alpha,
             )
+        texture = _body_texture(resolver, actor.body_num)
         actors.append(ActorDraw(
             index,
             pose_geometry(body, draw_states, draw_angles,
                           ao=resolver.geometry_ao(actor.body_num),
                           refinement=resolver.refinement(actor.body_num),
-                          pose_fn=pose_fn),
+                          pose_fn=pose_fn,
+                          uv=None if texture is None else texture[0]),
             draw_position,
             actor.room,
             tuple(actor.zv),
             logical,
             tuple(m.id for m in masks if mask_applies_to_actor(m, actor.room, actor.zv)),
             resolver.material_table(actor.body_num),
+            None if texture is None else texture[1],
         ))
     killed = _killed_sorcerer(game)
     frame = FrameDescription(

@@ -49,6 +49,14 @@ def texture_body_material_path(texture_dir, num):
     return Path(texture_dir) / "bodies" / f"body{num:03d}.json"
 
 
+def texture_body_uv_path(texture_dir, num):
+    return Path(texture_dir) / "bodies" / f"body{num:03d}.uv.json"
+
+
+def texture_body_texture_path(texture_dir, num):
+    return Path(texture_dir) / "bodies" / f"body{num:03d}.png"
+
+
 def load_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
@@ -66,6 +74,19 @@ def _validate_body_override(data):
     parse_crease(data)
 
 
+def _require_body_uvs(data):
+    """One verdict per bodies/body<NNN>.uv.json. Shape and range only -- the
+    triangulation hash is `make check-textures`' job, not the game's: a
+    stale sidecar still renders, just wrongly, and the game never refuses to
+    start over a texture."""
+    uvs = np.asarray(data["uvs"], dtype=np.float32)
+    if uvs.ndim != 3 or uvs.shape[1:] != (3, 2):
+        raise ValueError(f"uvs must be (M, 3, 2), got {uvs.shape}")
+    if float(uvs.min()) < 0.0 or float(uvs.max()) > 1.0:
+        raise ValueError("uvs must lie in [0, 1]")
+    return uvs
+
+
 class AssetResolver:
     def __init__(self, assets, texture_dir=None, *, load_png=load_png_rgb):
         self._assets = assets
@@ -77,6 +98,7 @@ class AssetResolver:
         self._material_tables = {}
         self._aos = {}
         self._refinements = {}
+        self._body_textures = {}
         self.failures = {}
 
     def body(self, num):
@@ -120,6 +142,34 @@ class AssetResolver:
                         crease = value
             self._refinements[num] = plan_refinement(self.body(num), crease)
         return self._refinements[num]
+
+    def body_texture(self, num):
+        """`(uvs, ImageAsset)` for body `num`, or None when it is unpainted.
+
+        Both halves must be present: a paint with no sidecar has no way to
+        land on the mesh, and a sidecar with no paint has nothing to show.
+        Missing falls back silently -- an unpainted body is the steady
+        state, not a failure -- while a corrupt sidecar or PNG warns once
+        through `_override` and falls back. Memoised per body, including
+        the None, so an unpainted body costs one filesystem check per
+        session rather than one per frame."""
+        if num not in self._body_textures:
+            self._body_textures[num] = self._load_body_texture(num)
+        return self._body_textures[num]
+
+    def _load_body_texture(self, num):
+        if self._texture_dir is None:
+            return None
+        data = self._override(texture_body_uv_path(self._texture_dir, num),
+                              _require_body_uvs, load=load_json)
+        if data is None:
+            return None
+        uvs = np.ascontiguousarray(np.asarray(data["uvs"], dtype=np.float32))
+        pixels = self._override(texture_body_texture_path(self._texture_dir, num),
+                                _require_rgb)
+        if pixels is None:
+            return None
+        return uvs, ImageAsset(pixels.astype(np.uint8, copy=False), True)
 
     def _override(self, path, validate, load=None):
         load = self._load_png if load is None else load

@@ -190,3 +190,20 @@ def test_a_plans_corner_normals_are_computed_on_first_read_and_only_once():
     assert plan.calls == 1 and first.shape == (12, 3, 3)
     assert geo.corner_normals is first          # cached: reading twice computes once
     assert plan.calls == 1
+
+
+def test_body_geometry_uv_defaults_to_none_and_positional_construction_still_works():
+    from PyAitD.render.geometry import pose_geometry
+    body = _cube_body()
+    geo = pose_geometry(body, [], None)
+    assert geo.uv is None
+
+
+def test_pose_geometry_carries_the_uv_through():
+    import numpy as np
+    from PyAitD.render.geometry import pose_geometry
+    body = _cube_body()
+    tris = pose_geometry(body, [], None).tris
+    uv = np.full((len(tris), 3, 2), 0.25, dtype=np.float32)
+    geo = pose_geometry(body, [], None, uv=uv)
+    assert geo.uv is uv

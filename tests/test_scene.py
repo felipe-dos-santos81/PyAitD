@@ -761,3 +761,39 @@ def test_build_frame_falls_back_to_the_neutral_plate_for_a_resolver_without_one(
 
     frame, _ = build_frame(game, floor, NoPlate())
     assert frame.plate is NEUTRAL_PLATE
+
+
+def test_build_frame_carries_the_body_uv_when_the_resolver_has_one():
+    from PyAitD.render.asset_resolver import ImageAsset
+
+    uvs = np.full((1, 3, 2), 0.5, dtype=np.float32)
+    asset = ImageAsset(np.zeros((4, 4, 3), np.uint8), True)
+
+    class _TexturedResolver(_StubResolver):
+        def body_texture(self, num):
+            return (uvs, asset) if num == 0 else None
+
+    body_a = _flat_body([(0, 0, 0), (50, 0, 0), (0, 50, 0)])
+    body_b = _flat_body([(0, 0, 0), (30, 10, 0), (0, 30, 20)])
+    actor_a = _StubActor(0, 0, -1, (0, 0, 500), (0, 0, 0), (0, 0, 0), room=0, zv=(0, 0, 0, 0, 0, 0))
+    actor_b = _StubActor(1, 1, -1, (0, 0, 1500), (0, 0, 0), (0, 0, 0), room=0, zv=(0, 0, 0, 0, 0, 0))
+    game = _StubGame(current_room=0, num_camera=0, actors=[actor_a, actor_b])
+    room = Room(world_x=0, world_y=0, world_z=0, camera_indices=[0],
+                hard_cols=[], sce_zones=[], offset_to_hard_col=0, offset_to_sce_zones=0)
+    camera = Camera(alpha=0, beta=0, gamma=0, x=0, y=0, z=0, focal1=300, focal2=100, focal3=100)
+    floor = _StubFloor(rooms=[room], cameras=[camera], masks_by_camera={0: []})
+    background = object()
+    palette = np.zeros((256, 3), dtype=np.uint8)
+    resolver = _TexturedResolver({0: body_a, 1: body_b}, background, palette)
+
+    frame, _ = build_frame(game, floor, resolver)
+    by_index = {actor.index: actor for actor in frame.actors}
+    assert by_index[0].geometry.uv is uvs
+    assert by_index[1].geometry.uv is None
+
+
+def test_build_frame_works_with_a_resolver_that_implements_no_body_texture_at_all():
+    game, floor, resolver = _stub_scene()          # _StubResolver has no body_texture
+    assert not hasattr(resolver, "body_texture")
+    frame, _ = build_frame(game, floor, resolver)
+    assert frame.actors[0].geometry.uv is None

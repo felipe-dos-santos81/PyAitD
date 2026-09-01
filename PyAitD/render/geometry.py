@@ -37,6 +37,7 @@ class BodyGeometry:
     _corner_normals: np.ndarray = None  # (M,3,3) float32 backing store; read the `corner_normals` property
     straight: np.ndarray = None         # (M,3) float32, 1.0 where a triangle edge keeps a straight PN control polygon
     refinement: object = None           # refine.Refinement or None: the plan `corner_normals` evaluates on demand
+    uv: np.ndarray = None               # (M,3,2) float32 per-corner atlas UVs, or None when the body is unpainted
 
     def __post_init__(self):
         # Both default from `vertices` so every positional constructor
@@ -141,7 +142,7 @@ def _vertex_normals(vertices, tris, groups):
     return normals.astype(np.float32)
 
 
-def pose_geometry(body, group_states, actor_angles=None, ao=None, refinement=None, pose_fn=None):
+def pose_geometry(body, group_states, actor_angles=None, ao=None, refinement=None, pose_fn=None, uv=None):
     # pose_fn: override for skel.pose_vertices, e.g. render/motion.py's
     # pose_vertices_float for the inter-tick blend; None runs the default
     # integer path, byte-identical to before this seam existed.
@@ -165,7 +166,7 @@ def pose_geometry(body, group_states, actor_angles=None, ao=None, refinement=Non
         straight = refinement.straight
     return BodyGeometry(vertices, normals, tris, tri_colors, lines, line_colors,
                         spheres, points, point_sizes, point_colors, rest, ao, None, straight,
-                        refinement)
+                        refinement, uv)
 
 
 @functools.lru_cache(maxsize=4)
