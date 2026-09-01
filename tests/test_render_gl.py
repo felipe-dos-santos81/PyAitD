@@ -1143,35 +1143,6 @@ def test_depth_grows_with_distance(gl_ctx):
         backend.release()
 
 
-def test_the_depth_target_changes_no_pixel_of_the_frame(gl_ctx):
-    """An on/off self-consistency check, not a before/after guarantee -- and,
-    since Task 3, a check of the MRT wiring in isolation from the
-    arithmetic it feeds, not a check of `_golden_frame` in particular.
-
-    `_golden_frame`'s two actors turn out to sit *past* HAZE_START once
-    the engine's actual depth convention (`v_view.z + focal1`, focal1 =
-    1000 for this test camera -- see `_all_actors_nearer_than_haze_start`'s
-    docstring) is accounted for, so a real-tunable on/off comparison on
-    this exact frame would legitimately differ; that comparison, on a
-    frame actually built to stay under HAZE_START, is
-    `test_haze_starts_at_zero_before_haze_start`. What this test isolates
-    instead is Task 2's original claim: with every tunable at 0
-    (`haze_density`, `sigma_depth_slope`, `grain_depth_slope`), `exp(-0)`
-    and `1 + 0 * beyond` collapse the haze and grade terms exactly,
-    at *any* depth `_actor_depth_tex` happens to carry -- so writing that
-    second attachment disturbs no pixel of the first, regardless of what
-    ends up in it. The true "no visible change" guarantee for a whole
-    *path*, not one frame's on/off pair, is
-    `test_classic_realism_matches_the_pre_materials_golden`, which pins
-    realism="classic" (integration=0, so `_composite` never even runs)
-    byte for byte against a golden that predates this feature."""
-    frame = _golden_frame()
-    off = _render_with_atmosphere(gl_ctx, frame, "off")
-    on = _render_with_tunables(gl_ctx, frame, atmosphere="on",
-                               haze_density=0.0, sigma_slope=0.0, grain_slope=0.0)
-    assert np.array_equal(off, on)
-
-
 # ---- atmosphere's arithmetic (Task 3: haze, and the depth-graded softness
 # and grain) ----
 
@@ -1277,7 +1248,81 @@ def _grain_energy(image, mask):
     return float(np.mean(residual[mask] ** 2))
 
 
-def test_neutral_tunables_are_an_exact_identity(gl_ctx, monkeypatch):
+def _far_flat_actor_frame():
+    """A single actor, flat and camera-facing -- constant view z across
+    its whole silhouette, the same construction `_facing_tri` uses --
+    placed well past HAZE_START. Every point on its face, edge or
+    interior, is the same true distance from the camera, so a correct
+    depth unpremultiply must haze its whole silhouette uniformly."""
+    from PyAitD.render.lighting import SceneLight
+    light = SceneLight((0.3, -0.5, -0.8), (0.9, 0.8, 0.7), (0.2, 0.2, 0.3), 0.7)
+    far = _standing_actor(0, _offset_facing_tri(1500.0, 1, (0.0, 0.0, -1.0), 0.0, span=150.0), 400.0)
+    return FrameDescription(_view(), ImageAsset(np.full((200, 320, 3), 40, np.uint8), False),
+                            _palette(), (far,), (), light)
+
+
+def test_haze_unpremultiplies_depth_at_partially_covered_edges(gl_ctx):
+    """The composite's haze reads `float depth = d / a.a;` -- `d`
+    (`_actor_depth_tex`'s coverage-premultiplied value) divided by the
+    same coverage that premultiplied it, Task 2's whole contract for that
+    attachment -- not `d` alone. At msaa=0 nothing distinguishes the two
+    formulas: rasterised coverage is exactly 0 or 1 per pixel (no
+    supersampling to produce anything between), so `d / a.a == d`
+    identically and a bug here is invisible -- confirmed directly: with
+    `d / a.a` mutated to bare `d`, every one of this file's other 147
+    tests still passed (only this one caught it). msaa=4 resolves partially-covered silhouette
+    edges (0 < a.a < 1 in `_actor_tex`, from the MSAA average of covered
+    vs. uncovered samples), exactly where the two formulas diverge.
+
+    `_far_flat_actor_frame`'s single triangle is flat and camera-facing,
+    so edge and interior pixels alike carry the same true view depth --
+    under a correct unpremultiply the haze mixed into the final colour
+    must therefore be uniform across the whole silhouette. The bug scales
+    `d` down by the (smaller, fractional) coverage at edges without
+    correcting for it, understating `depth - haze_start` there and
+    reading those pixels as *nearer* than the interior -- less haze at
+    the edge, backwards from anything a real depth discontinuity would
+    produce, and measurable as a colour difference between the two
+    regions."""
+    frame = _far_flat_actor_frame()
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth", lighting="scene",
+                                              msaa=4, integration=2, atmosphere="on"))
+    try:
+        backend.draw(frame)
+        rgb = backend.read_rgb().astype(np.float64)
+        w, h = backend.size
+        colour = np.frombuffer(backend._actor_tex.read(), np.uint8).reshape(h, w, 4)
+        alpha = colour[..., 3]
+    finally:
+        backend.release()
+    # _actor_tex is GL's bottom-up row order; read_rgb() flips to
+    # top-down (see the matching comment on _uncovered_pixels).
+    alpha = alpha[::-1]
+    edge = (alpha > 0) & (alpha < 255)
+    full = alpha == 255
+    # Eroded by one box-mean pass at window 5: only pixels whose entire
+    # 5x5 neighbourhood is also fully covered count as "interior", so
+    # none of them are within a couple of pixels of an edge themselves.
+    interior = full & (_box_mean(full.astype(np.float64), 5) == 1.0)
+    assert edge.sum() >= 20, f"only {edge.sum()} partially-covered pixels at msaa=4 -- fixture too small to measure"
+    assert interior.sum() >= 20, f"only {interior.sum()} interior pixels -- fixture too small to measure"
+    # `f_color = plate * (1 - a.a) + c * a.a` -- the final AA blend toward
+    # the background at a partially-covered pixel is expected and correct,
+    # nothing to do with the bug this test is after. Undo it algebraically
+    # (`plate` is this frame's flat, constant background) to recover each
+    # pixel's own `c` -- the post-haze actor colour the composite shader
+    # computed -- before comparing edge against interior.
+    a = alpha.astype(np.float64) / 255.0
+    plate = 40.0
+    numerator = rgb - plate * (1.0 - a[..., None])
+    covered3 = np.repeat((a > 0)[..., None], 3, axis=-1)
+    c = np.divide(numerator, a[..., None], out=np.zeros_like(numerator), where=covered3)
+    edge_colour = c[edge].mean(axis=0)
+    interior_colour = c[interior].mean(axis=0)
+    assert np.abs(edge_colour - interior_colour).max() < 6.0, (edge_colour, interior_colour)
+
+
+def test_neutral_tunables_are_an_exact_identity(gl_ctx):
     """The strongest guarantee in this plan: atmosphere on, every tunable
     zero, and the frame is byte-identical to atmosphere off. Every term is
     built so k=0 collapses it exactly, not nearly.
@@ -3096,6 +3141,18 @@ def test_integration_at_full_with_a_neutral_plate_reproduces_the_golden(gl_ctx):
     # real SSAO here and this identity -- which is about integration, not
     # occlusion -- would stop holding for a reason unrelated to what it
     # tests.
+    #
+    # This is also the test that carries "the depth MRT (Task 2's second
+    # colour attachment) disturbs no pixel" -- integration=2 here means
+    # _composite runs, reading _actor_depth_tex the way atmosphere="on"
+    # does, and the byte-for-byte match against a golden that predates
+    # that attachment entirely is the strong form of that guarantee. A
+    # same-named test used to pin a weaker version of this on _golden_frame
+    # alone (comparing atmosphere on vs. off at zeroed tunables); it was
+    # deleted (fix round 1, I1) because that comparison is bit-identical
+    # by construction -- the "off" branch already zeroes those same three
+    # uniforms in _composite -- so it proved nothing beyond what this test
+    # already proves more strongly.
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=1, shading="smooth", lighting="scene", msaa=0,
         realism="classic", smoothing=0, shadows="hard", integration=2,

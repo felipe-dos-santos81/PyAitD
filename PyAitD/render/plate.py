@@ -69,7 +69,8 @@ HAZE_DENSITY = 0.00035      # per unit beyond HAZE_START
 # everything unconditionally. 1600.0 was measured, not guessed: against
 # this repo's own test camera (focal1 = 1000, see `_view()` in
 # tests/test_render_gl.py), `_near_and_far_frame`'s near actor sits at
-# depth 1500 (under) and its far actor at 2400 (over, beyond = 800,
+# depth 1500 (under) and its far actor at 2400 (over: `beyond` is
+# normalised by haze_start, (2400 - 1600) / 1600 = 0.5, and
 # haze = 1 - exp(-0.00035 * 800) ~= 0.24 -- comfortably measurable).
 HAZE_START = 1600.0        # below this, no haze at all -- a small room is untouched
 SIGMA_DEPTH_SLOPE = 0.25    # extra blur sigma per HAZE_START-worth of extra depth
