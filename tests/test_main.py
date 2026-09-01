@@ -654,3 +654,24 @@ def test_motion_cli_override_is_session_only_and_alone():
 def test_menu_render_fields_cover_motion():
     from PyAitD.app.shell import _MENU_RENDER_FIELDS
     assert "motion" in _MENU_RENDER_FIELDS
+
+
+def test_motion_blend_helper_gates_on_mode_and_snapshot():
+    from PyAitD.app.config import default_settings
+    from PyAitD.app.shell import _motion_blend
+    from PyAitD.engine.script.playworld import TICK_MS
+
+    class _Session:
+        settings = default_settings()   # motion="tick" until Task 6
+
+    session = _Session()
+    sentinel = object()
+    assert _motion_blend(session, sentinel, 10) is None      # tick mode: never
+    from dataclasses import replace
+    session.settings = replace(session.settings,
+                               render=replace(session.settings.render, motion="smooth"))
+    assert _motion_blend(session, None, 10) is None          # no snapshot yet
+    snap, alpha = _motion_blend(session, sentinel, 10)
+    assert snap is sentinel and alpha == pytest.approx(10 / TICK_MS)
+    _, alpha = _motion_blend(session, sentinel, TICK_MS * 3)
+    assert alpha == 1.0                                      # clamped, never extrapolates

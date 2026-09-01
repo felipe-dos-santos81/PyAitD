@@ -349,7 +349,7 @@ def test_run_skips_scene_recompute_and_caption_on_transition_frames(profile, mon
 
 def test_scene_frame_delegates_to_build_frame_and_compose_scene(monkeypatch):
     """_scene_frame's own contract (task 9): call build_frame(game, floor,
-    resolver), hand its FrameDescription -- and nothing else -- to
+    resolver, blend), hand its FrameDescription -- and nothing else -- to
     renderer.compose_scene, and return (that thumbnail, build_frame's own
     draw_list) unmodified. build_frame's own draw_list correctness is
     test_scene.py's job; this pins the wiring around it and needs no game
@@ -362,8 +362,8 @@ def test_scene_frame_delegates_to_build_frame_and_compose_scene(monkeypatch):
     sentinel_draw_list = [(0, (1, 2, 3, 4))]
     calls = {}
 
-    def fake_build_frame(passed_game, passed_floor, passed_resolver):
-        calls["build_frame"] = (passed_game, passed_floor, passed_resolver)
+    def fake_build_frame(passed_game, passed_floor, passed_resolver, passed_blend):
+        calls["build_frame"] = (passed_game, passed_floor, passed_resolver, passed_blend)
         return sentinel_frame, sentinel_draw_list
 
     monkeypatch.setattr(main, "build_frame", fake_build_frame)
@@ -376,7 +376,7 @@ def test_scene_frame_delegates_to_build_frame_and_compose_scene(monkeypatch):
     resolver = object()
     composed, draw_list = main._scene_frame(game, floor, FakeRenderer(), resolver)
 
-    assert calls["build_frame"] == (game, floor, resolver)
+    assert calls["build_frame"] == (game, floor, resolver, None)
     assert calls["compose_scene"] is sentinel_frame
     assert composed == "thumbnail"
     assert draw_list is sentinel_draw_list
@@ -553,7 +553,7 @@ def test_run_builds_one_resolver_and_threads_it_through_scene_frame_calls(monkey
     seen_resolvers = []
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
 
-    def spy_scene_frame(_g, _f, _r, resolver):
+    def spy_scene_frame(_g, _f, _r, resolver, _blend=None):
         seen_resolvers.append(resolver)
         return frame, []
 
