@@ -311,6 +311,17 @@ a rule — add the test with the rule.
   (`docs/atmosphere-proof.md` has the survey). Task 3 settled the constants
   on the synthetic scale and Task 4 found they drove every actor in both
   fixtures to flat ambient tone.
+- **To find every test a rendering constant silently holds up, perturb the
+  constant and run the whole gate — never grep for an assertion idiom.**
+  Sub-project L swept the same net three times by grepping (`array_equal`
+  against a golden, `tuple(rgb[y, x]) ==`, ...) and was wrong all three
+  times, because each sweep saw only the idiom it searched for. Setting
+  `HAZE_START = 1.0` and running `pytest -q` once found all 16 in a minute.
+  The same one-line move works for any constant with an off value: set it
+  where it cannot possibly be neutral, and every test that depended on it
+  without naming it fails. A test that asserts an exact pixel and does not
+  name the option that moved it is this project's dominant defect, and
+  this is the only sweep that reliably finds one.
 - The UI layer is painted through `app.ui.UIPainter`, which owns a surface at
   `(320*s, 200*s)` and scales logical coordinates on every call. Presenters
   author in logical 320x200 and never build their own surface; `s` comes from
