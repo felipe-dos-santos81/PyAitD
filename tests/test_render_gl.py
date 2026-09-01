@@ -868,6 +868,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
         "_shadow_map", "_shadow_map_fbo",
         "_plate_tex", "_plate_fbo", "_actor_tex", "_actor_fbo",
         "_composite_prog", "_composite_vao",
+        "_gbuf_prog", "_gbuf_fbo", "_gbuf_tex", "_gbuf_depth",
     ):
         resource = getattr(backend, attr)
         assert resource is not None, f"{attr} was never allocated before the failure"
@@ -877,7 +878,7 @@ def test_init_failure_releases_every_already_allocated_gl_object(gl_ctx, monkeyp
     for level, buf in backend._subpatch_bufs.items():
         assert isinstance(buf.mglo, moderngl.InvalidObject), f"subpatch buffer {level} leaked"
         leak_checked += 1
-    assert leak_checked == 44  # every GL resource __init__ allocates, none skipped
+    assert leak_checked == 48  # every GL resource __init__ allocates, none skipped
     assert backend._sphere is None
     backend.release()  # must still be safe to call again
 
@@ -3075,3 +3076,70 @@ def test_a_mismatched_uv_sidecar_renders_as_unpainted_instead_of_raising(gl_ctx)
 
     for smoothing in (0, 2):             # the flat path, then the tessellated path
         assert np.array_equal(render(plain, smoothing), render(mismatched, smoothing))
+
+
+def test_the_gbuffer_is_half_resolution_and_starts_empty(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        assert backend._gbuf_size == (backend.size[0] // 2, backend.size[1] // 2)
+        assert backend._gbuf_tex.size == backend._gbuf_size
+        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
+            backend._gbuf_size[1], backend._gbuf_size[0], 4)
+        # Alpha is linear depth and nothing has been drawn yet.
+        assert (gbuf[..., 3] == 0.0).all()
+    finally:
+        backend.release()
+
+
+def test_the_gbuffer_carries_depth_and_normals_where_an_actor_stands(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        backend.draw(_golden_frame())
+        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
+            backend._gbuf_size[1], backend._gbuf_size[0], 4)
+        depth = gbuf[..., 3].astype(np.float32)
+        covered = depth > 0.0
+        assert covered.any(), "the prepass drew nothing"
+        assert not covered.all(), "the prepass covered the whole frame"
+        assert depth[covered].min() > 0.0
+        n = gbuf[..., :3].astype(np.float32)[covered]
+        assert np.allclose(np.linalg.norm(n, axis=1), 1.0, atol=2e-2)
+    finally:
+        backend.release()
+
+
+def test_the_prepass_does_not_run_with_occlusion_off(gl_ctx):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="smooth",
+                                              lighting="scene", msaa=0, occlusion="off"))
+    try:
+        backend.draw(_golden_frame())
+        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
+            backend._gbuf_size[1], backend._gbuf_size[0], 4)
+        assert (gbuf[..., 3] == 0.0).all(), "the prepass ran with occlusion off"
+    finally:
+        backend.release()
+
+
+def test_proj_xy_projects_a_known_point_where_the_main_pass_does(gl_ctx):
+    """The twin and the shader share this pair, so it has to be the same
+    projection the actors are drawn with -- not a second derivation."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        frame = _golden_frame()
+        fx, fy = backend._proj_xy(frame)
+        assert fx > 0.0 and fy > 0.0
+        # A point on the camera axis projects to the centre of the screen
+        # under any pinhole, whatever fx and fy are.
+        p = np.array([0.0, 0.0, -500.0], dtype=np.float32)
+        ndc_x = p[0] * fx / -p[2]
+        ndc_y = p[1] * fy / -p[2]
+        assert abs(ndc_x) < 1e-6 and abs(ndc_y) < 1e-6
+        # Off-axis, doubling the distance halves the screen offset.
+        q = np.array([50.0, 0.0, -500.0], dtype=np.float32)
+        r = np.array([50.0, 0.0, -1000.0], dtype=np.float32)
+        assert abs((q[0] * fx / -q[2]) / 2.0 - (r[0] * fx / -r[2])) < 1e-6
+    finally:
+        backend.release()

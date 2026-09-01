@@ -33,6 +33,7 @@ from PyAitD.render.glsl import (
     SCREEN_VSH as _SCREEN_VSH,
     STENCIL_VSH as _STENCIL_VSH,
     STENCIL_FSH as _STENCIL_FSH,
+    GBUFFER_FSH as _GBUFFER_FSH,
     SHADOW_GEOM_VSH as _SHADOW_GEOM_VSH,
     SHADOW_FSH as _SHADOW_FSH,
     SHADOW_CAST_FSH as _SHADOW_CAST_FSH,
@@ -335,6 +336,12 @@ class GLBackend:
         self._shadow_map_fbo = None
         self._tess_prog = None
         self._tess_shadow_prog = None
+        self._gbuf_size = None
+        self._gbuf_tex = None
+        self._gbuf_depth = None
+        self._gbuf_fbo = None
+        self._gbuf_prog = None
+        self._gbuf_layout = None
         self._subpatch_bufs = {}
         self._tess_layout = self._tess_shadow_layout = None
         self._released = False
@@ -517,6 +524,33 @@ class GLBackend:
             self._cast_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_SHADOW_CAST_FSH)
             self._cast_prog["travel"].value = (0.0, 1.0, 0.0)
             self._cast_layout = instance_layout(self._cast_prog)
+
+            # The SSAO prepass: every actor once, into its own half-resolution
+            # normal+depth buffer. Half resolution because SSAO is a
+            # low-frequency term and the blur in _blur_ssao bounds the
+            # haloing that costs -- the spec names this trade explicitly as
+            # a limitation.
+            self._gbuf_size = (max(1, self.size[0] // 2), max(1, self.size[1] // 2))
+            self._gbuf_tex = ctx.texture(self._gbuf_size, 4, dtype="f2")
+            self._gbuf_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
+            self._gbuf_tex.repeat_x = self._gbuf_tex.repeat_y = False
+            self._gbuf_depth = ctx.depth_renderbuffer(self._gbuf_size)
+            self._gbuf_fbo = ctx.framebuffer(color_attachments=[self._gbuf_tex],
+                                             depth_attachment=self._gbuf_depth)
+            # Cleared at construction too, not only per-pass in
+            # _render_gbuffer: a caller that reads `._gbuf_tex` before the
+            # first draw() (or under occlusion="off", which never runs the
+            # pass at all) must see the same "nothing drawn" alpha-0.0 the
+            # texture's undefined initial GPU memory would not guarantee.
+            self._gbuf_fbo.clear(0.0, 0.0, 0.0, 0.0)
+            self._gbuf_prog = ctx.program(vertex_shader=_TESS_VSH, fragment_shader=_GBUFFER_FSH)
+            # Seeded like _tess_shadow_prog and _cast_prog: this program
+            # always runs with project=0 (_render_gbuffer sets it every
+            # pass), so travel.y is never actually divided by, but an
+            # unseeded uniform is insurance against that changing later.
+            _set_uniform(self._gbuf_prog, "travel", (0.0, 1.0, 0.0))
+            self._gbuf_layout = instance_layout(self._gbuf_prog)
+
             # Every level, 0 included: subpatch(0) is the flat triangle with
             # exact corners, so the soft-shadow passes can draw every actor
             # through the instanced programs whatever `smoothing` says.
@@ -542,6 +576,7 @@ class GLBackend:
             self._material_tex,
             self._shadow_map_fbo, self._shadow_map,
             self._tess_prog, self._tess_shadow_prog, *self._subpatch_bufs.values(),
+            self._gbuf_prog, self._gbuf_fbo, self._gbuf_tex, self._gbuf_depth,
             # All three VAOs are built on `_shadow_quad`, so all three come
             # before it: every other pair in this tuple frees the VAO ahead of its
             # buffer, and deleting a buffer does not unbind it from a VAO
@@ -628,7 +663,8 @@ class GLBackend:
 
         mvp = camera_matrix(frame.camera, self._options.scale)
         view_m = view_matrix(frame.camera)
-        for prog in (self._actor_prog, self._tess_prog, self._tess_shadow_prog, self._cast_prog):
+        for prog in (self._actor_prog, self._tess_prog, self._tess_shadow_prog, self._cast_prog,
+                     self._gbuf_prog):
             _set_uniform(prog, "view", np.ascontiguousarray(view_m.T))
         rot = rotation_matrix(frame.camera.state).astype("f4")
         travel = None
@@ -656,6 +692,10 @@ class GLBackend:
                     data = self._instance_data(actor.geometry, np.asarray(actor.position, np.float64), palette)
                     if len(data):
                         instances[i] = (self._ctx.buffer(data.tobytes()), len(data))
+
+            ssao_on = scene_lit and self._options.occlusion == "ssao"
+            if ssao_on:
+                self._render_gbuffer(frame, instances, level)
 
             shadow = None
             if soft:
@@ -1081,6 +1121,53 @@ class GLBackend:
             src.use(location=2)
             self._blur_prog["axis"].value = axis
             self._blur_quad_vao.render(moderngl.TRIANGLES)
+
+    def _render_gbuffer(self, frame, instances, level):
+        """Every actor once, into a half-resolution normal+depth buffer.
+
+        The per-actor depth clears the main loop needs for painter's order
+        (render_gl.py's draw loop) leave no shared depth to sample, so this
+        is the only place a coherent depth of the whole actor layer exists.
+        Lines and points are excluded for the same reason they never cast:
+        they never reach the instanced path at all.
+
+        mvp and rot are recomputed here from `frame.camera` rather than
+        threaded through as parameters -- camera_matrix and rotation_matrix
+        are pure functions of the camera alone, so this is the same value
+        _draw_frame's own `mvp`/`rot` locals hold, not a second derivation
+        that could drift. `view` is set once per frame, alongside the other
+        actor programs, in _draw_frame's own view-uniform loop."""
+        self._gbuf_fbo.use()
+        self._ctx.viewport = (0, 0, *self._gbuf_size)
+        # Alpha 0 is "no actor here" -- the value both SSAO sides read as
+        # unoccluded, so an empty G-buffer contributes nothing.
+        self._gbuf_fbo.clear(0.0, 0.0, 0.0, 0.0)
+        self._ctx.enable(moderngl.DEPTH_TEST)
+        self._ctx.depth_func = "<="
+        mvp = camera_matrix(frame.camera, self._options.scale)
+        rot = rotation_matrix(frame.camera.state).astype("f4")
+        self._gbuf_prog["mvp"].write(mvp.T.tobytes())
+        self._gbuf_prog["rot"].write(rot.T.tobytes())
+        self._gbuf_prog["project"].value = 0
+        for inst in instances:
+            if inst is not None:
+                self._render_instanced(self._gbuf_prog, self._gbuf_layout, inst[0], inst[1], level)
+        self._ctx.disable(moderngl.DEPTH_TEST)
+
+    def _proj_xy(self, frame):
+        """(fx, fy): the pinhole projection pair `ssao_reference` and
+        SSAO_FSH both use to turn (screen position, linear depth) into a
+        view-space position, via `ndc = (x / -z) * f` on each axis.
+
+        Read off `projection_matrix` -- the same function camera_matrix
+        builds `mvp` out of -- rather than re-deriving focal2/focal3 by
+        hand, so this can never drift from what the actors are actually
+        projected with. Both this codebase's projection_matrix rows carry
+        a sign (row 1 is negated, to flip screen-space y) that has nothing
+        to do with the sign of a pinhole scale factor, so both are taken
+        as magnitudes."""
+        proj = projection_matrix(frame.camera.state)
+        return abs(float(proj[0][0])), abs(float(proj[1][1]))
 
     def _render_shadow_map(self, frame, instances, travel, level):
         """One orthographic depth map from the light over every actor's

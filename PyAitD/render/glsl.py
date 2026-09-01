@@ -412,6 +412,32 @@ STENCIL_FSH = """
 out vec4 f_color;
 void main() { f_color = vec4(1.0); }
 """
+GBUFFER_FSH = """
+#version 330
+// The SSAO prepass's only output: view-space normal in rgb, positive
+// linear view depth in alpha.
+//
+// Linear depth rather than the depth buffer's projective value, because
+// ssao_reference has to reproduce this exactly and a projection inverse
+// is the easiest place for a twin and a shader to disagree by a hair.
+// The depth attachment is still there -- it is what makes the pass
+// depth-test correctly against itself -- but nothing reads it.
+//
+// Alpha 0.0 marks a pixel no actor covered. ssao_reference and SSAO_FSH
+// both treat that as "unoccluded" rather than as depth zero.
+//
+// v_view.z, not -v_view.z: this engine's camera space is +z-forward (a
+// FITD-derived convention, not OpenGL's -z-forward), confirmed against
+// the golden frame -- an actor at world z in [580, 820] renders covered
+// pixels with v_view.z in [564.5, 696.0], and -v_view.z on the same
+// scene is negative everywhere a pixel is covered.
+in vec3 v_normal;
+in vec3 v_view;
+out vec4 f_gbuf;
+void main() {
+    f_gbuf = vec4(normalize(v_normal), v_view.z);
+}
+"""
 SHADOW_GEOM_VSH = """
 #version 330
 uniform mat4 mvp;
