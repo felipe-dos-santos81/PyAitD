@@ -262,7 +262,13 @@ def _scene_frame(game, floor, renderer, resolver, blend=None):
     # required, not defaulted: a silent `AssetResolver(game.assets)`
     # fallback here would drop the override directory with no error, the same
     # silent-degradation failure mode `_resolver_for` exists to avoid below.
-    frame, draw_list = build_frame(game, floor, resolver, blend)
+    # shadows is read off renderer.options rather than threaded through as
+    # a parameter: renderer.options is the authoritative post-set_options
+    # value (see render.py's Renderer.options / set_options and this
+    # module's _apply_render_options), so the frame this builds and the
+    # backend that draws it can never disagree about which shadow mode is
+    # active.
+    frame, draw_list = build_frame(game, floor, resolver, blend, shadows=renderer.options.shadows)
     return renderer.compose_scene(frame), draw_list
 
 

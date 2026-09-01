@@ -231,6 +231,10 @@ _FRAME = np.zeros((200, 320, 3), dtype=np.uint8)
 
 
 class _HeadlessRenderer:
+    # _scene_frame reads shadows off renderer.options (task-5 fix-1):
+    # a stub without one raises before build_frame ever runs.
+    options = SimpleNamespace(shadows="soft")
+
     def __init__(self, *_args, **_kwargs):
         self.presented = 0
         self.fallback_notice = None

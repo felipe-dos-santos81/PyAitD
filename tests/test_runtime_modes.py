@@ -1555,6 +1555,10 @@ from PyAitD.engine.script.effects import CutsceneFinished
 
 
 class _Renderer:
+    # _scene_frame reads shadows off renderer.options (task-5 fix-1):
+    # a stub without one raises before build_frame ever runs.
+    options = SimpleNamespace(shadows="soft")
+
     def ui_scale(self):
         return 1.0
 
@@ -1619,3 +1623,35 @@ def test_cutscene_finished_renders_the_frozen_scene(data_dir, profile):
     game.open_modal(CutsceneFinished())
     frame = render_active_mode(game, ModalSession(cutscene=True), _Renderer()).to_frame()
     assert frame.shape == (200, 320, 4) and frame[..., 3].max() == 0      # transparent: scene shows through
+
+
+def _scene_frame_with_shadows(game, floor, shadows):
+    """`_scene_frame` driven by a renderer whose `.options.shadows` is
+    `shadows` -- task-5 fix-1, finding 2: `_scene_frame` must read the
+    mode off `renderer.options` rather than a `build_frame` default, or
+    `shadows="room"` never reaches `frame.receivers` in the running game.
+    `compose_scene` here is the identity, unlike the real GL/software
+    backends, so the returned "thumbnail" is the FrameDescription itself
+    and its `.receivers` can be inspected directly."""
+    import PyAitD.app.shell as main
+    from PyAitD.render.asset_resolver import AssetResolver
+
+    class _OptionsRenderer:
+        def __init__(self, options):
+            self.options = options
+
+        def compose_scene(self, frame):
+            return frame
+
+    renderer = _OptionsRenderer(RenderOptions(scale=1, shadows=shadows))
+    resolver = AssetResolver(game.assets)
+    frame, _draw_list = main._scene_frame(game, floor, renderer, resolver)
+    return frame
+
+
+def test_scene_frame_reads_the_shadow_mode_off_renderer_options(data_dir, profile):
+    game = init_game(data_dir, profile)
+    game.num_camera = game.new_num_camera
+    floor = game.load_floor(game.current_floor)
+    assert _scene_frame_with_shadows(game, floor, "room").receivers != ()
+    assert _scene_frame_with_shadows(game, floor, "soft").receivers == ()

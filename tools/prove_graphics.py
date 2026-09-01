@@ -83,9 +83,26 @@ def _triangle_index_uv(num_tris, squares=8):
 
 def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoothing=None,
                    shadows=None, integration=None, motion_blend=False, painted=False):
+    # options is built before either build_frame call below and its
+    # .shadows read back into them -- the same "read it off the resolved
+    # options" shape shell.py's _scene_frame uses against renderer.options
+    # -- so the frame's receivers and the backend's shadow-map/gather
+    # gating can never disagree about which mode is active. Keep the
+    # existing behaviour byte-identical when the mode is not "room": both
+    # RenderOptions' and build_frame's own default is "soft", so an unset
+    # `shadows` here still resolves to the same mode either call would
+    # have used on its own.
+    options = RenderOptions(scale=scale, shading=shading, realism=realism)
+    if smoothing is not None:
+        options = replace(options, smoothing=smoothing)
+    if shadows is not None:
+        options = replace(options, shadows=shadows)
+    if integration is not None:
+        options = replace(options, integration=integration)
+
     game, floor = _boot(data_dir, name)
     resolver = AssetResolver(game.assets)
-    frame, _ = build_frame(game, floor, resolver)
+    frame, _ = build_frame(game, floor, resolver, shadows=options.shadows)
     if motion_blend:
         # a synthetic "previous tick" 64 rotation units back: the blended
         # frame renders every actor 32 units (11 degrees) short of its
@@ -96,7 +113,7 @@ def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoo
                 entry, angles=(entry.angles[0], (entry.angles[1] - 64.0) % 1024.0, entry.angles[2]))
             for index, entry in snap.actors.items()
         })
-        frame, _ = build_frame(game, floor, resolver, blend=(shifted, 0.5))
+        frame, _ = build_frame(game, floor, resolver, blend=(shifted, 0.5), shadows=options.shadows)
     if painted:
         # No paint ships with this repo, so synthesise one: a generated
         # checker atlas, sampled non-uniformly across each body by keying
@@ -122,13 +139,6 @@ def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoo
             for actor in frame.actors
         )
         frame = dataclasses.replace(frame, actors=painted_actors)
-    options = RenderOptions(scale=scale, shading=shading, realism=realism)
-    if smoothing is not None:
-        options = replace(options, smoothing=smoothing)
-    if shadows is not None:
-        options = replace(options, shadows=shadows)
-    if integration is not None:
-        options = replace(options, integration=integration)
     backend = GLBackend(ctx, options)
     try:
         backend.draw(frame)
