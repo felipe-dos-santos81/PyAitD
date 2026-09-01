@@ -147,8 +147,11 @@ and `--textures DIR` (a user-supplied replacement asset directory; this repo
 still ships no game data — `make run` passes `data/aitd1/textures` unless you
 point or clear `textures=`). A texture directory holds
 `DIR/backgrounds/floor<NN>/camera<NNN>.png` (any size) per camera and
-`DIR/palette.png` (256 pixels wide) for the palette, and `DIR/bodies/body<NNN>.json`
-(a per-body material remap and, optionally, its `crease` threshold); a missing texture file
+`DIR/palette.png` (256 pixels wide) for the palette, `DIR/bodies/body<NNN>.json`
+(a per-body material remap and, optionally, its `crease` threshold), and
+`DIR/bodies/body<NNN>.png` — the painted albedo atlas the game samples in
+place of the palette-ramp colour when present, laid out to the per-corner
+UVs in that body's `DIR/bodies/body<NNN>.uv.json` sidecar; a missing texture file
 falls back to the original asset silently, while one that exists but fails
 to load logs a warning and falls back — the game never crashes on a bad
 texture file. CLI flags apply only to the current session and are not persisted;
@@ -164,12 +167,16 @@ in step.
 
 To regenerate the backgrounds with an external tool, `make export-textures`
 writes the originals plus structure guides, a layout sidecar per camera (the
-guide's geometry as JSON, used to describe and verify the scene) and a
+guide's geometry as JSON, used to describe and verify the scene), a
+per-corner UV sidecar and a painter's guide per actor body (`DIR/bodies/body<NNN>.uv.json`
++ `DIR/bodies/body<NNN>-guide.png`, `uvs=0` skips this stage), and a
 manifest (`manifest.json`) into `data/aitd1/textures` (git-ignored; `out=DIR`
 to choose another), then surveys palette ramps and body usage into
 `materials-survey/` beside them and emits `PyAitD/render/materials.json`
 (`materials=0` skips that half), and `make check-textures` validates the results the way
-the game loads them. The regeneration itself happens outside this repo;
+the game loads them. An external painter opens the guide and paints
+`DIR/bodies/body<NNN>.png`, the albedo the game will sample when present
+(see above). The regeneration itself happens outside this repo;
 `make run textures=DIR` plays the game against the directory.
 
 ## Tests

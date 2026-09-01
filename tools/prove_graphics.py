@@ -5,8 +5,10 @@ Boots two fixtures on a standalone ModernGL context and writes one PNG per
 fixture per shading mode per realism preset to `--out` (default
 `docs/graphics-proof/`), plus one flat-mesh (smoothing 0), one
 hard-shadow (`shadows=hard`), one un-composited (`integration=0`), one
-over-composited (`integration=3`) and one motion-blended (mid-tick,
-alpha 0.5) PNG per fixture beside the smooth-enhanced render:
+over-composited (`integration=3`), one motion-blended (mid-tick,
+alpha 0.5) and one synthetically-painted (a generated checker atlas
+sampled non-uniformly per triangle, since this repo never ships a real
+body paint) PNG per fixture beside the smooth-enhanced render:
 
 - `attic`: the M1/M2 attic debug start (`init_game`, floor 0).
 - `combat`: the shared floor-5 debug venue (`scenario.enter_combat_venue`).
@@ -18,9 +20,10 @@ per-mode renders feed, `docs/smooth-geometry-proof.md` for the one the two
 `-flatmesh` files feed, `docs/soft-shadows-proof.md` for the one the
 two `-hardshadow` files feed, `docs/plate-integration-proof.md` for the
 one the two `-nocomposite` files feed, `docs/materials-v2-proof.md`
-for the per-material-class one the `-enhanced` renders feed, and
+for the per-material-class one the `-enhanced` renders feed,
 `docs/motion-interpolation-proof.md` for the one the two `-tickmotion`
-files feed. The two `-strong` files are the top of the integration
+files feed, and `docs/actor-textures-proof.md` for the one the two
+`-painted` files feed. The two `-strong` files are the top of the integration
 range, which the `-nocomposite` pair floors and the default renders sit
 between.
 """
@@ -32,7 +35,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from PyAitD.render.asset_resolver import AssetResolver
+from PyAitD.render.asset_resolver import AssetResolver, ImageAsset
 from PyAitD.engine.script.game import init_game
 from PyAitD.render.motion import MotionSnapshot, snapshot as motion_snapshot
 from PyAitD.render.render_gl import GLBackend
@@ -55,8 +58,18 @@ def _boot(data_dir, name):
     return game, game.load_floor(game.current_floor)
 
 
+def _checker_atlas(size=64, squares=8):
+    """A generated (size, size, 3) uint8 checker pattern -- this repo never
+    ships a real body paint, so the proof synthesises one to sample."""
+    step = max(1, size // squares)
+    row, col = np.indices((size, size)) // step
+    on = (row + col) % 2 == 0
+    atlas = np.where(on[..., None], np.uint8(230), np.uint8(30))
+    return np.repeat(atlas, 3, axis=-1)
+
+
 def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoothing=None,
-                   shadows=None, integration=None, motion_blend=False):
+                   shadows=None, integration=None, motion_blend=False, painted=False):
     game, floor = _boot(data_dir, name)
     resolver = AssetResolver(game.assets)
     frame, _ = build_frame(game, floor, resolver)
@@ -71,6 +84,27 @@ def render_fixture(data_dir, name, scale, shading, ctx, realism="enhanced", smoo
             for index, entry in snap.actors.items()
         })
         frame, _ = build_frame(game, floor, resolver, blend=(shifted, 0.5))
+    if painted:
+        # No paint ships with this repo, so synthesise one: a generated
+        # checker atlas, sampled non-uniformly across each body by keying
+        # every triangle's (flat, all-three-corners-equal) UV to its own
+        # index -- so the atlas is visibly tiled across the mesh rather
+        # than sampled at one flat point, without needing a UV bake.
+        texture = ImageAsset(_checker_atlas(), True)
+        painted_actors = tuple(
+            dataclasses.replace(
+                actor,
+                geometry=dataclasses.replace(
+                    actor.geometry,
+                    uv=np.full(
+                        (len(actor.geometry.tris), 3, 2),
+                        (np.arange(len(actor.geometry.tris), dtype=np.float32) % 8.0).reshape(-1, 1, 1) / 8.0,
+                        dtype=np.float32)),
+                texture=texture,
+            )
+            for actor in frame.actors
+        )
+        frame = dataclasses.replace(frame, actors=painted_actors)
     options = RenderOptions(scale=scale, shading=shading, realism=realism)
     if smoothing is not None:
         options = replace(options, smoothing=smoothing)
@@ -109,7 +143,12 @@ def output_paths(out_dir, smoothing=None, shadows=None, integration=None, motion
     sits between them, so the proof shows the grading rather than only its
     middle. The `-tickmotion` pair renders mid-blend (alpha 0.5) when
     `motion` (the RenderOptions default when None) is "smooth", and
-    unblended -- the escape hatch -- when it is "tick"."""
+    unblended -- the escape hatch -- when it is "tick". The `-painted`
+    pair renders with a synthetic checker atlas standing in for a real
+    body paint (this repo never ships one); its `motion_blend` field is
+    always False -- it needs its own `"painted"` label, not the boolean,
+    to be told apart from the plain smooth-enhanced main row, exactly as
+    `-tickmotion` needs `label` when `motion_blend` is False."""
     out_dir = pathlib.Path(out_dir)
     defaults = RenderOptions()
     level = defaults.smoothing if smoothing is None else smoothing
@@ -138,6 +177,9 @@ def output_paths(out_dir, smoothing=None, shadows=None, integration=None, motion
               for name in FIXTURES]
     paths += [(name, "smooth", "enhanced", level, mode_shadows, mode_integration, blend, "tickmotion",
                out_dir / f"{name}-smooth-enhanced-tickmotion.png")
+              for name in FIXTURES]
+    paths += [(name, "smooth", "enhanced", level, mode_shadows, mode_integration, False, "painted",
+               out_dir / f"{name}-smooth-enhanced-painted.png")
               for name in FIXTURES]
     return paths
 
@@ -178,10 +220,10 @@ def main(argv=None):
 
     try:
         args.out.mkdir(parents=True, exist_ok=True)
-        for name, mode, realism, level, shadows, integration, blend, _label, path in output_paths(
+        for name, mode, realism, level, shadows, integration, blend, label, path in output_paths(
                 args.out, args.smoothing, args.shadows, args.integration, args.motion):
             rgb = render_fixture(args.data, name, args.scale, mode, ctx, realism, level,
-                                 shadows, integration, blend)
+                                 shadows, integration, blend, label == "painted")
             surface = pygame.surfarray.make_surface(np.ascontiguousarray(rgb.swapaxes(0, 1)))
             pygame.image.save(surface, str(path))
             print(path)

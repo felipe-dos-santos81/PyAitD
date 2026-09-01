@@ -30,7 +30,7 @@ make proof-combat              # venue, real enemy damage, player arms, game ove
 make proof-graphics            # attic + combat fixtures at every shading mode, plus flat-mesh, hard-shadow, un-composited and over-composited pairs, -> docs/graphics-proof/ (needs GL + game data)
 make proof-intro               # opening cutscene: headless gate + one GL render per visited camera
 make prove-persistence         # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract (headless)
-make export-textures         # originals + 5 KILLED_SORCERER alts + palette + guides + manifest schema 3 -> data/aitd1/textures, then palette ramps + body usage -> <out>/materials-survey + PyAitD/render/materials.json (out=, floors=, scale=, force=1, screens=0 skips screens, materials=0 skips materials, vision=1 asks Gemini through agy)
+make export-textures         # originals + 5 KILLED_SORCERER alts + palette + guides + per-body UV sidecars/painter guides + manifest schema 4 -> data/aitd1/textures, then palette ramps + body usage -> <out>/materials-survey + PyAitD/render/materials.json (out=, floors=, scale=, force=1, screens=0 skips screens, uvs=0 skips the actor UV bake, materials=0 skips materials, vision=1 asks Gemini through agy)
 make check-textures          # validate a texture dir as the game loads it (textures=DIR, proof=1 side-by-sides: bases, alts -alt.png, screens)
 make run textures=DIR        # play with a different texture directory; textures= plays the originals
 ```
@@ -62,6 +62,7 @@ below for what pins each alias to the files it historically ran.
 | Plate integration (roadmap G) | Actors resolved into their own layer and composited back through the plate's softness, tone curve and grain, graded by an `integration` level 0-3 that defaults to 2 (the full match) | automated gates green; windowed attestation pending (`docs/plate-integration-proof.md`) |
 | Materials v2 (roadmap H) | Derivative bump so `detail` is relief and not dirt, a warm skin terminator, real emissive, a normalised specular lobe, the 23 used palette ramps hand-reviewed, and the class table retuned against the fixtures | automated gates green; windowed attestation pending (`docs/materials-v2-proof.md`) |
 | Motion interpolation (roadmap 2 I) | Inter-tick pose/position blending behind a Motion knob, float pose twin, Graphics/Realism menu split | automated gates green; windowed attestation pending (`docs/motion-interpolation-proof.md`) |
+| Actor surface textures (roadmap 2 J) | xatlas UV bake, per-corner sidecar + painter guide, manifest schema 4, albedo atlas sampled in the actor shader | automated gates green; windowed attestation pending (docs/actor-textures-proof.md) |
 | Texture export + check | Export originals + structure guides + manifest for an external texture tool, validate texture dirs as the game loads them; the same target surveys palette ramps and emits the material table | done — `make export-textures` / `check-textures` (regeneration itself moved to an external tool) |
 | Engine package reorganization | engine / render / games / app split + GameProfile | done — `tests/test_layering.py` |
 | Engine domain subpackages | data/space/actor/script/nav + 12 GameProfile seam fields | done — docs/superpowers/specs/2026-08-31-engine-domain-subpackages-design.md |
@@ -97,8 +98,8 @@ The games, render, app and tools packages:
 | `render/occlusion.py` | `bake_vertex_ao(body) -> (N,) float32`: rest-pose hemisphere-ray vertex occlusion, baked once per body; pygame/GL-free |
 | `render/refine.py` | `plan_refinement(body) -> Refinement`, `corner_normals`, `subpatch(level)`, `evaluate`: rest-pose orientation, creases and smoothing groups for the GPU tessellation, and the numpy twin of the shader; pygame/GL-free |
 | `render/motion.py` | snapshot/blend_states/blend_actor + pose_vertices_float: inter-tick blending for build_frame, the float twin of skel.pose_vertices; pygame/GL-free |
-| `render/geometry.py` | `pose_geometry(..., ao=None, pose_fn=None) -> BodyGeometry`: float posed vertices, per-vertex normals, rest-pose vertices, baked AO, triangulated/line/point/sphere primitives, crease-aware per-corner normals and straight-edge flags when handed a refinement; poses with `skel.pose_vertices` by default (same integer path as the logical projection), or with the `pose_fn` override (`render/motion.py`'s presentation-only float twin for inter-tick blending) |
-| `render/asset_resolver.py` | `AssetResolver(assets, texture_dir=None)`: background/palette/light lookup, per-body material table (with `bodies/body<NNN>.json` override) and AO bake, checking an optional texture directory first and falling back to the original asset, tessellation plan (with the same file's `crease`) |
+| `render/geometry.py` | `pose_geometry(..., ao=None, pose_fn=None) -> BodyGeometry`: float posed vertices, per-vertex normals, rest-pose vertices, baked AO, triangulated/line/point/sphere primitives, crease-aware per-corner normals and straight-edge flags when handed a refinement, plus the body's optional per-corner atlas `uv` carried through untouched; poses with `skel.pose_vertices` by default (same integer path as the logical projection), or with the `pose_fn` override (`render/motion.py`'s presentation-only float twin for inter-tick blending) |
+| `render/asset_resolver.py` | `AssetResolver(assets, texture_dir=None)`: background/palette/light lookup, per-body material table (with `bodies/body<NNN>.json` override) and AO bake, checking an optional texture directory first and falling back to the original asset, tessellation plan (with the same file's `crease`), and `body_texture(num) -> (uv, ImageAsset) | None` -- the memoised per-corner UV sidecar + painted albedo atlas lookup, missing paint falling back silently and a corrupt one warning once |
 | `render/lighting.py` | `estimate_light(pixels) -> SceneLight`, `shading_terms`, `project_to_plane`: a per-camera light read off the background image, and the ground-plane projection the shadow pass uses; pygame/GL-free. `light_view_matrix`, `soften`: the orthographic light view every actor's shadow map is rendered from, and the numpy twin of the penumbra blur |
 | `render/render_options.py` | `RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration)`: validation, clamping, menu-cycle helpers, and the `INTEGRATION_STRENGTHS` the composite multiplies by; pygame/GL-free |
 | `render/render_gl.py` | `GLBackend(ctx, options)`: ModernGL pipeline, per-actor depth, GPU mask-texture erasure, shading modes, estimated scene lighting, projected ground shadows, per-material surface response, multisampling, background filtering, instanced PN tessellation of actors and their shadows, gathered contact-hardening soft shadows and a light-view shadow map behind `shadows` |
@@ -326,7 +327,8 @@ action runner.
   (`DIR/backgrounds/floor<NN>/camera<NNN>.png` +
   `DIR/alt_backgrounds/floor<NN>/camera<NNN>.png` (5 KILLED_SORCERER road alts,
   shared `guides/`) + `DIR/palette.png` + `DIR/screens/ressNN.png`) — change
-  all or neither. `manifest.json` (schema 3) merges across `--force` floor
+  all or neither. `manifest.json` (schema 4, carrying a `"bodies"` list
+  alongside `cameras`/`alt_cameras`/`screens`) merges across `--force` floor
   subsets and is written atomically.
 - `screens/ressNN.png` replaces full-screen resources; `app/ui.screen_surface`
   scales them to 320x200 at composite time.

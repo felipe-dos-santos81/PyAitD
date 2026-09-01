@@ -21,7 +21,7 @@ make proof-intro   # opening cutscene: headless gate + one GL render per visited
 make prove-persistence # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract
 make run           # title -> menu -> character select -> opening cutscene (skip with any key/click, or --skip-intro); floor=0 debug bypass, textures=DIR defaults to data/aitd1/textures (textures= disables), data="..." trace=/tmp/t.log optional
 make compare       # live mirror: original AITD1 in DOSBox-X below the port, PLAY keys forwarded (macOS, needs dosbox-x + Accessibility) — not headless, not a pytest gate
-make export-textures # originals + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + manifest schema 3 to data/aitd1/textures (git-ignored) for the external texture tool, then palette ramps + body usage -> <out>/materials-survey + PyAitD/render/materials.json (out=, floors=, scale=, force=1, screens=0 skips screens, uvs=0 skips the actor UV bake, materials=0 skips materials, vision=1 asks Gemini through agy about uncertain ramps)
+make export-textures # originals + 5 KILLED_SORCERER alts + palette + ITD_RESS screens + guides + layout sidecars + per-body UV sidecars/painter guides + manifest schema 4 to data/aitd1/textures (git-ignored) for the external texture tool, then palette ramps + body usage -> <out>/materials-survey + PyAitD/render/materials.json (out=, floors=, scale=, force=1, screens=0 skips screens, uvs=0 skips the actor UV bake, materials=0 skips materials, vision=1 asks Gemini through agy about uncertain ramps)
 make check-textures # validate data/aitd1/textures (or textures=DIR) as the game loads it; proof=1 renders side-by-sides (bases, alts -alt.png, screens)
 ```
 
@@ -208,7 +208,24 @@ a rule — add the test with the rule.
   zero. Tuning `CLASS_PRESETS` changes how a class looks; changing which
   palette index *is* that class means `materials.json` and
   `tests/test_bootstrap_materials.py`'s `REVIEWED_RAMPS`, which is a
-  reviewed, human decision (`docs/materials-v2-proof.md`).
+  reviewed, human decision (`docs/materials-v2-proof.md`). A body's paint
+  (`bodies/body<NNN>.png` + its `.uv.json` sidecar, resolved through
+  `AssetResolver.body_texture`) changes albedo only: `ACTOR_FSH` substitutes
+  the sampled `albedo` for `v_color` at exactly the three sites that read
+  it (`base`, the `spec` tint mix, the emissive `mix`), and the material
+  table still drives every physical term (roughness, specular, sss,
+  emissive...) from the same palette-index lookup either way. Lines, points
+  and spheres never sample the atlas — spheres are excluded through the
+  same `-1.0` UV sentinel that shares their per-corner attribute slots with
+  triangles, not a separate code path. `realism=classic` ignores paints
+  outright, through the same `has_body_texture` branch that keeps
+  classic's byte-identical golden. The tessellated actor instance layout
+  (`INSTANCE_FLOATS`, `_INSTANCE_NAMES`) is now full: 16 of the 16 vertex
+  attributes GL 3.3 guarantees (4 pre-existing per-corner attributes —
+  position+AO, normal+straight, color+index, rest — plus the new
+  per-corner UV, 5 x 3 corners = 15, + the per-vertex barycentric) — the
+  next per-corner attribute does not fit on the target GPU and must pack
+  into an existing slot instead (`docs/actor-textures-proof.md`).
 - The UI layer is painted through `app.ui.UIPainter`, which owns a surface at
   `(320*s, 200*s)` and scales logical coordinates on every call. Presenters
   author in logical 320x200 and never build their own surface; `s` comes from

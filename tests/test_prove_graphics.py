@@ -57,12 +57,14 @@ def test_parse_args_overrides():
 def test_output_paths_cover_every_combination_plus_the_twins():
     from PyAitD.render.render_options import RenderOptions
     paths = output_paths("docs/graphics-proof")
-    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 5 * len(FIXTURES)
+    assert len(paths) == len(FIXTURES) * len(SHADING_MODES) * len(REALISM_MODES) + 6 * len(FIXTURES)
     default = RenderOptions()
     # keyed on `label`, not `motion_blend` -- Minor 8: motion_blend alone
     # collides between the plain smooth-enhanced main row and the
     # -tickmotion row whenever motion_blend is False (--motion tick), which
-    # a set keyed on the other six fields would silently collapse
+    # a set keyed on the other six fields would silently collapse -- and
+    # the -painted row's motion_blend is always False too, so it needs the
+    # same distinct-label treatment to avoid colliding with either
     names = {(name, mode, realism, level, shadows, integration, label)
              for name, mode, realism, level, shadows, integration, _motion_blend, label, _ in paths}
     expected = {(n, m, r, default.smoothing, default.shadows, default.integration, "")
@@ -78,12 +80,19 @@ def test_output_paths_cover_every_combination_plus_the_twins():
     expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
                   "tickmotion")
                  for n in FIXTURES}
+    expected |= {(n, "smooth", "enhanced", default.smoothing, default.shadows, default.integration,
+                  "painted")
+                 for n in FIXTURES}
     assert names == expected
     # the -tickmotion row's motion_blend still tracks the "smooth" default
     # regardless of its distinct label
     tickmotion_blends = {motion_blend
                          for *_, motion_blend, label, _ in paths if label == "tickmotion"}
     assert tickmotion_blends == {default.motion == "smooth"}
+    # the -painted row never motion-blends, regardless of --motion
+    painted_blends = {motion_blend
+                      for *_, motion_blend, label, _ in paths if label == "painted"}
+    assert painted_blends == {False}
     for name, mode, realism, level, shadows, integration, motion_blend, label, path in paths:
         suffix = f"-{label}" if label else ""
         assert path == pathlib.Path("docs/graphics-proof") / f"{name}-{mode}-{realism}{suffix}.png"
@@ -126,4 +135,4 @@ def test_render_fixture_is_importable_with_the_documented_signature():
     import inspect
     params = list(inspect.signature(render_fixture).parameters)
     assert params == ["data_dir", "name", "scale", "shading", "ctx", "realism", "smoothing",
-                      "shadows", "integration", "motion_blend"]
+                      "shadows", "integration", "motion_blend", "painted"]
