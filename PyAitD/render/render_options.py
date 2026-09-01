@@ -143,9 +143,9 @@ def validate_render_options(payload):
     if motion not in MOTION_MODES:
         errors.append(f"motion must be one of {', '.join(MOTION_MODES)}")
         motion = defaults.motion
-    occlusion = payload.get("occlusion", defaults.occlusion)
+    occlusion = payload.get("occlusion")
     if occlusion not in OCCLUSION_MODES:
-        errors.append(f"occlusion must be one of {OCCLUSION_MODES}, got {occlusion!r}")
+        errors.append(f"occlusion must be one of {', '.join(OCCLUSION_MODES)}")
         occlusion = defaults.occlusion
     options = RenderOptions(scale, shading, background_filter, texture_dir, lighting, msaa, realism, smoothing, shadows, integration, motion, occlusion)
     return options, ("; ".join(errors) or None)

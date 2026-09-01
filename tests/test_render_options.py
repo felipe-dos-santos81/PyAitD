@@ -39,13 +39,15 @@ def test_valid_payload_round_trips():
 def test_each_invalid_field_falls_back_alone():
     options, error = validate_render_options(
         {"scale": 99, "shading": "smooth", "background_filter": "bilinear", "texture_dir": None,
-         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on", "motion": "tick"})
-    assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick")  # clamped, not rejected
+         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on", "motion": "tick",
+         "occlusion": "off"})
+    assert options == RenderOptions(8, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick", "off")  # clamped, not rejected
     assert error is None
     options, error = validate_render_options(
         {"scale": "x", "shading": "neon", "background_filter": "bilinear", "texture_dir": 3,
-         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on", "motion": "tick"})
-    assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick")
+         "lighting": "fixed", "msaa": 0, "realism": "enhanced", "smoothing": 0, "shadows": "soft", "integration": "on", "motion": "tick",
+         "occlusion": "off"})
+    assert options == RenderOptions(4, "smooth", "bilinear", None, "fixed", 0, "enhanced", 0, "soft", 2, "tick", "off")
     assert "scale" in error and "shading" in error and "texture_dir" in error
 
 
@@ -207,13 +209,16 @@ def test_occlusion_is_last_so_positional_construction_still_works():
     assert options.occlusion == "off"
 
 
-def test_an_unknown_occlusion_value_falls_back_alone():
+def test_invalid_or_missing_occlusion_falls_back_alone():
     payload = RenderOptions().to_payload()
     payload["occlusion"] = "raytraced"
     options, error = validate_render_options(payload)
     assert options.occlusion == "off"
     assert options.motion == "smooth"          # its neighbour is undisturbed
     assert "occlusion" in error
+    del payload["occlusion"]   # a settings file from before this option
+    options, error = validate_render_options(payload)
+    assert options.occlusion == "off" and "occlusion" in error
 
 
 def test_occlusion_round_trips_through_the_payload():
