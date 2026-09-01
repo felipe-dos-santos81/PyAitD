@@ -161,6 +161,19 @@ def test_export_bodies_writes_the_sidecar_and_guide_and_skips_bodies_with_no_tri
     (85/142/156/158/160 in the real aitd1 archives -- skipped, not raised)."""
     from types import SimpleNamespace
     import tools.export_actor_uvs as export_actor_uvs
+    # export_bodies always runs `from tools.export_textures import
+    # save_png`, even when a `save` is already supplied below. If that is
+    # the *first* import of tools/export_textures.py in the whole pytest
+    # session, it happens while Floor is patched a few lines down --
+    # tools/export_textures.py binds its own module-level `Floor` at
+    # import time (`from PyAitD.engine.data.floor import Floor`), so it
+    # would permanently capture the fake. monkeypatch only restores the
+    # attribute it patched on PyAitD.engine.data.floor, not that separate
+    # copy, so every later load_floor in the session would return the fake
+    # SimpleNamespace instead of a real Floor. Importing the real module
+    # here, before any patching, forces it to bind the genuine class.
+    import tools.export_textures  # noqa: F401
+    from PyAitD.engine.data.floor import Floor as real_floor
 
     mesh_body = _stub_body()
     point_body = _point_body()
@@ -199,3 +212,11 @@ def test_export_bodies_writes_the_sidecar_and_guide_and_skips_bodies_with_no_tri
     # the point body wrote nothing at all
     assert not (tmp_path / export_actor_uvs.body_uv_rel_path(1)).exists()
     assert str(tmp_path / export_actor_uvs.body_guide_rel_path(1)) not in saved
+
+    # Cheap guard against the exact leak shape this test used to have:
+    # once the Floor patch above is lifted, tools.export_textures must
+    # still resolve Floor to the genuine class, not a stale copy of the
+    # fake it never should have captured.
+    monkeypatch.undo()
+    import tools.export_textures as export_textures
+    assert export_textures.Floor is real_floor
