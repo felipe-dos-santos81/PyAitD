@@ -3140,8 +3140,11 @@ def test_the_gbuffer_bridges_the_camera_facing_normal_to_positive_z(gl_ctx):
     space is +z-forward (see GBUFFER_FSH's and _proj_xy's comments), so a
     surface facing the camera has its normal pointing toward -z here --
     but ssao.py was written for a -z-forward space, where a camera-facing
-    normal points toward +z. GBUFFER_FSH mirrors the z component
-    (diag(1, 1, -1)) to bridge the two conventions.
+    normal points toward +z. GBUFFER_FSH bridges the two conventions with
+    diag(1, -1, -1) (fix round 3 corrected this from the z-only mirror,
+    diag(1, 1, -1), this test originally pinned -- see the y-flip test
+    below for why the y term is there too); this test only pins the z
+    half of that.
 
     Pinned against a real frame, not a synthetic buffer, because a
     synthetic buffer could encode either convention by construction and
@@ -3168,6 +3171,51 @@ def test_the_gbuffer_bridges_the_camera_facing_normal_to_positive_z(gl_ctx):
         assert (normal_z > 0.0).mean() > 0.9, \
             "covered normals are not predominantly +z -- the bridge looks unwired"
         assert normal_z.mean() > 0.5
+    finally:
+        backend.release()
+
+
+def test_the_gbuffer_bridge_flips_the_normals_y_component_too(gl_ctx):
+    """Critical 1 (fix round 3, controller ruling): the bridge is a full
+    180-degree rotation about x, diag(1, -1, -1), not a mirror on z
+    alone. This engine's own projection negates y before the divide, so
+    ssao.py's `_view_position` reconstructs `y_recon = -y_view` alongside
+    `z_recon = -depth` -- the reconstruction frame is `(x, -y, -(z +
+    focal1))`, and a normal expressed in that frame needs the same y flip
+    or SSAO computes occlusion against a mirrored surface. The z-only
+    pinning test above (test_the_gbuffer_bridges_the_camera_facing_
+    normal_to_positive_z) asserts nothing about y and would pass whether
+    or not this flip exists -- which is exactly how the missing flip
+    survived Task 3 and fix rounds 1-2.
+
+    Pinned against a real frame, for the same reason the z test is: a
+    synthetic buffer could encode either sign by construction. A single
+    flat, camera-facing triangle with normal (0, -0.6, -0.8) -- this
+    camera has no rotation, so camera space equals world space, and the
+    normal is the same at all three vertices, so every covered pixel
+    should read back *exactly* the same bridged value. Measured with the
+    fix in place: normal.x == 0.0, normal.y == 0.5996094 (~+0.6, the
+    input's y negated), normal.z == 0.7998047 (~+0.8, unchanged sign
+    from the existing z test) -- pinned tightly since this geometry has
+    no variation to average away, unlike the golden frame's mix of a
+    flat body and a curved sphere. Removing the y flip (reverting to
+    diag(1, 1, -1)) reproduces the pre-fix bug: normal.y would read
+    back negative instead."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat", lighting="scene",
+                                              msaa=0, occlusion="ssao", smoothing=0))
+    try:
+        actor = _actor(0, _facing_tri(600.0, 1, (0.0, -0.6, -0.8)))
+        backend.draw(_lit_frame([actor], (0.3, -0.5, -0.8)))
+        gbuf = np.frombuffer(backend._gbuf_tex.read(), np.float16).reshape(
+            backend._gbuf_size[1], backend._gbuf_size[0], 4).astype(np.float32)
+        depth = gbuf[..., 3]
+        covered = depth > 0.0
+        assert covered.any(), "the prepass drew nothing"
+        nx, ny, nz = gbuf[..., 0][covered], gbuf[..., 1][covered], gbuf[..., 2][covered]
+        assert np.allclose(nx, 0.0, atol=1e-3)
+        assert np.allclose(ny, 0.6, atol=1e-2), \
+            "covered normal.y is not positive -- the y flip looks unwired"
+        assert np.allclose(nz, 0.8, atol=1e-2)
     finally:
         backend.release()
 
@@ -3251,9 +3299,16 @@ def test_the_ssao_pass_matches_the_numpy_twin(gl_ctx):
         proj_xy = (2.0, 2.0)
         backend._render_ssao_with(proj_xy)           # the seam the test drives
         out = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w) / 255.0
+        # noise_tex is uploaded as f2 (render_gl.py's _ssao_noise_tex), so the
+        # shader never sees more than f16 precision in the rotation tile;
+        # rounding the twin's copy through the same f16 is the established
+        # pattern this file already applies to the seeded depth/normals above,
+        # not a new one -- an unquantised twin input was an avoidable mismatch,
+        # not evidence of the algorithm's own imprecision.
+        rot = noise_rotations().astype(np.float16).astype(np.float32)
         expected = ssao_reference(gbuf[..., 3].astype(np.float32),
                                   gbuf[..., :3].astype(np.float32),
-                                  hemisphere_kernel(), noise_rotations(), proj_xy,
+                                  hemisphere_kernel(), rot, proj_xy,
                                   SSAO_RADIUS, SSAO_BIAS)
         diff = np.abs(out - expected)
         # The bulk must agree at byte tolerance: real drift -- a wrong weight, a
@@ -3288,6 +3343,48 @@ def test_an_empty_gbuffer_leaves_the_ssao_texture_fully_open(gl_ctx):
         backend.release()
 
 
+def test_blur_ssao_smooths_the_noise_tile_and_swaps_ssao_tex(gl_ctx):
+    """Minor (fix round 3, controller ruling): nothing previously pinned
+    _blur_ssao at all -- the review confirmed deleting its ping-pong swap
+    failed no test in this file.
+
+    Seeded with a smooth, gently-undulating depth field (not the sharply
+    random depth test_the_ssao_pass_matches_the_numpy_twin uses) so that
+    SSAO_BLUR_FSH's depth-threshold gate accepts most of the 4x4 box's
+    neighbouring taps rather than rejecting them as different surfaces --
+    the point here is to measure the blur actually blurring, not to pin
+    it against the twin. A flat, camera-facing normal (bridged +z) gives
+    every pixel real, non-degenerate occlusion to blur, unlike the empty
+    buffer the identity test above uses.
+
+    Two things pinned directly: the raw SSAO output's per-pixel variance
+    drops after one blur pass (the noise tile's own high-frequency
+    pattern -- one rotation per screen pixel -- is exactly what the blur
+    exists to remove), and `_ssao_tex` names a different GL object
+    afterward than before (the ping-pong swap `_blur_ssao`'s docstring
+    describes). Measured on this run: variance 49.8 -> 8.9."""
+    backend = GLBackend(gl_ctx, RenderOptions(scale=1, shading="flat",
+                                              lighting="scene", msaa=0, occlusion="ssao"))
+    try:
+        w, h = backend._gbuf_size
+        yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
+        depth = (500.0 + 3.0 * np.sin(xx / 5.0) + 3.0 * np.cos(yy / 7.0)).astype(np.float32)
+        n = np.zeros((h, w, 3), np.float32)
+        n[..., 2] = 1.0                              # camera-facing, already in the bridged +z convention
+        gbuf = np.concatenate([n, depth[..., None]], axis=2).astype(np.float16)
+        backend._gbuf_tex.write(np.ascontiguousarray(gbuf).tobytes())
+        backend._render_ssao_with((2.0, 2.0))
+        raw = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w).astype(np.float32)
+        before = backend._ssao_tex
+        backend._blur_ssao()
+        after = backend._ssao_tex
+        blurred = np.frombuffer(backend._ssao_tex.read(), np.uint8).reshape(h, w).astype(np.float32)
+        assert after is not before, "the ping-pong swap did not run"
+        assert blurred.var() < raw.var(), "the blur did not reduce the noise tile's variance"
+    finally:
+        backend.release()
+
+
 def _two_actor_frame():
     """`_golden_frame`'s actors plus a second sphere positioned close beside
     the first (surfaces ~10 world units apart, well inside SSAO_RADIUS),
@@ -3305,40 +3402,40 @@ def _two_actor_frame():
     return replace(frame, actors=frame.actors + (second,))
 
 
-def _gap_column_slice(alone, together):
-    """Not the sphere disks themselves (their own fill share is already
-    near-saturated toward the key side facing the light) but the tri
-    backdrop's surface visible just below them, between where the two
-    silhouettes nearly touch -- close enough to both spheres, in view
-    space, for SSAO to have real occluders nearby, and covered by an
-    actor in *both* frames so the comparison is apples to apples rather
-    than "a body is there now and wasn't". Measured directly against
-    `_golden_frame` + `_two_actor_frame` at scale=2: the two 120-radius
-    spheres centred 250 world units apart (near-touching, well inside
-    SSAO_RADIUS=14 of each other's rims) land here as fractions of the
-    640x400 frame, independent of `alone`/`together`'s actual size."""
-    h, w, _ = alone.shape
-    row_lo, row_hi = int(h * 0.625), int(h * 0.81)
-    col_lo, col_hi = int(w * 0.558), int(w * 0.752)
+def _near_rim_slice(image):
+    """The screen band where the two spheres in `_two_actor_frame` come
+    closest to each other -- surfaces ~10 world units apart, well inside
+    SSAO_RADIUS=14 -- as fractions of the frame, independent of `image`'s
+    actual size. This is the region SSAO can actually reach: the tri
+    backdrop below the spheres (fix round 3's Critical 2 finding) has no
+    occluder within SSAO_RADIUS at all, so SSAO's own contribution there
+    is exactly 0.0 -- a comparison sampled there passes with the feature
+    deleted, which is what the original version of this test did."""
+    h, w, _ = image.shape
+    row_lo, row_hi = int(h * 0.425), int(h * 0.575)
+    col_lo, col_hi = int(w * 0.703), int(w * 0.797)
     return (slice(row_lo, row_hi), slice(col_lo, col_hi))
 
 
-def test_two_actors_side_by_side_darken_the_gap_between_them(gl_ctx):
-    """The whole point of screen-space AO over the baked kind: the baked
-    pass cannot see a neighbour, this one can."""
-    backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
-                                              msaa=0, occlusion="ssao", realism="enhanced"))
-    try:
-        one = _golden_frame()
-        two = _two_actor_frame()          # the same actor plus a second beside it
-        backend.draw(one)
-        alone = backend.read_rgb().astype(np.int32)
-        backend.draw(two)
-        together = backend.read_rgb().astype(np.int32)
-    finally:
-        backend.release()
-    gap = _gap_column_slice(alone, together)   # the pixels between the two bodies
-    assert together[gap].mean() < alone[gap].mean() - 1.0
+def test_ssao_darkens_the_near_rim_where_the_two_bodies_approach(gl_ctx):
+    """Critical 2 (fix round 3, controller ruling): the original version
+    of this test compared a one-actor render against a two-actor render
+    with occlusion="ssao" on *both* sides -- so the darkening it measured
+    was entirely the second actor's cast shadow and geometry, never SSAO
+    itself. The review re-ran the same two helpers under both occlusion
+    modes and measured SSAO's own contribution to the sampled region at
+    exactly 0.0: the test passed with the feature deleted.
+
+    Rewritten to hold the frame fixed -- the same `_two_actor_frame`,
+    unchanged between the two renders -- and vary only the occlusion
+    knob, so any difference left is attributable to SSAO alone. The
+    sampled region also moved, to `_near_rim_slice` (see its docstring
+    for why the original region could never have shown an effect)."""
+    frame = _two_actor_frame()
+    off = _render_with(gl_ctx, frame, occlusion="off")
+    on = _render_with(gl_ctx, frame, occlusion="ssao")
+    region = _near_rim_slice(off)
+    assert on[region].astype(np.float64).mean() < off[region].astype(np.float64).mean() - 1.5
 
 
 def _frame_with_light(key, fill):
@@ -3366,19 +3463,6 @@ def _render_with(gl_ctx, frame, occlusion):
         backend.release()
 
 
-def _render_baseline(gl_ctx, frame):
-    """The same options a pre-K build would have run: no occlusion field at
-    all, so this must mean whatever `occlusion="off"` means today, not
-    whatever the default happens to be."""
-    backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
-                                              msaa=0, occlusion="off", realism="enhanced"))
-    try:
-        backend.draw(frame)
-        return backend.read_rgb().copy()
-    finally:
-        backend.release()
-
-
 def test_ssao_attenuates_the_fill_share_and_leaves_key_and_specular_alone(gl_ctx):
     """Decision 7, made testable: with the key light switched off entirely
     the frame is pure fill, so SSAO must move it; with the fill switched
@@ -3392,7 +3476,25 @@ def test_ssao_attenuates_the_fill_share_and_leaves_key_and_specular_alone(gl_ctx
         assert moved is should_move, ("fill" if should_move else "key", moved)
 
 
-def test_occlusion_off_renders_byte_identically(gl_ctx):
+def test_the_occlusion_knob_actually_changes_the_render(gl_ctx):
+    """Important 3 (fix round 3, controller ruling): this test used to
+    compare two identically-constructed `RenderOptions(..., occlusion=
+    "off", ...)` renders against each other, which asserts GL
+    determinism, not that `occlusion="off"` reproduces anything -- the
+    brief's instruction to keep a baseline helper "free of any new
+    option" stopped being satisfiable once the default flipped to
+    "ssao", and this test was quietly relying on it anyway. The
+    byte-identity invariant that actually matters -- occlusion="off"
+    reproduces the pre-K, pre-materials render exactly -- is what
+    `test_classic_realism_matches_the_pre_materials_golden` pins, now
+    with occlusion="off" named among the fields it holds constant; that
+    is the test to look at for byte-identity, not this one.
+
+    What this test proves instead: the knob is live. `_golden_frame`
+    rendered with occlusion="off" and occlusion="ssao" must differ --
+    116821 summed over 28151 pixels, measured on this run -- because a
+    knob two identical renders can't tell apart from each other isn't
+    being exercised at all."""
     off = _render_with(gl_ctx, _golden_frame(), occlusion="off")
-    # The same options a pre-K build would have run.
-    assert np.array_equal(off, _render_baseline(gl_ctx, _golden_frame()))
+    on = _render_with(gl_ctx, _golden_frame(), occlusion="ssao")
+    assert not np.array_equal(off, on)

@@ -481,17 +481,32 @@ GBUFFER_FSH = """
 // every normal this pass writes would be flipped end-to-end through
 // Task 4's whole pipeline -- consistently wrong on both the numpy twin
 // and the shader, so the twin-vs-shader parity test would still pass
-// while a flat, camera-facing surface occluded itself. diag(1, 1, -1) is
-// the fix, applied here rather than in ssao.py (a self-contained
-// reference this bridges into, not the space that should change): a
-// mirror on z is its own inverse-transpose, so this is exact, not an
-// approximation.
+// while a flat, camera-facing surface occluded itself.
+//
+// The bridge is a full 180-degree rotation about x, diag(1, -1, -1), not
+// a mirror on z alone: this engine's own projection negates y before the
+// divide (`projection_matrix`'s y row is `[0, -focal3/SCREEN_CENTER_Y, 0,
+// 0]`, so the real relation is `ndc_y = -y_view * fy / depth`), and
+// `_proj_xy` deliberately returns fy as an unsigned magnitude -- it has
+// no sign to give, since it is shared with x's row, which carries no
+// negation at all. ssao.py's `_view_position` therefore reconstructs
+// `y_recon = ndc_y * depth / fy = -y_view` alongside `z_recon = -depth`,
+// landing on the frame `(x, -y, -(z + focal1))`: y flips along with z, x
+// does not. A vector transforms with the same rotation as the frame it
+// is expressed in, so the normal handed across the boundary must carry
+// that same y flip or it describes a mirrored surface -- SSAO would then
+// compute occlusion against geometry that isn't there. diag(1, -1, -1)
+// is the fix, applied here rather than in ssao.py (a self-contained
+// reference this bridges into, not the space that should change): its
+// determinant is +1 (a genuine rotation, not a reflection) and, like the
+// z-only mirror it replaces, it is its own inverse-transpose, so this
+// remains exact, not an approximation.
 in vec3 v_normal;
 in vec3 v_view;
 uniform float focal1;
 out vec4 f_gbuf;
 void main() {
-    f_gbuf = vec4(normalize(vec3(v_normal.xy, -v_normal.z)), v_view.z + focal1);
+    f_gbuf = vec4(normalize(vec3(v_normal.x, -v_normal.y, -v_normal.z)), v_view.z + focal1);
 }
 """
 SSAO_FSH = """
