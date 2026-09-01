@@ -807,6 +807,12 @@ uniform float strength;     // the integration level's multiplier, applied to
                             // pass shipped as; `pixelate` is deliberately
                             // ungraded, being which cell a pixel falls in
                             // rather than an amount of anything.
+uniform sampler2D depth_tex;    // coverage-premultiplied linear view depth
+uniform float haze_density;     // 0 disables the term exactly
+uniform float haze_start;
+uniform vec3 haze_tint;         // the room's ambient tone: what an unlit surface looks like
+uniform float sigma_depth_slope;
+uniform float grain_depth_slope;
 out vec4 f_color;
 
 // The room is a print with a floor and a ceiling: it cannot show anything
@@ -868,16 +874,34 @@ float dither(vec2 frag) {
     return mix(mix(n00, n10, f.x), mix(n01, n11, f.x), f.y) - 0.5;
 }
 
-vec4 sample_actor(ivec2 p, ivec2 size) {
+// Colour and depth gathered in one pass with the same weights. Two
+// separate loops would drift the moment either changed, and a soft edge
+// whose depth came from different taps than its colour hazes by the
+// wrong amount along exactly the pixels the eye checks first.
+//
+// `grade` scales the weight falloff, never the tap count: `radius` is a
+// uniform and the loop below depends on that for uniform control flow.
+// So the grade can soften within the existing radius and never sharpen
+// past it -- a real bound, recorded in the proof document.
+void sample_layers(ivec2 p, ivec2 size, float grade, out vec4 rgba, out float depth) {
     if (pixelate != 0) {
         // The centre of the plate cell this pixel falls in, so a blocky
         // plate gets blocky actors on the same grid.
         vec2 c = (floor(vec2(p) / cell) + 0.5) * cell;
-        return texelFetch(actor_tex, clamp(ivec2(c), ivec2(0), size - 1), 0);
+        ivec2 q = clamp(ivec2(c), ivec2(0), size - 1);
+        rgba = texelFetch(actor_tex, q, 0);
+        depth = texelFetch(depth_tex, q, 0).r;
+        return;
     }
-    if (radius <= 0) return texelFetch(actor_tex, p, 0);
+    if (radius <= 0) {
+        rgba = texelFetch(actor_tex, p, 0);
+        depth = texelFetch(depth_tex, p, 0).r;
+        return;
+    }
     vec4 sum = vec4(0.0);
+    float dsum = 0.0;
     float total = 0.0;
+    float inv = inv_sigma2 / max(grade, 1e-6);
     // `radius` is a uniform, so this is uniform control flow and the tap
     // count is the same for every pixel of the frame. Edge-clamped rather
     // than skipped, and normalised by the weight actually accumulated, so
@@ -885,27 +909,47 @@ vec4 sample_actor(ivec2 p, ivec2 size) {
     for (int dy = -radius; dy <= radius; dy++) {
         for (int dx = -radius; dx <= radius; dx++) {
             ivec2 q = clamp(p + ivec2(dx, dy), ivec2(0), size - 1);
-            float w = exp(-float(dx * dx + dy * dy) * inv_sigma2);
+            float w = exp(-float(dx * dx + dy * dy) * inv);
             sum += texelFetch(actor_tex, q, 0) * w;
+            dsum += texelFetch(depth_tex, q, 0).r * w;
             total += w;
         }
     }
-    return sum / total;
+    rgba = sum / total;
+    depth = dsum / total;
 }
 
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
-    vec4 a = sample_actor(p, textureSize(actor_tex, 0));
+    ivec2 size = textureSize(actor_tex, 0);
+    // The grade is read from this pixel's own unblurred depth. Grading
+    // from the blurred value would be circular: the blur's weights are
+    // what the grade sets.
+    vec4 centre = texelFetch(actor_tex, p, 0);
+    float centre_depth = centre.a > 0.0 ? texelFetch(depth_tex, p, 0).r / centre.a : 0.0;
+    float beyond = max(0.0, centre_depth - haze_start) / max(haze_start, 1e-6);
+    float grade = 1.0 + sigma_depth_slope * beyond;
+
+    vec4 a;
+    float d;
+    sample_layers(p, size, grade, a, d);
     vec3 plate = texelFetch(plate_tex, p, 0).rgb;
     vec3 c = vec3(0.0);
     if (a.a > 0.0) {
         c = a.rgb / a.a;                        // unpremultiply to tone-match
+        float depth = d / a.a;                     // unpremultiply with the same coverage
         // `mix`, not a plain clamp, so `strength` grades it -- and above 1
         // it extrapolates past the range, which is what the top level
         // means. NEUTRAL_PLATE makes this the identity by construction:
         // max(c, 0) and min(c, 1) are c for anything the actor pass wrote.
         c = mix(c, min(max(c, plate_black), plate_white), strength);
-        c += plate_grain * strength * dither(gl_FragCoord.xy) * GAIN;
+        // Distance haze. exp(-0) is exactly 1, so haze is exactly 0 both
+        // below haze_start and at haze_density 0 -- the identity, by
+        // construction rather than by rounding.
+        float haze = 1.0 - exp(-haze_density * max(0.0, depth - haze_start));
+        c = mix(c, haze_tint, haze * strength);
+        c += plate_grain * strength * (1.0 + grain_depth_slope * beyond)
+             * dither(gl_FragCoord.xy) * GAIN;
         c = clamp(c, 0.0, 1.0);
     }
     f_color = vec4(plate * (1.0 - a.a) + c * a.a, 1.0);

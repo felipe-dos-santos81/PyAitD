@@ -47,7 +47,9 @@ from PyAitD.render.glsl import (
 from PyAitD.render.lighting import (_clamp_downward, light_view_matrix, project_to_plane,
                                     shading_terms, shadow_opacity, SHADOW_MAP_SIZE)
 from PyAitD.render.materials import PALETTE_SIZE, PRESETS
-from PyAitD.render.plate import dither_arrives_smoothed, softness
+from PyAitD.render.plate import (
+    GRAIN_DEPTH_SLOPE, HAZE_DENSITY, HAZE_START, SIGMA_DEPTH_SLOPE,
+    dither_arrives_smoothed, softness)
 from PyAitD.render.render_options import INTEGRATION_STRENGTHS
 from PyAitD.render.refine import subpatch
 from PyAitD.render.render_options import SMOOTHING_LEVELS
@@ -1665,6 +1667,18 @@ class GLBackend:
         self._actor_tex.use(location=6)
         self._composite_prog["plate_tex"].value = 5
         self._composite_prog["actor_tex"].value = 6
+        # Bound and set unconditionally, like ssao_tex and the shadow map
+        # above: a sampler left unbound reads undefined data if a driver
+        # ever mispredicts the branch, and the three tunables below -- not
+        # the binding -- are what make atmosphere="off" inert.
+        on = self._options.atmosphere == "on"
+        self._actor_depth_tex.use(location=9)
+        self._composite_prog["depth_tex"].value = 9
+        self._composite_prog["haze_density"].value = HAZE_DENSITY if on else 0.0
+        self._composite_prog["haze_start"].value = HAZE_START
+        self._composite_prog["haze_tint"].value = tuple(float(v) for v in frame.light.ambient)
+        self._composite_prog["sigma_depth_slope"].value = SIGMA_DEPTH_SLOPE if on else 0.0
+        self._composite_prog["grain_depth_slope"].value = GRAIN_DEPTH_SLOPE if on else 0.0
         self._composite_vao.render(moderngl.TRIANGLES)
 
     def _upload_materials(self, table):

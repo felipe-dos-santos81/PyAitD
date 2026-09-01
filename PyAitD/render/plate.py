@@ -50,6 +50,32 @@ class PlateProfile:
 NEUTRAL_PLATE = PlateProfile((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), 0.0)
 
 
+# Atmosphere's four constants, settled by eye against the fixtures and
+# recorded in docs/atmosphere-proof.md -- the same standing the
+# composite's own toe/shoulder/grain constants have. All four are zero-
+# collapsible: with any of them at 0 its term vanishes exactly, which is
+# what makes atmosphere="on" an identity before it is a look.
+#
+# Distances are in the game's world units. AITD1's actors are about 200
+# units tall, and a large room is a few thousand across.
+HAZE_DENSITY = 0.00035      # per unit beyond HAZE_START
+# `f_depth` (render_gl.py's GBUFFER_FSH derivation) carries `v_view.z +
+# focal1` -- eye distance from the pinhole, not from the camera plane --
+# so HAZE_START has to clear focal1 itself: the minimum depth any pixel
+# can ever report is exactly focal1 (a line or point, per
+# render_gl.py's `f_depth = vec4(v_view.z + focal1, ...)` comment). A
+# threshold read off bare world/view z, ignoring that offset, would put
+# HAZE_START below every depth the engine can produce and haze
+# everything unconditionally. 1600.0 was measured, not guessed: against
+# this repo's own test camera (focal1 = 1000, see `_view()` in
+# tests/test_render_gl.py), `_near_and_far_frame`'s near actor sits at
+# depth 1500 (under) and its far actor at 2400 (over, beyond = 800,
+# haze = 1 - exp(-0.00035 * 800) ~= 0.24 -- comfortably measurable).
+HAZE_START = 1600.0        # below this, no haze at all -- a small room is untouched
+SIGMA_DEPTH_SLOPE = 0.25    # extra blur sigma per HAZE_START-worth of extra depth
+GRAIN_DEPTH_SLOPE = 0.35    # extra grain gain, likewise
+
+
 def estimate_plate(pixels):
     """A PlateProfile for a camera, read off its background image.
 
