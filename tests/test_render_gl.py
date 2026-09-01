@@ -2871,13 +2871,20 @@ def _painted_frame():
     atlas[:4, :4] = (0, 0, 255)      # low u, low v:  blue
     atlas[:4, 4:] = (0, 255, 255)    # high u, low v: cyan
     atlas[4:, :4] = (255, 0, 255)    # low u, high v: magenta
-    atlas[4:, 4:] = (255, 255, 0)    # high u, high v: yellow (unreached by the corner triangle below,
-                                      # which is the point: a scrambled order can pull it in)
+    atlas[4:, 4:] = (255, 255, 0)    # high u, high v: yellow (never sampled by these three
+                                      # corners at all -- see below; a fourth distinct colour
+                                      # just for visual contrast)
     texture = ImageAsset(atlas, True)
     # Deep inside three different quadrants -- (0.15, 0.15), (0.85, 0.15),
-    # (0.15, 0.85) -- clear of the quadrant boundaries and clear of
-    # (0.85, 0.85), which the correct blend never reaches but a scrambled
-    # corner order can.
+    # (0.15, 0.85) -- clear of the quadrant boundaries. Every convex
+    # combination of these three points satisfies u + v <= 1, so (0.85,
+    # 0.85) (u, v both > 0.5) is unreachable no matter which weight pairs
+    # with which corner -- a corner-order swap cannot pull yellow in
+    # either. The atlas buys only that a wrong blend lands on a different
+    # (wrong) colour instead of the same flat one; the corner-order
+    # guarantee itself comes from
+    # test_tess_vsh_blends_uv_by_the_same_corner_order_as_position_and_normal
+    # reading v_uv back directly, not from anything this fixture can show.
     corner_uv = np.array([[0.15, 0.15], [0.85, 0.15], [0.15, 0.85]], np.float32)
     painted_actors = tuple(
         dataclasses.replace(
