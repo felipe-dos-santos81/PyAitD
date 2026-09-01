@@ -322,6 +322,25 @@ a rule — add the test with the rule.
   without naming it fails. A test that asserts an exact pixel and does not
   name the option that moved it is this project's dominant defect, and
   this is the only sweep that reliably finds one.
+- **A new proof twin is one row of `tools/prove_graphics.py`'s `VARIANTS`
+  table**, plus one entry in the `base` dict beside it if the option is new.
+  Rows are `ProofRow`s carrying the dict of RenderOptions fields they force,
+  so nothing downstream unpacks a positional tuple: J, K and L each widened
+  one before it was a table, and each paid for it in three consumers and
+  nine mirrored blocks in `tests/test_prove_graphics.py`. Every twin must
+  force the *non-default* value of the field it is named for, or it renders
+  the same image twice and proves nothing — `-roomshadow`'s first draft
+  forced `"soft"` against a default that has never moved off `"soft"`.
+  `-nocomposite` and `-strong` are the deliberate exception: they bracket
+  the default integration level from both ends.
+- `scene.box_top_corners` is the single source for a `hard_col`'s top face —
+  its corner order and the "world y grows downward, so the top is y1" rule.
+  `room_receivers` rasterises it as a shadow receiver and
+  `texture_export._box_corners` draws it as the top half of the box
+  wireframe; the two held separate copies until it was pulled out.
+  `room_receivers` takes only the room: the floor level is a pure function
+  of the same `hard_cols` it reads, so a second argument could only ever
+  disagree with them.
 - The UI layer is painted through `app.ui.UIPainter`, which owns a surface at
   `(320*s, 200*s)` and scales logical coordinates on every call. Presenters
   author in logical 320x200 and never build their own surface; `s` comes from

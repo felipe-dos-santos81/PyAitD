@@ -211,7 +211,7 @@ make test-meta                     # the repo's own rules (package layering, tes
 make test-journey                  # real run() event pump and long real-data simulations
 make proof-mouse                   # navmesh coverage for every camera-visible room, every floor (needs game data)
 make proof-combat                  # combat venue proof: real enemy damage, player arms, game over (needs game data)
-make proof-graphics                # render attic + combat fixtures at every shading mode, plus flat-mesh, hard-shadow, un-composited, over-composited and blended-motion pairs, to docs/graphics-proof/ (needs GL + game data)
+make proof-graphics                # render attic + combat fixtures at every shading mode x realism preset, plus flat-mesh, hard-shadow, un-composited, over-composited, blended-motion, painted, SSAO-off, room-shadow and un-hazed pairs, to docs/graphics-proof/ (needs GL + game data)
 make proof-intro                   # opening cutscene: headless gate + one GL render per visited camera
 make prove-persistence             # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract
 make check-textures proof=1        # validate data/aitd1/textures (or textures=DIR); side-by-sides to docs/graphics-proof/textures/
@@ -239,12 +239,19 @@ M3d/M3e mouse-only input (including held scenery pushing), M4a1 shell
 (character select, system menu, remappable controls, settings persistence),
 M4a2 save/load (versioned slots, source-identity validation, atomic load
 replacement, deferred quick save), the full enhanced-rendering roadmap (soft
-shadows, plate integration, materials, integration levels), roadmap 2's motion
-interpolation (actors blend between the 50 Hz simulation ticks at the display
-rate, behind a Motion knob) and the
+shadows, plate integration, materials, integration levels), all four of
+roadmap 2's sub-projects — motion interpolation (actors blend between the
+50 Hz simulation ticks at the display rate), actor surface textures (a
+painted albedo atlas per body, baked per-corner UVs), light transport
+(screen-space ambient occlusion over the actor layer, and shadows the
+room's floor and furniture proxies receive) and atmosphere (distance haze
+plus depth-graded softness and grain) — each behind its own Realism knob,
+and the
 compare-with-original live mirror (`make compare`) are done: the game boots
 into an asset-faithful character selector, the attic is fully interactive by
-mouse or keyboard, and progress persists across sessions. Next: M4b
+mouse or keyboard, and progress persists across sessions. The renderer
+proofs under `docs/` carry per-sub-project attestation tables; several rows
+are still `pending` a human's eye on real fixtures. Next: M4b
 audio/sequences, M4c ending.
 See `CONTEXT.md` for the architecture map and `docs/superpowers/` for specs
 and plans.
