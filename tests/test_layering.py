@@ -208,6 +208,42 @@ def test_no_module_locks_grabs_or_warps_the_pointer():
     assert hits == []
 
 
+# Tools-side only (spec: 2026-08-31-actor-realism-roadmap-2-design.md's
+# dependency policy amendment). The runtime stays pygame-ce + moderngl +
+# numpy; these live in the `tools` extra and may only be imported under
+# tools/.
+TOOLS_ONLY_MODULES = ("xatlas", "igl")
+
+
+def test_runtime_never_imports_a_tools_only_dependency():
+    repo = pathlib.Path(__file__).resolve().parents[1]
+    offenders = []
+    for path in (repo / "PyAitD").rglob("*.py"):
+        for name in _imports(path):
+            root = name.split(".")[0]
+            if root in TOOLS_ONLY_MODULES:
+                offenders.append(f"{path.relative_to(repo)}: {name}")
+    assert not offenders, (
+        "PyAitD/ must not import a tools-extra dependency; the runtime is "
+        f"frozen at pygame-ce + moderngl + numpy: {offenders}")
+
+
+def test_no_module_imports_a_copyleft_igl_submodule():
+    # igl.copyleft.cgal is GPL-3 and igl.copyleft.tetgen is AGPL-3; this
+    # project is GPL-2.0-only, so neither may ever be imported. igl itself
+    # (MPL-2.0) and igl.embree (Apache-2.0 Embree) are fine.
+    repo = pathlib.Path(__file__).resolve().parents[1]
+    offenders = []
+    for folder in ("PyAitD", "tools", "tests"):
+        for path in (repo / folder).rglob("*.py"):
+            for name in _imports(path):
+                if name.startswith("igl.copyleft"):
+                    offenders.append(f"{path.relative_to(repo)}: {name}")
+    assert not offenders, (
+        "igl.copyleft.* is GPL-3/AGPL-3 and incompatible with GPL-2.0-only: "
+        f"{offenders}")
+
+
 def test_glsl_is_strings_only():
     """render/glsl.py holds GLSL sources and nothing else -- no imports, no
     functions, no logic -- so it can never become a second graphics owner

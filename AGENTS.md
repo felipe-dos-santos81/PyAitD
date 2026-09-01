@@ -319,6 +319,12 @@ a rule — add the test with the rule.
 - Workflow is brainstorm → spec → plan → TDD under `docs/superpowers/`
   (one spec + one task-level plan per milestone); `docs/life-vm-opcodes.md`
   is research only — plan + code are the source of truth.
-- Dependencies fixed: pygame-ce, ModernGL, NumPy, pytest. Add nothing. The one
-  external service, Gemini, is reached through the `agy` CLI, not a Python SDK,
-  so it costs this project no dependency at all.
+- Dependencies: the runtime (`PyAitD/`) is fixed at pygame-ce, ModernGL, NumPy
+  (plus pytest for the suite) — add nothing. `tools/` may take PyPI
+  dependencies vetted case-by-case (GPL-2.0-compatible, maintained, macOS
+  arm64 / CPython 3.12 wheels) in the `tools` extra; today that is `xatlas`
+  and `libigl`, and `tests/test_layering.py` fails if `PyAitD/` imports
+  either. `igl.copyleft.cgal` (GPL-3) and `igl.copyleft.tetgen` (AGPL-3) are
+  banned outright and pinned by the same file. The one external service,
+  Gemini, is reached through the `agy` CLI, not a Python SDK, so it costs
+  this project no dependency at all.

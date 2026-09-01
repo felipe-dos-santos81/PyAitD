@@ -12,6 +12,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Tools-side only, never imported from PyAitD/ (pinned by
+# tests/test_layering.py::test_runtime_never_imports_a_tools_only_dependency).
+# GPL-2.0-compatible, maintained, macOS arm64 / CPython 3.12 wheels:
+# xatlas MIT, libigl MPL-2.0 (igl.embree bundles Apache-2.0 Embree).
+tools = ["xatlas>=0.0.9", "libigl>=2.5"]
 
 [build-system]
 requires = ["setuptools>=68"]
