@@ -790,19 +790,26 @@ class GLBackend:
         mask_by_id = {mask.id: mask for mask in frame.masks}
 
         # One instance buffer per actor for the whole frame, built before
-        # the loop: the soft-shadow passes read every actor's before any
-        # body is drawn, so they cannot be built per actor. Under hard
-        # shadows at level 0 nothing is built, as before. Released in the
-        # `finally` so a raise anywhere below cannot leak one.
+        # the loop: the soft-shadow passes and the G-buffer pass (for SSAO)
+        # both read every actor's before any body is drawn, so they cannot
+        # be built per actor. `ssao_on` is computed here, above the gate,
+        # rather than left where _render_gbuffer's own call site would
+        # naturally compute it, because the gate needs it too -- SSAO's
+        # G-buffer pass reads `instances` exactly like the soft-shadow
+        # passes do, and was reading an all-`None` list (silently
+        # contributing nothing) whenever level and soft were both false.
+        # Only when level, soft, and ssao_on are all false is nothing
+        # built, as before. Released in the `finally` so a raise anywhere
+        # below cannot leak one.
         instances = [None] * len(frame.actors)
+        ssao_on = scene_lit and self._options.occlusion == "ssao"
         try:
-            if level or soft:
+            if level or soft or ssao_on:
                 for i, actor in enumerate(frame.actors):
                     data = self._instance_data(actor.geometry, np.asarray(actor.position, np.float64), palette)
                     if len(data):
                         instances[i] = (self._ctx.buffer(data.tobytes()), len(data))
 
-            ssao_on = scene_lit and self._options.occlusion == "ssao"
             if ssao_on:
                 self._render_gbuffer(frame, instances, level)
                 self._render_ssao(frame)

@@ -2636,10 +2636,18 @@ def _integration_options(**kw):
 def test_integration_at_full_with_a_neutral_plate_reproduces_the_golden(gl_ctx):
     # The plumbing identity: `on` changes where the pixels are assembled,
     # never what they are. NEUTRAL_PLATE makes every composite term vanish
-    # by construction, and msaa=0 makes coverage exactly 0 or 1.
+    # by construction, and msaa=0 makes coverage exactly 0 or 1. occlusion
+    # must be named "off" explicitly (final whole-branch review, C1): this
+    # test predates SSAO and used to get "off" for free from a gate bug --
+    # smoothing=0, shadows="hard" left occlusion="ssao" (the default)
+    # silently inert. Now that the gate is fixed, the default would apply
+    # real SSAO here and this identity -- which is about integration, not
+    # occlusion -- would stop holding for a reason unrelated to what it
+    # tests.
     backend = GLBackend(gl_ctx, RenderOptions(
         scale=1, shading="smooth", lighting="scene", msaa=0,
-        realism="classic", smoothing=0, shadows="hard", integration=2))
+        realism="classic", smoothing=0, shadows="hard", integration=2,
+        occlusion="off"))
     backend.draw(_golden_frame())
     out = backend.read_rgb()
     backend.release()
@@ -3727,3 +3735,42 @@ def test_the_occlusion_knob_actually_changes_the_render(gl_ctx):
     off = _render_with(gl_ctx, _golden_frame(), occlusion="off")
     on = _render_with(gl_ctx, _golden_frame(), occlusion="ssao")
     assert not np.array_equal(off, on)
+
+
+def test_ssao_still_renders_at_smoothing_0_and_shadows_hard(gl_ctx):
+    """Critical 1 (final whole-branch review): the instance-buffer gate at
+    the top of `_draw_frame` -- `if level or soft:` -- predates SSAO.
+    `_render_gbuffer` reads the same `instances` list the soft-shadow
+    passes read, but at smoothing=0 (`level=0`) with shadows="hard"
+    (`soft=False`) the old gate built nothing, so the G-buffer stayed at
+    its `clear(0,0,0,0)` value, SSAO read 1.0 (unoccluded) everywhere, and
+    the fill-share attenuation was the identity -- `occlusion="ssao"` and
+    `occlusion="off"` rendered byte-identical despite the menu reading
+    SSAO. Both `smoothing` and `shadows` are in `_MENU_RENDER_FIELDS`
+    (Graphics -> Smoothing Off, Realism -> Shadows Hard), so this was
+    reachable from the shipped menus and persisted across sessions.
+
+    Measured on this exact frame/options pair: before the fix,
+    occlusion="off" and occlusion="ssao" were byte-identical (sum |diff|
+    = 0). After widening the gate to `if level or soft or ssao_on:`, they
+    differ by a summed absolute difference of 89723 over the frame. The
+    other two rows the review measured -- smoothing=0/shadows=soft and
+    smoothing=2/shadows=hard -- were already live before this fix (both
+    non-identical pre- and post-) and stay live after it; they are not
+    asserted here because they never regressed, but the fix must not
+    change that."""
+    frame = _two_actor_frame()
+    off = _render_with_smoothing_and_shadows(gl_ctx, frame, "off", smoothing=0, shadows="hard")
+    on = _render_with_smoothing_and_shadows(gl_ctx, frame, "ssao", smoothing=0, shadows="hard")
+    assert not np.array_equal(off, on)
+
+
+def _render_with_smoothing_and_shadows(gl_ctx, frame, occlusion, smoothing, shadows):
+    backend = GLBackend(gl_ctx, RenderOptions(scale=2, shading="smooth", lighting="scene",
+                                              msaa=0, occlusion=occlusion, realism="enhanced",
+                                              smoothing=smoothing, shadows=shadows))
+    try:
+        backend.draw(frame)
+        return backend.read_rgb().copy()
+    finally:
+        backend.release()
