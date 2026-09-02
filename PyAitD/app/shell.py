@@ -59,6 +59,9 @@ DEFAULT_DATA = (
     / "INDARK"
 )
 HIT_FEEDBACK_MS = 250
+CUT_DEAD_ZONE_PX = 6   # after a camera cut the pointer must move this far on
+                       # an axis before the hold re-resolves; smaller motion is
+                       # the hand settling, not a gesture
 
 
 def _integration_level(text):
@@ -519,6 +522,8 @@ def route_play_click(
         # give-up), and the still-held button must not resume the follow
         input_buffer.follow_last = payload if kind != "push" else None
         input_buffer.follow_pos = logical_pos if kind != "push" else None
+        input_buffer.follow_camera = game.num_camera if kind != "push" else None
+        input_buffer.follow_settle_origin = None
         input_buffer.follow_spent = kind == "push"
 
 
@@ -582,7 +587,23 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
         return  # a latched push ignores pointer motion until release
     if logical_pos == input_buffer.follow_pos:
         return  # a still pointer means what it meant last frame
+    if (input_buffer.follow_camera is not None
+            and input_buffer.follow_camera != game.num_camera):
+        # a cut: the pixel now means something else, but the hand has not
+        # said so. Keep the destination until the pointer leaves the dead
+        # zone around where it was when the cut landed.
+        if input_buffer.follow_settle_origin is None:
+            input_buffer.follow_settle_origin = (
+                input_buffer.follow_pos
+                if input_buffer.follow_pos is not None else logical_pos
+            )
+        ox, oy = input_buffer.follow_settle_origin
+        if (abs(logical_pos[0] - ox) <= CUT_DEAD_ZONE_PX
+                and abs(logical_pos[1] - oy) <= CUT_DEAD_ZONE_PX):
+            return
+        input_buffer.follow_settle_origin = None
     input_buffer.follow_pos = logical_pos
+    input_buffer.follow_camera = game.num_camera
     kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
     if kind in ("walk", "target"):
         if payload == input_buffer.follow_last:
@@ -626,6 +647,8 @@ def _drop_destination(game, input_buffer):
     if input_buffer is not None:
         input_buffer.follow_last = None
         input_buffer.follow_pos = None
+        input_buffer.follow_camera = None
+        input_buffer.follow_settle_origin = None
     if game.nav_intent is None:
         return False
     cancel_nav_intent(game)

@@ -76,6 +76,14 @@ class InputBuffer:
     # None means "resolve on the next frame regardless" -- what a floor change
     # leaves behind, its old destination being an index into the old floor.
     follow_pos: tuple[int, int] | None = None
+    # The camera slot follow_pos was resolved under. When game.num_camera no
+    # longer matches, a cut happened: shell.follow_pointer keeps the
+    # destination and opens a dead zone instead of re-resolving the first
+    # pixel of drift under a camera the hand never aimed at.
+    follow_camera: int | None = None
+    # Where the pointer was when the cut was noticed. While set, motion
+    # within shell.CUT_DEAD_ZONE_PX of it is settling, not a gesture.
+    follow_settle_origin: tuple[int, int] | None = None
     # True once this hold's press resolved to anything other than walk/target
     # (attack, inventory, push): the spec forbids resuming a follow on that
     # hold even after the underlying latch (mouse_attack_target, a push's
@@ -155,6 +163,8 @@ def reset_input(state):
     state.mouse_attack_ticks = 0
     state.follow_last = None
     state.follow_pos = None
+    state.follow_camera = None
+    state.follow_settle_origin = None
     state.follow_spent = False
     state.pointer_run = False
     state.last_press_tick = None

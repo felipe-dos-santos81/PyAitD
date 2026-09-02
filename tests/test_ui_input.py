@@ -155,3 +155,11 @@ def test_reset_input_clears_the_follow_latch():
         "a modal or focus loss ends the hold, so it ends the run and the "
         "press clock the next double press would be measured against"
     )
+
+
+def test_reset_input_clears_the_cut_settle_state():
+    from PyAitD.app.ui import InputBuffer, reset_input
+    state = InputBuffer(follow_camera=2, follow_settle_origin=(10, 10))
+    reset_input(state)
+    assert state.follow_camera is None
+    assert state.follow_settle_origin is None

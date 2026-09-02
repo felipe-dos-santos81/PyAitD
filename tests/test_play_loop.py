@@ -2402,6 +2402,106 @@ def test_pointer_motion_after_a_cut_still_retargets(data_dir, profile):
     assert after == resolve_play_click(game, floor, moved, [])[1][:3]
 
 
+def test_a_one_pixel_drift_after_a_cut_does_not_retarget(data_dir, profile):
+    # The hand did not move; the cut and the pointer's own jitter did. Within
+    # CUT_DEAD_ZONE_PX of where the pointer was at the cut, the destination
+    # stays and the follow is settling.
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+    assert buf.follow_camera == game.new_num_camera
+
+    game.num_camera = cut_slot
+    drifted = (pixel[0] + 1, pixel[1])
+    buf.pointer_pos = drifted
+    main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
+
+    assert game.nav_intent is not None, "the drift stopped the hero"
+    after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
+    assert after == before, "a one-pixel drift after a cut retargeted"
+    assert buf.follow_settle_origin == pixel
+    assert main.CUT_DEAD_ZONE_PX == 6
+
+
+def test_motion_past_the_dead_zone_retargets_and_closes_it(data_dir, profile):
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+    game.num_camera = cut_slot
+    # settle first
+    drifted = (pixel[0] + 1, pixel[1])
+    buf.pointer_pos = drifted
+    main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
+    assert buf.follow_settle_origin == pixel
+    moved = next(
+        candidate
+        for candidate in _sampled_pixels()
+        if max(abs(candidate[0] - pixel[0]), abs(candidate[1] - pixel[1])) > main.CUT_DEAD_ZONE_PX
+        and (resolved := resolve_play_click(game, floor, candidate, []))[0] == "walk"
+        and resolved[1][:3] != before
+    )
+    buf.pointer_pos = moved
+    main.follow_pointer(game, ModalSession(), floor, moved, [], buf)
+
+    assert game.nav_intent is not None
+    after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
+    assert after != before, "the hand moved past the dead zone and was ignored"
+    assert buf.follow_settle_origin is None
+    assert buf.follow_camera == cut_slot
+
+
+def test_release_clears_the_settle_state(data_dir, profile):
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+    game.num_camera = cut_slot
+    drifted = (pixel[0] + 1, pixel[1])
+    buf.pointer_pos = drifted
+    main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
+    assert buf.follow_settle_origin is not None
+
+    up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
+    main._cancel_pointer_invalidation(game, up, buf)
+    assert buf.follow_settle_origin is None
+    assert buf.follow_camera is None
+    assert game.nav_intent is None
+
+
+def test_a_floor_change_clears_the_settle_state_but_keeps_the_hold(data_dir, profile):
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+    buf.follow_settle_origin = pixel
+    buf.follow_camera = cut_slot
+    main._rebase_follow(game, buf)
+    assert buf.follow_settle_origin is None
+    assert buf.follow_camera is None
+    assert buf.follow_pos is None
+    assert buf.pointer_held is True
+
+
+def test_arrival_while_settling_leaves_the_follow_live(data_dir, profile):
+    # The follower clearing the intent on arrival must not be mistaken for a
+    # gesture: the hold stays live, no re-resolution of a still pointer.
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+    game.num_camera = cut_slot
+    drifted = (pixel[0] + 1, pixel[1])
+    buf.pointer_pos = drifted
+    main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
+    game.nav_intent = None   # what an arrival leaves behind
+    main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
+    assert game.nav_intent is None, "a still pointer was re-resolved while settling"
+    assert buf.follow_last is not None, "the hold died"
+    assert buf.pointer_held is True
+
+
 def test_a_floor_change_keeps_the_hold_and_re_resolves_a_still_pointer(
         data_dir, profile, monkeypatch):
     # Stairs mid-hold: the intent's room indexes the floor just unloaded, so
