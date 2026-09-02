@@ -444,3 +444,23 @@ def test_visible_accept_is_floor_point_visible_under_the_hero_camera(data_dir, p
     assert accept(hero.room_x, hero.room_z) == floor_point_visible(
         floor, cam, hero.room, hero.room_x, hero.world_y, hero.room_z,
     )
+
+
+def test_visible_accept_accepts_everything_outside_the_cameras_viewed_rooms(data_dir, profile):
+    # Floor 1, room 0, camera slot 0 (global camera 0) views rooms [6, 0] --
+    # room 7 is never rendered by it. A camera's ray to a point in a room it
+    # never renders crosses hard cols by construction, not because anything
+    # actually occludes the view, so the filter must stand down there rather
+    # than refuse every candidate and turn a real interaction into blocked.
+    floor = Floor(data_dir, 1, profile)
+    cam = floor.rooms[0].camera_indices[0]
+    assert [vr.viewed_room_idx for vr in floor.cameras[cam].viewed_rooms] == [6, 0]
+
+    # a room the camera does view still filters, same as floor_point_visible
+    viewed = visible_accept(floor, 0, 0, 0, 0)
+    assert viewed(400, -200) == floor_point_visible(floor, cam, 0, 400, 0, -200)
+
+    # a room the camera never views accepts unconditionally
+    unviewed = visible_accept(floor, 0, 0, 7, 0)
+    assert unviewed(300, 500) is True
+    assert unviewed(-999999, 999999) is True, "unconditional, not merely unoccluded here"

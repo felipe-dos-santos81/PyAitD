@@ -336,8 +336,21 @@ def project_room_point(floor, hero_room, cam_slot, room_idx, x, y, z):
 
 
 def visible_accept(floor, hero_room, cam_slot, room_idx, floor_y, agent=None):
-    """Candidate filter: the cell must be visible from the camera on screen."""
+    """Candidate filter: the cell must be visible from the camera on screen.
+
+    A camera that never renders room_idx has nothing meaningful to say about
+    a point in it: the segment from the camera to a cell in an unrendered
+    room crosses whatever hard cols happen to lie between them by
+    construction, not because anything actually occludes the view, so every
+    candidate would be refused and a real interaction (approaching an object
+    in a room the current camera does not view) would turn into blocked.
+    Every candidate is accepted in that case; the filter only applies within
+    a room the camera actually views.
+    """
     global_cam_idx = floor.rooms[hero_room].camera_indices[cam_slot]
+    viewed = [vr.viewed_room_idx for vr in floor.cameras[global_cam_idx].viewed_rooms]
+    if room_idx not in viewed:
+        return lambda x, z: True
 
     def accept(x, z):
         return floor_point_visible(floor, global_cam_idx, room_idx, x, floor_y, z, agent)
