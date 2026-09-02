@@ -196,3 +196,100 @@ def test_pick_floor_any_room_prefers_the_hero_s_own_room(data_dir, profile):
     assert hero_in_0[:2] != hero_in_6[:2], (
         "each room recovers the point in its own coordinate space"
     )
+
+
+from types import SimpleNamespace
+
+from PyAitD.engine.nav.picking import (
+    floor_point_visible, ray_box_hit, to_room_frame,
+)
+
+
+def _box(x1, x2, y1, y2, z1, z2):
+    return SimpleNamespace(x1=x1, x2=x2, y1=y1, y2=y2, z1=z1, z2=z2, type=0, parameter=0)
+
+
+def test_ray_box_hit_reports_the_entry_parameter():
+    box = _box(400, 600, -1000, 0, -100, 100)
+    t = ray_box_hit((0, -500, 0), (1000, -500, 0), box)
+    assert t is not None and abs(t - 0.4) < 1e-9
+
+
+def test_ray_box_hit_misses_a_box_beside_the_segment():
+    box = _box(400, 600, -1000, 0, 300, 500)
+    assert ray_box_hit((0, -500, 0), (1000, -500, 0), box) is None
+
+
+def test_ray_box_hit_ignores_a_box_past_the_point():
+    box = _box(1200, 1400, -1000, 0, -100, 100)
+    assert ray_box_hit((0, -500, 0), (1000, -500, 0), box) is None
+
+
+def test_ray_box_hit_ignores_a_box_the_origin_sits_in():
+    box = _box(-100, 100, -1000, 0, -100, 100)
+    assert ray_box_hit((0, -500, 0), (1000, -500, 0), box) is None
+
+
+def test_ray_box_hit_treats_a_point_inside_the_box_as_occluded():
+    box = _box(800, 1200, -1000, 0, -100, 100)
+    t = ray_box_hit((0, -500, 0), (1000, -500, 0), box)
+    assert t is not None and abs(t - 0.8) < 1e-9
+
+
+def test_to_room_frame_uses_the_asymmetric_signs(data_dir, profile):
+    # Floor 0 has a single room; floor 1 has enough rooms for a real
+    # from-room/to-room pair (its rooms 0 and 1 are both used elsewhere in
+    # this file, e.g. test_pick_floor_any_room_prefers_the_hero_s_own_room).
+    floor = Floor(data_dir, 1, profile)
+    src, dst = floor.rooms[0], floor.rooms[1]
+    dx = 10 * (dst.world_x - src.world_x)
+    dy = 10 * (dst.world_y - src.world_y)
+    dz = 10 * (dst.world_z - src.world_z)
+    assert to_room_frame(floor, 0, 1, 100, 200, 300) == (100 - dx, 200 + dy, 300 + dz)
+
+
+def test_floor_point_visible_rejects_a_point_behind_a_hard_col(data_dir, profile):
+    # The camera sits at (state.x, state.y, state.z) in room frame. A box
+    # placed on the segment from there to a floor point must hide the point;
+    # the same box moved off the segment must not.
+    floor = Floor(data_dir, 0, profile)
+    room = floor.rooms[0]
+    cam = room.camera_indices[0]
+    state = _state(floor, 0, 0)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    point = (hero.room_x, hero.world_y, hero.room_z)
+    mid = tuple((a + b) / 2 for a, b in zip((state.x, state.y, state.z), point))
+    saved = list(room.hard_cols)
+    try:
+        room.hard_cols = saved + [_box(
+            mid[0] - 50, mid[0] + 50, mid[1] - 50, mid[1] + 50, mid[2] - 50, mid[2] + 50,
+        )]
+        assert floor_point_visible(floor, cam, 0, *point) is False
+        room.hard_cols = saved + [_box(
+            mid[0] + 5000, mid[0] + 5100, mid[1] - 50, mid[1] + 50, mid[2] - 50, mid[2] + 50,
+        )]
+        assert floor_point_visible(floor, cam, 0, *point) is True
+    finally:
+        room.hard_cols = saved
+
+
+def test_floor_point_visible_skips_boxes_outside_the_agent_band(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    room = floor.rooms[0]
+    cam = room.camera_indices[0]
+    state = _state(floor, 0, 0)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    point = (hero.room_x, hero.world_y, hero.room_z)
+    mid = tuple((a + b) / 2 for a, b in zip((state.x, state.y, state.z), point))
+    saved = list(room.hard_cols)
+    try:
+        room.hard_cols = saved + [_box(
+            mid[0] - 50, mid[0] + 50, mid[1] - 50, mid[1] + 50, mid[2] - 50, mid[2] + 50,
+        )]
+        # a band that cannot overlap the box: entirely above it
+        band = (0, mid[1] - 10000, mid[1] - 9000)
+        assert floor_point_visible(floor, cam, 0, *point, agent=band) is True
+    finally:
+        room.hard_cols = saved

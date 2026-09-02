@@ -98,6 +98,73 @@ def _camera_state_global(floor, room_idx, global_cam_idx):
     ).angles()
 
 
+def ray_box_hit(origin, point, box):
+    """Parametric t in (0, 1) where the segment origin -> point first enters
+    the axis-aligned box, or None. A slab test per axis; an origin already
+    inside the box is not an occlusion (t would be 0), a point inside it is
+    (the segment enters before reaching it)."""
+    t_in, t_out = 0.0, 1.0
+    for o, p, lo, hi in (
+        (origin[0], point[0], box.x1, box.x2),
+        (origin[1], point[1], box.y1, box.y2),
+        (origin[2], point[2], box.z1, box.z2),
+    ):
+        d = p - o
+        if abs(d) < 1e-9:
+            if o < lo or o > hi:
+                return None
+            continue
+        t0, t1 = (lo - o) / d, (hi - o) / d
+        if t0 > t1:
+            t0, t1 = t1, t0
+        t_in, t_out = max(t_in, t0), min(t_out, t1)
+        if t_in > t_out:
+            return None
+    return t_in if 0.0 < t_in < 1.0 else None
+
+
+def to_room_frame(floor, from_room, to_room, x, y, z):
+    """Re-frame a room-scale point from one room's origin to another's, with
+    FITD's asymmetric signs (x minus, y plus, z plus -- world.room_delta)."""
+    src, dst = floor.rooms[from_room], floor.rooms[to_room]
+    dx = 10 * (dst.world_x - src.world_x)
+    dy = 10 * (dst.world_y - src.world_y)
+    dz = 10 * (dst.world_z - src.world_z)
+    return (x - dx, y + dy, z + dz)
+
+
+def _in_band(box, agent):
+    if agent is None:
+        return True
+    _half, y0, y1 = agent
+    return y0 < box.y2 and box.y1 < y1
+
+
+def floor_point_visible(floor, global_cam_idx, room_idx, x, y, z, agent=None):
+    """True when no hard col of any room this camera views lies on the
+    segment from the camera to the point (given in room_idx's frame).
+
+    Each viewed room's boxes are tested in that room's own frame: the camera
+    is rebuilt there (its position is (state.x, state.y, state.z), what
+    project_floor_point subtracts) and the point is re-framed with
+    to_room_frame. `agent` = (half, y0, y1) keeps only boxes overlapping the
+    agent's Y band, navmesh._subtract_hard_cols's rule, so a room link the
+    hero can walk through is not a wall.
+    """
+    viewed = [vr.viewed_room_idx for vr in floor.cameras[global_cam_idx].viewed_rooms]
+    rooms = [room_idx] + [r for r in viewed if r != room_idx and r < len(floor.rooms)]
+    for other in rooms:
+        state = _camera_state_global(floor, other, global_cam_idx)
+        origin = (state.x, state.y, state.z)
+        target = to_room_frame(floor, room_idx, other, x, y, z)
+        for box in floor.rooms[other].hard_cols:
+            if not _in_band(box, agent):
+                continue
+            if ray_box_hit(origin, target, box) is not None:
+                return False
+    return True
+
+
 def pick_floor_in_room(logical_pos, floor, room_idx, global_cam_idx, floor_y):
     """Logical click -> room-scale (x, z) in room_idx's own coordinate space.
 
