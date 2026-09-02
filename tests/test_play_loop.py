@@ -2424,6 +2424,24 @@ def test_a_one_pixel_drift_after_a_cut_does_not_retarget(data_dir, profile):
     assert main.CUT_DEAD_ZONE_PX == 6
 
 
+def test_drift_of_exactly_the_dead_zone_boundary_does_not_retarget(data_dir, profile):
+    # <= keeps a boundary drift settled; only motion PAST the zone retargets.
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+
+    game.num_camera = cut_slot
+    at_boundary = (pixel[0] + main.CUT_DEAD_ZONE_PX, pixel[1])
+    buf.pointer_pos = at_boundary
+    main.follow_pointer(game, ModalSession(), floor, at_boundary, [], buf)
+
+    assert game.nav_intent is not None, "the boundary drift stopped the hero"
+    after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
+    assert after == before, "a drift of exactly CUT_DEAD_ZONE_PX retargeted"
+    assert buf.follow_settle_origin == pixel
+
+
 def test_motion_past_the_dead_zone_retargets_and_closes_it(data_dir, profile):
     import PyAitD.app.shell as main
     game, floor, buf, pixel, cut_slot, before = _cut_fixture(

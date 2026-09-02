@@ -560,6 +560,18 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
     input_buffer.follow_pos costs nothing elsewhere: with the camera unchanged
     a still pointer re-resolves to the same payload anyway.
 
+    A pointer that DID move is not automatically safe either: the same hand
+    settling after a cut nudges the pointer a pixel or two without the player
+    aiming anywhere. input_buffer.follow_camera records the slot follow_pos
+    was resolved under, so a mismatch against game.num_camera means a cut just
+    happened. From there, input_buffer.follow_settle_origin pins the pointer
+    position at the moment the cut was noticed, and motion within
+    CUT_DEAD_ZONE_PX of it on either axis (Chebyshev) is treated as settling,
+    not a gesture: the destination holds and neither follow_pos nor
+    follow_camera advance. Only once the pointer clears the zone does
+    follow_settle_origin reset to None and resolution proceed against the new
+    camera.
+
     The resolution is compared against input_buffer.follow_last, never the
     live intent: the engine clears an intent when the follower arrives or
     gives up, and _push_into_target re-aims a target intent at the object
