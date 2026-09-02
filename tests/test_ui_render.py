@@ -896,3 +896,79 @@ def test_configuration_page_ends_with_graphics_realism_then_back(monkeypatch):
     drawn.clear()
     render_system_menu(UIPainter(), SystemMenuPresenter(page=SystemMenuPage.REALISM), default_settings(), fake_assets)
     assert drawn[0] == "Lighting: Scene" and drawn[-1] == "Back"
+
+
+def _drawn_outside(frame, centre, radius):
+    """True when any pixel outside the square of `radius` around `centre` is lit."""
+    x, y = centre
+    masked = frame.copy()
+    masked[max(0, y - radius):y + radius + 1, max(0, x - radius):x + radius + 1] = 0
+    return int(masked.sum()) > 0
+
+
+def test_cursor_defaults_draw_nothing_beyond_the_cursor():
+    painter = UIPainter()
+    render_cursor(painter, (160, 100), "walk")
+    assert not _drawn_outside(painter.to_frame(), (160, 100), 10)
+
+
+def test_destination_marker_is_drawn_at_the_destination():
+    painter = UIPainter()
+    render_cursor(painter, (160, 100), "walk", destination=(40, 150))
+    frame = painter.to_frame()
+    assert int(frame[145:156, 35:46].sum()) > 0, "no marker at the destination"
+
+
+def test_no_destination_means_no_marker():
+    with_marker = UIPainter()
+    render_cursor(with_marker, (160, 100), "walk", destination=(40, 150))
+    without = UIPainter()
+    render_cursor(without, (160, 100), "walk", destination=None)
+    assert int(with_marker.to_frame()[145:156, 35:46].sum()) > 0
+    assert int(without.to_frame()[145:156, 35:46].sum()) == 0
+
+
+def test_preview_is_fainter_than_the_marker():
+    marker = UIPainter()
+    render_cursor(marker, (160, 100), "walk", destination=(40, 150))
+    preview = UIPainter()
+    render_cursor(preview, (160, 100), "walk", preview=(40, 150))
+    m = marker.to_frame()[145:156, 35:46, 3]
+    p = preview.to_frame()[145:156, 35:46, 3]
+    assert int(p.sum()) > 0, "the preview drew nothing"
+    assert int(p.max()) < int(m.max()), "the preview is not fainter"
+
+
+def test_press_ring_only_while_held():
+    held = UIPainter()
+    render_cursor(held, (160, 100), "walk", held=True)
+    idle = UIPainter()
+    render_cursor(idle, (160, 100), "walk", held=False)
+    ring_band = lambda frame: int(frame[89:112, 149:172].sum()) - int(frame[95:106, 155:166].sum())
+    assert ring_band(held.to_frame()) > 0
+    assert ring_band(idle.to_frame()) == 0
+
+
+def test_settling_ring_is_distinct_from_the_solid_ring():
+    solid = UIPainter()
+    render_cursor(solid, (160, 100), "walk", held=True)
+    dashed = UIPainter()
+    render_cursor(dashed, (160, 100), "walk", held=True, settling=True)
+    assert solid.to_frame().tobytes() != dashed.to_frame().tobytes()
+    # dashed draws strictly fewer ring pixels than solid
+    band = lambda frame: int((frame[89:112, 149:172, 3] > 0).sum()) - int((frame[95:106, 155:166, 3] > 0).sum())
+    assert 0 < band(dashed.to_frame()) < band(solid.to_frame())
+
+
+def test_settling_without_held_draws_no_ring():
+    painter = UIPainter()
+    render_cursor(painter, (160, 100), "walk", held=False, settling=True)
+    band = int(painter.to_frame()[89:112, 149:172].sum()) - int(painter.to_frame()[95:106, 155:166].sum())
+    assert band == 0
+
+
+def test_blocked_and_walk_colours_differ():
+    from PyAitD.app.ui import _CURSOR_COLORS
+    assert _CURSOR_COLORS["blocked"] != _CURSOR_COLORS["walk"]
+    r, g, b = _CURSOR_COLORS["blocked"]
+    assert r > g and r > b, "blocked should read as a warning, not as walkable"

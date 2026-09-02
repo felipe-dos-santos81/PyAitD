@@ -695,13 +695,60 @@ def _rebase_follow(game, input_buffer):
     return _drop_destination(game, input_buffer)
 
 
-def _play_cursor_kind(game, floor, hover, draw_list, input_buffer):
+def _play_cursor_state(game, floor, hover, draw_list, input_buffer):
+    """(kind, payload) the cursor should show for `hover`: a latched push
+    stays "push" whatever the pointer drifts over; otherwise the resolver."""
     intent = getattr(game, "nav_intent", None)
     if (input_buffer.pointer_held and intent is not None
             and intent.requires_hold):
-        return "push"
-    kind, _payload = resolve_play_click(game, floor, hover, draw_list)
-    return kind
+        return "push", None
+    return resolve_play_click(game, floor, hover, draw_list)
+
+
+def _play_cursor_kind(game, floor, hover, draw_list, input_buffer):
+    return _play_cursor_state(game, floor, hover, draw_list, input_buffer)[0]
+
+
+def _marker_for(game, floor, payload):
+    """Project a (dest_x, dest_z, room, object_idx) payload to the logical
+    frame under the camera on screen, or None."""
+    from PyAitD.engine.nav.picking import project_room_point, viewed_floor_y
+    if payload is None or game.num_camera == -1:
+        return None
+    hero_idx = game.current_camera_target_actor
+    if hero_idx == -1:
+        return None
+    hero = game.actors[hero_idx]
+    dest_x, dest_z, room, _object_idx = payload
+    y = viewed_floor_y(floor, hero.room, room, hero.world_y)
+    return project_room_point(floor, hero.room, game.num_camera, room, dest_x, y, dest_z)
+
+
+def _intent_marker(game, floor):
+    """Where the live intent is heading, on screen, or None."""
+    intent = getattr(game, "nav_intent", None)
+    if intent is None:
+        return None
+    return _marker_for(game, floor, (intent.dest_x, intent.dest_z, intent.room, -1))
+
+
+def _render_play_cursor(game, floor, hover, draw_list, input_buffer, painter):
+    """The PLAY cursor with its feedback: the live destination, a preview of
+    where a press would head while nothing is held, the press ring, and the
+    dashed ring while a cut's dead zone is open."""
+    kind, payload = _play_cursor_state(game, floor, hover, draw_list, input_buffer)
+    destination = _intent_marker(game, floor)
+    preview = None
+    if (not input_buffer.pointer_held and destination is None
+            and kind in ("walk", "target")):
+        preview = _marker_for(game, floor, payload)
+    render_cursor(
+        painter, hover, kind,
+        held=input_buffer.pointer_held,
+        settling=input_buffer.follow_settle_origin is not None,
+        destination=destination,
+        preview=preview,
+    )
 
 
 def _is_interactable(game, actor_idx):
@@ -1733,10 +1780,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
         render_settings_notice(painter, session.settings_error or session.runtime_error)
         pygame.mouse.set_visible(not software_cursor and not play_keyboard)
         if software_cursor:
-            kind = _play_cursor_kind(
-                game, floor, hover, draw_list, input_buffer,
-            )
-            render_cursor(painter, hover, kind)
+            _render_play_cursor(game, floor, hover, draw_list, input_buffer, painter)
         renderer.present(painter)
         if game.num_camera != -1:
             # M3a draw_ready gate: transition frames (change_salle/floor

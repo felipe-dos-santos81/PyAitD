@@ -1168,7 +1168,7 @@ def test_held_push_inventory_modal_takeover_is_clean_before_play_resumes(
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
-    monkeypatch.setattr(main, "render_cursor", lambda image, *_args: image)
+    monkeypatch.setattr(main, "render_cursor", lambda image, *_args, **_kwargs: image)
     monkeypatch.setattr(main, "InputBuffer", lambda: input_buffer)
     monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
@@ -1229,7 +1229,7 @@ def test_run_routes_physical_and_touch_down_through_the_same_held_push_path(
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
-    monkeypatch.setattr(main, "render_cursor", lambda image, *_args: image)
+    monkeypatch.setattr(main, "render_cursor", lambda image, *_args, **_kwargs: image)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
     monkeypatch.setattr(main.pygame.display, "set_caption", lambda *_args: None)
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
@@ -1997,7 +1997,7 @@ def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
     )
     monkeypatch.setattr(
         main, "render_cursor",
-        lambda image, *args: calls.append("cursor") or image,
+        lambda image, *args, **kwargs: calls.append("cursor") or image,
     )
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda value: calls.append(("visible", value)))
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
@@ -2738,3 +2738,78 @@ def test_the_os_pointer_shows_only_where_the_mouse_still_does_something(
     assert visibility[-1] is True, visibility
     per_frame = visibility[:-1]
     assert per_frame and all(seen is visible for seen in per_frame), visibility
+
+
+def test_intent_marker_projects_the_live_destination(data_dir, profile):
+    import PyAitD.app.shell as main
+    from PyAitD.engine.nav.picking import project_room_point
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    hero = game.actors[game.current_camera_target_actor]
+    pixel = next(p for p in _sampled_pixels() if resolve_play_click(game, floor, p, [])[0] == "walk")
+    buf = held_pointer(pixel)
+    route_play_click(game, ModalSession(), floor, pixel, [], buf)
+    intent = game.nav_intent
+    expected = project_room_point(
+        floor, hero.room, game.num_camera, intent.room,
+        intent.dest_x, hero.world_y, intent.dest_z,
+    )
+    assert main._intent_marker(game, floor) == expected
+    assert expected is not None
+
+
+def test_intent_marker_is_none_without_an_intent_or_on_a_transition_frame(data_dir, profile):
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    assert game.nav_intent is None
+    assert main._intent_marker(game, floor) is None
+    hero = game.actors[game.current_camera_target_actor]
+    from PyAitD.engine.script.interaction import apply_click_intent
+    apply_click_intent(game, hero.room_x + 500, hero.room_z, hero.room)
+    game.num_camera = -1
+    assert main._intent_marker(game, floor) is None
+
+
+def test_play_cursor_state_returns_kind_and_payload(data_dir, profile):
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    pixel = next(p for p in _sampled_pixels() if resolve_play_click(game, floor, p, [])[0] == "walk")
+    buf = InputBuffer()
+    kind, payload = main._play_cursor_state(game, floor, pixel, [], buf)
+    assert kind == "walk" and payload is not None
+    assert main._play_cursor_kind(game, floor, pixel, [], buf) == "walk"
+    assert main._marker_for(game, floor, payload) is not None
+
+
+def test_run_hands_the_cursor_its_marker_ring_and_settle_state(data_dir, profile, monkeypatch):
+    # The loop's cursor site passes the live intent's marker, the hold and
+    # the dead zone through to render_cursor. Checked by capturing the call.
+    import PyAitD.app.shell as main
+    calls = []
+
+    def spy(painter, pos, kind, **kw):
+        calls.append((pos, kind, kw))
+    monkeypatch.setattr(main, "render_cursor", spy)
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    pixel = next(p for p in _sampled_pixels() if resolve_play_click(game, floor, p, [])[0] == "walk")
+    buf = held_pointer(pixel)
+    route_play_click(game, ModalSession(), floor, pixel, [], buf)
+    # route_play_click closes the dead zone as part of committing a fresh
+    # press (it is a brand new gesture, not a cut settling) -- reopen it
+    # here to simulate a cut landing mid-hold, which is what the dashed
+    # ring is meant to reflect.
+    buf.follow_settle_origin = pixel
+    main._render_play_cursor(game, floor, pixel, [], buf, painter=None)
+    (pos, kind, kw), = calls
+    assert pos == pixel and kind == "walk"
+    assert kw["held"] is True
+    assert kw["settling"] is True
+    assert kw["destination"] == main._intent_marker(game, floor)
+    assert kw["preview"] is None, "no preview while a press is held"
