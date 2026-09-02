@@ -1532,7 +1532,7 @@ _CURSOR_COLORS = {
     "attack": (255, 96, 72),
     "push": (255, 178, 56),
     "inventory": (120, 210, 255),
-    "blocked": (190, 90, 80),
+    "blocked": (235, 80, 70),
 }
 _MARKER_COLOR = (240, 240, 210)
 _RING_RADIUS = 9
@@ -1591,10 +1591,11 @@ def render_cursor(
         painter.line(colour, (x + 7, y), (x + 3, y - 3), width=2)
         painter.line(colour, (x + 7, y), (x + 3, y + 3), width=2)
     elif kind == "blocked":
-        painter.line(colour, (x - 4, y - 4), (x + 4, y + 4))
-        painter.line(colour, (x - 4, y + 4), (x + 4, y - 4))
+        painter.line(colour, (x - 4, y - 4), (x + 4, y + 4), width=2)
+        painter.line(colour, (x - 4, y + 4), (x + 4, y - 4), width=2)
     else:
         painter.circle(colour, (x, y), 4, width=1)
+        painter.circle(colour, (x, y), 1)
     if held:
         if settling:
             _dashed_ring(painter, colour, (x, y), _RING_RADIUS)
