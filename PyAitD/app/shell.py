@@ -19,6 +19,12 @@ from PyAitD.engine.script.effects import ChooseCharacter, GameMode, InputMode, O
 from PyAitD.engine.script.game import enter_floor_start, init_game
 from PyAitD.engine.script.life import Trace
 from PyAitD.engine.data.pak import PakError
+from PyAitD.engine.nav.navmesh import (
+    TARGET_SNAP_CELLS, agent_extent, approach_cell, nearest_walkable,
+)
+from PyAitD.engine.nav.picking import (
+    pick_actor, pick_floor_any_room, snap_accept, viewed_floor_y, visible_accept,
+)
 from PyAitD.engine.script.save import (
     SaveError, read_slot, restore_game, save_dir, slot_path, snapshot_game, write_slot,
 )
@@ -375,8 +381,6 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
         can_strike, hold_action_approach, is_combat_target,
         is_hold_action_target,
     )
-    from PyAitD.engine.nav.navmesh import agent_extent, approach_cell, nearest_walkable
-    from PyAitD.engine.nav.picking import pick_actor, pick_floor_any_room
     from PyAitD.app.ui import PlayLayout
     from PyAitD.engine.space.world import room_delta
 
@@ -424,16 +428,24 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
             if hero.room != target.room:
                 dx, _dy, dz = room_delta(game, hero.room, target.room)
                 from_x, from_z = from_x - dx, from_z + dz
-            spot = approach_cell(mesh, dest_x, dest_z, from_x, from_z)
+            spot = approach_cell(
+                mesh, dest_x, dest_z, from_x, from_z,
+                accept=visible_accept(
+                    floor, hero.room, game.num_camera, target.room,
+                    viewed_floor_y(floor, hero.room, target.room, hero.world_y), agent,
+                ),
+            )
             if spot is not None:
                 dest_x, dest_z = spot
+            else:
+                return ("blocked", None)
         return (
             "target",
             (dest_x, dest_z, target.room, target.index_in_world),
         )
 
     picked = pick_floor_any_room(
-        logical_pos, floor, hero.room, game.num_camera, hero.world_y,
+        logical_pos, floor, hero.room, game.num_camera, hero.world_y, agent=agent,
     )
     if picked is None:
         return ("blocked", None)
@@ -443,7 +455,14 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
     # keep the click and let direct steering handle it. A blocked cell inside a
     # real mesh snaps, and only an unsnappable one is refused.
     if mesh is not None and mesh.walkable.any():
-        snapped = nearest_walkable(mesh, dest_x, dest_z)
+        snapped = nearest_walkable(
+            mesh, dest_x, dest_z,
+            accept=snap_accept(
+                floor, hero.room, game.num_camera, dest_room,
+                viewed_floor_y(floor, hero.room, dest_room, hero.world_y),
+                logical_pos, agent,
+            ),
+        )
         if snapped is None:
             return ("blocked", None)
         dest_x, dest_z = snapped

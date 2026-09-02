@@ -316,3 +316,48 @@ def pick_actor(logical_pos, draw_list):
         if hit:
             return actor_idx
     return None
+
+
+SNAP_BUDGET_PX = 8   # how far, on screen, a snapped walk may land from the
+                     # pointer: past this the pick is refused, never a surprise
+
+
+def project_room_point(floor, hero_room, cam_slot, room_idx, x, y, z):
+    """A room-frame point on the logical screen under the hero room's camera
+    slot, or None when it is behind the near clip or off the 320x200 frame."""
+    global_cam_idx = floor.rooms[hero_room].camera_indices[cam_slot]
+    state = _camera_state_global(floor, room_idx, global_cam_idx)
+    screen = project_floor_point(state, x, y, z)
+    if screen is None:
+        return None
+    if not (0 <= screen[0] < _LOGICAL_W and 0 <= screen[1] < _LOGICAL_H):
+        return None
+    return screen
+
+
+def visible_accept(floor, hero_room, cam_slot, room_idx, floor_y, agent=None):
+    """Candidate filter: the cell must be visible from the camera on screen."""
+    global_cam_idx = floor.rooms[hero_room].camera_indices[cam_slot]
+
+    def accept(x, z):
+        return floor_point_visible(floor, global_cam_idx, room_idx, x, floor_y, z, agent)
+    return accept
+
+
+def snap_accept(
+        floor, hero_room, cam_slot, room_idx, floor_y, logical_pos, agent=None,
+        budget=SNAP_BUDGET_PX,
+):
+    """Candidate filter for a snapped walk: on screen within `budget` logical
+    pixels of the pointer on both axes, and visible from the camera."""
+    visible = visible_accept(floor, hero_room, cam_slot, room_idx, floor_y, agent)
+
+    def accept(x, z):
+        screen = project_room_point(floor, hero_room, cam_slot, room_idx, x, floor_y, z)
+        if screen is None:
+            return False
+        if (abs(screen[0] - logical_pos[0]) > budget
+                or abs(screen[1] - logical_pos[1]) > budget):
+            return False
+        return visible(x, z)
+    return accept

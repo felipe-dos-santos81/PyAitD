@@ -249,3 +249,50 @@ def test_approach_cell_accepts_a_target_outside_the_grid():
 def test_approach_cell_gives_up_when_nothing_walkable_is_in_range():
     mesh = RoomMesh(0, 0, 100, np.zeros((30, 30), dtype=bool))
     assert approach_cell(mesh, 1500, 1500, 0, 0) is None
+
+
+def test_nearest_walkable_honours_the_accept_filter(data_dir, profile):
+    _game, hero = _hero_agent(data_dir, profile)
+    mesh = build_room_mesh(Floor(data_dir, 0, profile), 0, agent_extent(hero))
+    blocked = next(
+        mesh.center_of(i, j)
+        for i in range(mesh.shape[0]) for j in range(mesh.shape[1])
+        if not mesh.walkable[i, j] and 20 < i < 130 and 20 < j < 120
+    )
+    unfiltered = nearest_walkable(mesh, *blocked)
+    assert unfiltered is not None
+    assert nearest_walkable(mesh, *blocked, accept=lambda x, z: False) is None
+    seen = []
+    filtered = nearest_walkable(
+        mesh, *blocked, accept=lambda x, z: seen.append((x, z)) or (x, z) != unfiltered,
+    )
+    assert filtered is not None and filtered != unfiltered
+    assert unfiltered in seen, "the filter saw the candidate it rejected"
+
+
+def test_nearest_walkable_returns_a_walkable_point_without_asking(data_dir, profile):
+    _game, hero = _hero_agent(data_dir, profile)
+    mesh = build_room_mesh(Floor(data_dir, 0, profile), 0, agent_extent(hero))
+    walkable = next(
+        mesh.center_of(i, j)
+        for i in range(mesh.shape[0]) for j in range(mesh.shape[1])
+        if mesh.walkable[i, j]
+    )
+    assert nearest_walkable(mesh, *walkable, accept=lambda x, z: False) == walkable
+
+
+def test_approach_cell_honours_the_accept_filter(data_dir, profile):
+    game, hero = _hero_agent(data_dir, profile)
+    mesh = build_room_mesh(Floor(data_dir, 0, profile), 0, agent_extent(hero))
+    target = game.actors[10]
+    spot = approach_cell(mesh, target.room_x, target.room_z, hero.room_x, hero.room_z)
+    assert spot == (4060, -3870)
+    assert approach_cell(
+        mesh, target.room_x, target.room_z, hero.room_x, hero.room_z,
+        accept=lambda x, z: False,
+    ) is None
+    other = approach_cell(
+        mesh, target.room_x, target.room_z, hero.room_x, hero.room_z,
+        accept=lambda x, z: (x, z) != spot,
+    )
+    assert other is not None and other != spot and mesh.is_walkable(*other)

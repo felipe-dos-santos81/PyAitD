@@ -920,6 +920,69 @@ def test_opening_wardrobe_resolves_and_routes_as_a_held_push(data_dir, profile):
     assert game.nav_intent.engaged is False
 
 
+def test_a_snap_past_the_budget_is_blocked_not_a_far_walk(data_dir, profile, monkeypatch):
+    # A pointer on a blocked cell whose only walkable neighbours project more
+    # than SNAP_BUDGET_PX away must resolve blocked: the hero never heads for
+    # somewhere visibly away from the pointer. nearest_walkable is replaced
+    # by a stand-in that refuses whenever a filter is given, which is exactly
+    # what the real search does when every ring candidate fails the budget.
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    agent = main.agent_extent(hero)
+    # Bottom-of-screen pixels foreshorten so hard that even a blocked cell's
+    # nearest walkable neighbour can project dozens of pixels away -- past
+    # any camera slot's budget. Loop slots inside the pixel scan (as the task
+    # brief anticipates) to find a pixel/slot pair where a blocked cell's
+    # snap genuinely lands inside SNAP_BUDGET_PX under the real resolver.
+    found = None
+    for p in _sampled_pixels():
+        for slot in range(len(floor.rooms[hero.room].camera_indices)):
+            hit = main.pick_floor_any_room(p, floor, hero.room, slot, hero.world_y, agent=agent)
+            if hit is None or game.nav_meshes.mesh_for(floor, hit[2], agent).is_walkable(hit[0], hit[1]):
+                continue
+            game.num_camera = slot
+            if resolve_play_click(game, floor, p, [])[0] == "walk":
+                found = p
+                break
+        if found is not None:
+            break
+    assert found is not None, "no attic pixel/camera pair snaps a blocked cell within budget"
+    pixel = found
+    assert resolve_play_click(game, floor, pixel, [])[0] == "walk", "the real snap accepts this pixel"
+
+    seen = {}
+
+    def refusing(mesh, x, z, max_cells=6, accept=None):
+        seen["accept"] = accept
+        return None
+    monkeypatch.setattr(main, "nearest_walkable", refusing)
+    assert resolve_play_click(game, floor, pixel, [])[0] == "blocked"
+    assert callable(seen["accept"]), "the resolver did not hand nearest_walkable a filter"
+
+
+def test_object_approach_uses_a_visibility_filter(data_dir, profile, monkeypatch):
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    seen = {}
+    real = main.approach_cell
+
+    def spy(mesh, x, z, from_x, from_z, max_cells=main.TARGET_SNAP_CELLS, accept=None):
+        seen["accept"] = accept
+        return real(mesh, x, z, from_x, from_z, max_cells, accept)
+    monkeypatch.setattr(main, "approach_cell", spy)
+    # world object 13 (actor 10) is floor 0's clickable interactable; hand the
+    # resolver its bbox so the click lands on it
+    target = game.actors[10]
+    draw_list = [(10, (0, 0, 319, 199))]
+    kind, _payload = resolve_play_click(game, floor, (160, 100), draw_list)
+    assert kind in ("target", "blocked")
+    assert callable(seen.get("accept")), "the resolver did not hand approach_cell a filter"
+
+
 def test_latched_push_cursor_survives_pointer_drift(data_dir, profile):
     # A held push must remain visually unambiguous while the pointer moves
     # elsewhere; resolving current hover here would advertise another action.
@@ -1478,24 +1541,24 @@ def test_the_approach_bias_is_converted_into_the_target_room_s_frame(data_dir, p
     # that room's coordinate frame first. Floor 1 room 0 -> room 7 is a
     # 12000-unit delta on x, 120 grid cells, so an unconverted bias picks the
     # approach side essentially at random.
-    import PyAitD.engine.nav.navmesh as navmesh_module
+    import PyAitD.app.shell as main
     from PyAitD.app.shell import resolve_play_click
     from PyAitD.engine.space.world import room_delta
 
     game, floor, hero, target, draw_list = _cross_room_target_setup(data_dir, profile)
 
     seen = {}
-    original = navmesh_module.approach_cell
+    original = main.approach_cell
 
     def spy(mesh, x, z, from_x, from_z, **kwargs):
         seen["from"] = (from_x, from_z)
         return original(mesh, x, z, from_x, from_z, **kwargs)
 
-    navmesh_module.approach_cell = spy
+    main.approach_cell = spy
     try:
         kind, _args = resolve_play_click(game, floor, (150, 100), draw_list)
     finally:
-        navmesh_module.approach_cell = original
+        main.approach_cell = original
 
     assert kind == "target"
     assert "from" in seen, "approach_cell was never reached"
@@ -1513,7 +1576,7 @@ def test_the_approach_bias_is_converted_into_the_target_room_s_frame(data_dir, p
 def test_a_same_room_target_passes_the_hero_position_unchanged(data_dir, profile):
     # control: the conversion must be a no-op within one room, or every
     # single-room click would be biased by a spurious offset.
-    import PyAitD.engine.nav.navmesh as navmesh_module
+    import PyAitD.app.shell as main
     from PyAitD.app.shell import resolve_play_click
 
     game, floor, hero, target, draw_list = _cross_room_target_setup(data_dir, profile)
@@ -1521,32 +1584,32 @@ def test_a_same_room_target_passes_the_hero_position_unchanged(data_dir, profile
     target.room_x, target.room_z = hero.room_x + 900, hero.room_z + 900
 
     seen = {}
-    original = navmesh_module.approach_cell
+    original = main.approach_cell
 
     def spy(mesh, x, z, from_x, from_z, **kwargs):
         seen["from"] = (from_x, from_z)
         return original(mesh, x, z, from_x, from_z, **kwargs)
 
-    navmesh_module.approach_cell = spy
+    main.approach_cell = spy
     try:
         resolve_play_click(game, floor, (150, 100), draw_list)
     finally:
-        navmesh_module.approach_cell = original
+        main.approach_cell = original
 
     assert seen.get("from") == (hero.room_x, hero.room_z)
 
 
 def test_inventory_hud_wins_before_world_resolution(data_dir, profile, monkeypatch):
-    import PyAitD.engine.nav.picking as picking
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     _finish_take(game, 38)
     monkeypatch.setattr(
-        picking,
+        main,
         "pick_floor_any_room",
-        lambda *args: (_ for _ in ()).throw(AssertionError("HUD leaked to world picking")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("HUD leaked to world picking")),
     )
     assert resolve_play_click(
         game, floor, PlayLayout.INVENTORY.center, [],
@@ -1556,7 +1619,7 @@ def test_inventory_hud_wins_before_world_resolution(data_dir, profile, monkeypat
 def test_inventory_hud_effective_padding_has_priority_and_exclusive_far_edges(
     data_dir, profile, monkeypatch,
 ):
-    import PyAitD.engine.nav.picking as picking
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -1564,8 +1627,8 @@ def test_inventory_hud_effective_padding_has_priority_and_exclusive_far_edges(
     _finish_take(game, 38)
     calls = []
     monkeypatch.setattr(
-        picking, "pick_floor_any_room",
-        lambda *args: calls.append(args) or None,
+        main, "pick_floor_any_room",
+        lambda *args, **kwargs: calls.append(args) or None,
     )
     padded_points = (
         (PlayLayout.INVENTORY.right, PlayLayout.INVENTORY.centery),

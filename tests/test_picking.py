@@ -383,3 +383,64 @@ def test_occlude_false_is_the_pre_occlusion_baseline(data_dir, profile):
         assert pick_floor_any_room(pixel, floor, hero.room, slot, hero.world_y) is None
     finally:
         room.hard_cols = saved
+
+
+from PyAitD.engine.nav.picking import (
+    SNAP_BUDGET_PX, project_room_point, snap_accept, visible_accept,
+)
+
+
+def test_project_room_point_matches_project_floor_point_in_the_hero_room(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    slot = game.new_num_camera
+    state = _state(floor, hero.room, slot)
+    expected = project_floor_point(state, hero.room_x, hero.world_y, hero.room_z)
+    got = project_room_point(floor, hero.room, slot, hero.room, hero.room_x, hero.world_y, hero.room_z)
+    assert got is not None and expected is not None
+    assert abs(got[0] - expected[0]) < 1e-9 and abs(got[1] - expected[1]) < 1e-9
+
+
+def test_project_room_point_is_none_off_the_frame(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    slot = game.new_num_camera
+    # far enough along +x that no attic camera keeps it in 320x200
+    assert project_room_point(
+        floor, hero.room, slot, hero.room, hero.room_x + 200000, hero.world_y, hero.room_z,
+    ) is None
+
+
+def test_snap_accept_bounds_candidates_in_screen_pixels(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    slot = game.new_num_camera
+    here = project_room_point(floor, hero.room, slot, hero.room, hero.room_x, hero.world_y, hero.room_z)
+    pointer = (int(here[0]), int(here[1]))
+    accept = snap_accept(floor, hero.room, slot, hero.room, hero.world_y, pointer)
+    assert accept(hero.room_x, hero.room_z) is True
+    # walk +x until the projection leaves the budget; that candidate is refused
+    step = 100
+    while True:
+        x = hero.room_x + step
+        screen = project_room_point(floor, hero.room, slot, hero.room, x, hero.world_y, hero.room_z)
+        if screen is None or max(abs(screen[0] - pointer[0]), abs(screen[1] - pointer[1])) > SNAP_BUDGET_PX:
+            break
+        step += 100
+    assert accept(x, hero.room_z) is False
+    assert SNAP_BUDGET_PX == 8
+
+
+def test_visible_accept_is_floor_point_visible_under_the_hero_camera(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    slot = game.new_num_camera
+    cam = floor.rooms[hero.room].camera_indices[slot]
+    accept = visible_accept(floor, hero.room, slot, hero.room, hero.world_y)
+    assert accept(hero.room_x, hero.room_z) == floor_point_visible(
+        floor, cam, hero.room, hero.room_x, hero.world_y, hero.room_z,
+    )
