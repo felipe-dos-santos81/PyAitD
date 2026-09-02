@@ -202,11 +202,27 @@ def pick_floor(logical_pos, floor, room_idx, cam_slot, floor_y):
     return pick_floor_in_room(logical_pos, floor, room_idx, global_cam_idx, floor_y)
 
 
-def pick_floor_any_room(logical_pos, floor, hero_room, cam_slot, floor_y):
+def viewed_floor_y(floor, hero_room, room_idx, floor_y):
+    """The floor plane height to pick room_idx at when the hero stands at
+    floor_y in hero_room: the hero's own height in the hero's room, and that
+    height re-framed into a viewed room's origin otherwise, so a lower or
+    higher neighbouring room is picked at its own depth."""
+    if room_idx == hero_room:
+        return floor_y
+    return to_room_frame(floor, hero_room, room_idx, 0, floor_y, 0)[1]
+
+
+def pick_floor_any_room(
+        logical_pos, floor, hero_room, cam_slot, floor_y, *, occlude=True, agent=None,
+):
     """Pick across every room this camera views. Returns (x, z, room) or None.
 
     The hero's own room is tried first: walking inside the current room never
-    needs a transition, so it wins any overlap.
+    needs a transition, so it wins any overlap. With `occlude` a floor hit
+    whose camera ray crosses a hard col (a wall, a piece of furniture) is
+    refused rather than returned as "the floor behind it"; `occlude=False`
+    is the pre-occlusion pick, kept as the baseline the proof tool and the
+    tests compare against.
     """
     global_cam_idx = floor.rooms[hero_room].camera_indices[cam_slot]
     viewed = [vr.viewed_room_idx for vr in floor.cameras[global_cam_idx].viewed_rooms]
@@ -214,9 +230,15 @@ def pick_floor_any_room(logical_pos, floor, hero_room, cam_slot, floor_y):
     for room_idx in ordered:
         if room_idx >= len(floor.rooms):
             continue
-        hit = pick_floor_in_room(logical_pos, floor, room_idx, global_cam_idx, floor_y)
-        if hit is not None:
-            return (hit[0], hit[1], room_idx)
+        room_floor_y = viewed_floor_y(floor, hero_room, room_idx, floor_y)
+        hit = pick_floor_in_room(logical_pos, floor, room_idx, global_cam_idx, room_floor_y)
+        if hit is None:
+            continue
+        if occlude and not floor_point_visible(
+                floor, global_cam_idx, room_idx, hit[0], room_floor_y, hit[1], agent,
+        ):
+            return None
+        return (hit[0], hit[1], room_idx)
     return None
 
 

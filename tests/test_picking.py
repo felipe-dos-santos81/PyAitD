@@ -293,3 +293,93 @@ def test_floor_point_visible_skips_boxes_outside_the_agent_band(data_dir, profil
         assert floor_point_visible(floor, cam, 0, *point, agent=band) is True
     finally:
         room.hard_cols = saved
+
+
+from PyAitD.engine.nav.navmesh import agent_extent
+from PyAitD.engine.nav.picking import viewed_floor_y
+
+
+def _attic_pixels():
+    return [(x, y) for y in range(199, 40, -5) for x in range(2, 320, 5)]
+
+
+def test_viewed_floor_y_is_the_hero_height_in_the_hero_room(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    assert viewed_floor_y(floor, 0, 0, -1234) == -1234
+
+
+def test_viewed_floor_y_follows_the_other_room_s_origin(data_dir, profile):
+    # Floor 0 has a single room, so this uses floor 1 instead (rooms 0 and 1,
+    # both used elsewhere in this file), following the same substitution as
+    # test_to_room_frame_uses_the_asymmetric_signs above. Every room on every
+    # floor of this game's real data shares world_y == 0 (checked across all
+    # eight shipped floors), so rooms 0 and 1 would give dy == 0 and make the
+    # assertion trivially true; room 1's world_y is temporarily patched to a
+    # distinct value, mirroring this file's hard_cols save/restore idiom, so
+    # the re-framing arithmetic actually has a nonzero dy to get right.
+    floor = Floor(data_dir, 1, profile)
+    saved = floor.rooms[1].world_y
+    try:
+        floor.rooms[1].world_y = saved + 7
+        dy = 10 * (floor.rooms[1].world_y - floor.rooms[0].world_y)
+        assert viewed_floor_y(floor, 0, 1, 500) == 500 + dy
+    finally:
+        floor.rooms[1].world_y = saved
+
+
+def test_occlusion_only_removes_picks_and_removes_some(data_dir, profile):
+    # Under every attic camera the occluded pick is a subset of the old one:
+    # a pixel that still picks lands on the same point, and at least one
+    # camera has a pixel that used to fall through a wall onto the floor
+    # behind it and no longer does.
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    agent = agent_extent(hero)
+    refused_anywhere = 0
+    for cam_slot in range(len(floor.rooms[hero.room].camera_indices)):
+        for pixel in _attic_pixels():
+            old = pick_floor_any_room(
+                pixel, floor, hero.room, cam_slot, hero.world_y, occlude=False,
+            )
+            new = pick_floor_any_room(
+                pixel, floor, hero.room, cam_slot, hero.world_y, agent=agent,
+            )
+            if new is not None:
+                assert new == old, f"camera {cam_slot} pixel {pixel} moved"
+            elif old is not None:
+                refused_anywhere += 1
+    assert refused_anywhere > 0, "no attic pixel was ever occluded"
+
+
+def test_occlude_false_is_the_pre_occlusion_baseline(data_dir, profile):
+    # occlude=False must ignore hard cols entirely: adding a box in front of
+    # every point changes nothing for it, while the default pick refuses.
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    slot = game.new_num_camera
+    pixel = next(
+        p for p in _attic_pixels()
+        if (hit := pick_floor_any_room(p, floor, hero.room, slot, hero.world_y)) is not None
+        and hit[2] == hero.room
+    )
+    baseline = pick_floor_any_room(pixel, floor, hero.room, slot, hero.world_y, occlude=False)
+    assert baseline is not None
+    # a box half-way along the camera ray to the picked point (the box must
+    # not contain the camera: an origin inside a box is never an occlusion)
+    x, z, room_idx = baseline
+    state = _state(floor, room_idx, slot)
+    mid = ((state.x + x) / 2, (state.y + hero.world_y) / 2, (state.z + z) / 2)
+    room = floor.rooms[room_idx]
+    saved = list(room.hard_cols)
+    try:
+        room.hard_cols = saved + [_box(
+            mid[0] - 50, mid[0] + 50, mid[1] - 50, mid[1] + 50, mid[2] - 50, mid[2] + 50,
+        )]
+        assert pick_floor_any_room(
+            pixel, floor, hero.room, slot, hero.world_y, occlude=False,
+        ) == baseline
+        assert pick_floor_any_room(pixel, floor, hero.room, slot, hero.world_y) is None
+    finally:
+        room.hard_cols = saved
