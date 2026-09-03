@@ -1152,7 +1152,9 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
-    monkeypatch.setattr(main, "_play_cursor_kind", lambda *_args: "blocked")
+    # run() renders the cursor through _render_play_cursor -> _play_cursor_state;
+    # patching _play_cursor_kind here would be inert (nothing in run() calls it)
+    monkeypatch.setattr(main, "_play_cursor_state", lambda *_args: ("blocked", None))
     monkeypatch.setattr(main, "InputBuffer", lambda: input_buffer)
     monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
@@ -1799,7 +1801,7 @@ def test_original_actor_hit_wins_over_a_frontmost_expanded_actor(data_dir, profi
 
 
 def test_expanded_actor_target_wins_before_floor_walking(data_dir, profile, monkeypatch):
-    import PyAitD.engine.nav.picking as picking
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -1807,9 +1809,12 @@ def test_expanded_actor_target_wins_before_floor_walking(data_dir, profile, monk
     actor_idx = _expanded_target_candidates(game)[0]
     game.actors[actor_idx].object_type |= AF_FOUNDABLE
     hero = game.actors[game.current_camera_target_actor]
+    # the shell imported pick_floor_any_room by name, so it reads its OWN
+    # module global; patching engine.nav.picking here would be inert. The
+    # stand-in takes **kwargs because the shell passes agent=.
     monkeypatch.setattr(
-        picking, "pick_floor_any_room",
-        lambda *_args: (0, 0, hero.room),
+        main, "pick_floor_any_room",
+        lambda *_args, **_kwargs: (0, 0, hero.room),
     )
 
     kind, payload = resolve_play_click(
