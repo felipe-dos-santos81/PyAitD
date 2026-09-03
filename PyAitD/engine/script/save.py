@@ -428,6 +428,9 @@ def _validate_content_state(state, pack, first_index):
         _require_int(entry["hp"], f"{path}.hp")
         if entry["phase"] not in PHASES:
             _fail(f"{path}.phase", f"expected one of {', '.join(PHASES)}, got {entry['phase']!r}")
+    expected = {str(i) for i in range(first_index, last + 1)}
+    if set(state) != expected:
+        _fail("content_state", f"expected entries for {first_index}..{last}")
 
 
 def _validate_inventory(inventory):

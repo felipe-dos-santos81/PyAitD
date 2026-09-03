@@ -608,6 +608,19 @@ def test_validate_checks_world_object_count_and_content_state_against_the_pack(d
         validate_snapshot(vanilla, data_dir, profile)
 
 
+def test_validate_requires_every_pack_index_present_in_content_state(data_dir, profile, example_pack_dir):
+    game, pack = _packed(data_dir, profile, example_pack_dir)
+    payload = snapshot_game(game, SETTINGS)
+    missing_one = copy.deepcopy(payload)
+    del missing_one["content_state"]["293"]
+    with pytest.raises(SaveError, match=r"content_state: expected entries for 292\.\.293"):
+        validate_snapshot(missing_one, data_dir, profile, pack=pack)
+    missing_all = copy.deepcopy(payload)
+    missing_all["content_state"] = {}
+    with pytest.raises(SaveError, match=r"content_state: expected entries for 292\.\.293"):
+        validate_snapshot(missing_all, data_dir, profile, pack=pack)
+
+
 def test_restore_round_trips_a_pack_game_mid_chase(data_dir, profile, example_pack_dir):
     from PyAitD.engine.data.floor import Floor
     from PyAitD.engine.script.playworld import play_tick
