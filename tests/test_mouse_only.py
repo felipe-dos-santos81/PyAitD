@@ -384,10 +384,14 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, profile, monkeypat
                 assert tuple(wardrobe.zv) == state["wardrobe_released_zv"]
         return result
 
-    real_cursor_kind = main._play_cursor_kind
+    # _render_play_cursor calls _play_cursor_state directly (kind, payload
+    # together, one resolve), not _play_cursor_kind -- so the observer sits
+    # on _play_cursor_state and unwraps the tuple; every assertion below is
+    # unchanged from when this observed _play_cursor_kind's return value.
+    real_cursor_state = main._play_cursor_state
 
-    def observe_cursor_kind(current_game, current_floor, hover, draw_list, input_buffer):
-        kind = real_cursor_kind(
+    def observe_cursor_state(current_game, current_floor, hover, draw_list, input_buffer):
+        kind, payload = real_cursor_state(
             current_game, current_floor, hover, draw_list, input_buffer,
         )
         if state["phase"] == "hover" and hover == (150, 100):
@@ -396,10 +400,10 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, profile, monkeypat
                 and current_game.nav_intent is not None):
             assert kind == "push"
             state["drift_cursor_seen"] = True
-        return kind
+        return kind, payload
 
     monkeypatch.setattr(main, "play_tick", observe_play_tick)
-    monkeypatch.setattr(main, "_play_cursor_kind", observe_cursor_kind)
+    monkeypatch.setattr(main, "_play_cursor_state", observe_cursor_state)
 
     def next_events():
         state["frames"] += 1

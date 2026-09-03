@@ -58,6 +58,22 @@ fixes what a press resolves to and what the player sees, not how they press.
 
 ## Section 1: picking (`engine/nav/picking.py`)
 
+> **Amendment (2026-09-02, post-implementation review).** The occlusion test
+> below is implemented, tested and SHIPS OFF (`picking.OCCLUDE_BY_DEFAULT`).
+> Two things this section assumes are not true of the data. It assumes the
+> camera sits inside the room's volume, so that "every hard col of every room
+> the camera views" is a sound occluder set; most of this game's cameras sit
+> outside, behind or above the perimeter wall, so the segment to any floor
+> point crosses that wall first. `floor_point_visible` now clips the segment
+> at the picked room's own volume (`room_volume`) and counts only boxes
+> entered after it. That took camera slots with NO clickable floor pixel from
+> 87 of 274 down to 14 — not to zero, because the second assumption also
+> fails: hard cols approximate collision, not the painted scene, and some
+> rooms are a handful of chunky full-height blocks that hide everything the
+> camera can pick. Fourteen dead cameras being worse than the mis-picks the
+> filter prevents, the filter is off and a whole-game census gates it. See
+> `docs/mouse-fidelity-proof.md`.
+
 ### Occlusion test
 
 After a cover polygon's homography recovers a floor point `(wx, wz)` at height

@@ -76,6 +76,14 @@ class InputBuffer:
     # None means "resolve on the next frame regardless" -- what a floor change
     # leaves behind, its old destination being an index into the old floor.
     follow_pos: tuple[int, int] | None = None
+    # The camera slot follow_pos was resolved under. When game.num_camera no
+    # longer matches, a cut happened: shell.follow_pointer keeps the
+    # destination and opens a dead zone instead of re-resolving the first
+    # pixel of drift under a camera the hand never aimed at.
+    follow_camera: int | None = None
+    # Where the pointer was when the cut was noticed. While set, motion
+    # within shell.CUT_DEAD_ZONE_PX of it is settling, not a gesture.
+    follow_settle_origin: tuple[int, int] | None = None
     # True once this hold's press resolved to anything other than walk/target
     # (attack, inventory, push): the spec forbids resuming a follow on that
     # hold even after the underlying latch (mouse_attack_target, a push's
@@ -155,6 +163,8 @@ def reset_input(state):
     state.mouse_attack_ticks = 0
     state.follow_last = None
     state.follow_pos = None
+    state.follow_camera = None
+    state.follow_settle_origin = None
     state.follow_spent = False
     state.pointer_run = False
     state.last_press_tick = None
@@ -1522,12 +1532,45 @@ _CURSOR_COLORS = {
     "attack": (255, 96, 72),
     "push": (255, 178, 56),
     "inventory": (120, 210, 255),
-    "blocked": (190, 90, 80),
+    "blocked": (235, 80, 70),
 }
+_MARKER_COLOR = (240, 240, 210)
+_RING_RADIUS = 9
+_RING_DASHES = 8
 
 
-def render_cursor(painter, logical_pos, kind):
-    """Draw the pick cursor. Pure presentation: never touches world state."""
+def _diamond(painter, colour, centre, size, width):
+    x, y = centre
+    points = [(x, y - size), (x + size, y), (x, y + size), (x - size, y)]
+    for k in range(4):
+        painter.line(colour, points[k], points[(k + 1) % 4], width=width)
+
+
+def _dashed_ring(painter, colour, centre, radius):
+    import math
+    x, y = centre
+    for k in range(_RING_DASHES):
+        angle = 2 * math.pi * k / _RING_DASHES
+        painter.circle(colour, (x + radius * math.cos(angle), y + radius * math.sin(angle)), 1)
+
+
+def render_cursor(
+        painter, logical_pos, kind, *, held=False, settling=False,
+        destination=None, preview=None,
+):
+    """Draw the pick cursor and its feedback. Pure presentation: never
+    touches world state.
+
+    `destination` is where the live intent is heading, projected to the
+    logical frame; `preview` is where a press would head, drawn fainter.
+    `held` draws the press ring; `settling` (a camera cut's dead zone) draws
+    it dashed. Every keyword defaults to the plain cursor.
+    """
+    if preview is not None and destination is None:
+        faint = (*_MARKER_COLOR, 110)
+        _diamond(painter, faint, (int(preview[0]), int(preview[1])), 4, 1)
+    if destination is not None:
+        _diamond(painter, _MARKER_COLOR, (int(destination[0]), int(destination[1])), 4, 2)
     if logical_pos is None:
         return
     colour = _CURSOR_COLORS.get(kind, _CURSOR_COLORS["walk"])
@@ -1548,7 +1591,13 @@ def render_cursor(painter, logical_pos, kind):
         painter.line(colour, (x + 7, y), (x + 3, y - 3), width=2)
         painter.line(colour, (x + 7, y), (x + 3, y + 3), width=2)
     elif kind == "blocked":
-        painter.line(colour, (x - 4, y - 4), (x + 4, y + 4))
-        painter.line(colour, (x - 4, y + 4), (x + 4, y - 4))
+        painter.line(colour, (x - 4, y - 4), (x + 4, y + 4), width=2)
+        painter.line(colour, (x - 4, y + 4), (x + 4, y - 4), width=2)
     else:
         painter.circle(colour, (x, y), 4, width=1)
+        painter.circle(colour, (x, y), 1)
+    if held:
+        if settling:
+            _dashed_ring(painter, colour, (x, y), _RING_RADIUS)
+        else:
+            painter.circle(colour, (x, y), _RING_RADIUS, width=1)

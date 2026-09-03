@@ -196,3 +196,393 @@ def test_pick_floor_any_room_prefers_the_hero_s_own_room(data_dir, profile):
     assert hero_in_0[:2] != hero_in_6[:2], (
         "each room recovers the point in its own coordinate space"
     )
+
+
+from types import SimpleNamespace
+
+from PyAitD.engine.nav.picking import (
+    OCCLUDE_BY_DEFAULT, floor_point_visible, ray_box_hit, room_volume,
+    to_room_frame,
+)
+
+
+def _box(x1, x2, y1, y2, z1, z2):
+    return SimpleNamespace(x1=x1, x2=x2, y1=y1, y2=y2, z1=z1, z2=z2, type=0, parameter=0)
+
+
+def test_ray_box_hit_reports_the_entry_parameter():
+    box = _box(400, 600, -1000, 0, -100, 100)
+    t = ray_box_hit((0, -500, 0), (1000, -500, 0), box)
+    assert t is not None and abs(t - 0.4) < 1e-9
+
+
+def test_ray_box_hit_misses_a_box_beside_the_segment():
+    box = _box(400, 600, -1000, 0, 300, 500)
+    assert ray_box_hit((0, -500, 0), (1000, -500, 0), box) is None
+
+
+def test_ray_box_hit_ignores_a_box_past_the_point():
+    box = _box(1200, 1400, -1000, 0, -100, 100)
+    assert ray_box_hit((0, -500, 0), (1000, -500, 0), box) is None
+
+
+def test_ray_box_hit_ignores_a_box_the_origin_sits_in():
+    box = _box(-100, 100, -1000, 0, -100, 100)
+    assert ray_box_hit((0, -500, 0), (1000, -500, 0), box) is None
+
+
+def test_ray_box_hit_treats_a_point_inside_the_box_as_occluded():
+    box = _box(800, 1200, -1000, 0, -100, 100)
+    t = ray_box_hit((0, -500, 0), (1000, -500, 0), box)
+    assert t is not None and abs(t - 0.8) < 1e-9
+
+
+def test_to_room_frame_uses_the_asymmetric_signs(data_dir, profile):
+    # Floor 0 has a single room; floor 1 has enough rooms for a real
+    # from-room/to-room pair (its rooms 0 and 1 are both used elsewhere in
+    # this file, e.g. test_pick_floor_any_room_prefers_the_hero_s_own_room).
+    floor = Floor(data_dir, 1, profile)
+    src, dst = floor.rooms[0], floor.rooms[1]
+    dx = 10 * (dst.world_x - src.world_x)
+    dy = 10 * (dst.world_y - src.world_y)
+    dz = 10 * (dst.world_z - src.world_z)
+    assert to_room_frame(floor, 0, 1, 100, 200, 300) == (100 - dx, 200 + dy, 300 + dz)
+
+
+def test_floor_point_visible_rejects_a_point_behind_a_hard_col(data_dir, profile):
+    # The camera sits at (state.x, state.y, state.z) in room frame. A box
+    # placed on the segment from there to a floor point must hide the point;
+    # the same box moved off the segment must not.
+    floor = Floor(data_dir, 0, profile)
+    room = floor.rooms[0]
+    cam = room.camera_indices[0]
+    state = _state(floor, 0, 0)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    point = (hero.room_x, hero.world_y, hero.room_z)
+    mid = tuple((a + b) / 2 for a, b in zip((state.x, state.y, state.z), point))
+    saved = list(room.hard_cols)
+    try:
+        room.hard_cols = saved + [_box(
+            mid[0] - 50, mid[0] + 50, mid[1] - 50, mid[1] + 50, mid[2] - 50, mid[2] + 50,
+        )]
+        assert floor_point_visible(floor, cam, 0, *point) is False
+        room.hard_cols = saved + [_box(
+            mid[0] + 5000, mid[0] + 5100, mid[1] - 50, mid[1] + 50, mid[2] - 50, mid[2] + 50,
+        )]
+        assert floor_point_visible(floor, cam, 0, *point) is True
+    finally:
+        room.hard_cols = saved
+
+
+def test_floor_point_visible_skips_boxes_outside_the_agent_band(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    room = floor.rooms[0]
+    cam = room.camera_indices[0]
+    state = _state(floor, 0, 0)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    point = (hero.room_x, hero.world_y, hero.room_z)
+    mid = tuple((a + b) / 2 for a, b in zip((state.x, state.y, state.z), point))
+    saved = list(room.hard_cols)
+    try:
+        room.hard_cols = saved + [_box(
+            mid[0] - 50, mid[0] + 50, mid[1] - 50, mid[1] + 50, mid[2] - 50, mid[2] + 50,
+        )]
+        # a band that cannot overlap the box: entirely above it
+        band = (0, mid[1] - 10000, mid[1] - 9000)
+        assert floor_point_visible(floor, cam, 0, *point, agent=band) is True
+    finally:
+        room.hard_cols = saved
+
+
+def test_room_volume_is_the_bounding_box_of_the_rooms_hard_cols(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    boxes = floor.rooms[0].hard_cols
+    assert room_volume(floor, 0) == (
+        min(b.x1 for b in boxes), max(b.x2 for b in boxes),
+        min(b.y1 for b in boxes), max(b.y2 for b in boxes),
+        min(b.z1 for b in boxes), max(b.z2 for b in boxes),
+    )
+    saved = list(floor.rooms[0].hard_cols)
+    try:
+        floor.rooms[0].hard_cols = []
+        assert room_volume(floor, 0) is None   # nothing to clip against
+    finally:
+        floor.rooms[0].hard_cols = saved
+
+
+def test_floor_point_visible_ignores_a_box_the_camera_looks_over(data_dir, profile):
+    # The camera of floor 2's room 1 sits at z ~ +10000 in room 1's frame,
+    # past the room's own z extent: it films the room from OUTSIDE, over the
+    # perimeter wall, like most of this game's cameras. Every segment from it
+    # to a floor point therefore crosses whatever stands between it and the
+    # room -- here a box of the neighbouring room 4, which the same camera
+    # views. That box is not an occluder; the same box moved past the room's
+    # own volume is.
+    floor = Floor(data_dir, 2, profile)
+    cam = floor.rooms[1].camera_indices[0]
+    assert 4 in [vr.viewed_room_idx for vr in floor.cameras[cam].viewed_rooms]
+    state = _state(floor, 1, 0)
+    origin = (state.x, state.y, state.z)
+    saved_1, saved_4 = list(floor.rooms[1].hard_cols), list(floor.rooms[4].hard_cols)
+    try:
+        # room 1 is one solid volume around the target; the target is its
+        # centre, so the segment enters the volume well before reaching it
+        volume = _box(-1500, 1500, -3000, 0, -3000, 3000)
+        floor.rooms[1].hard_cols = [volume]
+        point = (0, 0, 0)
+        entry = ray_box_hit(origin, point, volume)
+        assert entry is not None and entry > 0.2, "fixture: the camera is outside room 1"
+
+        def at(fraction):
+            # a small box centred on the segment at `fraction`, expressed in
+            # room 4's frame -- the frame floor_point_visible tests it in
+            spot = [o + fraction * (p - o) for o, p in zip(origin, point)]
+            x, y, z = to_room_frame(floor, 1, 4, *spot)
+            return _box(x - 100, x + 100, y - 100, y + 100, z - 100, z + 100)
+
+        floor.rooms[4].hard_cols = [at(entry / 2)]
+        assert floor_point_visible(floor, cam, 1, *point) is True, (
+            "a box the camera looks over, before the room, hid the whole room"
+        )
+        floor.rooms[4].hard_cols = [at((entry + 1) / 2)]
+        assert floor_point_visible(floor, cam, 1, *point) is False, (
+            "a box inside the room stopped occluding"
+        )
+    finally:
+        floor.rooms[1].hard_cols = saved_1
+        floor.rooms[4].hard_cols = saved_4
+
+
+from PyAitD.engine.nav.navmesh import agent_extent
+from PyAitD.engine.nav.picking import viewed_floor_y
+
+
+def _attic_pixels():
+    return [(x, y) for y in range(199, 40, -5) for x in range(2, 320, 5)]
+
+
+def test_viewed_floor_y_is_the_hero_height_in_the_hero_room(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    assert viewed_floor_y(floor, 0, 0, -1234) == -1234
+
+
+def test_viewed_floor_y_follows_the_other_room_s_origin(data_dir, profile):
+    # Floor 0 has a single room, so this uses floor 1 instead (rooms 0 and 1,
+    # both used elsewhere in this file), following the same substitution as
+    # test_to_room_frame_uses_the_asymmetric_signs above. Every room on every
+    # floor of this game's real data shares world_y == 0 (checked across all
+    # eight shipped floors), so rooms 0 and 1 would give dy == 0 and make the
+    # assertion trivially true; room 1's world_y is temporarily patched to a
+    # distinct value, mirroring this file's hard_cols save/restore idiom, so
+    # the re-framing arithmetic actually has a nonzero dy to get right.
+    floor = Floor(data_dir, 1, profile)
+    saved = floor.rooms[1].world_y
+    try:
+        floor.rooms[1].world_y = saved + 7
+        dy = 10 * (floor.rooms[1].world_y - floor.rooms[0].world_y)
+        assert viewed_floor_y(floor, 0, 1, 500) == 500 + dy
+    finally:
+        floor.rooms[1].world_y = saved
+
+
+def test_occlusion_only_removes_picks_and_removes_some(data_dir, profile):
+    # Under every attic camera the occluded pick is a subset of the old one:
+    # a pixel that still picks lands on the same point, and at least one
+    # camera has a pixel that falls through a wall onto the floor behind it
+    # under occlude=False and does not under occlude=True. occlude=True is
+    # explicit: the filter does not ship on (OCCLUDE_BY_DEFAULT), and this is
+    # the property the whole-game census gate in tests/test_prove_mouse.py
+    # leans on to census one pick per pixel.
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    agent = agent_extent(hero)
+    refused_anywhere = 0
+    for cam_slot in range(len(floor.rooms[hero.room].camera_indices)):
+        for pixel in _attic_pixels():
+            old = pick_floor_any_room(
+                pixel, floor, hero.room, cam_slot, hero.world_y, occlude=False,
+            )
+            new = pick_floor_any_room(
+                pixel, floor, hero.room, cam_slot, hero.world_y,
+                agent=agent, occlude=True,
+            )
+            if new is not None:
+                assert new == old, f"camera {cam_slot} pixel {pixel} moved"
+            elif old is not None:
+                refused_anywhere += 1
+    assert refused_anywhere > 0, "no attic pixel was ever occluded"
+
+
+def test_occlude_false_is_the_pre_occlusion_baseline(data_dir, profile):
+    # occlude=False must ignore hard cols entirely: adding a box in front of
+    # every point changes nothing for it, while the default pick refuses.
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    slot = game.new_num_camera
+    pixel = next(
+        p for p in _attic_pixels()
+        if (hit := pick_floor_any_room(p, floor, hero.room, slot, hero.world_y)) is not None
+        and hit[2] == hero.room
+    )
+    baseline = pick_floor_any_room(pixel, floor, hero.room, slot, hero.world_y, occlude=False)
+    assert baseline is not None
+    # a box half-way along the camera ray to the picked point (the box must
+    # not contain the camera: an origin inside a box is never an occlusion)
+    x, z, room_idx = baseline
+    state = _state(floor, room_idx, slot)
+    mid = ((state.x + x) / 2, (state.y + hero.world_y) / 2, (state.z + z) / 2)
+    room = floor.rooms[room_idx]
+    saved = list(room.hard_cols)
+    try:
+        room.hard_cols = saved + [_box(
+            mid[0] - 50, mid[0] + 50, mid[1] - 50, mid[1] + 50, mid[2] - 50, mid[2] + 50,
+        )]
+        assert pick_floor_any_room(
+            pixel, floor, hero.room, slot, hero.world_y, occlude=False,
+        ) == baseline
+        assert pick_floor_any_room(
+            pixel, floor, hero.room, slot, hero.world_y, occlude=True,
+        ) is None
+        # and what SHIPS is the baseline: see OCCLUDE_BY_DEFAULT
+        assert pick_floor_any_room(
+            pixel, floor, hero.room, slot, hero.world_y,
+        ) == baseline
+    finally:
+        room.hard_cols = saved
+
+
+from PyAitD.engine.nav.picking import (
+    SNAP_BUDGET_PX, project_room_point, snap_accept, visible_accept,
+)
+
+
+def test_project_room_point_matches_project_floor_point_in_the_hero_room(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    slot = game.new_num_camera
+    state = _state(floor, hero.room, slot)
+    expected = project_floor_point(state, hero.room_x, hero.world_y, hero.room_z)
+    got = project_room_point(floor, hero.room, slot, hero.room, hero.room_x, hero.world_y, hero.room_z)
+    assert got is not None and expected is not None
+    assert abs(got[0] - expected[0]) < 1e-9 and abs(got[1] - expected[1]) < 1e-9
+
+
+def test_project_room_point_is_none_off_the_frame(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    slot = game.new_num_camera
+    # far enough along +x that no attic camera keeps it in 320x200
+    assert project_room_point(
+        floor, hero.room, slot, hero.room, hero.room_x + 200000, hero.world_y, hero.room_z,
+    ) is None
+
+
+def test_snap_accept_bounds_candidates_in_screen_pixels(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    slot = game.new_num_camera
+    here = project_room_point(floor, hero.room, slot, hero.room, hero.room_x, hero.world_y, hero.room_z)
+    pointer = (int(here[0]), int(here[1]))
+    accept = snap_accept(floor, hero.room, slot, hero.room, hero.world_y, pointer)
+    assert accept(hero.room_x, hero.room_z) is True
+    # walk +x until the projection leaves the budget; that candidate is refused
+    step = 100
+    while True:
+        x = hero.room_x + step
+        screen = project_room_point(floor, hero.room, slot, hero.room, x, hero.world_y, hero.room_z)
+        if screen is None or max(abs(screen[0] - pointer[0]), abs(screen[1] - pointer[1])) > SNAP_BUDGET_PX:
+            break
+        step += 100
+    assert accept(x, hero.room_z) is False
+    assert SNAP_BUDGET_PX == 8
+
+
+def test_visible_accept_is_floor_point_visible_under_the_hero_camera(data_dir, profile):
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    slot = game.new_num_camera
+    cam = floor.rooms[hero.room].camera_indices[slot]
+    accept = visible_accept(
+        floor, hero.room, slot, hero.room, hero.world_y, occlude=True,
+    )
+    assert accept(hero.room_x, hero.room_z) == floor_point_visible(
+        floor, cam, hero.room, hero.room_x, hero.world_y, hero.room_z,
+    )
+
+
+def test_visible_accept_accepts_everything_outside_the_cameras_viewed_rooms(data_dir, profile):
+    # Floor 1, room 0, camera slot 0 (global camera 0) views rooms [6, 0] --
+    # room 7 is never rendered by it. A camera's ray to a point in a room it
+    # never renders crosses hard cols by construction, not because anything
+    # actually occludes the view, so the filter must stand down there rather
+    # than refuse every candidate and turn a real interaction into blocked.
+    floor = Floor(data_dir, 1, profile)
+    cam = floor.rooms[0].camera_indices[0]
+    assert [vr.viewed_room_idx for vr in floor.cameras[cam].viewed_rooms] == [6, 0]
+
+    # a room the camera does view still filters, same as floor_point_visible
+    viewed = visible_accept(floor, 0, 0, 0, 0, occlude=True)
+    assert viewed(400, -200) == floor_point_visible(floor, cam, 0, 400, 0, -200)
+
+    # a room the camera never views accepts unconditionally
+    unviewed = visible_accept(floor, 0, 0, 7, 0, occlude=True)
+    assert unviewed(300, 500) is True
+    assert unviewed(-999999, 999999) is True, "unconditional, not merely unoccluded here"
+
+
+def test_the_shipped_pick_and_its_cell_filter_agree_about_occlusion(data_dir, profile):
+    """The two must move together. A floor pick that ignores occlusion beside
+    an approach-cell filter that does not would make objects unreachable in
+    exactly the rooms whose floor is freely clickable -- which is what
+    `blocked` looked like when the filter was refusing every cell of 87 camera
+    slots. Both read OCCLUDE_BY_DEFAULT, so this pins the pair, not the value.
+    """
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    slot = game.new_num_camera
+    cam = floor.rooms[hero.room].camera_indices[slot]
+    point = (hero.room_x, hero.world_y, hero.room_z)
+    state = _state(floor, hero.room, slot)
+    mid = tuple((a + b) / 2 for a, b in zip((state.x, state.y, state.z), point))
+    room = floor.rooms[hero.room]
+    saved = list(room.hard_cols)
+    try:
+        room.hard_cols = saved + [_box(
+            mid[0] - 50, mid[0] + 50, mid[1] - 50, mid[1] + 50, mid[2] - 50, mid[2] + 50,
+        )]
+        assert floor_point_visible(floor, cam, hero.room, *point) is False, (
+            "fixture: the box must hide the hero's own cell"
+        )
+        # the hidden cell is refused exactly when the pick occludes too
+        accept = visible_accept(floor, hero.room, slot, hero.room, hero.world_y)
+        assert accept(hero.room_x, hero.room_z) is not OCCLUDE_BY_DEFAULT
+    finally:
+        room.hard_cols = saved
+
+
+def test_the_shipped_floor_pick_is_the_unoccluded_one(data_dir, profile):
+    # The fallback the whole-game census forced: OCCLUDE_BY_DEFAULT off, so
+    # calling pick_floor_any_room the way the shell does IS occlude=False.
+    # tests/test_prove_mouse.py's gate is what says this may not change until
+    # no camera slot goes dark.
+    assert OCCLUDE_BY_DEFAULT is False
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    slot = game.new_num_camera
+    agent = agent_extent(hero)
+    for pixel in _attic_pixels()[::7]:
+        assert (
+            pick_floor_any_room(pixel, floor, hero.room, slot, hero.world_y, agent=agent)
+            == pick_floor_any_room(
+                pixel, floor, hero.room, slot, hero.world_y, occlude=False)
+        )

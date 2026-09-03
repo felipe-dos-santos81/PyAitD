@@ -23,7 +23,7 @@
 - Run tests as `SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m pytest <path> -q`.
 - Commit messages end with:
   ```
-  Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+  Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
   Claude-Session: https://claude.ai/code/session_017fx74B23f5ptB2gUFRz9KE
   ```
 

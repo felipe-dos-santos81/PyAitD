@@ -168,14 +168,16 @@ def _clamp_cell(value, limit):
     return max(0, min(int(value), limit - 1))
 
 
-def approach_cell(mesh, x, z, from_x, from_z, max_cells=TARGET_SNAP_CELLS):
+def approach_cell(mesh, x, z, from_x, from_z, max_cells=TARGET_SNAP_CELLS, accept=None):
     """Where to stand to reach (x, z), coming from (from_x, from_z).
 
     Rings outward from the target and takes the first ring's cell closest to the
     approaching actor, so the hero stops on its own side of the object instead
     of walking around it. Unlike nearest_walkable this accepts a target outside
     the grid (an object can sit past the cover-zone bounds) by clamping the
-    search origin. None when no walkable cell is within max_cells.
+    search origin. `accept(x, z)` vetoes candidates (the caller's visibility
+    rule); None accepts every walkable cell. None when no walkable, accepted
+    cell is within max_cells.
     """
     if mesh.is_walkable(x, z):
         return (x, z)
@@ -195,6 +197,8 @@ def approach_cell(mesh, x, z, from_x, from_z, max_cells=TARGET_SNAP_CELLS):
                 i, j = origin_i + di, origin_j + dj
                 if not (0 <= i < nx and 0 <= j < nz) or not mesh.walkable[i, j]:
                     continue
+                if accept is not None and not accept(*mesh.center_of(i, j)):
+                    continue
                 score = (i - from_i) ** 2 + (j - from_j) ** 2
                 if best is None or score < best[0]:
                     best = (score, (i, j))
@@ -203,8 +207,10 @@ def approach_cell(mesh, x, z, from_x, from_z, max_cells=TARGET_SNAP_CELLS):
     return None
 
 
-def nearest_walkable(mesh, x, z, max_cells=6):
-    """Closest walkable cell centre to (x, z), searching outward in rings."""
+def nearest_walkable(mesh, x, z, max_cells=6, accept=None):
+    """Closest walkable cell centre to (x, z), searching outward in rings.
+    `accept(x, z)` vetoes candidates; a walkable (x, z) itself is returned
+    without asking, since it is exactly what was pointed at."""
     if mesh.is_walkable(x, z):
         return (x, z)
     origin = mesh.cell_of(x, z)
@@ -219,6 +225,8 @@ def nearest_walkable(mesh, x, z, max_cells=6):
                     continue
                 i, j = origin[0] + di, origin[1] + dj
                 if not (0 <= i < nx and 0 <= j < nz) or not mesh.walkable[i, j]:
+                    continue
+                if accept is not None and not accept(*mesh.center_of(i, j)):
                     continue
                 dist = di * di + dj * dj
                 if best is None or dist < best[0]:

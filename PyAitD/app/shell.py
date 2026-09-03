@@ -19,6 +19,12 @@ from PyAitD.engine.script.effects import ChooseCharacter, GameMode, InputMode, O
 from PyAitD.engine.script.game import enter_floor_start, init_game
 from PyAitD.engine.script.life import Trace
 from PyAitD.engine.data.pak import PakError
+from PyAitD.engine.nav.navmesh import (
+    TARGET_SNAP_CELLS, agent_extent, approach_cell, nearest_walkable,
+)
+from PyAitD.engine.nav.picking import (
+    pick_actor, pick_floor_any_room, snap_accept, viewed_floor_y, visible_accept,
+)
 from PyAitD.engine.script.save import (
     SaveError, read_slot, restore_game, save_dir, slot_path, snapshot_game, write_slot,
 )
@@ -53,6 +59,9 @@ DEFAULT_DATA = (
     / "INDARK"
 )
 HIT_FEEDBACK_MS = 250
+CUT_DEAD_ZONE_PX = 6   # after a camera cut the pointer must move this far on
+                       # an axis before the hold re-resolves; smaller motion is
+                       # the hand settling, not a gesture
 
 
 def _integration_level(text):
@@ -375,8 +384,6 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
         can_strike, hold_action_approach, is_combat_target,
         is_hold_action_target,
     )
-    from PyAitD.engine.nav.navmesh import agent_extent, approach_cell, nearest_walkable
-    from PyAitD.engine.nav.picking import pick_actor, pick_floor_any_room
     from PyAitD.app.ui import PlayLayout
     from PyAitD.engine.space.world import room_delta
 
@@ -424,7 +431,22 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
             if hero.room != target.room:
                 dx, _dy, dz = room_delta(game, hero.room, target.room)
                 from_x, from_z = from_x - dx, from_z + dz
-            spot = approach_cell(mesh, dest_x, dest_z, from_x, from_z)
+            # Two stages, because the visibility filter is a preference and
+            # never a veto: prefer an approach cell the camera can see, but a
+            # camera that can see none must not make the object unreachable.
+            # If both searches come up empty the destination stays the
+            # object's own centre -- the fall-through this branch has always
+            # had, and never `blocked`: refusing here made every object click
+            # in a room whose cells the filter rejected unusable.
+            spot = approach_cell(
+                mesh, dest_x, dest_z, from_x, from_z,
+                accept=visible_accept(
+                    floor, hero.room, game.num_camera, target.room,
+                    viewed_floor_y(floor, hero.room, target.room, hero.world_y), agent,
+                ),
+            )
+            if spot is None:
+                spot = approach_cell(mesh, dest_x, dest_z, from_x, from_z)
             if spot is not None:
                 dest_x, dest_z = spot
         return (
@@ -433,7 +455,7 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
         )
 
     picked = pick_floor_any_room(
-        logical_pos, floor, hero.room, game.num_camera, hero.world_y,
+        logical_pos, floor, hero.room, game.num_camera, hero.world_y, agent=agent,
     )
     if picked is None:
         return ("blocked", None)
@@ -443,7 +465,14 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
     # keep the click and let direct steering handle it. A blocked cell inside a
     # real mesh snaps, and only an unsnappable one is refused.
     if mesh is not None and mesh.walkable.any():
-        snapped = nearest_walkable(mesh, dest_x, dest_z)
+        snapped = nearest_walkable(
+            mesh, dest_x, dest_z,
+            accept=snap_accept(
+                floor, hero.room, game.num_camera, dest_room,
+                viewed_floor_y(floor, hero.room, dest_room, hero.world_y),
+                logical_pos, agent,
+            ),
+        )
         if snapped is None:
             return ("blocked", None)
         dest_x, dest_z = snapped
@@ -500,6 +529,8 @@ def route_play_click(
         # give-up), and the still-held button must not resume the follow
         input_buffer.follow_last = payload if kind != "push" else None
         input_buffer.follow_pos = logical_pos if kind != "push" else None
+        input_buffer.follow_camera = game.num_camera if kind != "push" else None
+        input_buffer.follow_settle_origin = None
         input_buffer.follow_spent = kind == "push"
 
 
@@ -536,6 +567,18 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
     input_buffer.follow_pos costs nothing elsewhere: with the camera unchanged
     a still pointer re-resolves to the same payload anyway.
 
+    A pointer that DID move is not automatically safe either: the same hand
+    settling after a cut nudges the pointer a pixel or two without the player
+    aiming anywhere. input_buffer.follow_camera records the slot follow_pos
+    was resolved under, so a mismatch against game.num_camera means a cut just
+    happened. From there, input_buffer.follow_settle_origin pins the pointer
+    position at the moment the cut was noticed, and motion within
+    CUT_DEAD_ZONE_PX of it on either axis (Chebyshev) is treated as settling,
+    not a gesture: the destination holds and neither follow_pos nor
+    follow_camera advance. Only once the pointer clears the zone does
+    follow_settle_origin reset to None and resolution proceed against the new
+    camera.
+
     The resolution is compared against input_buffer.follow_last, never the
     live intent: the engine clears an intent when the follower arrives or
     gives up, and _push_into_target re-aims a target intent at the object
@@ -563,7 +606,28 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
         return  # a latched push ignores pointer motion until release
     if logical_pos == input_buffer.follow_pos:
         return  # a still pointer means what it meant last frame
+    if (input_buffer.follow_camera is not None
+            and input_buffer.follow_camera != game.num_camera):
+        # a cut: the pixel now means something else, but the hand has not
+        # said so. Keep the destination until the pointer leaves the dead
+        # zone around where it was when the cut landed.
+        if input_buffer.follow_settle_origin is None:
+            input_buffer.follow_settle_origin = (
+                input_buffer.follow_pos
+                if input_buffer.follow_pos is not None else logical_pos
+            )
+        ox, oy = input_buffer.follow_settle_origin
+        if (abs(logical_pos[0] - ox) <= CUT_DEAD_ZONE_PX
+                and abs(logical_pos[1] - oy) <= CUT_DEAD_ZONE_PX):
+            return
+    # Every path that advances follow_camera closes the dead zone with it,
+    # the branch above and the fall-through alike: the camera can cut BACK to
+    # the slot the follow was resolved under while the zone is still open,
+    # and a settle origin left behind then draws the cursor's dashed ring for
+    # the rest of the hold.
+    input_buffer.follow_settle_origin = None
     input_buffer.follow_pos = logical_pos
+    input_buffer.follow_camera = game.num_camera
     kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
     if kind in ("walk", "target"):
         if payload == input_buffer.follow_last:
@@ -607,6 +671,8 @@ def _drop_destination(game, input_buffer):
     if input_buffer is not None:
         input_buffer.follow_last = None
         input_buffer.follow_pos = None
+        input_buffer.follow_camera = None
+        input_buffer.follow_settle_origin = None
     if game.nav_intent is None:
         return False
     cancel_nav_intent(game)
@@ -641,13 +707,60 @@ def _rebase_follow(game, input_buffer):
     return _drop_destination(game, input_buffer)
 
 
-def _play_cursor_kind(game, floor, hover, draw_list, input_buffer):
+def _play_cursor_state(game, floor, hover, draw_list, input_buffer):
+    """(kind, payload) the cursor should show for `hover`: a latched push
+    stays "push" whatever the pointer drifts over; otherwise the resolver."""
     intent = getattr(game, "nav_intent", None)
     if (input_buffer.pointer_held and intent is not None
             and intent.requires_hold):
-        return "push"
-    kind, _payload = resolve_play_click(game, floor, hover, draw_list)
-    return kind
+        return "push", None
+    return resolve_play_click(game, floor, hover, draw_list)
+
+
+def _play_cursor_kind(game, floor, hover, draw_list, input_buffer):
+    return _play_cursor_state(game, floor, hover, draw_list, input_buffer)[0]
+
+
+def _marker_for(game, floor, payload):
+    """Project a (dest_x, dest_z, room, object_idx) payload to the logical
+    frame under the camera on screen, or None."""
+    from PyAitD.engine.nav.picking import project_room_point, viewed_floor_y
+    if payload is None or game.num_camera == -1:
+        return None
+    hero_idx = game.current_camera_target_actor
+    if hero_idx == -1:
+        return None
+    hero = game.actors[hero_idx]
+    dest_x, dest_z, room, _object_idx = payload
+    y = viewed_floor_y(floor, hero.room, room, hero.world_y)
+    return project_room_point(floor, hero.room, game.num_camera, room, dest_x, y, dest_z)
+
+
+def _intent_marker(game, floor):
+    """Where the live intent is heading, on screen, or None."""
+    intent = getattr(game, "nav_intent", None)
+    if intent is None:
+        return None
+    return _marker_for(game, floor, (intent.dest_x, intent.dest_z, intent.room, -1))
+
+
+def _render_play_cursor(game, floor, hover, draw_list, input_buffer, painter):
+    """The PLAY cursor with its feedback: the live destination, a preview of
+    where a press would head while nothing is held, the press ring, and the
+    dashed ring while a cut's dead zone is open."""
+    kind, payload = _play_cursor_state(game, floor, hover, draw_list, input_buffer)
+    destination = _intent_marker(game, floor)
+    preview = None
+    if (not input_buffer.pointer_held and destination is None
+            and kind in ("walk", "target")):
+        preview = _marker_for(game, floor, payload)
+    render_cursor(
+        painter, hover, kind,
+        held=input_buffer.pointer_held,
+        settling=input_buffer.follow_settle_origin is not None,
+        destination=destination,
+        preview=preview,
+    )
 
 
 def _is_interactable(game, actor_idx):
@@ -1679,10 +1792,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
         render_settings_notice(painter, session.settings_error or session.runtime_error)
         pygame.mouse.set_visible(not software_cursor and not play_keyboard)
         if software_cursor:
-            kind = _play_cursor_kind(
-                game, floor, hover, draw_list, input_buffer,
-            )
-            render_cursor(painter, hover, kind)
+            _render_play_cursor(game, floor, hover, draw_list, input_buffer, painter)
         renderer.present(painter)
         if game.num_camera != -1:
             # M3a draw_ready gate: transition frames (change_salle/floor

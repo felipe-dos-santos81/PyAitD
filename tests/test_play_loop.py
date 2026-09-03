@@ -920,6 +920,121 @@ def test_opening_wardrobe_resolves_and_routes_as_a_held_push(data_dir, profile):
     assert game.nav_intent.engaged is False
 
 
+def test_a_snap_past_the_budget_is_blocked_not_a_far_walk(data_dir, profile, monkeypatch):
+    # A pointer on a blocked cell whose only walkable neighbours project more
+    # than SNAP_BUDGET_PX away must resolve blocked: the hero never heads for
+    # somewhere visibly away from the pointer. nearest_walkable is replaced
+    # by a stand-in that refuses whenever a filter is given, which is exactly
+    # what the real search does when every ring candidate fails the budget.
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    agent = main.agent_extent(hero)
+    # Bottom-of-screen pixels foreshorten so hard that even a blocked cell's
+    # nearest walkable neighbour can project dozens of pixels away -- past
+    # any camera slot's budget. Loop slots inside the pixel scan (as the task
+    # brief anticipates) to find a pixel/slot pair where a blocked cell's
+    # snap genuinely lands inside SNAP_BUDGET_PX under the real resolver.
+    found = None
+    for p in _sampled_pixels():
+        for slot in range(len(floor.rooms[hero.room].camera_indices)):
+            hit = main.pick_floor_any_room(p, floor, hero.room, slot, hero.world_y, agent=agent)
+            if hit is None or game.nav_meshes.mesh_for(floor, hit[2], agent).is_walkable(hit[0], hit[1]):
+                continue
+            game.num_camera = slot
+            if resolve_play_click(game, floor, p, [])[0] == "walk":
+                found = p
+                break
+        if found is not None:
+            break
+    assert found is not None, "no attic pixel/camera pair snaps a blocked cell within budget"
+    pixel = found
+    assert resolve_play_click(game, floor, pixel, [])[0] == "walk", "the real snap accepts this pixel"
+
+    seen = {}
+
+    def refusing(mesh, x, z, max_cells=6, accept=None):
+        seen["accept"] = accept
+        return None
+    monkeypatch.setattr(main, "nearest_walkable", refusing)
+    assert resolve_play_click(game, floor, pixel, [])[0] == "blocked"
+    assert callable(seen["accept"]), "the resolver did not hand nearest_walkable a filter"
+
+
+def test_object_approach_uses_a_visibility_filter(data_dir, profile, monkeypatch):
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    seen = {}
+    real = main.approach_cell
+
+    def spy(mesh, x, z, from_x, from_z, max_cells=main.TARGET_SNAP_CELLS, accept=None):
+        seen["accept"] = accept
+        return real(mesh, x, z, from_x, from_z, max_cells, accept)
+    monkeypatch.setattr(main, "approach_cell", spy)
+    # world object 13 (actor 10) is floor 0's clickable interactable; hand the
+    # resolver its bbox so the click lands on it
+    target = game.actors[10]
+    draw_list = [(10, (0, 0, 319, 199))]
+    kind, _payload = resolve_play_click(game, floor, (160, 100), draw_list)
+    assert kind in ("target", "blocked")
+    assert callable(seen.get("accept")), "the resolver did not hand approach_cell a filter"
+
+
+def test_an_object_with_no_visible_approach_cell_retries_unfiltered(data_dir, profile,
+                                                                    monkeypatch):
+    # The visibility filter is a preference, never a veto. A camera that can
+    # see no approach cell must not make the object unreachable: the search
+    # runs again with no filter, and the click is still a target.
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    real = main.approach_cell
+    calls = []
+
+    def spy(mesh, x, z, from_x, from_z, max_cells=main.TARGET_SNAP_CELLS, accept=None):
+        calls.append(accept)
+        if accept is not None:
+            return None      # the filtered search finds nothing
+        return real(mesh, x, z, from_x, from_z, max_cells, accept)
+    monkeypatch.setattr(main, "approach_cell", spy)
+    target = game.actors[10]
+    draw_list = [(10, (0, 0, 319, 199))]
+    kind, payload = resolve_play_click(game, floor, (160, 100), draw_list)
+
+    assert [call is None for call in calls] == [False, True], (
+        "the filtered search must run first and the unfiltered one only after it"
+    )
+    assert kind == "target"
+    assert payload[:2] != (target.room_x, target.room_z), (
+        "the unfiltered retry produced no approach cell"
+    )
+
+
+def test_an_object_with_no_approach_cell_at_all_still_targets_its_centre(
+        data_dir, profile, monkeypatch,
+):
+    # The base behaviour, preserved: with no walkable neighbour anywhere the
+    # destination is the object's own centre and find_path deals with it.
+    # Returning "blocked" here made every object click on 87 camera slots
+    # unusable, because the filter refused every cell in those rooms.
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    monkeypatch.setattr(main, "approach_cell", lambda *_args, **_kwargs: None)
+    target = game.actors[10]
+    kind, payload = resolve_play_click(game, floor, (160, 100), [(10, (0, 0, 319, 199))])
+
+    assert kind == "target"
+    assert payload == (
+        target.room_x, target.room_z, target.room, target.index_in_world,
+    )
+
+
 def test_latched_push_cursor_survives_pointer_drift(data_dir, profile):
     # A held push must remain visually unambiguous while the pointer moves
     # elsewhere; resolving current hover here would advertise another action.
@@ -1037,7 +1152,9 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
-    monkeypatch.setattr(main, "_play_cursor_kind", lambda *_args: "blocked")
+    # run() renders the cursor through _render_play_cursor -> _play_cursor_state;
+    # patching _play_cursor_kind here would be inert (nothing in run() calls it)
+    monkeypatch.setattr(main, "_play_cursor_state", lambda *_args: ("blocked", None))
     monkeypatch.setattr(main, "InputBuffer", lambda: input_buffer)
     monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
@@ -1105,7 +1222,7 @@ def test_held_push_inventory_modal_takeover_is_clean_before_play_resumes(
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
-    monkeypatch.setattr(main, "render_cursor", lambda image, *_args: image)
+    monkeypatch.setattr(main, "render_cursor", lambda image, *_args, **_kwargs: image)
     monkeypatch.setattr(main, "InputBuffer", lambda: input_buffer)
     monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
@@ -1166,7 +1283,7 @@ def test_run_routes_physical_and_touch_down_through_the_same_held_push_path(
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
-    monkeypatch.setattr(main, "render_cursor", lambda image, *_args: image)
+    monkeypatch.setattr(main, "render_cursor", lambda image, *_args, **_kwargs: image)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
     monkeypatch.setattr(main.pygame.display, "set_caption", lambda *_args: None)
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
@@ -1478,24 +1595,24 @@ def test_the_approach_bias_is_converted_into_the_target_room_s_frame(data_dir, p
     # that room's coordinate frame first. Floor 1 room 0 -> room 7 is a
     # 12000-unit delta on x, 120 grid cells, so an unconverted bias picks the
     # approach side essentially at random.
-    import PyAitD.engine.nav.navmesh as navmesh_module
+    import PyAitD.app.shell as main
     from PyAitD.app.shell import resolve_play_click
     from PyAitD.engine.space.world import room_delta
 
     game, floor, hero, target, draw_list = _cross_room_target_setup(data_dir, profile)
 
     seen = {}
-    original = navmesh_module.approach_cell
+    original = main.approach_cell
 
     def spy(mesh, x, z, from_x, from_z, **kwargs):
         seen["from"] = (from_x, from_z)
         return original(mesh, x, z, from_x, from_z, **kwargs)
 
-    navmesh_module.approach_cell = spy
+    main.approach_cell = spy
     try:
         kind, _args = resolve_play_click(game, floor, (150, 100), draw_list)
     finally:
-        navmesh_module.approach_cell = original
+        main.approach_cell = original
 
     assert kind == "target"
     assert "from" in seen, "approach_cell was never reached"
@@ -1513,7 +1630,7 @@ def test_the_approach_bias_is_converted_into_the_target_room_s_frame(data_dir, p
 def test_a_same_room_target_passes_the_hero_position_unchanged(data_dir, profile):
     # control: the conversion must be a no-op within one room, or every
     # single-room click would be biased by a spurious offset.
-    import PyAitD.engine.nav.navmesh as navmesh_module
+    import PyAitD.app.shell as main
     from PyAitD.app.shell import resolve_play_click
 
     game, floor, hero, target, draw_list = _cross_room_target_setup(data_dir, profile)
@@ -1521,32 +1638,32 @@ def test_a_same_room_target_passes_the_hero_position_unchanged(data_dir, profile
     target.room_x, target.room_z = hero.room_x + 900, hero.room_z + 900
 
     seen = {}
-    original = navmesh_module.approach_cell
+    original = main.approach_cell
 
     def spy(mesh, x, z, from_x, from_z, **kwargs):
         seen["from"] = (from_x, from_z)
         return original(mesh, x, z, from_x, from_z, **kwargs)
 
-    navmesh_module.approach_cell = spy
+    main.approach_cell = spy
     try:
         resolve_play_click(game, floor, (150, 100), draw_list)
     finally:
-        navmesh_module.approach_cell = original
+        main.approach_cell = original
 
     assert seen.get("from") == (hero.room_x, hero.room_z)
 
 
 def test_inventory_hud_wins_before_world_resolution(data_dir, profile, monkeypatch):
-    import PyAitD.engine.nav.picking as picking
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     _finish_take(game, 38)
     monkeypatch.setattr(
-        picking,
+        main,
         "pick_floor_any_room",
-        lambda *args: (_ for _ in ()).throw(AssertionError("HUD leaked to world picking")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("HUD leaked to world picking")),
     )
     assert resolve_play_click(
         game, floor, PlayLayout.INVENTORY.center, [],
@@ -1556,7 +1673,7 @@ def test_inventory_hud_wins_before_world_resolution(data_dir, profile, monkeypat
 def test_inventory_hud_effective_padding_has_priority_and_exclusive_far_edges(
     data_dir, profile, monkeypatch,
 ):
-    import PyAitD.engine.nav.picking as picking
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -1564,8 +1681,8 @@ def test_inventory_hud_effective_padding_has_priority_and_exclusive_far_edges(
     _finish_take(game, 38)
     calls = []
     monkeypatch.setattr(
-        picking, "pick_floor_any_room",
-        lambda *args: calls.append(args) or None,
+        main, "pick_floor_any_room",
+        lambda *args, **kwargs: calls.append(args) or None,
     )
     padded_points = (
         (PlayLayout.INVENTORY.right, PlayLayout.INVENTORY.centery),
@@ -1684,7 +1801,7 @@ def test_original_actor_hit_wins_over_a_frontmost_expanded_actor(data_dir, profi
 
 
 def test_expanded_actor_target_wins_before_floor_walking(data_dir, profile, monkeypatch):
-    import PyAitD.engine.nav.picking as picking
+    import PyAitD.app.shell as main
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -1692,9 +1809,12 @@ def test_expanded_actor_target_wins_before_floor_walking(data_dir, profile, monk
     actor_idx = _expanded_target_candidates(game)[0]
     game.actors[actor_idx].object_type |= AF_FOUNDABLE
     hero = game.actors[game.current_camera_target_actor]
+    # the shell imported pick_floor_any_room by name, so it reads its OWN
+    # module global; patching engine.nav.picking here would be inert. The
+    # stand-in takes **kwargs because the shell passes agent=.
     monkeypatch.setattr(
-        picking, "pick_floor_any_room",
-        lambda *_args: (0, 0, hero.room),
+        main, "pick_floor_any_room",
+        lambda *_args, **_kwargs: (0, 0, hero.room),
     )
 
     kind, payload = resolve_play_click(
@@ -1934,7 +2054,7 @@ def test_run_draws_hud_before_cursor_and_owns_the_system_pointer(
     )
     monkeypatch.setattr(
         main, "render_cursor",
-        lambda image, *args: calls.append("cursor") or image,
+        lambda image, *args, **kwargs: calls.append("cursor") or image,
     )
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda value: calls.append(("visible", value)))
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
@@ -2339,6 +2459,152 @@ def test_pointer_motion_after_a_cut_still_retargets(data_dir, profile):
     assert after == resolve_play_click(game, floor, moved, [])[1][:3]
 
 
+def test_a_one_pixel_drift_after_a_cut_does_not_retarget(data_dir, profile):
+    # The hand did not move; the cut and the pointer's own jitter did. Within
+    # CUT_DEAD_ZONE_PX of where the pointer was at the cut, the destination
+    # stays and the follow is settling.
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+    assert buf.follow_camera == game.new_num_camera
+
+    game.num_camera = cut_slot
+    drifted = (pixel[0] + 1, pixel[1])
+    buf.pointer_pos = drifted
+    main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
+
+    assert game.nav_intent is not None, "the drift stopped the hero"
+    after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
+    assert after == before, "a one-pixel drift after a cut retargeted"
+    assert buf.follow_settle_origin == pixel
+    assert main.CUT_DEAD_ZONE_PX == 6
+
+
+def test_drift_of_exactly_the_dead_zone_boundary_does_not_retarget(data_dir, profile):
+    # <= keeps a boundary drift settled; only motion PAST the zone retargets.
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+
+    game.num_camera = cut_slot
+    at_boundary = (pixel[0] + main.CUT_DEAD_ZONE_PX, pixel[1])
+    buf.pointer_pos = at_boundary
+    main.follow_pointer(game, ModalSession(), floor, at_boundary, [], buf)
+
+    assert game.nav_intent is not None, "the boundary drift stopped the hero"
+    after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
+    assert after == before, "a drift of exactly CUT_DEAD_ZONE_PX retargeted"
+    assert buf.follow_settle_origin == pixel
+
+
+def test_motion_past_the_dead_zone_retargets_and_closes_it(data_dir, profile):
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+    game.num_camera = cut_slot
+    # settle first
+    drifted = (pixel[0] + 1, pixel[1])
+    buf.pointer_pos = drifted
+    main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
+    assert buf.follow_settle_origin == pixel
+    moved = next(
+        candidate
+        for candidate in _sampled_pixels()
+        if max(abs(candidate[0] - pixel[0]), abs(candidate[1] - pixel[1])) > main.CUT_DEAD_ZONE_PX
+        and (resolved := resolve_play_click(game, floor, candidate, []))[0] == "walk"
+        and resolved[1][:3] != before
+    )
+    buf.pointer_pos = moved
+    main.follow_pointer(game, ModalSession(), floor, moved, [], buf)
+
+    assert game.nav_intent is not None
+    after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
+    assert after != before, "the hand moved past the dead zone and was ignored"
+    assert buf.follow_settle_origin is None
+    assert buf.follow_camera == cut_slot
+
+
+def test_a_camera_cut_back_closes_the_dead_zone(data_dir, profile):
+    # The camera can return to the slot the follow was resolved under while
+    # the dead zone is still open (a doorway the hero steps in and out of).
+    # That path skips the cut branch entirely, so the settle origin has to be
+    # cleared on the way through: a stale one leaves the cursor drawing its
+    # dashed settling ring for the rest of the hold.
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+    original_slot = buf.follow_camera
+
+    game.num_camera = cut_slot
+    drifted = (pixel[0] + 1, pixel[1])
+    buf.pointer_pos = drifted
+    main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
+    assert buf.follow_settle_origin == pixel, "fixture: the dead zone must be open"
+
+    game.num_camera = original_slot           # the camera cuts back
+    moved = (pixel[0] + 2, pixel[1])
+    buf.pointer_pos = moved
+    main.follow_pointer(game, ModalSession(), floor, moved, [], buf)
+
+    assert buf.follow_settle_origin is None, "the settle origin outlived the cut"
+    assert buf.follow_camera == original_slot
+    assert buf.follow_pos == moved
+
+
+def test_release_clears_the_settle_state(data_dir, profile):
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+    game.num_camera = cut_slot
+    drifted = (pixel[0] + 1, pixel[1])
+    buf.pointer_pos = drifted
+    main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
+    assert buf.follow_settle_origin is not None
+
+    up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
+    main._cancel_pointer_invalidation(game, up, buf)
+    assert buf.follow_settle_origin is None
+    assert buf.follow_camera is None
+    assert game.nav_intent is None
+
+
+def test_a_floor_change_clears_the_settle_state_but_keeps_the_hold(data_dir, profile):
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+    buf.follow_settle_origin = pixel
+    buf.follow_camera = cut_slot
+    main._rebase_follow(game, buf)
+    assert buf.follow_settle_origin is None
+    assert buf.follow_camera is None
+    assert buf.follow_pos is None
+    assert buf.pointer_held is True
+
+
+def test_arrival_while_settling_leaves_the_follow_live(data_dir, profile):
+    # The follower clearing the intent on arrival must not be mistaken for a
+    # gesture: the hold stays live, no re-resolution of a still pointer.
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+    game.num_camera = cut_slot
+    drifted = (pixel[0] + 1, pixel[1])
+    buf.pointer_pos = drifted
+    main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
+    game.nav_intent = None   # what an arrival leaves behind
+    main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
+    assert game.nav_intent is None, "a still pointer was re-resolved while settling"
+    assert buf.follow_last is not None, "the hold died"
+    assert buf.pointer_held is True
+
+
 def test_a_floor_change_keeps_the_hold_and_re_resolves_a_still_pointer(
         data_dir, profile, monkeypatch):
     # Stairs mid-hold: the intent's room indexes the floor just unloaded, so
@@ -2557,3 +2823,78 @@ def test_the_os_pointer_shows_only_where_the_mouse_still_does_something(
     assert visibility[-1] is True, visibility
     per_frame = visibility[:-1]
     assert per_frame and all(seen is visible for seen in per_frame), visibility
+
+
+def test_intent_marker_projects_the_live_destination(data_dir, profile):
+    import PyAitD.app.shell as main
+    from PyAitD.engine.nav.picking import project_room_point
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    hero = game.actors[game.current_camera_target_actor]
+    pixel = next(p for p in _sampled_pixels() if resolve_play_click(game, floor, p, [])[0] == "walk")
+    buf = held_pointer(pixel)
+    route_play_click(game, ModalSession(), floor, pixel, [], buf)
+    intent = game.nav_intent
+    expected = project_room_point(
+        floor, hero.room, game.num_camera, intent.room,
+        intent.dest_x, hero.world_y, intent.dest_z,
+    )
+    assert main._intent_marker(game, floor) == expected
+    assert expected is not None
+
+
+def test_intent_marker_is_none_without_an_intent_or_on_a_transition_frame(data_dir, profile):
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    assert game.nav_intent is None
+    assert main._intent_marker(game, floor) is None
+    hero = game.actors[game.current_camera_target_actor]
+    from PyAitD.engine.script.interaction import apply_click_intent
+    apply_click_intent(game, hero.room_x + 500, hero.room_z, hero.room)
+    game.num_camera = -1
+    assert main._intent_marker(game, floor) is None
+
+
+def test_play_cursor_state_returns_kind_and_payload(data_dir, profile):
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    pixel = next(p for p in _sampled_pixels() if resolve_play_click(game, floor, p, [])[0] == "walk")
+    buf = InputBuffer()
+    kind, payload = main._play_cursor_state(game, floor, pixel, [], buf)
+    assert kind == "walk" and payload is not None
+    assert main._play_cursor_kind(game, floor, pixel, [], buf) == "walk"
+    assert main._marker_for(game, floor, payload) is not None
+
+
+def test_run_hands_the_cursor_its_marker_ring_and_settle_state(data_dir, profile, monkeypatch):
+    # The loop's cursor site passes the live intent's marker, the hold and
+    # the dead zone through to render_cursor. Checked by capturing the call.
+    import PyAitD.app.shell as main
+    calls = []
+
+    def spy(painter, pos, kind, **kw):
+        calls.append((pos, kind, kw))
+    monkeypatch.setattr(main, "render_cursor", spy)
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    pixel = next(p for p in _sampled_pixels() if resolve_play_click(game, floor, p, [])[0] == "walk")
+    buf = held_pointer(pixel)
+    route_play_click(game, ModalSession(), floor, pixel, [], buf)
+    # route_play_click closes the dead zone as part of committing a fresh
+    # press (it is a brand new gesture, not a cut settling) -- reopen it
+    # here to simulate a cut landing mid-hold, which is what the dashed
+    # ring is meant to reflect.
+    buf.follow_settle_origin = pixel
+    main._render_play_cursor(game, floor, pixel, [], buf, painter=None)
+    (pos, kind, kw), = calls
+    assert pos == pixel and kind == "walk"
+    assert kw["held"] is True
+    assert kw["settling"] is True
+    assert kw["destination"] == main._intent_marker(game, floor)
+    assert kw["preview"] is None, "no preview while a press is held"
