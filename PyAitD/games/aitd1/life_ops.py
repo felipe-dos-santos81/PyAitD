@@ -67,19 +67,14 @@ def op_body(vm):
 def op_hit(vm):
     # main.cpp:4375 hit(): arm melee only when InitAnim accepts the anim;
     # a rejection still consumes every operand but leaves prior state alone.
+    from PyAitD.engine.actor.anim_action import arm_strike  # lazy like op_delete's: anim_action pulls in script.interaction
     anim = read_s16(vm)  # anim
     frame = read_s16(vm)  # startFrame
     group = read_s16(vm)  # groupNumber
     radius = read_s16(vm)  # hitBoxSize
     force = eval_var(vm)  # hitForce
     next_anim = read_s16(vm)  # nextAnim
-    if init_anim(vm.actor, anim, 0, next_anim):
-        vm.actor.anim_action_anim = anim
-        vm.actor.anim_action_frame = frame
-        vm.actor.anim_action_type = 1
-        vm.actor.anim_action_param = radius
-        vm.actor.hot_point_id = group
-        vm.actor.hit_force = force
+    arm_strike(vm.actor, anim, frame, group, radius, force, next_anim)
 
 
 def op_move(vm):

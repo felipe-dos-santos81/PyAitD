@@ -26,6 +26,9 @@ def test_life_gate(data_dir, profile):
     assert not life_gate(a)
     a.life, a.life_mode = -1, 0
     assert not life_gate(a)
+    # engine.content.BEHAVIOUR_LIFE: a behaviour-driven actor is not the VM's
+    a.life, a.life_mode = -2, 1
+    assert not life_gate(a)
 
 
 def test_apply_play_input_mapping(data_dir, profile):

@@ -226,7 +226,9 @@ def _dispatch_reduced(vm, op, world_idx):
 
 
 def life_gate(actor):
-    return actor.life != -1 and actor.life_mode != -1
+    # life >= 0 names a LISTLIFE script; -1 is none, and engine.content's
+    # BEHAVIOUR_LIFE (-2) marks an actor a pack behaviour drives instead.
+    return actor.life >= 0 and actor.life_mode != -1
 
 
 # The semantic VM-control handlers, keyed by name. FITD shares these

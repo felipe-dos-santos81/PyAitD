@@ -991,3 +991,26 @@ def test_in_flight_sweep_continues_until_it_rejoins_actor_zv(monkeypatch, data_d
     # inside [zv_z1 - 100, zv_z2 + 100] == [old_z - 450, old_z - 220].
     assert len(calls) == 4
     assert (world.x, world.y, world.z) == (100, 200, 300)
+
+
+def test_arm_strike_writes_the_six_melee_fields_when_init_anim_accepts(data_dir, profile):
+    from PyAitD.engine.actor.anim_action import arm_strike
+    game = init_game(data_dir, profile)
+    actor = game.actors[game.current_camera_target_actor]
+    # the hero stands in anim 4 (repeat); anim 25 is a different, interruptible anim
+    assert arm_strike(actor, 25, 1, 22, 400, 1, 22) == 1
+    assert (actor.new_anim, actor.new_anim_type, actor.new_anim_info) == (25, 0, 22)
+    assert (actor.anim_action_anim, actor.anim_action_frame, actor.anim_action_type) == (25, 1, 1)
+    assert (actor.anim_action_param, actor.hot_point_id, actor.hit_force) == (400, 22, 1)
+
+
+def test_arm_strike_leaves_every_field_alone_when_init_anim_refuses(data_dir, profile, monkeypatch):
+    from PyAitD.engine.actor import anim_action
+    game = init_game(data_dir, profile)
+    actor = game.actors[game.current_camera_target_actor]
+    actor.anim_action_type, actor.anim_action_anim, actor.anim_action_frame = 99, 55, 66
+    actor.anim_action_param, actor.hot_point_id, actor.hit_force = 77, 88, 44
+    monkeypatch.setattr(anim_action, "init_anim", lambda *args: 0)
+    assert anim_action.arm_strike(actor, 25, 1, 22, 400, 1, 22) == 0
+    assert (actor.anim_action_type, actor.anim_action_anim, actor.anim_action_frame) == (99, 55, 66)
+    assert (actor.anim_action_param, actor.hot_point_id, actor.hit_force) == (77, 88, 44)

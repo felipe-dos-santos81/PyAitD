@@ -8,6 +8,7 @@ Never touches actor.life: health lives in script vars, hit/hit_by/hit_force
 are the only fields this module writes.
 """
 from PyAitD.engine.actor.actors import anim_player_for, check_hard_col, check_object_col, cube_intersect
+from PyAitD.engine.actor.anim import init_anim
 from PyAitD.engine.script.game import AF_ANIMATED, AF_BOXIFY, AF_SPECIAL, activate_world_object, put_at_objet
 from PyAitD.engine.script.interaction import point_in_zone, remove_from_inventory
 from PyAitD.engine.space.realvalue import init_real_value
@@ -45,6 +46,22 @@ def _publish_hit(game, attacker_idx, victim_idx):
     attacker.hit = victim_idx
     victim.hit_by = attacker_idx
     victim.hit_force = attacker.hit_force
+
+
+def arm_strike(actor, anim, frame, group, radius, force, next_anim):
+    """main.cpp:4375 hit(): arm a melee strike only when InitAnim accepts the
+    anim; a refusal leaves every field alone. Returns InitAnim's verdict.
+    The one implementation of a strike, for LIFE's LM_HIT (life_ops.op_hit)
+    and for engine.content behaviours alike."""
+    accepted = init_anim(actor, anim, 0, next_anim)
+    if accepted:
+        actor.anim_action_anim = anim
+        actor.anim_action_frame = frame
+        actor.anim_action_type = 1
+        actor.anim_action_param = radius
+        actor.hot_point_id = group
+        actor.hit_force = force
+    return accepted
 
 
 def _hot_point_world(actor):

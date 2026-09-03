@@ -43,3 +43,10 @@ def test_priority_golden(data_dir):
     raw = (pathlib.Path(data_dir) / "PRIORITY.ITD").read_bytes()
     assert len(raw) == 101
     assert len(parse_priority(raw)) == 50
+
+
+def test_no_original_record_carries_a_life_below_minus_one(data_dir):
+    # engine.content reserves life == -2 (BEHAVIOUR_LIFE) for pack actors and
+    # life.life_gate admits only life >= 0 to the VM; both rest on this.
+    raw = (pathlib.Path(data_dir) / "OBJETS.ITD").read_bytes()
+    assert min(o.life for o in parse_objets(raw, has_mark=False)) == -1
