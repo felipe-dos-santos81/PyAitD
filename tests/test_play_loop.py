@@ -697,7 +697,7 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_texture_dir(monkeypa
         assets="new-assets-marker", profile=profile,
         load_floor=lambda number: SimpleNamespace(number=0),
     )
-    monkeypatch.setattr(main, "init_game", lambda data, profile, hero: new_game)
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero, pack=None: new_game)
     monkeypatch.setattr(main, "_take_over_play_input", lambda *a: None)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (None, []))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
@@ -710,7 +710,7 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_texture_dir(monkeypa
     # needs a real Game (actors, world state, ...), which is out of scope here
     session.skip_intro = True
     old_game = SimpleNamespace(
-        _data_dir="ignored", trace=None, profile=profile, input_mode=InputMode.MOUSE,
+        _data_dir="ignored", trace=None, profile=profile, input_mode=InputMode.MOUSE, pack=None,
     )
 
     with _pygame_runtime():

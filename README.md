@@ -31,6 +31,7 @@ Override with `data=DIR` on any make target or `--data DIR`. Tests honor
 ```bash
 make run             # character selection, then play
 make run textures=   # same, with the original 320x200 backgrounds
+make run content=packs/example   # with the example content pack (a pursuer and a sentry in the attic)
 make run-combat      # floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
 make compare         # live mirror: original AITD1 in DOSBox-X below the port (macOS)
 ```
@@ -123,6 +124,18 @@ make check-textures       # validate a directory the way the game loads it
 `out=DIR` chooses the destination, `uvs=0` skips the body guides, `materials=0`
 skips the survey half. Painting itself happens outside this repo; play against
 the result with `make run textures=DIR`.
+
+### Content packs
+
+A content pack is a directory holding `pack.toml` (`name`, `version`,
+`game = "aitd1"`) and `enemies/*.toml`, one enemy per file: a body and
+animation set copied from an original creature, a position, hit points, and
+the strike operands. `pursuer` chases and strikes; `sentry` stands, turns
+toward the hero and strikes in range. The original scripts stay untouched;
+with no pack the game is byte-identical. `--content DIR` is session-only.
+A bad pack stops the boot with the file, key and value. Saves record the
+pack's digest and refuse to load against a different pack or none.
+`packs/example/` is the reference pack, exercised by the test suite.
 
 ## Layout
 

@@ -42,8 +42,8 @@ clean: ## Remove venv and all temporary/generated files
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
-run: install ## Run the game through character selection (floor=0 attic debug bypass, textures=DIR defaults to data/aitd1/textures — pass textures= to play the original backgrounds, trace=FILE)
-	$(PYTHON) -m PyAitD $(if $(floor),--floor "$(floor)") --data "$(data)" $(if $(trace),--trace $(trace)) $(if $(textures),--textures "$(textures)")
+run: install ## Run the game through character selection (floor=0 attic debug bypass, textures=DIR defaults to data/aitd1/textures — pass textures= to play the original backgrounds, content=DIR loads a content pack, trace=FILE)
+	$(PYTHON) -m PyAitD $(if $(floor),--floor "$(floor)") --data "$(data)" $(if $(trace),--trace $(trace)) $(if $(textures),--textures "$(textures)") $(if $(content),--content "$(content)")
 
 run-combat: install ## Run the supported floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
 	$(PYTHON) -m PyAitD --combat-venue --data "$(data)" $(if $(hero),--hero "$(hero)") $(if $(trace),--trace $(trace))

@@ -88,6 +88,7 @@ The engine is organised into five domain subpackages:
 | `engine/space/` | `cos_table.py` + `world.py` fixed-point rotations, camera transform/projection; `realvalue.py` rotation/speed interpolation, chronos, distances |
 | `engine/actor/` | `actors.py` actor fields + GereAnim movement/collision; `anim.py` AnimPlayer; `anim_action.py` combat action runner; `tracks.py` track processor; `skel.py` skinning/projection (integer path, authoritative) |
 | `engine/script/` | `game/` (`state.py` Game/Actor/FloorStart, `zv.py` ZV geometry, `objects.py` object-slot lifecycle, `boot.py` boot/transitions); `life.py` VM core (dispatch reads `profile.opcode_table`, core table built from `profile.core_slots`); `eval_var.py` evalVar; `interaction/` (`inventory.py`, `life_cont.py`, `combat.py`, `contacts.py`, `nav_intent.py`, `track_mode.py`); `effects.py` typed effects; `playworld/` (`tick.py`, `input.py`, `held_push.py`, `passes.py`); `save.py` versioned snapshots |
+| `engine/content/` | `schema.py` pack records + `BEHAVIOUR_LIFE`; `pack.py` reader, digest, archive checks; `world.py` records -> appended `WorldObject`s, `attach`; `enemies.py` pursuer/sentry state machine; `runner.py` the tick's behaviour branch |
 | `engine/nav/` | `navmesh.py` walkable grid + A*; `picking.py` screen->world, hard-col occlusion (off by default), snap budget, steer bearings, marker projection; `navigate.py` pointer follower |
 
 The games, render, app and tools packages:
@@ -497,18 +498,20 @@ action runner.
 
 ## M4a2 persistence boundary
 
-- The snapshot schema is `engine/script/save.py:SCHEMA` (2): root keys `schema`,
+- The snapshot schema is `engine/script/save.py:SCHEMA` (3): root keys `schema`,
   `engine_version`, `source`, `hero`, `game`, `actors`, `world_objects`,
-  `anim_players`, `inventory`, `messages`, `rng_state`, `settings`.
-  Validation is total before anything live is touched: exact key sets, exact
-  counts (actors pinned to `NUM_MAX_OBJECT`; world/var/CVar counts
-  re-derived from the three world files), strict `type is int` (bools
+  `anim_players`, `inventory`, `messages`, `rng_state`, `settings`,
+  `content_state`. Validation is total before anything live is touched: exact
+  key sets, exact counts (actors pinned to `NUM_MAX_OBJECT`; world/var/CVar
+  counts re-derived from the three world files), strict `type is int` (bools
   rejected), and the JSON path of the first offending value in every
   `SaveError`.
 - The save carries the game's own data identity: one SHA-256 over
   `OBJETS.ITD`, `VARS.ITD`, `DEFINES.ITD`, `LISTLIFE.PAK`, `LISTTRAK.PAK`
-  and the selected hero's body/anim paks, in that order. A save only loads
-  against the data it was written from.
+  and the selected hero's body/anim paks, in that order, plus `source.pack`
+  (the content pack's identity, or none). A save only loads against the data
+  it was written from, and only against the same content pack (or its
+  absence) it was written with.
 - Settings ride through the snapshot as an opaque JSON-ready dict:
   `engine/script/save.py` never imports the app layer, and
   `app/config.validate_settings` alone validates the block at the shell
@@ -540,6 +543,24 @@ action runner.
 - Focused gate: `make prove-persistence`; evidence:
   `docs/m4a2-persistence-proof.md` (windowed one-button attestation
   pending).
+
+## Content packs boundary
+
+- A pack (`packs/example`) is TOML: `pack.toml` + `enemies/*.toml`. Records
+  compile to `WorldObject`s appended after the 292 OBJETS ones with
+  `life = BEHAVIOUR_LIFE (-2)`; `life_gate` admits only `life >= 0`, and the
+  tick's LIFE loop runs `content.run_behaviour` for `-2` actors at the same
+  slot position. Behaviours call only what opcodes call (`init_deplacement`
+  + `process_track`, `init_anim`, `anim_action.arm_strike`, `delete_object`).
+- `game.pack`, `game.content` (records by world index) and
+  `game.content_state[world_idx] = {"hp", "phase"}` are the whole runtime
+  surface; saves (schema 3) carry `source.pack` and `content_state` and
+  refuse a mismatch either way. `--content DIR` is CLI-only; a bad pack exits
+  2 before any window. `engine/content` imports `script.game`'s leaf modules
+  only (`boot.init_game` imports `attach` lazily); `test_layering.py` pins it.
+- Real numbers the example pack rests on: body 24's anims stand 22 / walk 23
+  / attack 25 / hurt 21 / death 24, `LM_HIT(25, 1, 22, 400, 1, 22)`, a strike
+  from ~2000 Manhattan units, follow no closer than ~800.
 
 ## Testing conventions
 

@@ -15,6 +15,7 @@ from PyAitD.app.config import (
     default_settings, load_settings, save_settings, settings_path,
     settings_payload, validate_settings,
 )
+from PyAitD.engine.content import PackError, load_pack
 from PyAitD.engine.script.effects import ChooseCharacter, GameMode, InputMode, OpenStartupMenu, ShowTitle
 from PyAitD.engine.script.game import enter_floor_start, init_game
 from PyAitD.engine.script.life import Trace
@@ -157,6 +158,10 @@ def parse_args(argv):
     )
     p.add_argument(
         "--textures", type=pathlib.Path, default=None, help="asset texture directory",
+    )
+    p.add_argument(
+        "--content", type=pathlib.Path, default=None,
+        help="content pack directory (holds pack.toml); session only, never persisted",
     )
     p.add_argument(
         "--save-dir", type=pathlib.Path, default=None,
@@ -990,7 +995,7 @@ def _request_load(game, session, kind):
         session.runtime_error = "Could not load: no save directory is configured"
         return
     payload, error = read_slot(
-        slot_path(session.save_directory, kind), game._data_dir, game.profile,
+        slot_path(session.save_directory, kind), game._data_dir, game.profile, pack=game.pack,
     )
     if error is not None:
         session.runtime_error = error
@@ -1010,7 +1015,7 @@ def _load_branch(game, renderer, session, input_buffer=None):
     _take_over_play_input(game, session, input_buffer)
     trace = game.trace
     try:
-        new_game, settings_dict = restore_game(game._data_dir, game.profile, payload)
+        new_game, settings_dict = restore_game(game._data_dir, game.profile, payload, pack=game.pack)
         settings, _render_error = validate_settings(settings_dict)
         new_floor = new_game.load_floor(new_game.current_floor)
     except (PakError, SaveError, ValueError) as exc:
@@ -1499,7 +1504,7 @@ def restart_session(old_game):
     trace = old_game.trace
     data_dir = old_game._data_dir
     floor_start = old_game.floor_start
-    new_game = init_game(data_dir, old_game.profile, hero=hero)
+    new_game = init_game(data_dir, old_game.profile, hero=hero, pack=old_game.pack)
     new_game.input_mode = input_mode
     new_game.trace = trace
     from PyAitD.engine.script.interaction import sync_player_track_mode
@@ -1518,7 +1523,7 @@ def _boot_hero(game, renderer, session, input_buffer, hero, *, cutscene):
     from PyAitD.engine.script.game import start_game
     _take_over_play_input(game, session, input_buffer)
     try:
-        new_game = init_game(game._data_dir, game.profile, hero=hero)
+        new_game = init_game(game._data_dir, game.profile, hero=hero, pack=game.pack)
         if cutscene:
             start_game(new_game, *game.profile.intro_start)
             new_game.allow_system_menu = False
@@ -1905,11 +1910,20 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
 def main(argv=None):
     args = parse_args(argv)
     profile = load_profile("aitd1")
+    pack = None
+    if args.content is not None:
+        try:
+            pack = load_pack(args.content, args.data, profile)
+        except (PackError, PakError) as exc:
+            # a pack is applied whole or not at all: no substitute exists
+            # for a missing enemy, unlike a missing texture
+            print(f"content pack error: {exc}", file=sys.stderr)
+            return 2
     try:
         # The debug starts bypass the character selector, so --hero is the only
         # way to reach Emily's copy of a fixture; a normal boot still opens the
         # selector below and replaces this staging game with the chosen hero's.
-        game = init_game(args.data, profile, hero=args.hero)
+        game = init_game(args.data, profile, hero=args.hero, pack=pack)
     except PakError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

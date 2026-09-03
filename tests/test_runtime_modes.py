@@ -460,9 +460,9 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
     init_calls, floor_calls, ticked = [], [], []
     real_init_game = main.init_game
 
-    def spy_init_game(data, profile, hero=0):
+    def spy_init_game(data, profile, hero=0, pack=None):
         init_calls.append((data, hero))
-        return real_init_game(data, profile, hero=hero)
+        return real_init_game(data, profile, hero=hero, pack=pack)
 
     monkeypatch.setattr(main, "init_game", spy_init_game)
     monkeypatch.setattr(
@@ -1247,6 +1247,27 @@ def test_restart_session_rebuilds_state_and_preserves_session_choices(data_dir, 
     assert new.active_modal is None
     assert new.restart_requested is False
     assert (new.current_floor, new.current_room, new.num_camera) == (5, 4, -1)
+
+
+def test_restart_and_hero_boot_keep_the_content_pack(data_dir, profile, example_pack_dir, monkeypatch):
+    from PyAitD.engine.content import load_pack
+    pack = load_pack(example_pack_dir, data_dir, profile)
+    old = init_game(data_dir, profile, pack=pack)
+    new = restart_session(old)
+    assert new.pack is pack
+    assert len(new.world_objects) == 294
+    assert new.content_state == {292: {"hp": 3, "phase": "idle"}, 293: {"hp": 2, "phase": "idle"}}
+
+    import numpy as np
+    from types import SimpleNamespace
+    import PyAitD.app.shell as main
+    from PyAitD.app.ui import InputBuffer, ModalSession
+    from PyAitD.app.config import default_settings
+    monkeypatch.setattr(main, "_scene_frame", lambda *args: (np.zeros((200, 320, 3), dtype=np.uint8), []))
+    session = ModalSession(settings=default_settings())
+    replaced = main._boot_hero(old, SimpleNamespace(), session, InputBuffer(), 1, cutscene=False)
+    assert replaced[0].pack is pack
+    assert len(replaced[0].world_objects) == 294
 
 
 def test_restart_session_rebuilds_state_from_the_initial_floor(data_dir, profile):

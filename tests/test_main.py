@@ -86,7 +86,7 @@ def test_normal_main_opens_the_title_before_run(monkeypatch, tmp_path):
     import PyAitD.app.shell as main
     game = SimpleNamespace(active_modal=None, open_modal=lambda effect: setattr(game, "active_modal", effect))
     seen = []
-    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0, pack=None: game)
     monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: SimpleNamespace(settings=default_settings()))
     monkeypatch.setattr(main, "run", lambda g, trace, session=None, mirror_sink=None: seen.append((g, session)) or 0)
     assert main.main(["--data", str(tmp_path)]) == 0
@@ -99,7 +99,7 @@ def test_explicit_debug_starts_bypass_character_selection(monkeypatch, tmp_path,
     import PyAitD.app.shell as main
     game = SimpleNamespace(active_modal=None)
     seen = []
-    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0, pack=None: game)
     monkeypatch.setattr(
         main, "load_profile",
         lambda name: SimpleNamespace(debug_venues={
@@ -138,7 +138,7 @@ def test_load_runtime_session_takes_the_save_directory(tmp_path):
 def test_main_rejects_nonzero_floor_without_calling_run(monkeypatch, tmp_path):
     import PyAitD.app.shell as main
 
-    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: SimpleNamespace())
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0, pack=None: SimpleNamespace())
     calls = []
     monkeypatch.setattr(main, "run", lambda *args: calls.append("run"))
 
@@ -153,7 +153,7 @@ def test_main_combat_venue_calls_enter_combat_venue_once_before_run(monkeypatch,
 
     game = SimpleNamespace()
     calls = []
-    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0, pack=None: game)
     monkeypatch.setattr(
         main, "load_profile",
         lambda name: SimpleNamespace(debug_venues={
@@ -190,7 +190,7 @@ def test_main_mouse_combat_fixture_uses_the_requested_hero(monkeypatch, tmp_path
     heroes = []
     monkeypatch.setattr(
         main, "init_game",
-        lambda data, profile, hero=0: heroes.append(hero) or game,
+        lambda data, profile, hero=0, pack=None: heroes.append(hero) or game,
     )
     monkeypatch.setattr(
         main, "load_profile",
@@ -211,7 +211,7 @@ def test_main_mouse_combat_fixture_runs_its_own_setup(monkeypatch, tmp_path):
 
     game = SimpleNamespace()
     calls = []
-    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0, pack=None: game)
     monkeypatch.setattr(
         main, "load_profile",
         lambda name: SimpleNamespace(debug_venues={
@@ -555,7 +555,7 @@ def test_main_wires_render_cli_overrides_into_renderer_and_asset_resolver(profil
     renderer_options = []
     resolver_calls = []
 
-    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0: game)
+    monkeypatch.setattr(main, "init_game", lambda data, profile, hero=0, pack=None: game)
     monkeypatch.setattr(
         main, "load_runtime_session",
         lambda path, save_directory=None: SimpleNamespace(
@@ -718,3 +718,41 @@ def test_motion_blend_helper_gates_on_mode_and_snapshot():
     assert snap is sentinel and alpha == pytest.approx(10 / TICK_MS)
     _, alpha = _motion_blend(session, sentinel, TICK_MS * 3)
     assert alpha == 1.0                                      # clamped, never extrapolates
+
+
+def test_parse_args_content_is_a_path_with_no_default():
+    import pathlib
+    assert parse_args([]).content is None
+    assert parse_args(["--content", "packs/example"]).content == pathlib.Path("packs/example")
+
+
+def test_main_refuses_a_bad_pack_before_any_window(monkeypatch, tmp_path, capsys, data_dir):
+    import PyAitD.app.shell as main
+    (tmp_path / "pack.toml").write_text('name = "x"\nversion = "1"\ngame = "aitd1"\n')
+    (tmp_path / "enemies").mkdir()
+    (tmp_path / "enemies" / "bad.toml").write_text(
+        'id = "b"\nkind = "pursuer"\nbody = 24\nstage = 0\nroom = 0\nposition = [0, 0, 0]\nhit_points = 1\n'
+        '[anims]\nstand = 22\nwalk = 999\nattack = 25\nhurt = 21\ndeath = 24\n'
+        '[attack]\nframe = 1\ngroup = 22\nradius = 400\nforce = 1\nrange = 2000\n'
+    )
+    monkeypatch.setattr(main, "run", lambda *args, **kwargs: pytest.fail("run() must not start"))
+    assert main.main(["--data", str(data_dir), "--content", str(tmp_path)]) == 2
+    assert capsys.readouterr().err.strip() == "content pack error: enemies/bad.toml: anims.walk: 999 is not below 305 (LISTANIM)"
+
+
+def test_main_boots_the_staging_game_with_the_pack(monkeypatch, data_dir, example_pack_dir):
+    import PyAitD.app.shell as main
+    from PyAitD.app.config import default_settings
+    from PyAitD.app.ui import ModalSession
+    captured = {}
+
+    def fake_run(game, trace, session=None, mirror_sink=None):
+        captured["game"] = game
+        return 0
+
+    monkeypatch.setattr(main, "run", fake_run)
+    monkeypatch.setattr(main, "load_runtime_session", lambda path, save_directory=None: ModalSession(settings=default_settings()))
+    assert main.main(["--data", str(data_dir), "--content", str(example_pack_dir)]) == 0
+    game = captured["game"]
+    assert game.pack.name == "example"
+    assert len(game.world_objects) == 294

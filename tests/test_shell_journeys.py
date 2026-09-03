@@ -127,8 +127,8 @@ def test_one_click_hero_journey_through_the_real_loop(
     replacements = []
     real_init_game = main.init_game
 
-    def spy_init_game(data, profile, hero=0):
-        new_game = real_init_game(data, profile, hero=hero)
+    def spy_init_game(data, profile, hero=0, pack=None):
+        new_game = real_init_game(data, profile, hero=hero, pack=pack)
         # snapshot at replacement time: the first PLAY tick runs the real boot
         # scripts, which grant an object (the inventory is not empty by then)
         replacements.append((new_game, list(new_game.inventory_count)))
@@ -180,8 +180,8 @@ def test_keyboard_hero_journey_backs_out_and_starts_emily(data_dir, profile, mon
     replacements = []
     real_init_game = main.init_game
 
-    def spy_init_game(data, profile, hero=0):
-        new_game = real_init_game(data, profile, hero=hero)
+    def spy_init_game(data, profile, hero=0, pack=None):
+        new_game = real_init_game(data, profile, hero=hero, pack=pack)
         replacements.append(new_game)
         return new_game
 
@@ -499,8 +499,8 @@ def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
     real_init_game = main.init_game
     real_modal_session = main.ModalSession
 
-    def spy_init_game(data, profile, hero=0):
-        live["game"] = real_init_game(data, profile, hero=hero)
+    def spy_init_game(data, profile, hero=0, pack=None):
+        live["game"] = real_init_game(data, profile, hero=hero, pack=pack)
         return live["game"]
 
     def spy_modal_session(*args, **kwargs):
@@ -898,8 +898,8 @@ def test_journey_dismissing_the_settings_notice_during_the_cutscene_does_not_ski
     real_init_game = main.init_game
     real_modal_session = main.ModalSession
 
-    def spy_init_game(data, profile, hero=0):
-        live["game"] = real_init_game(data, profile, hero=hero)
+    def spy_init_game(data, profile, hero=0, pack=None):
+        live["game"] = real_init_game(data, profile, hero=hero, pack=pack)
         return live["game"]
 
     def spy_modal_session(*args, **kwargs):
