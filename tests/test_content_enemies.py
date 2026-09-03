@@ -7,7 +7,7 @@ import pytest
 from PyAitD.engine.content import BEHAVIOUR_LIFE, load_pack
 from PyAitD.engine.content.enemies import step_enemy
 from PyAitD.engine.data.floor import Floor
-from PyAitD.engine.script.game import init_game, relocate_actor
+from PyAitD.engine.script.game import init_game, relocate_actor, spawn_stage_actors
 from PyAitD.engine.script.playworld import play_tick
 from PyAitD.app.ui import InputBuffer
 
@@ -223,6 +223,55 @@ def test_the_prowler_chases_the_hero_across_the_attic_and_arms_a_strike(data_dir
     # the strike lands through gere_frappe like any scripted one
     landed = _tick_until(game, floor, lambda g: hero.hit_by == g.world_objects[PROWLER].obj_index, limit=1200)
     assert landed != -1, "the armed swing never reached the hero"
+
+
+def test_a_pack_enemy_keeps_its_phase_and_hit_points_across_a_despawn_and_respawn(data_dir, profile, example_pack_dir):
+    # spec section 3: hp and phase are keyed by world index (like the
+    # original vars[]) and survive the despawn/respawn a room change
+    # causes; a respawned enemy resumes the phase it was in. Provoked here
+    # the way tests/test_game.py's phase1_delete_gates test does: drive
+    # spawn_stage_actors's ROOM gate directly rather than faking a delete.
+    game, floor = _boot(data_dir, profile, example_pack_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    prowler = _actor(game, PROWLER)
+
+    def gap(g):
+        return abs(prowler.room_x - hero.room_x) + abs(prowler.room_z - hero.room_z)
+
+    play_tick(game, floor, InputBuffer())
+    assert game.content_state[PROWLER]["phase"] == "chase"
+    start = (prowler.room_x, prowler.room_z)
+    moved = _tick_until(
+        game, floor,
+        lambda g: abs(prowler.room_x - start[0]) + abs(prowler.room_z - start[1]) > 300,
+        limit=200,
+    )
+    assert moved != -1, "the prowler never left its spawn point"
+    before = dict(game.content_state[PROWLER])
+
+    # despawn: life_mode "room" keeps an actor only while its room matches
+    # the hero's; relocate the prowler's own actor to a room the hero is
+    # not in and let spawn_stage_actors's ROOM gate delete it for real.
+    slot = _slot(game, PROWLER)
+    relocate_actor(game, slot, 0, game.current_room + 1, prowler.room_x, prowler.room_y, prowler.room_z)
+    spawn_stage_actors(game)
+    assert game.world_objects[PROWLER].obj_index == -1
+    assert game.content_state[PROWLER] == before
+
+    # respawn: move the world object (there is no actor to relocate any
+    # more) back into the hero's room and let the same gate re-spawn it.
+    game.world_objects[PROWLER].room = game.current_room
+    spawn_stage_actors(game)
+    assert game.world_objects[PROWLER].obj_index != -1
+    assert game.content_state[PROWLER] == before
+    assert game.content_state[PROWLER]["phase"] == "chase"
+
+    prowler = _actor(game, PROWLER)
+    assert prowler.track_mode == 2   # activate_world_object's init_deplacement re-armed the follow track
+
+    start_gap = gap(game)
+    closed = _tick_until(game, floor, lambda g: gap(game) < start_gap - 200, limit=300)
+    assert closed != -1, "the respawned prowler never resumed closing on the hero"
 
 
 def test_hits_in_the_real_loop_take_the_prowler_through_hurt_dying_and_out(data_dir, profile, example_pack_dir, monkeypatch):

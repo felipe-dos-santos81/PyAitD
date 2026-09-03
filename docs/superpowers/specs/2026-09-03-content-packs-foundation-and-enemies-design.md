@@ -175,7 +175,7 @@ this order: damage check, then the phase's own rule.
 
 | Phase | Enters when | Each tick | Leaves when |
 |---|---|---|---|
-| `idle` | spawn or respawn; after `hurt`/`attack` for a sentry | sentry: turn toward the hero with `_process_track_follow`'s turn once the hero is within `2 * attack.range`. pursuer: nothing | pursuer: immediately -> `chase`. sentry: hero within `range` -> `attack` |
+| `idle` | spawn; after `hurt`/`attack` for a sentry | sentry: turn toward the hero with `_process_track_follow`'s turn once the hero is within `2 * attack.range`. pursuer: nothing | pursuer: immediately -> `chase`. sentry: hero within `range` -> `attack` |
 | `chase` | pursuer only | on entry `init_deplacement(2, hero)` + walk anim repeating; every tick `process_track`. Crosses rooms only when `life_mode = stage`, via the room-link aim that already exists | `calc_dist(hero) < range` and `arm_strike` accepts -> `attack` |
 | `attack` | from `idle` or `chase` | on entry `arm_strike(attack, frame, group, radius, force, next_anim = stand)`, `track_mode = 0`, `speed = 0` (no sliding mid-swing). `gere_frappe` publishes the hit; the hero's own LIFE takes the damage | `flag_end_anim` -> pursuer `chase`, sentry `idle` |
 | `hurt` | `hit_by != -1` and `hp` still above 0 | first, from every phase but `dying`: `hp -= actor.hit_force`. A hit during `hurt` or `attack` still counts; the anim is not restarted. Then hurt anim once with next anim stand, `track_mode = 0`, `speed = 0` | `flag_end_anim` -> pursuer `chase`, sentry `idle` (an interrupted strike is not resumed) |
@@ -185,10 +185,11 @@ A hurt or death anim replacing the strike anim disarms the strike on the
 next `gere_frappe` (animAction.cpp:25-34, already ported), so neither phase
 clears `anim_action_type` by hand.
 
-Hit points and phase survive a room change (keyed by world index); on
-respawn the phase resets to `idle`, hit points do not. No randomness in v1,
-so a headless run is bit-reproducible. The pursuer's follow speed is FITD's
-fixed 4 (`_process_track_follow`).
+Hit points and phase both survive a room change and the despawn/respawn it
+causes (keyed by world index, like the original `vars[]`); a respawned
+enemy resumes the phase it was in. No randomness in v1, so a headless run
+is bit-reproducible. The pursuer's follow speed is FITD's fixed 4
+(`_process_track_follow`).
 
 ## 4. Save and load
 
