@@ -288,8 +288,16 @@ action runner.
   `give_distance_2d` truncates each axis and a destination past 32767 reads as
   an arrival on the first tick. A steer draws no destination diamond and is
   never stashed for a double press to resume -- both would be about a place,
-  and a bearing is not one. Only actor-side clicks still refuse: an empty hand
-  on an enemy, a mid-swing, an object with nothing to do.
+  and a bearing is not one. An actor with nothing to offer -- no `found_life`,
+  not foundable, not a hold-action target -- no longer intercepts the click
+  either: a draw-list entry is a screen *rectangle* around the skinned model,
+  so refusing there refused the floor around the object too (215 of the
+  opening room's sampled pixels, from two pieces of inert scenery), and the
+  pixel now falls through to the floor as though the actor were not there.
+  What still refuses is a click aimed at a combat actor with an empty hand or
+  a hero mid-swing: there the click meant the enemy, not the ground past it.
+  `test_no_pixel_of_the_opening_room_refuses_a_click` is the gate, swept
+  against the real draw list.
 - A press advances the hero on the very next tick, and nothing delays it. A
   double press therefore walks for a few ticks before it runs, which is
   intrinsic: run is decided at press time and a press cannot see the second

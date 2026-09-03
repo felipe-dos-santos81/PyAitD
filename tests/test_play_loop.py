@@ -1475,15 +1475,74 @@ def test_run_routes_physical_and_touch_down_to_the_same_inventory_modal(
     )
 
 
-def test_inert_body_intercepts_the_floor_and_stays_blocked(data_dir, profile):
+def _screen_draw_list(game, floor):
+    """Every actor of the hero's room as _scene_frame would hand it over."""
+    hero = game.actors[game.current_camera_target_actor]
+    entries = []
+    for idx, actor in enumerate(game.actors):
+        if actor.index_in_world < 0 or actor.room != hero.room:
+            continue
+        if not 0 <= actor.body_num < game.assets.num_bodies:
+            continue   # nothing skinned, so nothing in the draw list
+        entry = _real_draw_list_entry(game, floor, idx)
+        if entry[1] is not None:
+            entries.append(entry)
+    return entries
+
+
+def test_no_pixel_of_the_opening_room_refuses_a_click(data_dir, profile):
+    """THE gate on "walking is always possible".
+
+    Swept against the real draw list, so actor bounding boxes are in play --
+    they are what put the red X back over ordinary floor after steering
+    landed: an inert body and one piece of scenery refused 86 of the 4000
+    pixels sampled here, the floor around them included.
+
+    Scoped to the opening room, which has no enemy in it. A combat actor
+    still refuses an empty hand or a hero mid-swing, and that refusal is
+    deliberate -- there the click was aimed at the enemy, not past it.
+    """
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    hero = game.actors[game.current_camera_target_actor]
+    refused = []
+    for slot in range(len(floor.rooms[hero.room].camera_indices)):
+        game.num_camera = slot
+        draw_list = _screen_draw_list(game, floor)
+        for x in range(0, 320, 8):
+            for y in range(0, 200, 8):
+                kind, _payload = resolve_play_click(game, floor, (x, y), draw_list)
+                if kind == "blocked":
+                    refused.append((slot, x, y))
+    assert refused == [], (
+        f"{len(refused)} pixel(s) of the opening room do nothing at all, "
+        f"first few: {refused[:8]}"
+    )
+
+
+def test_an_inert_actor_does_not_intercept_the_floor_behind_it(data_dir, profile):
+    """An actor with nothing to offer must not swallow the click.
+
+    It used to: an inert body, a piece of scenery with no found_life and no
+    push, returned `blocked` before the floor was ever consulted. A draw-list
+    entry is a *rectangle* around the skinned model, so that refusal covered
+    the floor around the object as well as the object -- 86 of 4000 pixels
+    sampled at the opening camera, all of them from two such actors, and none
+    of them able to walk anywhere. The pixel now resolves against the floor,
+    as though the actor were not there.
+    """
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     actor_idx = game.world_objects[8].obj_index
+    bare = resolve_play_click(game, floor, (150, 100), [])
 
-    assert resolve_play_click(
+    over_body = resolve_play_click(
         game, floor, (150, 100), [(actor_idx, (100, 60, 200, 160))],
-    ) == ("blocked", None)
+    )
+
+    assert over_body == bare, "the inert body changed what the pixel means"
+    assert over_body[0] in ("walk", "steer")
 
 
 def test_a_click_on_nothing_steers_rather_than_doing_nothing(data_dir, profile):

@@ -255,9 +255,10 @@ MOUSE_INTERACTION_DECISIONS = {
         "bearing through it instead of refusing, so walking is possible from "
         "every pixel of the world. It adds no PlayerCapability: it is the same "
         "WALK_TO_POINT hold, widened from the walkable floor to the whole "
-        "screen. Only a click aimed at an actor still refuses (an empty hand "
-        "on an enemy, a mid-swing, an object with nothing to do), because "
-        "there the click meant the thing, not the direction",
+        "screen. An actor with nothing to offer does not intercept it either: "
+        "its draw-list entry is a screen rectangle, so refusing there refused "
+        "the floor around it. Only a combat actor still refuses, with an empty "
+        "hand or a hero mid-swing, because there the click meant the enemy",
     ),
     "held_double_press_run": MouseInteractionDecision(
         "speed_not_capability",

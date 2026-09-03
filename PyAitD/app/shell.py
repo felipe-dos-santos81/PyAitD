@@ -415,12 +415,21 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
             # fall-through to a floor walk: the click was aimed at the enemy
             return ("blocked", None)
         return ("attack", actor_idx)
-    if actor_idx is not None:
-        if not _is_interactable(game, actor_idx):
-            if not is_hold_action_target(game, actor_idx):
-                return ("blocked", None)
+    if actor_idx is not None and not _is_interactable(game, actor_idx):
+        if is_hold_action_target(game, actor_idx):
             payload = hold_action_approach(game, floor, hero_idx, actor_idx)
-            return ("push", payload) if payload is not None else ("blocked", None)
+            if payload is not None:
+                return ("push", payload)
+        # Nothing to do with this actor, so it must not intercept the click.
+        # A draw-list entry is a screen *rectangle* around the skinned model:
+        # refusing here refused the floor around the object too, and 86 of
+        # 4000 pixels sampled at the opening camera were dead for exactly
+        # this reason -- two pieces of inert scenery between them. The pixel
+        # falls through to the floor below and means what it would mean if
+        # the actor were not there. Combat keeps its own refusal above: an
+        # empty hand on an enemy was aimed at the enemy.
+        actor_idx = None
+    if actor_idx is not None:
         target = game.actors[actor_idx]
         dest_x, dest_z = target.room_x, target.room_z
         # An object's own cell is essentially never walkable (the hard col
