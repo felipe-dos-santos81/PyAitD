@@ -422,7 +422,7 @@ def _validate_content_state(state, pack, first_index):
     last = first_index + len(pack.enemies) - 1
     for key, entry in state.items():
         path = f"content_state.{key}"
-        if not (type(key) is str and key.isdigit() and first_index <= int(key) <= last):
+        if not (type(key) is str and key.isascii() and key.isdigit() and first_index <= int(key) <= last):
             _fail(path, f"expected a world index in {first_index}..{last}")
         _require_keys(entry, _CONTENT_STATE_KEYS, path)
         _require_int(entry["hp"], f"{path}.hp")
@@ -472,7 +472,7 @@ def _validate_anim_players(players):
     if type(players) is not dict:
         _fail("anim_players", f"expected an object, got {type(players).__name__}")
     for key, entry in players.items():
-        if not (isinstance(key, str) and key.isdigit() and int(key) < NUM_MAX_OBJECT):
+        if not (isinstance(key, str) and key.isascii() and key.isdigit() and int(key) < NUM_MAX_OBJECT):
             _fail("anim_players", f"bad actor key {key!r}")
         path = f"anim_players[{key}]"
         _require_keys(entry, _PLAYER_KEYS, path)

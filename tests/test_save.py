@@ -391,6 +391,15 @@ def test_validate_rejects_bad_anim_player_entries(data_dir, profile):
         validate_snapshot(payload, data_dir, profile)
 
 
+def test_validate_rejects_a_non_ascii_digit_anim_player_key(data_dir, profile):
+    # "²".isdigit() is True but int("²") raises ValueError; the
+    # key must be filtered out before int() ever sees it.
+    payload = _snapshot(data_dir, profile)
+    payload["anim_players"]["²"] = {}
+    with pytest.raises(SaveError, match=r"anim_players: bad actor key '²'"):
+        validate_snapshot(payload, data_dir, profile)
+
+
 # ── task 4: atomic manual and quick slot storage ────────────────────────────
 
 import PyAitD.engine.script.save as save_module
@@ -606,6 +615,17 @@ def test_validate_checks_world_object_count_and_content_state_against_the_pack(d
     vanilla["content_state"] = {"5": {"hp": 1, "phase": "idle"}}
     with pytest.raises(SaveError, match=r"content_state: expected no content state without a pack"):
         validate_snapshot(vanilla, data_dir, profile)
+
+
+def test_validate_rejects_a_non_ascii_digit_content_state_key(data_dir, profile, example_pack_dir):
+    # "²".isdigit() is True but int("²") raises ValueError; the
+    # key must be filtered out before int() ever sees it.
+    game, pack = _packed(data_dir, profile, example_pack_dir)
+    payload = snapshot_game(game, SETTINGS)
+    bad = copy.deepcopy(payload)
+    bad["content_state"] = {"²": {"hp": 3, "phase": "idle"}}
+    with pytest.raises(SaveError, match=r"content_state\.²: expected a world index in 292\.\.293"):
+        validate_snapshot(bad, data_dir, profile, pack=pack)
 
 
 def test_validate_requires_every_pack_index_present_in_content_state(data_dir, profile, example_pack_dir):
