@@ -34,8 +34,9 @@ FORBIDDEN = {
     ),
     # Content packs (2026-09-03-content-packs-foundation-and-enemies-design.md):
     # content sits between script.game (which it imports, leaf modules only)
-    # and script.playworld / save (which import it). Never the tick, the
-    # interaction layer, navigation, or a game.
+    # and script.playworld / save (which import it). Never directly the
+    # tick, the interaction layer, navigation, or a game (anim_action
+    # reaches interaction transitively; that is the actor layer's business).
     "engine/content": PRESENTATION + (
         "PyAitD.games",
         "PyAitD.engine.script.playworld", "PyAitD.engine.script.interaction",

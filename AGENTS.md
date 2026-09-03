@@ -145,6 +145,21 @@ a rule — add the test with the rule.
   (`viewed_room_record_size`, `world_object_has_mark`), and the FITD
   gameTypeEnum ordinal (`generation`).
 
+## Content packs
+
+New enemies, objects or scenarios belong in a content pack under
+`packs/<name>/` — TOML in a fixed vocabulary, compiled and run by
+`PyAitD/engine/content/` — never as edits to the original game data or new
+LIFE bytecode. `engine/content` keeps to the layering rule like every other
+engine domain: it may import `data`, `space`, `actor`, and the
+`script.game.state`/`objects` leaf modules, never `script.playworld`,
+`script.interaction`, `nav`, `games`, or the presentation layer. Tests for
+packs split the same way the engine does: `tests/test_content_pack.py`
+covers the schema, reader and attach step; `tests/test_content_enemies.py`
+covers the behaviour journeys. A pack-free game must stay byte-identical to
+before content packs existed — `test_an_empty_pack_ticks_identically_to_no_pack`
+is the pin.
+
 ## Conventions
 
 - `# SPDX-License-Identifier: GPL-2.0-only` first line of every Python file.
