@@ -7,6 +7,8 @@ It is *fitted* from four points pushed through the engine's own forward path
 rather than derived from alpha/beta/gamma and COS_TABLE, so it cannot drift
 from the fixed-point pipeline it has to agree with.
 """
+from collections import namedtuple
+
 import numpy as np
 
 from PyAitD.engine.nav.navmesh import COVER_SCALE, cover_polys
@@ -140,9 +142,35 @@ def _in_band(box, agent):
     return y0 < box.y2 and box.y1 < y1
 
 
+_Volume = namedtuple("_Volume", "x1 x2 y1 y2 z1 z2")
+_ENTRY_EPS = 1e-9   # a box flush with the volume's own face is entered at
+                    # exactly the entry parameter; it is the shell, not an
+                    # occluder inside it
+
+
+def room_volume(floor, room_idx):
+    """The room's own axis-aligned volume: the bounding box of its hard cols.
+
+    A room's perimeter walls ARE hard cols, so this box is the room's shell,
+    outer faces included -- which is what makes it the right clip for
+    floor_point_visible: the wall the camera looks over is entered exactly
+    where the segment enters this volume, and everything strictly deeper is
+    inside the room. None when the room carries no hard cols at all.
+    """
+    boxes = floor.rooms[room_idx].hard_cols
+    if not boxes:
+        return None
+    return _Volume(
+        min(b.x1 for b in boxes), max(b.x2 for b in boxes),
+        min(b.y1 for b in boxes), max(b.y2 for b in boxes),
+        min(b.z1 for b in boxes), max(b.z2 for b in boxes),
+    )
+
+
 def floor_point_visible(floor, global_cam_idx, room_idx, x, y, z, agent=None):
     """True when no hard col of any room this camera views lies on the
-    segment from the camera to the point (given in room_idx's frame).
+    segment from the camera to the point (given in room_idx's frame), AFTER
+    that segment has entered room_idx's own volume.
 
     Each viewed room's boxes are tested in that room's own frame: the camera
     is rebuilt there (its position is (state.x, state.y, state.z), what
@@ -150,7 +178,24 @@ def floor_point_visible(floor, global_cam_idx, room_idx, x, y, z, agent=None):
     to_room_frame. `agent` = (half, y0, y1) keeps only boxes overlapping the
     agent's Y band, navmesh._subtract_hard_cols's rule, so a room link the
     hero can walk through is not a wall.
+
+    The clip at room_volume is what keeps the test sound for a camera placed
+    OUTSIDE the room it films -- which is most of this game's cameras: they
+    sit behind or above the perimeter wall, so the segment to ANY point in
+    the room crosses that wall (and often a neighbouring room's wall) before
+    it reaches the floor. Counting those boxes refused every pixel of 87 of
+    the 274 camera slots that have pickable floor. Boxes entered strictly
+    after the volume -- interior furniture, an inner wall -- still occlude.
+    The parametric t is comparable across rooms because every room's frame is
+    the same segment translated.
     """
+    entry = 0.0
+    volume = room_volume(floor, room_idx)
+    if volume is not None:
+        state = _camera_state_global(floor, room_idx, global_cam_idx)
+        hit = ray_box_hit((state.x, state.y, state.z), (x, y, z), volume)
+        if hit is not None:
+            entry = hit
     viewed = [vr.viewed_room_idx for vr in floor.cameras[global_cam_idx].viewed_rooms]
     rooms = [room_idx] + [r for r in viewed if r != room_idx and r < len(floor.rooms)]
     for other in rooms:
@@ -160,7 +205,8 @@ def floor_point_visible(floor, global_cam_idx, room_idx, x, y, z, agent=None):
         for box in floor.rooms[other].hard_cols:
             if not _in_band(box, agent):
                 continue
-            if ray_box_hit(origin, target, box) is not None:
+            hit = ray_box_hit(origin, target, box)
+            if hit is not None and hit > entry + _ENTRY_EPS:
                 return False
     return True
 
@@ -212,8 +258,30 @@ def viewed_floor_y(floor, hero_room, room_idx, floor_y):
     return to_room_frame(floor, hero_room, room_idx, 0, floor_y, 0)[1]
 
 
+OCCLUDE_BY_DEFAULT = False
+"""Whether the shipped floor pick refuses hits hidden behind a hard col.
+
+OFF, and the census in tools/prove_mouse.py is why. Hard cols are collision
+proxies, not the painted scene: whole rooms are modelled as a handful of
+chunky full-height blocks, and this game's cameras mostly sit outside the
+room they film. Clipping the occlusion segment at the room's own volume (see
+floor_point_visible) fixed the camera-outside-the-room case and took the
+camera slots with NO clickable floor pixel at all from 87 of 274 down to 14 --
+but 14 dead cameras is 14 places the player cannot walk with the mouse, and
+that is worse than the "the floor behind that crate is clickable" it buys.
+
+Everything the filter needs stays here, tested and one flag from live:
+ray_box_hit, room_volume, floor_point_visible, `occlude=True`, and the
+whole-game census gate in tests/test_prove_mouse.py, which fails the moment
+this flag turns on while any camera slot would go dark. Turning it on again
+is a data job -- real occluder volumes for the painted scene -- not a flag
+flip.
+"""
+
+
 def pick_floor_any_room(
-        logical_pos, floor, hero_room, cam_slot, floor_y, *, occlude=True, agent=None,
+        logical_pos, floor, hero_room, cam_slot, floor_y, *,
+        occlude=OCCLUDE_BY_DEFAULT, agent=None,
 ):
     """Pick across every room this camera views. Returns (x, z, room) or None.
 
@@ -221,8 +289,8 @@ def pick_floor_any_room(
     needs a transition, so it wins any overlap. With `occlude` a floor hit
     whose camera ray crosses a hard col (a wall, a piece of furniture) is
     refused rather than returned as "the floor behind it"; `occlude=False`
-    is the pre-occlusion pick, kept as the baseline the proof tool and the
-    tests compare against.
+    is the pre-occlusion pick, the baseline the proof tool and the tests
+    compare against, and -- see OCCLUDE_BY_DEFAULT -- what ships.
     """
     global_cam_idx = floor.rooms[hero_room].camera_indices[cam_slot]
     viewed = [vr.viewed_room_idx for vr in floor.cameras[global_cam_idx].viewed_rooms]
@@ -335,8 +403,17 @@ def project_room_point(floor, hero_room, cam_slot, room_idx, x, y, z):
     return screen
 
 
-def visible_accept(floor, hero_room, cam_slot, room_idx, floor_y, agent=None):
+def visible_accept(
+        floor, hero_room, cam_slot, room_idx, floor_y, agent=None, *,
+        occlude=OCCLUDE_BY_DEFAULT,
+):
     """Candidate filter: the cell must be visible from the camera on screen.
+
+    `occlude` tracks the shipped floor pick (OCCLUDE_BY_DEFAULT). The two
+    must agree: a filter that kept refusing approach cells while floor picks
+    ignored occlusion would make objects unreachable in exactly the rooms
+    whose floor is freely clickable. With it off every candidate is accepted
+    and approach_cell keeps its pre-occlusion reach.
 
     A camera that never renders room_idx has nothing meaningful to say about
     a point in it: the segment from the camera to a cell in an unrendered
@@ -347,6 +424,8 @@ def visible_accept(floor, hero_room, cam_slot, room_idx, floor_y, agent=None):
     Every candidate is accepted in that case; the filter only applies within
     a room the camera actually views.
     """
+    if not occlude:
+        return lambda x, z: True
     global_cam_idx = floor.rooms[hero_room].camera_indices[cam_slot]
     viewed = [vr.viewed_room_idx for vr in floor.cameras[global_cam_idx].viewed_rooms]
     if room_idx not in viewed:
@@ -362,7 +441,10 @@ def snap_accept(
         budget=SNAP_BUDGET_PX,
 ):
     """Candidate filter for a snapped walk: on screen within `budget` logical
-    pixels of the pointer on both axes, and visible from the camera."""
+    pixels of the pointer on both axes, and visible from the camera.
+
+    The budget always applies; the visibility half follows visible_accept,
+    so while OCCLUDE_BY_DEFAULT is off this is the budget alone."""
     visible = visible_accept(floor, hero_room, cam_slot, room_idx, floor_y, agent)
 
     def accept(x, z):
