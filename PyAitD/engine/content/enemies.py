@@ -92,7 +92,12 @@ def step_enemy(game, slot, record, state):
     hero = _hero_in_room(game, actor)
     if phase == "idle":
         if record.kind == "pursuer":
-            enter_phase(game, actor, record, state, "chase")
+            # current_world_target is -1 until a script sets the camera
+            # target (boot.py's start_game leaves it -1); init_deplacement
+            # would hand the follow track a negative index, which Python
+            # indexing resolves to world_objects[-1] instead of raising.
+            if game.current_world_target != -1:
+                enter_phase(game, actor, record, state, "chase")
             return
         if hero is None:
             return
@@ -103,6 +108,9 @@ def step_enemy(game, slot, record, state):
         if distance < record.attack.range:
             _try_attack(actor, record, state)
     elif phase == "chase":
+        if game.current_world_target == -1:
+            enter_phase(game, actor, record, state, "idle")
+            return
         process_track(game, actor)                                # LM_DO_MOVE
         if hero is not None and _distance(actor, hero) < record.attack.range:
             _try_attack(actor, record, state)

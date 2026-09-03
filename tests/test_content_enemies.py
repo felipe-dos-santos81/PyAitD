@@ -65,6 +65,29 @@ def test_a_pursuer_leaves_idle_for_chase_on_its_first_step(data_dir, profile, ex
     assert (actor.new_anim, actor.new_anim_type) == (23, 1)
 
 
+def test_a_pursuer_stays_idle_while_there_is_no_camera_target(data_dir, profile, example_pack_dir, quiet_tick):
+    game, _ = _boot(data_dir, profile, example_pack_dir)
+    record, state = game.content.record_for(PROWLER), game.content_state[PROWLER]
+    slot = _slot(game, PROWLER)
+    actor = _actor(game, PROWLER)
+    hero_target = game.current_world_target
+
+    game.current_world_target = -1
+    step_enemy(game, slot, record, state)
+    assert state["phase"] == "idle"
+    assert actor.track_mode == 0
+
+    game.current_world_target = hero_target
+    step_enemy(game, slot, record, state)
+    assert state["phase"] == "chase"
+    assert actor.track_number == hero_target
+
+    game.current_world_target = -1
+    step_enemy(game, slot, record, state)
+    assert state["phase"] == "idle"
+    assert (actor.track_mode, actor.speed) == (0, 0)
+
+
 def test_a_sentry_stays_put_until_the_hero_is_within_twice_its_range(data_dir, profile, example_pack_dir, quiet_tick):
     game, floor = _boot(data_dir, profile, example_pack_dir)
     record, state = game.content.record_for(WATCHER), game.content_state[WATCHER]
