@@ -61,8 +61,8 @@ second press to run instead of walk (the mouse's reading of the keyboard's
 double-tap forward); hold over an object to approach and use it;
 release to stop immediately. A diamond on the floor marks where the hero is
 heading (faint before you press, solid while you hold), a ring around the
-cursor shows the button is down, and a red X means the pointer is on a wall
-or something the hero cannot reach. Pushable scenery shows an amber opposed-arrow
+cursor shows the button is down, and a red X means the pointer is somewhere
+the hero cannot be sent. Pushable scenery shows an amber opposed-arrow
 cursor: press and hold to approach and push (the push target stays latched
 while you hold), release to stop. Armed enemies and the inventory button
 answer a single press. The OS cursor is never locked or grabbed. Tab switches
