@@ -431,6 +431,13 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
             if hero.room != target.room:
                 dx, _dy, dz = room_delta(game, hero.room, target.room)
                 from_x, from_z = from_x - dx, from_z + dz
+            # Two stages, because the visibility filter is a preference and
+            # never a veto: prefer an approach cell the camera can see, but a
+            # camera that can see none must not make the object unreachable.
+            # If both searches come up empty the destination stays the
+            # object's own centre -- the fall-through this branch has always
+            # had, and never `blocked`: refusing here made every object click
+            # in a room whose cells the filter rejected unusable.
             spot = approach_cell(
                 mesh, dest_x, dest_z, from_x, from_z,
                 accept=visible_accept(
@@ -438,10 +445,10 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
                     viewed_floor_y(floor, hero.room, target.room, hero.world_y), agent,
                 ),
             )
+            if spot is None:
+                spot = approach_cell(mesh, dest_x, dest_z, from_x, from_z)
             if spot is not None:
                 dest_x, dest_z = spot
-            else:
-                return ("blocked", None)
         return (
             "target",
             (dest_x, dest_z, target.room, target.index_in_world),

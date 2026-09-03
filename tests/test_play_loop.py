@@ -983,6 +983,58 @@ def test_object_approach_uses_a_visibility_filter(data_dir, profile, monkeypatch
     assert callable(seen.get("accept")), "the resolver did not hand approach_cell a filter"
 
 
+def test_an_object_with_no_visible_approach_cell_retries_unfiltered(data_dir, profile,
+                                                                    monkeypatch):
+    # The visibility filter is a preference, never a veto. A camera that can
+    # see no approach cell must not make the object unreachable: the search
+    # runs again with no filter, and the click is still a target.
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    real = main.approach_cell
+    calls = []
+
+    def spy(mesh, x, z, from_x, from_z, max_cells=main.TARGET_SNAP_CELLS, accept=None):
+        calls.append(accept)
+        if accept is not None:
+            return None      # the filtered search finds nothing
+        return real(mesh, x, z, from_x, from_z, max_cells, accept)
+    monkeypatch.setattr(main, "approach_cell", spy)
+    target = game.actors[10]
+    draw_list = [(10, (0, 0, 319, 199))]
+    kind, payload = resolve_play_click(game, floor, (160, 100), draw_list)
+
+    assert [call is None for call in calls] == [False, True], (
+        "the filtered search must run first and the unfiltered one only after it"
+    )
+    assert kind == "target"
+    assert payload[:2] != (target.room_x, target.room_z), (
+        "the unfiltered retry produced no approach cell"
+    )
+
+
+def test_an_object_with_no_approach_cell_at_all_still_targets_its_centre(
+        data_dir, profile, monkeypatch,
+):
+    # The base behaviour, preserved: with no walkable neighbour anywhere the
+    # destination is the object's own centre and find_path deals with it.
+    # Returning "blocked" here made every object click on 87 camera slots
+    # unusable, because the filter refused every cell in those rooms.
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    monkeypatch.setattr(main, "approach_cell", lambda *_args, **_kwargs: None)
+    target = game.actors[10]
+    kind, payload = resolve_play_click(game, floor, (160, 100), [(10, (0, 0, 319, 199))])
+
+    assert kind == "target"
+    assert payload == (
+        target.room_x, target.room_z, target.room, target.index_in_world,
+    )
+
+
 def test_latched_push_cursor_survives_pointer_drift(data_dir, profile):
     # A held push must remain visually unambiguous while the pointer moves
     # elsewhere; resolving current hover here would advertise another action.
