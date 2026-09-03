@@ -194,3 +194,115 @@ def test_an_attack_returns_a_pursuer_to_chase_and_a_sentry_to_idle(data_dir, pro
 
     assert swing_and_finish(PROWLER) == "chase"
     assert swing_and_finish(WATCHER) == "idle"
+
+
+# ── the real tick, end to end ────────────────────────────────────────────────
+
+
+def test_the_prowler_chases_the_hero_across_the_attic_and_arms_a_strike(data_dir, profile, example_pack_dir):
+    game, floor = _boot(data_dir, profile, example_pack_dir)
+    hero = game.actors[game.current_camera_target_actor]
+    prowler = _actor(game, PROWLER)
+    assert prowler is not None
+    play_tick(game, floor, InputBuffer())
+    assert game.content_state[PROWLER]["phase"] == "chase"
+    assert (prowler.track_mode, prowler.track_number, prowler.new_anim) == (2, game.current_world_target, 23)
+    play_tick(game, floor, InputBuffer())      # gere_anim commits the walk on the next anim pass
+    assert prowler.anim == 23
+
+    def gap(g):
+        return abs(prowler.room_x - hero.room_x) + abs(prowler.room_z - hero.room_z)
+
+    start_gap = gap(game)
+    moved = _tick_until(game, floor, lambda g: abs(prowler.room_x + 5600) + abs(prowler.room_z - 1000) > 300, limit=200)
+    assert moved != -1, "the prowler never left its spawn point"
+    armed = _tick_until(game, floor, lambda g: g.content_state[PROWLER]["phase"] == "attack", limit=3000)
+    assert armed != -1, f"the prowler never came within range: {start_gap} -> {gap(game)}"
+    assert gap(game) < start_gap // 3
+    assert (prowler.anim_action_type, prowler.anim_action_anim) == (1, 25)
+    # the strike lands through gere_frappe like any scripted one
+    landed = _tick_until(game, floor, lambda g: hero.hit_by == g.world_objects[PROWLER].obj_index, limit=1200)
+    assert landed != -1, "the armed swing never reached the hero"
+
+
+def test_hits_in_the_real_loop_take_the_prowler_through_hurt_dying_and_out(data_dir, profile, example_pack_dir, monkeypatch):
+    # play_tick resets hit_by before the anim pass; inject the hero's hit
+    # right after that pass, where gere_frappe would publish it, so the
+    # behaviour sees it at the LIFE loop's position (the same trick
+    # tests/test_game_over.py uses on playworld.tick).
+    from PyAitD.engine.script.playworld import tick as tick_module
+    game, floor = _boot(data_dir, profile, example_pack_dir)
+    hero_idx = game.current_camera_target_actor
+    pending = {"hits": 0}
+    real_anim_pass = tick_module._anim_pass
+
+    def anim_pass_then_hit(g):
+        result = real_anim_pass(g)
+        if pending["hits"]:
+            prowler = _actor(g, PROWLER)
+            prowler.hit_by, prowler.hit_force = hero_idx, 1
+            pending["hits"] -= 1
+        return result
+
+    monkeypatch.setattr(tick_module, "_anim_pass", anim_pass_then_hit)
+    _tick_until(game, floor, lambda g: g.content_state[PROWLER]["phase"] == "chase", limit=10)
+    _tick_until(game, floor, lambda g: False, limit=60)
+
+    pending["hits"] = 1
+    hurt = _tick_until(game, floor, lambda g: g.content_state[PROWLER]["phase"] == "hurt", limit=5)
+    assert hurt != -1
+    assert game.content_state[PROWLER]["hp"] == 2
+    back = _tick_until(game, floor, lambda g: g.content_state[PROWLER]["phase"] == "chase", limit=300)
+    assert back != -1, "the hurt anim never handed back to the chase"
+
+    pending["hits"] = 2
+    dying = _tick_until(game, floor, lambda g: g.content_state[PROWLER]["phase"] == "dying", limit=10)
+    assert dying != -1
+    assert game.content_state[PROWLER]["hp"] == 0
+    slot = _slot(game, PROWLER)
+    dead = _tick_until(game, floor, lambda g: g.content_state[PROWLER]["phase"] == "dead", limit=400)
+    assert dead != -1, "the death anim never ended"
+    assert game.world_objects[PROWLER].obj_index == -1
+    assert game.world_objects[PROWLER].stage == -1
+    assert game.actors[slot].index_in_world == -1
+
+    # leaving and re-entering the room regenerates the active list; a dead
+    # record has stage -1 and is skipped like a taken object
+    game.flag_genere_aff_list = 1
+    play_tick(game, floor, InputBuffer())
+    assert game.world_objects[PROWLER].obj_index == -1
+    assert game.content_state[PROWLER] == {"hp": 0, "phase": "dead"}
+
+
+def test_the_watcher_never_moves_and_turns_to_face_a_hero_who_comes_close(data_dir, profile, example_pack_dir):
+    game, floor = _boot(data_dir, profile, example_pack_dir)
+    hero_idx = game.current_camera_target_actor
+    watcher = _actor(game, WATCHER)
+    parked = (watcher.room_x, watcher.room_y, watcher.room_z, watcher.beta)
+    _tick_until(game, floor, lambda g: False, limit=300)
+    assert (watcher.room_x, watcher.room_y, watcher.room_z, watcher.beta) == parked
+    assert game.content_state[WATCHER]["phase"] == "idle"
+    relocate_actor(game, hero_idx, 0, 0, 2500 - 2500, 0, 3500)    # 2500 west: turns, no strike
+    turned = _tick_until(game, floor, lambda g: watcher.beta != parked[3], limit=120)
+    assert turned != -1, "the watcher never turned toward the hero"
+    assert (watcher.room_x, watcher.room_z) == (parked[0], parked[2])
+    assert game.content_state[WATCHER]["phase"] == "idle"
+    relocate_actor(game, hero_idx, 0, 0, 2500 - 1000, 0, 3500)    # 1000 west: in range
+    armed = _tick_until(game, floor, lambda g: g.content_state[WATCHER]["phase"] == "attack", limit=10)
+    assert armed != -1
+    assert (watcher.room_x, watcher.room_z) == (parked[0], parked[2])
+
+
+def test_the_trace_records_each_behaviour_step(data_dir, profile, example_pack_dir, tmp_path):
+    from PyAitD.engine.script.life import Trace
+    game, floor = _boot(data_dir, profile, example_pack_dir)
+    game.trace = Trace(tmp_path / "t.log")
+    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, InputBuffer())
+    game.trace.close()
+    lines = (tmp_path / "t.log").read_text().splitlines()
+    prowler, watcher = _slot(game, PROWLER), _slot(game, WATCHER)
+    behaviour = [line for line in lines if " BEHAVIOUR " in line]
+    assert f"{game.timer - 1} {prowler} BEHAVIOUR chase" in behaviour
+    assert f"{game.timer - 1} {watcher} BEHAVIOUR idle" in behaviour
+    assert f"{game.timer} {prowler} BEHAVIOUR chase" in behaviour
