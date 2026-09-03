@@ -47,6 +47,17 @@ fixes what a press resolves to and what the player sees, not how they press.
 
 ## Non-goals
 
+> **Amendment (2026-09-02, post-implementation).** The first non-goal below
+> was overtaken by play testing and is no longer accurate. Two follow-up
+> changes landed on the gesture after this spec shipped, both answering the
+> same report — "it always starts to walk when I double-click to start
+> running". First, the second press of a double press now resumes the first
+> press's destination instead of re-picking. Then, since run is decided at
+> press time and a press cannot know a second one is coming, a first press
+> aims the hero and holds him still for `ui.RUN_COMMIT_TICKS` (200ms) before
+> the walk starts, so a double press lands as a run with no walking step in
+> front of it. See CONTEXT.md for the mechanism.
+
 - Any change to the gesture: tap-to-walk, timing thresholds, right-click,
   double-click semantics, pointer lock or grab.
 - Changing `NavIntent`, `navigate.decide`, `apply_click_intent`, arrival

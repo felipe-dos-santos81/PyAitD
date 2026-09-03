@@ -154,6 +154,15 @@ class NavIntent:
     # gives a double-tap forward (tracks.py). A property of the click, not of
     # the device that made it -- no engine module learns a mouse exists.
     run: bool = False
+    # The run commit window (app.ui.RUN_COMMIT_TICKS): the game tick before
+    # which this intent steers but does not advance. A press cannot know that
+    # a second press is coming, so a click that starts walking immediately can
+    # never become a run without walking first; holding the hero still for a
+    # few ticks lets the double press arrive and land as a run from the first
+    # step. None means advance at once, which is every intent the mouse did
+    # not make. Absolute, not a duration: re-aiming mid-hold must not restart
+    # the window.
+    hold_until: int | None = None
     engaged: bool = False
     waypoints: list = None
     path_room: int = -1

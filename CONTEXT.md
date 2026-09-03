@@ -265,6 +265,20 @@ action runner.
   where a double tap on a held key is a fast repeat. A held push never runs.
   Run adds no `PlayerCapability`: it is a speed, and every destination stays
   reachable at a walk (`mouse_contract` decision `held_double_press_run`). No engine module learns about pointer motion.
+- The second press of a double press resumes the first press's destination
+  (`shell._resume_destination`, within `DOUBLE_PRESS_RESUME_PX`) rather than
+  picking again: one motion of one finger means one place, and a pixel of
+  drift under the snap budget could otherwise find nothing at all.
+- A first press aims the hero and holds him still for `ui.RUN_COMMIT_TICKS`
+  (`NavIntent.hold_until` -> `navigate.decide` returns a non-advancing
+  decision) before the walk starts. Run is decided at press time and a press
+  cannot see the second press coming, so without the window every double
+  press walked before it ran — the whole complaint. The deadline is an
+  absolute tick stamped once per press, so re-aiming mid-hold inherits what
+  is left of it instead of re-freezing the hero. The window sits after
+  `decide`'s arrival test, so a click the hero is already standing on still
+  dispatches at once, and before its give-up test, so waiting is not counted
+  as failing to make progress. A held push and a second press both skip it.
 - `playworld._push_into_target` re-aims an arrived click at a non-foundable
   object that has a `found_life`, so the final step collides with the object
   and the scripted found fires from the collision (FITD anim.cpp:381: the

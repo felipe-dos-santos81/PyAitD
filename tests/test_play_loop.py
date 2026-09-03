@@ -2703,6 +2703,69 @@ def test_a_second_press_outside_the_window_walks(data_dir, profile, monkeypatch)
     assert buf.pointer_run is False
 
 
+def test_a_first_press_holds_the_hero_still_until_the_run_commit_window_ends(
+        data_dir, profile, monkeypatch):
+    # The complaint this answers: a double press always walked before it ran.
+    # It has to, if the first press advances -- the press cannot see the
+    # second one coming. So the first press aims and waits, and only starts
+    # walking once no second press has arrived.
+    import PyAitD.app.shell as main
+    from PyAitD.app.ui import RUN_COMMIT_TICKS
+    game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
+
+    intent = _press(main, game, floor, buf, near, monkeypatch, 100)
+
+    assert intent.hold_until == 100 + RUN_COMMIT_TICKS
+    assert buf.run_commit_deadline == 100 + RUN_COMMIT_TICKS
+
+
+def test_the_second_press_of_a_double_press_runs_with_no_window_left_to_wait(
+        data_dir, profile, monkeypatch):
+    # Once the double press is known there is nothing left to wait for: the
+    # run starts on the tick of the press, which is the whole point of making
+    # the first press wait.
+    import PyAitD.app.shell as main
+    game, floor, buf, near, far = _follow_fixture(data_dir, profile)
+    _primed(main, game, floor, buf, near, monkeypatch)
+
+    intent = _press(main, game, floor, buf, far, monkeypatch, 103)
+
+    assert intent.run is True
+    assert intent.hold_until is None
+    assert buf.run_commit_deadline is None
+
+
+def test_re_aiming_inside_a_hold_inherits_the_window_instead_of_reopening_it(
+        data_dir, profile, monkeypatch):
+    # The deadline is an absolute tick stamped by the press, so dragging the
+    # pointer across the room cannot freeze the hero a few ticks at a time.
+    import PyAitD.app.shell as main
+    from PyAitD.app.ui import RUN_COMMIT_TICKS
+    game, floor, buf, near, far = _follow_fixture(data_dir, profile)
+    _press(main, game, floor, buf, near, monkeypatch, 100)
+    game.timer = 100 + RUN_COMMIT_TICKS * 2
+
+    _resolving(monkeypatch, [("walk", far)])
+    main.follow_pointer(game, ModalSession(), floor, (40, 40), [], buf)
+
+    assert game.nav_intent.hold_until == 100 + RUN_COMMIT_TICKS, (
+        "the same deadline, already in the past: the re-aim advances at once"
+    )
+
+
+def test_a_held_push_never_waits_out_the_run_commit_window(
+        data_dir, profile, monkeypatch):
+    # Leaning on furniture has no second press to wait for: the hero pushes
+    # from the tick the button goes down, as before.
+    from PyAitD.engine.script.interaction import apply_click_intent
+    from PyAitD.engine.script.game import init_game
+    game = init_game(data_dir, profile)
+
+    apply_click_intent(game, 0, 0, 0, requires_hold=True, hold_until=999)
+
+    assert game.nav_intent.hold_until is None
+
+
 def test_the_second_press_of_a_double_press_resumes_the_first_destination(
         data_dir, profile, monkeypatch):
     # A double click is one motion of one finger, and its second press means

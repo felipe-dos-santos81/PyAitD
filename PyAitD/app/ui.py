@@ -104,6 +104,11 @@ class InputBuffer:
     # DOUBLE_PRESS_RESUME_PX; it never moves the hero on its own.
     resume_last: tuple | None = None
     resume_pos: tuple[int, int] | None = None
+    # The game tick this hold's intent may start advancing on, or None for a
+    # hold that may advance at once (a second press, which is already a run).
+    # Stamped once per press and carried onto every re-aim within the hold, so
+    # dragging the pointer does not restart the window. See RUN_COMMIT_TICKS.
+    run_commit_deadline: int | None = None
 
 
 _DIRECTION_CONTROL = {
@@ -158,6 +163,19 @@ def compile_bindings(settings):
 # player spent in there.
 DOUBLE_PRESS_TICKS = 25
 
+# How long a press aims the hero without moving him, so that the second press
+# of a double press can arrive and make it a run before a walking step is ever
+# taken. Run is decided at press time and a press cannot see the future: with
+# no window at all, every double press walks first, which is the complaint
+# this answers.
+#
+# Ten ticks is 200ms, which covers a normal double click (the two presses of
+# one are typically 100-200ms apart, well inside DOUBLE_PRESS_TICKS' 500ms
+# outer limit) while staying near the edge of what reads as lag on a single
+# walk. It buys nothing to make it longer: the window only has to outlast the
+# gap between the two presses, not the whole double-press window.
+RUN_COMMIT_TICKS = 10
+
 
 def reset_input(state):
     state.held_joyd = 0
@@ -178,6 +196,7 @@ def reset_input(state):
     state.last_press_tick = None
     state.resume_last = None
     state.resume_pos = None
+    state.run_commit_deadline = None
     state.commands.clear()
 
 
