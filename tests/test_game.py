@@ -158,3 +158,8 @@ def test_rooms_of_floor_does_not_go_through_load_floor(data_dir, profile, monkey
         lambda self, number: pytest.fail("rooms_of_floor must not call load_floor"),
     )
     assert game.rooms_of_floor(1)
+
+
+def test_a_pack_free_game_has_no_content(data_dir, profile):
+    game = init_game(data_dir, profile, hero=0)
+    assert (game.pack, game.content, game.content_state) == (None, None, {})

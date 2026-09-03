@@ -75,9 +75,11 @@ def game_step_tick(game):
     game.timer += 1
 
 
-def init_game(data_dir, profile, hero=0):
+def init_game(data_dir, profile, hero=0, pack=None):
     from PyAitD.engine.script.interaction import sync_player_track_mode  # interaction imports game
-    game = Game(data_dir, profile, hero=hero)
+    from PyAitD.engine.content.world import attach  # content imports game's leaf modules
+    game = Game(data_dir, profile, hero=hero, pack=pack)
+    attach(game, pack)   # before spawn_stage_actors: the records must exist to be placed
     # profile.game_start (games/base.py): the floor/room the playable start
     # boots onto directly -- NOT via start_game, which resets camera/world
     # targets and clears floor_start (see games/base.py's docstring). AITD1's

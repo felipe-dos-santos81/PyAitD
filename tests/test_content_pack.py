@@ -240,3 +240,67 @@ def test_check_archives_validates_against_both_hero_archives(tmp_path, data_dir,
     root = _write_pack(tmp_path / "p", [("x.toml", PROWLER_TOML.replace("body = 24", "body = 30"))])
     with pytest.raises(PackError, match=r"^enemies/x\.toml: body: 30 is not below 25 \(LISTBOD2\)"):
         pack_module.load_pack(root, data_dir, profile)
+
+
+# ── attachment ───────────────────────────────────────────────────────────────
+
+
+def test_compile_record_is_an_inert_original_record_with_the_sentinel_life():
+    from PyAitD.engine.content.world import compile_record
+    from PyAitD.engine.data.formats import WorldObject
+    record = parse_enemy(PROWLER, "enemies/prowler.toml")
+    assert compile_record(record) == WorldObject(
+        obj_index=-1, body=24, flags=0x21, type_zv=0,
+        found_body=-1, found_name=-1, found_flag=0, found_life=-1,
+        x=-5600, y=0, z=1000, alpha=0, beta=0, gamma=0, stage=0, room=0,
+        life_mode=1, life=BEHAVIOUR_LIFE, floor_life=-1,
+        anim=22, frame=0, anim_type=1, anim_info=-1,
+        track_mode=0, track_number=-1, position_in_track=0, mark=0,
+    )
+    falls = compile_record(parse_enemy(_table(falls=True, zv="cube", life_mode="stage", beta=512), "e.toml"))
+    assert (falls.flags, falls.type_zv, falls.life_mode, falls.beta) == (0x121, 2, 0, 512)
+
+
+def test_init_game_appends_the_pack_after_the_original_records(data_dir, profile, example_pack_dir):
+    from PyAitD.engine.content import load_pack
+    from PyAitD.engine.script.game import init_game
+    pack = load_pack(example_pack_dir, data_dir, profile)
+    game = init_game(data_dir, profile, pack=pack)
+    assert game.pack is pack
+    assert len(game.world_objects) == 294
+    assert game.content.first_index == 292
+    assert [r.id for r in game.content.records.values()] == ["prowler", "watcher"]
+    assert game.content.record_for(292).id == "prowler"
+    assert game.content.record_for(9) is None
+    assert game.content_state == {292: {"hp": 3, "phase": "idle"}, 293: {"hp": 2, "phase": "idle"}}
+    # both spawned into the attic by the ordinary spawn pass, standing
+    for idx in (292, 293):
+        world = game.world_objects[idx]
+        slot = world.obj_index
+        assert slot != -1
+        actor = game.actors[slot]
+        assert (actor.index_in_world, actor.life, actor.life_mode, actor.room) == (idx, BEHAVIOUR_LIFE, 1, 0)
+        assert (actor.body_num, actor.anim, actor.anim_type, actor.dyn_flags) == (24, 22, 1, 1)
+    prowler = game.actors[game.world_objects[292].obj_index]
+    assert (prowler.room_x, prowler.room_y, prowler.room_z) == (-5600, 0, 1000)
+
+
+def test_attach_is_a_no_op_without_a_pack_and_refuses_a_second_pack(data_dir, profile, example_pack_dir):
+    from PyAitD.engine.content import attach, load_pack
+    from PyAitD.engine.script.game import init_game
+    game = init_game(data_dir, profile)
+    assert (game.pack, game.content, game.content_state) == (None, None, {})
+    assert attach(game, None) is None
+    pack = load_pack(example_pack_dir, data_dir, profile)
+    with_pack = init_game(data_dir, profile, pack=pack)
+    with pytest.raises(ValueError, match="already attached"):
+        attach(with_pack, pack)
+
+
+def test_an_empty_pack_changes_nothing_but_the_identity(data_dir, profile, tmp_path):
+    from PyAitD.engine.content import load_pack
+    from PyAitD.engine.script.game import init_game
+    empty = load_pack(_write_pack(tmp_path / "empty"), data_dir, profile)
+    game = init_game(data_dir, profile, pack=empty)
+    assert len(game.world_objects) == 292
+    assert (game.content.first_index, game.content.records, game.content_state) == (292, {}, {})
