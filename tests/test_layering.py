@@ -32,6 +32,15 @@ FORBIDDEN = {
         "PyAitD.games",
         "PyAitD.engine.actor", "PyAitD.engine.script", "PyAitD.engine.nav",
     ),
+    # Content packs (2026-09-03-content-packs-foundation-and-enemies-design.md):
+    # content sits between script.game (which it imports, leaf modules only)
+    # and script.playworld / save (which import it). Never the tick, the
+    # interaction layer, navigation, or a game.
+    "engine/content": PRESENTATION + (
+        "PyAitD.games",
+        "PyAitD.engine.script.playworld", "PyAitD.engine.script.interaction",
+        "PyAitD.engine.nav",
+    ),
     "render": ("PyAitD.games", "PyAitD.app"),
     "games": ("pygame", "moderngl", "PyAitD.render", "PyAitD.app"),
 }
@@ -97,6 +106,29 @@ def test_pure_render_modules_import_no_graphics_library():
         if names
     }
     assert not bad, bad
+
+
+def test_content_never_imports_the_script_game_package_itself():
+    # script.game's __init__ imports boot, and boot imports content (lazily,
+    # in init_game); content importing the package back would be a partial
+    # initialisation at boot time. Leaf modules (state, objects) are fine.
+    package = "PyAitD.engine.script.game"
+    leaves = {"state", "objects"}
+
+    def offends(name):
+        if name == package:
+            return True
+        if not name.startswith(package + "."):
+            return False
+        return name[len(package) + 1:].split(".")[0] not in leaves
+
+    bad = [
+        f"{path.name}: {name}"
+        for path in _modules("engine/content")
+        for name in _imports(path)
+        if offends(name)
+    ]
+    assert bad == []
 
 
 @pytest.mark.parametrize("module", sorted(GRAPHICS_OWNERS))
@@ -177,6 +209,8 @@ PRESENTATION_FREE = (
      " — picking is pure math and must not need a window; the shell passes it logical coordinates"),
     ("PyAitD.engine.script.playworld,PyAitD.engine.actor.anim_action", PRESENTATION,
      " — the tick must stay importable without the presentation layer so it can run headless"),
+    ("PyAitD.engine.content", PRESENTATION,
+     " — packs must load and their behaviours run headless, like the tick"),
     ("PyAitD.games.aitd1.mouse_contract", PRESENTATION, ""),
     # app/config is allowed the rest of the presentation layer; it must only
     # stay free of pygame so settings can be read and written headless.
