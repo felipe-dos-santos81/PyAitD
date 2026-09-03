@@ -2522,6 +2522,34 @@ def test_motion_past_the_dead_zone_retargets_and_closes_it(data_dir, profile):
     assert buf.follow_camera == cut_slot
 
 
+def test_a_camera_cut_back_closes_the_dead_zone(data_dir, profile):
+    # The camera can return to the slot the follow was resolved under while
+    # the dead zone is still open (a doorway the hero steps in and out of).
+    # That path skips the cut branch entirely, so the settle origin has to be
+    # cleared on the way through: a stale one leaves the cursor drawing its
+    # dashed settling ring for the rest of the hold.
+    import PyAitD.app.shell as main
+    game, floor, buf, pixel, cut_slot, before = _cut_fixture(
+        data_dir, profile, "walk",
+    )
+    original_slot = buf.follow_camera
+
+    game.num_camera = cut_slot
+    drifted = (pixel[0] + 1, pixel[1])
+    buf.pointer_pos = drifted
+    main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
+    assert buf.follow_settle_origin == pixel, "fixture: the dead zone must be open"
+
+    game.num_camera = original_slot           # the camera cuts back
+    moved = (pixel[0] + 2, pixel[1])
+    buf.pointer_pos = moved
+    main.follow_pointer(game, ModalSession(), floor, moved, [], buf)
+
+    assert buf.follow_settle_origin is None, "the settle origin outlived the cut"
+    assert buf.follow_camera == original_slot
+    assert buf.follow_pos == moved
+
+
 def test_release_clears_the_settle_state(data_dir, profile):
     import PyAitD.app.shell as main
     game, floor, buf, pixel, cut_slot, before = _cut_fixture(

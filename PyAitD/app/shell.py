@@ -620,7 +620,12 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
         if (abs(logical_pos[0] - ox) <= CUT_DEAD_ZONE_PX
                 and abs(logical_pos[1] - oy) <= CUT_DEAD_ZONE_PX):
             return
-        input_buffer.follow_settle_origin = None
+    # Every path that advances follow_camera closes the dead zone with it,
+    # the branch above and the fall-through alike: the camera can cut BACK to
+    # the slot the follow was resolved under while the zone is still open,
+    # and a settle origin left behind then draws the cursor's dashed ring for
+    # the rest of the hold.
+    input_buffer.follow_settle_origin = None
     input_buffer.follow_pos = logical_pos
     input_buffer.follow_camera = game.num_camera
     kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
