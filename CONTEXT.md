@@ -269,16 +269,17 @@ action runner.
   (`shell._resume_destination`, within `DOUBLE_PRESS_RESUME_PX`) rather than
   picking again: one motion of one finger means one place, and a pixel of
   drift under the snap budget could otherwise find nothing at all.
-- A first press aims the hero and holds him still for `ui.RUN_COMMIT_TICKS`
-  (`NavIntent.hold_until` -> `navigate.decide` returns a non-advancing
-  decision) before the walk starts. Run is decided at press time and a press
-  cannot see the second press coming, so without the window every double
-  press walked before it ran — the whole complaint. The deadline is an
-  absolute tick stamped once per press, so re-aiming mid-hold inherits what
-  is left of it instead of re-freezing the hero. The window sits after
-  `decide`'s arrival test, so a click the hero is already standing on still
-  dispatches at once, and before its give-up test, so waiting is not counted
-  as failing to make progress. A held push and a second press both skip it.
+- A press advances the hero on the very next tick, and nothing delays it. A
+  double press therefore walks for a few ticks before it runs, which is
+  intrinsic: run is decided at press time and a press cannot see the second
+  one coming. Holding the hero still until a second press could arrive was
+  tried (`RUN_COMMIT_TICKS`, 20a09ac) and reverted -- such a wait has to
+  outlast the gap *between* two presses (100-200ms), which is longer than an
+  ordinary click is held down (60-120ms), so under hold-bound navigation the
+  release cancelled the intent before it ever advanced and a plain click moved
+  the hero nowhere at all. Do not reintroduce a press-time wait;
+  `tests/test_play_loop.py::test_a_click_of_ordinary_length_walks_before_the_button_comes_up`
+  is the guard.
 - `playworld._push_into_target` re-aims an arrived click at a non-foundable
   object that has a `found_life`, so the final step collides with the object
   and the scripted found fires from the collision (FITD anim.cpp:381: the

@@ -83,18 +83,6 @@ def decide(game, actor, mesh, *, stop_at_destination=True):
     if (stop_at_destination and intent.room == actor.room
             and len(intent.waypoints) == 1 and distance < ARRIVE_DISTANCE):
         return NavDecision(0, target_x, target_z, advance=False, arrived=True)
-    if intent.hold_until is not None and game.timer < intent.hold_until:
-        # The run commit window. The hero is aimed but not yet moving: a press
-        # cannot know whether a second one is coming, so starting the walk
-        # immediately makes every double press walk before it runs. Standing
-        # still for a few ticks lets the second press arrive and replace this
-        # intent with a running one that never took a walking step.
-        #
-        # Placed after the arrival test so a click the hero is already
-        # standing on still dispatches at once (a door, an object, a pickup
-        # loses nothing to the window), and before the stall test so the ticks
-        # spent waiting are not counted as failing to make progress.
-        return NavDecision(0, target_x, target_z, advance=False, arrived=False)
     if _stalled(intent, target_x, target_z, distance):
         # Blocked short of the destination. Count it as arrival only when we got
         # near enough that a player would call it there — the mesh does not

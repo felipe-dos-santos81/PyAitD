@@ -145,7 +145,7 @@ def test_reset_input_clears_the_follow_latch():
     # focus, modal and input-mode reset seam clears it for free
     state = InputBuffer(
         follow_last=(1, 2, 0, -1), follow_pos=(10, 20), follow_spent=True,
-        pointer_run=True, last_press_tick=7, run_commit_deadline=9,
+        pointer_run=True, last_press_tick=7,
     )
     reset_input(state)
     assert (state.follow_last, state.follow_pos, state.follow_spent) == (
@@ -154,9 +154,6 @@ def test_reset_input_clears_the_follow_latch():
     assert (state.pointer_run, state.last_press_tick) == (False, None), (
         "a modal or focus loss ends the hold, so it ends the run and the "
         "press clock the next double press would be measured against"
-    )
-    assert state.run_commit_deadline is None, (
-        "the run commit window belongs to the press that opened it"
     )
 
 

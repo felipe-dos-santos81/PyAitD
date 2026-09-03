@@ -42,8 +42,7 @@ from PyAitD.games.aitd1.mirror import MIRROR_KEYCODES
 from PyAitD.render.motion import snapshot as motion_snapshot
 from PyAitD.render.scene import build_frame
 from PyAitD.app.ui import (
-    Command, DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, RUN_COMMIT_TICKS,
-    UIPainter, configure_input,
+    Command, DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, UIPainter, configure_input,
     event_to_input,
     hit_test_settings_notice, render_cursor, render_hit_feedback, render_play_hud,
     render_settings_notice, reset_input,
@@ -529,7 +528,6 @@ def route_play_click(
         game, dest_x, dest_z, room, target_object_idx=object_idx,
         requires_hold=(kind == "push"),
         run=input_buffer is not None and input_buffer.pointer_run,
-        hold_until=input_buffer.run_commit_deadline if input_buffer else None,
     )
     if input_buffer is not None:
         # a walk or target press opens a held pointer follow (follow_pointer
@@ -587,12 +585,6 @@ def _stamp_press(game, input_buffer):
         previous is not None and game.timer - previous < DOUBLE_PRESS_TICKS
     )
     input_buffer.last_press_tick = game.timer
-    # A first press waits out the run commit window before it advances, so a
-    # second press can turn it into a run without a walking step in front of
-    # it. A press that is already a run has nothing left to wait for.
-    input_buffer.run_commit_deadline = (
-        None if input_buffer.pointer_run else game.timer + RUN_COMMIT_TICKS
-    )
 
 
 def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
@@ -680,11 +672,6 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
         apply_click_intent(
             game, dest_x, dest_z, room, target_object_idx=object_idx,
             run=input_buffer.pointer_run,
-            # the deadline is an absolute tick stamped by the press, so a
-            # re-aim mid-hold inherits what is left of the window instead of
-            # opening a fresh one: dragging the pointer must not freeze the
-            # hero a few ticks at a time
-            hold_until=input_buffer.run_commit_deadline,
         )
         input_buffer.follow_last = payload
     elif kind == "blocked":
@@ -739,7 +726,6 @@ def _cancel_follow(game, input_buffer):
     if input_buffer is not None:
         input_buffer.follow_spent = False
         input_buffer.pointer_run = False
-        input_buffer.run_commit_deadline = None
         # what the next press may resume if it turns out to be the second
         # half of a double press; _drop_destination is about to clear the
         # fields it is copied from

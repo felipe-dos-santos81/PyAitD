@@ -5,7 +5,7 @@ from PyAitD.engine.script.interaction.inventory import request_found
 
 def apply_click_intent(
         game, dest_x, dest_z, room, target_object_idx=-1, *, requires_hold=False,
-        run=False, hold_until=None,
+        run=False,
 ):
     """Record where the player clicked. A new click replaces any previous one."""
     from PyAitD.engine.script.effects import NavIntent
@@ -22,9 +22,6 @@ def apply_click_intent(
         # a held push is always a walk: leaning on furniture at a run is not
         # a speed FITD's push animation has
         run=run and not requires_hold,
-        # a held push leans on furniture the moment the button goes down:
-        # there is no second press to wait for, so no window to open
-        hold_until=None if requires_hold else hold_until,
         origin_floor=game.current_floor if requires_hold else None,
         origin_room=origin_room,
     )
