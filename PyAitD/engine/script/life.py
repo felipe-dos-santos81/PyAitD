@@ -64,6 +64,15 @@ class Trace:
         except OSError:
             pass
 
+    def log_behaviour(self, game, actor_idx, phase):
+        # the content-pack twin of `log`: one line per behaviour step
+        if self._file is None:
+            return
+        try:
+            self._file.write(f"{game.timer} {actor_idx} BEHAVIOUR {phase}\n")
+        except OSError:
+            pass
+
     def close(self):
         if self._file is not None:
             try:

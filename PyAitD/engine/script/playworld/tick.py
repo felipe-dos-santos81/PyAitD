@@ -6,6 +6,7 @@ advanced without a window. Callers still reach `ui.py` for an InputBuffer;
 freeing that needs InputBuffer moved out of the presentation layer.
 """
 from PyAitD.engine.script.effects import GameMode, LifeFrame
+from PyAitD.engine.content import BEHAVIOUR_LIFE, run_behaviour
 from PyAitD.engine.script.game import change_salle, game_step_tick
 from PyAitD.engine.script.interaction import (
     advance_messages, dispatch_nav_arrival, drain_immediate_effects, execute_found_life,
@@ -60,6 +61,9 @@ def play_tick(game, floor, input_buffer):
                 return False
             if not drain_immediate_effects(game):
                 return False
+        elif actor.life == BEHAVIOUR_LIFE:
+            # a pack behaviour in the slot order a LIFE at this slot would run
+            run_behaviour(game, index)
         if game.flag_change_etage:
             break
     if not _handoff_game_over(game):
