@@ -62,7 +62,7 @@ def test_contract_declares_only_the_reviewed_primary_button_gestures():
 def test_contract_declares_hover_touch_and_held_follow_decisions():
     assert set(MOUSE_INTERACTION_DECISIONS) == {
         "hover_preview", "touch_origin", "held_pointer_follow",
-        "held_double_press_run",
+        "held_double_press_run", "unreachable_pixel_steers",
     }
     assert MOUSE_INTERACTION_DECISIONS["hover_preview"].decision == "presenter_only"
     assert MOUSE_INTERACTION_DECISIONS["touch_origin"].decision == "same_primary_button_route"
@@ -84,8 +84,10 @@ def test_running_adds_no_capability_and_so_no_double_press_gesture():
 
 
 def test_walk_and_interact_are_held_pointer_follow_routes():
+    # "anywhere on screen", not "walkable floor": a pixel that names no
+    # reachable place steers along its bearing rather than refusing
     assert CAPABILITY_ROUTES[PlayerCapability.WALK_TO_POINT] == MouseRoute(
-        "left_hold", "walkable floor", frozenset({GameMode.PLAY}),
+        "left_hold", "anywhere on screen", frozenset({GameMode.PLAY}),
     )
     assert CAPABILITY_ROUTES[PlayerCapability.INTERACT_WITH_OBJECT] == MouseRoute(
         "left_hold", "interactable actor", frozenset({GameMode.PLAY}),

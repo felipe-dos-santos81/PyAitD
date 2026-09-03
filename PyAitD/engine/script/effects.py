@@ -154,6 +154,13 @@ class NavIntent:
     # gives a double-tap forward (tracks.py). A property of the click, not of
     # the device that made it -- no engine module learns a mouse exists.
     run: bool = False
+    # A steer: the destination is a bearing dressed as a point (far along the
+    # line from the hero through the pointer), not a place. It is what a click
+    # means where nothing is reachable -- over a wall, a ceiling, the sky, a
+    # cell nothing walkable snaps to -- so that walking is always possible.
+    # navigate._repath steers straight at it and never paths or hops a room
+    # link toward it; the engine's own collision decides where the hero stops.
+    steering: bool = False
     engaged: bool = False
     waypoints: list = None
     path_room: int = -1

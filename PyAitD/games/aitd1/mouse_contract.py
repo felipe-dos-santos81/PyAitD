@@ -57,7 +57,7 @@ class MouseInteractionDecision:
 
 ALL_MODES = frozenset(GameMode)
 CAPABILITY_ROUTES = {
-    PlayerCapability.WALK_TO_POINT: MouseRoute("left_hold", "walkable floor", frozenset({GameMode.PLAY})),
+    PlayerCapability.WALK_TO_POINT: MouseRoute("left_hold", "anywhere on screen", frozenset({GameMode.PLAY})),
     PlayerCapability.INTERACT_WITH_OBJECT: MouseRoute("left_hold", "interactable actor", frozenset({GameMode.PLAY})),
     PlayerCapability.TAKE_FOUND_OBJECT: MouseRoute("left_click", "Take button", frozenset({GameMode.FOUND})),
     PlayerCapability.LEAVE_FOUND_OBJECT: MouseRoute("left_click", "Leave button", frozenset({GameMode.FOUND})),
@@ -247,6 +247,17 @@ MOUSE_INTERACTION_DECISIONS = {
         "while the left button is held in PLAY the walk or approach destination "
         "follows the pointer; motion with the button down is a gesture, not hover, "
         "and only motion retargets -- a camera cut is not something the player did",
+    ),
+    "unreachable_pixel_steers": MouseInteractionDecision(
+        "direction_not_destination",
+        "a PLAY pixel that names no reachable place -- a wall, a ceiling, the "
+        "sky, a cell nothing walkable snaps to -- walks the hero along the "
+        "bearing through it instead of refusing, so walking is possible from "
+        "every pixel of the world. It adds no PlayerCapability: it is the same "
+        "WALK_TO_POINT hold, widened from the walkable floor to the whole "
+        "screen. Only a click aimed at an actor still refuses (an empty hand "
+        "on an enemy, a mid-swing, an object with nothing to do), because "
+        "there the click meant the thing, not the direction",
     ),
     "held_double_press_run": MouseInteractionDecision(
         "speed_not_capability",

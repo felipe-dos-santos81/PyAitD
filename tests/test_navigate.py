@@ -208,6 +208,66 @@ def test_a_destination_in_another_room_steers_to_the_room_link():
     assert intent.path_room == 0, "waypoints belong to the room we started in"
 
 
+def test_a_steering_intent_walks_the_bearing_instead_of_hopping_to_a_link():
+    """A steer is a direction, so it never routes through a doorway.
+
+    Its destination is a point 50000 units along the bearing, which lands in
+    no room at all and is reachable by no path. Left to the ordinary
+    cross-room branch, `intent.room != actor.room` would aim the hero at the
+    link zone back into the room the destination was framed in -- steering him
+    backwards through the door he just came out of.
+    """
+    import PyAitD.engine.nav.navigate as navigate_module
+
+    intent = NavIntent(dest_x=12000, dest_z=0, room=3, waypoints=None, steering=True)
+    game = _Game(intent)
+    actor = _actor(0, 0, room=3)
+
+    def refuse(*_args):
+        raise AssertionError("a steer must never ask for a room link")
+
+    original = navigate_module.get_room_link
+    navigate_module.get_room_link = refuse
+    try:
+        decision = navigate_module.decide(game, actor, None)
+    finally:
+        navigate_module.get_room_link = original
+
+    assert intent.waypoints == [(12000, 0)], "steered straight at the bearing"
+    assert decision.advance is True and decision.joyd & 1
+
+
+def test_a_steer_that_crosses_a_room_keeps_its_bearing():
+    """Walking through a doorway re-frames the bearing into the new room.
+
+    Room coordinates are room-local, so the point the steer was aimed at means
+    something else the moment gere_dec moves the hero into the next room.
+    Re-framing it by the rooms' own delta keeps the hero walking the way the
+    player is pointing rather than turning at the threshold.
+    """
+    from types import SimpleNamespace
+
+    class _RoomGame(_Game):
+        current_floor = 0
+
+        def rooms_of_floor(self, _floor):
+            return [
+                SimpleNamespace(world_x=0, world_y=0, world_z=0),
+                SimpleNamespace(world_x=10, world_y=0, world_z=20),
+            ]
+
+    intent = NavIntent(dest_x=1000, dest_z=2000, room=0, waypoints=[(1000, 2000)], steering=True)
+    intent.path_room = 0
+    game = _RoomGame(intent)
+    actor = _actor(0, 0, room=1)         # gere_dec crossed us into room 1
+
+    decide(game, actor, None)
+
+    # room_delta is (10 * dworld) with FITD's asymmetric signs: x minus, z plus
+    assert (intent.dest_x, intent.dest_z) == (1000 - 100, 2000 + 200)
+    assert intent.room == 1 and intent.waypoints == [(900, 2200)]
+
+
 def test_entering_the_target_room_repaths_to_the_real_destination():
     intent = NavIntent(dest_x=500, dest_z=500, room=3, waypoints=[(9, 9)])
     intent.path_room = 0

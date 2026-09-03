@@ -8,7 +8,7 @@ from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.script.game import init_game
 from PyAitD.engine.script.life import life_gate
 from PyAitD.engine.nav.navmesh import agent_extent
-from PyAitD.engine.nav.picking import project_floor_point
+from PyAitD.engine.nav.picking import STEER_DISTANCE, project_floor_point
 
 from tests.conftest import painter_from_frame
 
@@ -920,12 +920,130 @@ def test_opening_wardrobe_resolves_and_routes_as_a_held_push(data_dir, profile):
     assert game.nav_intent.engaged is False
 
 
-def test_a_snap_past_the_budget_is_blocked_not_a_far_walk(data_dir, profile, monkeypatch):
+def test_a_pixel_with_no_floor_under_it_steers_instead_of_refusing(
+        data_dir, profile):
+    """Walking is always possible: a wall, a ceiling or the sky steers.
+
+    The old answer was `blocked` and a red X, which left whole screenfuls of
+    pixels doing nothing at all. A pixel that names no reachable place still
+    names a direction, and that is what it now means -- the destination sits
+    far along the bearing from the hero through the pointer, and the engine's
+    own collision decides where he actually stops.
+    """
+    from PyAitD.engine.nav.picking import STEER_DISTANCE, project_floor_point
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    hero = game.actors[game.current_camera_target_actor]
+    here = (hero.room_x + hero.step_x, hero.room_z + hero.step_z)
+    pixel = (0, 0)
+    assert main_pick_floor_any_room(game, floor, pixel) is None, (
+        "the fixture pixel must be one the floor pick refuses"
+    )
+
+    kind, payload = resolve_play_click(game, floor, pixel, [])
+
+    assert kind == "steer"
+    dest_x, dest_z, room, object_idx = payload
+    assert (room, object_idx) == (hero.room, -1)
+    reach = ((dest_x - here[0]) ** 2 + (dest_z - here[1]) ** 2) ** 0.5
+    assert abs(reach - STEER_DISTANCE) < 2, "the destination is a bearing, not a place"
+    state = _state_for(floor, hero.room, game.num_camera)
+    feet = project_floor_point(state, here[0], hero.world_y, here[1])
+    step = (
+        here[0] + (dest_x - here[0]) * 400 / reach,
+        here[1] + (dest_z - here[1]) * 400 / reach,
+    )
+    walked = project_floor_point(state, step[0], hero.world_y, step[1])
+    assert walked is not None and walked[1] < feet[1], (
+        "a step along the steer must head up-screen, toward the pixel"
+    )
+
+
+def test_a_steer_press_walks_while_held_and_stops_on_release(data_dir, profile):
+    """The whole point of the change: an unreachable pixel still walks.
+
+    Asserted on the follower's own output rather than on displacement,
+    because a steer aimed at a wall is *supposed* to end with the hero
+    pressed against it -- collision deciding where he stops is the design.
+    Walking is what the decision says, and the release still ends it.
+    """
+    import PyAitD.app.shell as main
+    from PyAitD.engine.script.playworld import play_tick
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    game.current_floor_data = floor
+    hero = game.actors[game.current_camera_target_actor]
+    buf = held_pointer((0, 0))
+
+    route_play_click(game, ModalSession(), floor, (0, 0), [], buf)
+
+    assert game.nav_intent is not None and game.nav_intent.steering is True
+    for _ in range(4):
+        play_tick(game, floor, buf)
+    assert game.nav_decision is not None and game.nav_decision.advance is True
+    assert hero.speed == 4, "a steer walks; only a double press runs"
+
+    buf.pointer_held = False
+    play_tick(game, floor, buf)
+
+    assert game.nav_intent is None, "the release still ends the intent"
+
+
+def test_a_cell_that_cannot_be_snapped_walks_the_hero_toward_it(
+        data_dir, profile, monkeypatch):
+    """A steer really moves the hero, not just the decision.
+
+    The pixel is an ordinary walkable one whose snap is refused, which is what
+    the snap budget does to a cell whose walkable neighbours all project too
+    far away. Before, that was a red X and a hero who stayed put; now he walks
+    that way, and this measures the ground he covers.
+    """
+    import PyAitD.app.shell as main
+    from PyAitD.engine.script.playworld import play_tick
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    game.current_floor_data = floor
+    hero = game.actors[game.current_camera_target_actor]
+    screen = _floor_screen_point(game, floor, 1500, 0)
+    pixel = (int(screen[0]), int(screen[1]))
+    assert resolve_play_click(game, floor, pixel, [])[0] == "walk", (
+        "the fixture pixel must be an ordinary walkable one"
+    )
+    monkeypatch.setattr(main, "nearest_walkable", lambda *a, **k: None)
+    start = (hero.room_x + hero.step_x, hero.room_z + hero.step_z)
+    buf = held_pointer(pixel)
+
+    route_play_click(game, ModalSession(), floor, pixel, [], buf)
+    assert game.nav_intent.steering is True
+    for _ in range(8):
+        play_tick(game, floor, buf)
+
+    moved = (hero.room_x + hero.step_x, hero.room_z + hero.step_z)
+    assert moved != start, "the unsnappable pixel left the hero standing still"
+    assert moved[0] > start[0], f"the hero walked {start} -> {moved}, not toward the pixel"
+
+
+def main_pick_floor_any_room(game, floor, pixel):
+    import PyAitD.app.shell as main
+    hero = game.actors[game.current_camera_target_actor]
+    return main.pick_floor_any_room(
+        pixel, floor, hero.room, game.num_camera, hero.world_y,
+        agent=main.agent_extent(hero),
+    )
+
+
+def test_a_snap_past_the_budget_steers_instead_of_walking_somewhere_else(
+        data_dir, profile, monkeypatch):
     # A pointer on a blocked cell whose only walkable neighbours project more
-    # than SNAP_BUDGET_PX away must resolve blocked: the hero never heads for
-    # somewhere visibly away from the pointer. nearest_walkable is replaced
-    # by a stand-in that refuses whenever a filter is given, which is exactly
-    # what the real search does when every ring candidate fails the budget.
+    # than SNAP_BUDGET_PX away must not walk to one of them: the hero never
+    # heads for somewhere visibly away from the pointer. It steers along the
+    # bearing through the pointer instead, which is the one direction that
+    # cannot surprise the player. nearest_walkable is replaced by a stand-in
+    # that refuses whenever a filter is given, which is exactly what the real
+    # search does when every ring candidate fails the budget.
     import PyAitD.app.shell as main
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -958,8 +1076,13 @@ def test_a_snap_past_the_budget_is_blocked_not_a_far_walk(data_dir, profile, mon
         seen["accept"] = accept
         return None
     monkeypatch.setattr(main, "nearest_walkable", refusing)
-    assert resolve_play_click(game, floor, pixel, [])[0] == "blocked"
+    kind, payload = resolve_play_click(game, floor, pixel, [])
+    assert kind == "steer"
     assert callable(seen["accept"]), "the resolver did not hand nearest_walkable a filter"
+    hero = game.actors[game.current_camera_target_actor]
+    here = (hero.room_x + hero.step_x, hero.room_z + hero.step_z)
+    reach = ((payload[0] - here[0]) ** 2 + (payload[1] - here[1]) ** 2) ** 0.5
+    assert abs(reach - STEER_DISTANCE) < 2, "a bearing, not the nearest cell"
 
 
 def test_object_approach_uses_a_visibility_filter(data_dir, profile, monkeypatch):
@@ -1049,7 +1172,10 @@ def test_latched_push_cursor_survives_pointer_drift(data_dir, profile):
     assert _play_cursor_kind(
         game, floor, (0, 0), [], InputBuffer(pointer_held=True),
     ) == "push"
-    assert _play_cursor_kind(game, floor, (0, 0), [], InputBuffer()) == "blocked"
+    assert _play_cursor_kind(game, floor, (0, 0), [], InputBuffer()) == "steer", (
+        "with no hold the resolver answers for itself, and a pixel over "
+        "nothing steers rather than refusing"
+    )
 
 
 def test_mouseup_cancels_only_a_hold_required_intent(data_dir, profile):
@@ -1360,12 +1486,15 @@ def test_inert_body_intercepts_the_floor_and_stays_blocked(data_dir, profile):
     ) == ("blocked", None)
 
 
-def test_a_click_on_nothing_leaves_the_intent_alone(data_dir, profile):
+def test_a_click_on_nothing_steers_rather_than_doing_nothing(data_dir, profile):
+    # It used to leave the intent alone: a pixel with no floor under it was a
+    # red X and a hero who stayed put. Walking is always possible now, so the
+    # click means the direction it points in.
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     route_play_click(game, ModalSession(), floor, (2, 2), [])
-    assert game.nav_intent is None
+    assert game.nav_intent is not None and game.nav_intent.steering is True
 
 
 def _real_draw_list_entry(game, floor, actor_idx):
@@ -1545,7 +1674,9 @@ def test_the_cursor_and_the_click_come_from_one_resolution(data_dir, profile):
         else:
             assert game.nav_intent is not None, f"{point}: cursor said {kind}, click did nothing"
             assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == args[:2]
-    assert {"walk", "blocked"} <= seen, "the sweep must cover both outcomes"
+    assert {"walk", "steer"} <= seen, (
+        "the sweep must cover both a destination and a bearing"
+    )
 
 
 def test_a_walk_click_always_lands_on_a_walkable_cell(data_dir, profile):
@@ -1698,7 +1829,9 @@ def test_inventory_hud_effective_padding_has_priority_and_exclusive_far_edges(
         (hit.centerx, hit.bottom),
     )
     for point in exclusive_far_edges:
-        assert resolve_play_click(game, floor, point, []) == ("blocked", None)
+        # outside the hit box, so the world answers -- a steer here, since the
+        # HUD corner has no floor under it
+        assert resolve_play_click(game, floor, point, [])[0] != "inventory"
     assert len(calls) == 2
 
 
@@ -2415,20 +2548,22 @@ def test_a_camera_cut_with_a_still_pointer_keeps_the_destination(data_dir, profi
     assert after == before, "the cut retargeted a still pointer"
 
 
-def test_a_camera_cut_that_blocks_the_pixel_does_not_stop_the_hero(data_dir, profile):
+def test_a_camera_cut_that_unpicks_the_pixel_does_not_retarget_the_hero(data_dir, profile):
     # 386 of the attic floor pixels sampled at 7px are walkable under camera 0
-    # and unpickable under another camera. Today that resolves "blocked" and
-    # cancels the intent: the hero stops dead mid-hold and stays stopped until
-    # the pointer physically moves.
+    # and unpickable under another camera. Unpickable now means a steer -- a
+    # bearing under a camera the hand never aimed along -- which would fling
+    # the hero off somewhere nobody pointed at. The cut freeze is what stops
+    # that, exactly as it stopped the old "blocked" from halting him mid-hold.
     import PyAitD.app.shell as main
     game, floor, buf, pixel, cut_slot, before = _cut_fixture(
-        data_dir, profile, "blocked",
+        data_dir, profile, "steer",
     )
 
     game.num_camera = cut_slot
     main.follow_pointer(game, ModalSession(), floor, pixel, [], buf)
 
     assert game.nav_intent is not None, "the cut cancelled the walk"
+    assert game.nav_intent.steering is False, "the cut turned a walk into a steer"
     after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
     assert after == before
     assert buf.follow_last is not None, "the hold is still live"
@@ -2734,6 +2869,40 @@ def test_a_click_of_ordinary_length_walks_before_the_button_comes_up(
     assert (hero.room_x + hero.step_x, hero.room_z + hero.step_z) != start, (
         "the click was over before the hero took a step"
     )
+
+
+def test_a_double_press_never_resumes_a_bearing(data_dir, profile, monkeypatch):
+    """A steer is resolved from where the hero stands, so it cannot be reused.
+
+    Resuming exists because two presses of one double click mean one place,
+    and re-picking could let a pixel of drift choose a different cell. A steer
+    names no place: its destination is a point 12000 units out from wherever
+    the hero was standing at the first press, and he has walked since. Reusing
+    it would send him along the bearing he had a moment ago, not the one he is
+    pointing at now.
+    """
+    import PyAitD.app.shell as main
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    game.num_camera = game.new_num_camera
+    game.current_floor_data = floor
+    hero = game.actors[game.current_camera_target_actor]
+    pixel = (2, 2)
+    assert resolve_play_click(game, floor, pixel, [])[0] == "steer"
+    buf = held_pointer(pixel)
+    game.timer = 100
+    route_play_click(game, ModalSession(), floor, pixel, [], buf)
+    stale = (game.nav_intent.dest_x, game.nav_intent.dest_z)
+    main._cancel_follow(game, buf)
+
+    hero.room_x += 900          # he walked while the button was up
+    game.timer = 103
+    route_play_click(game, ModalSession(), floor, pixel, [], buf)
+
+    assert buf.pointer_run is True, "the fixture must be a double press"
+    fresh = resolve_play_click(game, floor, pixel, [])[1]
+    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == fresh[:2]
+    assert (game.nav_intent.dest_x, game.nav_intent.dest_z) != stale
 
 
 def test_the_second_press_of_a_double_press_resumes_the_first_destination(

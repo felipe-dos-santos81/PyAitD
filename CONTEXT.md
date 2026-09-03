@@ -56,7 +56,7 @@ below for what pins each alias to the files it historically ran.
 | M4a1 | Shell: character select, system menu, remappable controls, sticky Action, settings persistence, settings notice overlay | done — automated gates green (`make prove-shell`); the windowed pass is attested by the mouse accessibility hardening proof, which supersedes the pending rows in `docs/m4a1-shell-proof.md` |
 | Mouse hold-to-push | Held approach/engage for scripted movable furniture | done — automated gates green; windowed pass attested via the hardening proof, superseding `docs/mouse-hold-push-proof.md` |
 | Mouse accessibility hardening | Effective targets, optional pure hover, physical/touch parity, target precedence, atomic modal takeover, exhaustive contract gate | done — automated gates green and user-attested windowed standard-mouse/macOS-Accessibility-Keyboard passes for Emily and Carnby (`docs/mouse-accessibility-hardening-proof.md`) — re-attestation pending: held pointer follow made PLAY movement press-and-hold, so the dwell-click / Accessibility Keyboard attestation no longer covers walking or approaching objects (`docs/superpowers/specs/2026-08-26-held-pointer-follow-design.md`) |
-| Mouse fidelity | Viewed rooms picked at their own depth, an eight-pixel snap budget, a six-pixel dead zone after a camera cut, and a destination marker, hover preview and press ring on the cursor; the occlusion filter is built and tested but ships OFF (`picking.OCCLUDE_BY_DEFAULT`) — with it on, 87 of the game's 274 camera slots had no clickable floor at all, 14 even after clipping the ray at the room's own volume, so a whole-game census gates it | automated gates green; windowed attestation pending (`docs/mouse-fidelity-proof.md`) |
+| Mouse fidelity | Walking possible from every pixel (an unreachable one steers along its bearing), viewed rooms picked at their own depth, an eight-pixel snap budget, a six-pixel dead zone after a camera cut, and a destination marker, hover preview and press ring on the cursor; the occlusion filter is built and tested but ships OFF (`picking.OCCLUDE_BY_DEFAULT`) — with it on, 87 of the game's 274 camera slots had no clickable floor at all, 14 even after clipping the ray at the room's own volume, so a whole-game census gates it | automated gates green; windowed attestation pending (`docs/mouse-fidelity-proof.md`) |
 | Enhanced graphics scene layer | Higher-resolution actor rendering, per-vertex shading, GPU mask erasure, background upscale filters, asset texture directory, GL fallback | automated gates green; windowed attestation pending (`docs/enhanced-graphics-proof.md`) |
 | Smooth actor geometry | GPU PN tessellation behind `smoothing`, crease-aware corner normals, tessellated shadow, Graphics sub-page | automated gates green; windowed attestation pending (`docs/smooth-geometry-proof.md`) |
 | Soft shadows (roadmap F) | Contact-hardening penumbra, one gathered shadow pass, light-view shadow map for self/inter-actor shadowing, `shadows` knob | automated gates green; windowed attestation pending (`docs/soft-shadows-proof.md`) |
@@ -88,7 +88,7 @@ The engine is organised into five domain subpackages:
 | `engine/space/` | `cos_table.py` + `world.py` fixed-point rotations, camera transform/projection; `realvalue.py` rotation/speed interpolation, chronos, distances |
 | `engine/actor/` | `actors.py` actor fields + GereAnim movement/collision; `anim.py` AnimPlayer; `anim_action.py` combat action runner; `tracks.py` track processor; `skel.py` skinning/projection (integer path, authoritative) |
 | `engine/script/` | `game/` (`state.py` Game/Actor/FloorStart, `zv.py` ZV geometry, `objects.py` object-slot lifecycle, `boot.py` boot/transitions); `life.py` VM core (dispatch reads `profile.opcode_table`, core table built from `profile.core_slots`); `eval_var.py` evalVar; `interaction/` (`inventory.py`, `life_cont.py`, `combat.py`, `contacts.py`, `nav_intent.py`, `track_mode.py`); `effects.py` typed effects; `playworld/` (`tick.py`, `input.py`, `held_push.py`, `passes.py`); `save.py` versioned snapshots |
-| `engine/nav/` | `navmesh.py` walkable grid + A*; `picking.py` screen->world, hard-col occlusion (off by default), snap budget, marker projection; `navigate.py` pointer follower |
+| `engine/nav/` | `navmesh.py` walkable grid + A*; `picking.py` screen->world, hard-col occlusion (off by default), snap budget, steer bearings, marker projection; `navigate.py` pointer follower |
 
 The games, render, app and tools packages:
 
@@ -236,7 +236,7 @@ action runner.
   and throw release so a released projectile exists before later LIFE reads.
 - `scenario.enter_mouse_combat_fixture` owns the deterministic object-38
   automated/manual proof start; the M3c `enter_combat_venue` remains unchanged.
-- `app.shell.resolve_play_click` is the one HUD/attack/target/walk/blocked
+- `app.shell.resolve_play_click` is the one HUD/attack/target/walk/steer/blocked
   resolver used by hover, the press, and the per-frame held follow. Its attack
   branch gates on `interaction.can_strike` -- something in hand, hero idle --
   not on the held object's Fight action: equipping leaves the wielded variant
@@ -269,6 +269,27 @@ action runner.
   (`shell._resume_destination`, within `DOUBLE_PRESS_RESUME_PX`) rather than
   picking again: one motion of one finger means one place, and a pixel of
   drift under the snap budget could otherwise find nothing at all.
+- Walking is possible from every pixel of the world. A pixel that names no
+  reachable place -- over a wall, a ceiling, the sky, or a cell nothing
+  walkable snaps to -- resolves `steer` rather than `blocked`: the destination
+  is `picking.steer_point`, a bearing dressed as a point 12000 units along the
+  line from the hero through the pointer, and the engine's own collision
+  decides where he stops. `picking._floor_plane_inverse` maps the pixel back
+  onto the hero room's floor plane, which is unbounded by any cover polygon; a
+  pixel above the horizon recovers *behind* the camera, so the sample walks
+  back down the screen ray toward the hero's feet until it lands in front of
+  one -- free of accuracy loss, since a projective map takes lines to lines
+  and every pixel of that segment recovers a point on the one world ray.
+  `NavIntent.steering` makes `navigate._repath` steer straight at it: no path
+  (it is on no mesh) and no room-link hop (which would aim the hero back
+  through the door he came out of), re-framing the bearing by `room_delta`
+  when he crosses a threshold. `STEER_DISTANCE` sits between two bounds: far
+  enough not to be reached inside one hold, and inside s16, since
+  `give_distance_2d` truncates each axis and a destination past 32767 reads as
+  an arrival on the first tick. A steer draws no destination diamond and is
+  never stashed for a double press to resume -- both would be about a place,
+  and a bearing is not one. Only actor-side clicks still refuse: an empty hand
+  on an enemy, a mid-swing, an object with nothing to do.
 - A press advances the hero on the very next tick, and nothing delays it. A
   double press therefore walks for a few ticks before it runs, which is
   intrinsic: run is decided at press time and a press cannot see the second

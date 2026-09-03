@@ -11,7 +11,7 @@ from PyAitD.engine.script.effects import NavDecision
 from PyAitD.engine.nav.navmesh import find_path
 from PyAitD.engine.space.realvalue import give_distance_2d
 from PyAitD.engine.actor.tracks import cap_objet, get_room_link
-from PyAitD.engine.space.world import cdiv
+from PyAitD.engine.space.world import cdiv, room_delta
 
 ARRIVE_DISTANCE = 400    # tracks.DISTANCE_TO_POINT_TRESSHOLD [sic], same units
 WAYPOINT_DISTANCE = 400  # how close counts as reaching an intermediate hop
@@ -33,6 +33,20 @@ GIVE_UP_ARRIVE_DISTANCE = 2 * ARRIVE_DISTANCE
 def _repath(game, actor, mesh):
     intent = game.nav_intent
     intent.path_room = actor.room
+    if intent.steering:
+        # A steer names a direction, not a place: its destination sits far
+        # outside every room, on no mesh, so there is nothing to path to and
+        # no link to hop -- the ordinary cross-room branch below would aim the
+        # hero at the doorway back into the room the bearing was framed in.
+        # Crossing a threshold re-frames it into the room he has entered
+        # instead, because room coordinates are room-local and the direction
+        # the player is pointing has to survive the door.
+        if intent.room != actor.room:
+            dx, _dy, dz = room_delta(game, intent.room, actor.room)
+            intent.dest_x, intent.dest_z = intent.dest_x - dx, intent.dest_z + dz
+            intent.room = actor.room
+        intent.waypoints = [(intent.dest_x, intent.dest_z)]
+        return
     if intent.room != actor.room:
         # One hop: aim for the centre of the zone linking us to the target room,
         # exactly as _process_track_follow does for a followed actor in another

@@ -586,3 +586,79 @@ def test_the_shipped_floor_pick_is_the_unoccluded_one(data_dir, profile):
             == pick_floor_any_room(
                 pixel, floor, hero.room, slot, hero.world_y, occlude=False)
         )
+
+
+def _hero_here(game):
+    hero = game.actors[game.current_camera_target_actor]
+    return (hero.room_x + hero.step_x, hero.room_z + hero.step_z, hero.world_y)
+
+
+def _on_segment(point, start, end, tolerance=2.0):
+    """Perpendicular distance from `point` to the segment's infinite line."""
+    (px, py), (ax, ay), (bx, by) = point, start, end
+    length = ((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5
+    assert length > 0
+    cross = abs((bx - ax) * (ay - py) - (ax - px) * (by - ay))
+    return cross / length <= tolerance
+
+
+def test_steer_point_keeps_the_bearing_of_a_pixel_that_can_be_picked(
+        data_dir, profile):
+    """A pickable pixel steers along the very ray that pick would return.
+
+    The check is self-validating: a floor point is projected to a pixel, and
+    the steer point that pixel produces has to lie on the ray from the hero
+    through that same floor point. It never checks the steer point against a
+    second copy of the maths that produced it.
+    """
+    from PyAitD.engine.nav.picking import STEER_DISTANCE, steer_point
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    here_x, here_z, floor_y = _hero_here(game)
+    state = _state(floor, 0, 0)
+    target = (here_x + 1500, here_z + 900)
+    screen = project_floor_point(state, target[0], floor_y, target[1])
+    assert screen is not None, "the fixture point must be on screen"
+
+    steered = steer_point(screen, floor, 0, 0, floor_y, (here_x, here_z))
+
+    assert steered is not None
+    wanted = (target[0] - here_x, target[1] - here_z)
+    got = (steered[0] - here_x, steered[1] - here_z)
+    scale = (wanted[0] ** 2 + wanted[1] ** 2) ** 0.5 / STEER_DISTANCE
+    assert abs(got[0] * scale - wanted[0]) <= 40, (steered, target)
+    assert abs(got[1] * scale - wanted[1]) <= 40, (steered, target)
+
+
+def test_steer_point_answers_a_pixel_above_the_horizon(data_dir, profile):
+    """The top of the screen has no floor under it, and must still steer.
+
+    A pixel above the horizon maps back onto the floor plane *behind* the
+    camera, which is the case that makes a plain homography inverse useless.
+    What it must produce instead is the bearing of the screen ray the player
+    aimed along: a step taken along the answer has to project back onto the
+    line from the hero's feet to the pixel they pointed at.
+    """
+    from PyAitD.engine.nav.picking import steer_point
+    floor = Floor(data_dir, 0, profile)
+    game = init_game(data_dir, profile)
+    here_x, here_z, floor_y = _hero_here(game)
+    state = _state(floor, 0, 0)
+    feet = project_floor_point(state, here_x, floor_y, here_z)
+    assert feet is not None
+    pixel = (int(feet[0]) + 40, 0)   # top edge, well above any floor
+
+    steered = steer_point(pixel, floor, 0, 0, floor_y, (here_x, here_z))
+
+    assert steered is not None, "a pixel with no floor under it still steers"
+    length = ((steered[0] - here_x) ** 2 + (steered[1] - here_z) ** 2) ** 0.5
+    step = (
+        here_x + (steered[0] - here_x) * 400 / length,
+        here_z + (steered[1] - here_z) * 400 / length,
+    )
+    walked = project_floor_point(state, step[0], floor_y, step[1])
+    assert walked is not None, "one step along the bearing is still on the floor"
+    assert _on_segment(walked, feet, pixel), (
+        f"a step along the bearing ({walked}) left the ray {feet} -> {pixel}"
+    )
+    assert walked[1] < feet[1], "the hero must move up-screen, toward the pixel"

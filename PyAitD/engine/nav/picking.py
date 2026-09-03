@@ -242,6 +242,91 @@ def pick_floor_in_room(logical_pos, floor, room_idx, global_cam_idx, floor_y):
     return None
 
 
+STEER_DISTANCE = 12000
+"""How far along the bearing a steering destination is placed.
+
+Two bounds meet here. Far enough that the hero cannot reach it inside one
+hold -- about eight seconds of unobstructed walking at speed 4, and no room on
+any floor is a fifth of it across -- because arriving would stop him with the
+button still down and the pointer still still, and the held follow only
+re-aims on pointer motion. Small enough to stay inside FITD's own arithmetic:
+give_distance_2d truncates each axis to s16, so a destination past 32767 comes
+back as a *negative* distance, which reads as an arrival on the very first
+tick. It is a direction dressed as a destination; the number only has to sit
+between those two.
+"""
+
+_STEER_SAMPLES = 12
+
+
+def steer_point(logical_pos, floor, room_idx, cam_slot, floor_y, here):
+    """A far destination along the bearing from `here` toward `logical_pos`.
+
+    What a click means where nothing is reachable: not a place to arrive at
+    but a direction to walk in, with the engine's own collision deciding
+    where the hero actually stops. Returns a room-scale (x, z) in room_idx's
+    frame, or None when the hero's own feet are off screen (nothing to take a
+    bearing from).
+
+    The floor plane maps to the screen by a homography, so its inverse takes
+    any pixel back onto that plane -- outside the room's polygons, which is
+    the whole point. Above the horizon that inverse lands *behind* the
+    camera; there the sample walks back down the screen ray toward the hero's
+    feet until it lands in front of one. That costs no accuracy: a projective
+    map takes lines to lines, and the hero's feet are on the plane, so every
+    pixel of the screen segment from his feet to the pointer recovers a point
+    on one world ray -- the same bearing, wherever along it the sample lands.
+    """
+    global_cam_idx = floor.rooms[room_idx].camera_indices[cam_slot]
+    state = _camera_state_global(floor, room_idx, global_cam_idx)
+    feet = project_floor_point(state, here[0], floor_y, here[1])
+    if feet is None:
+        return None
+    inverse = _floor_plane_inverse(state, floor, room_idx, floor_y)
+    if inverse is None:
+        return None
+    for sample in range(_STEER_SAMPLES):
+        weight = 0.5 ** sample     # 1 is the pixel itself, 0 the hero's feet
+        point = (
+            feet[0] + (logical_pos[0] - feet[0]) * weight,
+            feet[1] + (logical_pos[1] - feet[1]) * weight,
+        )
+        recovered = _apply(inverse, point[0], point[1])
+        if recovered is None:
+            continue
+        if project_floor_point(state, recovered[0], floor_y, recovered[1]) is None:
+            continue  # recovered behind the camera: this pixel is above the horizon
+        dx, dz = recovered[0] - here[0], recovered[1] - here[1]
+        length = (dx * dx + dz * dz) ** 0.5
+        if length < 1:
+            continue   # the pointer is on the hero: no bearing to take
+        return (
+            int(round(here[0] + dx * STEER_DISTANCE / length)),
+            int(round(here[1] + dz * STEER_DISTANCE / length)),
+        )
+    return None
+
+
+def _floor_plane_inverse(state, floor, room_idx, floor_y):
+    """Screen -> the room's floor plane, unbounded by any cover polygon.
+
+    Every polygon of a room fits the same plane-to-screen map, so the first
+    one that yields an invertible fit answers for all of them; unlike
+    pick_floor_in_room, no polygon test follows, because a steer is asked for
+    exactly where the polygons are not.
+    """
+    for poly in cover_polys(floor, room_idx):
+        world = [(x * COVER_SCALE, z * COVER_SCALE) for x, z in poly]
+        matrix = floor_homography(state, world, floor_y)
+        if matrix is None:
+            continue
+        try:
+            return np.linalg.inv(matrix)
+        except np.linalg.LinAlgError:
+            continue
+    return None
+
+
 def pick_floor(logical_pos, floor, room_idx, cam_slot, floor_y):
     """Room-slot form. Kept for callers that already know the room."""
     global_cam_idx = floor.rooms[room_idx].camera_indices[cam_slot]

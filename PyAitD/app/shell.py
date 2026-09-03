@@ -23,7 +23,8 @@ from PyAitD.engine.nav.navmesh import (
     TARGET_SNAP_CELLS, agent_extent, approach_cell, nearest_walkable,
 )
 from PyAitD.engine.nav.picking import (
-    pick_actor, pick_floor_any_room, snap_accept, viewed_floor_y, visible_accept,
+    pick_actor, pick_floor_any_room, snap_accept, steer_point, viewed_floor_y,
+    visible_accept,
 )
 from PyAitD.engine.script.save import (
     SaveError, read_slot, restore_game, save_dir, slot_path, snapshot_game, write_slot,
@@ -463,7 +464,7 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
         logical_pos, floor, hero.room, game.num_camera, hero.world_y, agent=agent,
     )
     if picked is None:
-        return ("blocked", None)
+        return _steer(game, floor, logical_pos, hero)
     dest_x, dest_z, dest_room = picked
     mesh = game.nav_meshes.mesh_for(floor, dest_room, agent)
     # A mesh with no walkable cell at all is the spec's degraded mode (case 1):
@@ -479,9 +480,32 @@ def resolve_play_click(game, floor, logical_pos, draw_list):
             ),
         )
         if snapped is None:
-            return ("blocked", None)
+            return _steer(game, floor, logical_pos, hero)
         dest_x, dest_z = snapped
     return ("walk", (dest_x, dest_z, dest_room, -1))
+
+
+def _steer(game, floor, logical_pos, hero):
+    """The floor-side answer when a pixel names no reachable place.
+
+    Walking is always possible: a pixel over a wall, a ceiling, the sky or a
+    cell nothing walkable snaps to still names a *direction*, so the click
+    heads far along the bearing from the hero through it and lets the
+    engine's own collision stop him. Only the actor-side refusals -- an empty
+    hand on an enemy, a mid-swing, an object with nothing to do -- still
+    resolve `blocked`, because there the click was aimed at a thing and
+    walking into it is not what it meant.
+
+    Falls back to `blocked` when the hero's own feet are off screen: with
+    nothing to take a bearing from there is no direction to walk in.
+    """
+    here = (hero.room_x + hero.step_x, hero.room_z + hero.step_z)
+    steered = steer_point(
+        logical_pos, floor, hero.room, game.num_camera, hero.world_y, here,
+    )
+    if steered is None:
+        return ("blocked", None)
+    return ("steer", (steered[0], steered[1], hero.room, -1))
 
 
 def route_play_click(
@@ -528,6 +552,7 @@ def route_play_click(
         game, dest_x, dest_z, room, target_object_idx=object_idx,
         requires_hold=(kind == "push"),
         run=input_buffer is not None and input_buffer.pointer_run,
+        steering=(kind == "steer"),
     )
     if input_buffer is not None:
         # a walk or target press opens a held pointer follow (follow_pointer
@@ -663,7 +688,7 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
     input_buffer.follow_pos = logical_pos
     input_buffer.follow_camera = game.num_camera
     kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
-    if kind in ("walk", "target"):
+    if kind in ("walk", "target", "steer"):
         if payload == input_buffer.follow_last:
             return
         dest_x, dest_z, room, object_idx = payload
@@ -672,6 +697,7 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
         apply_click_intent(
             game, dest_x, dest_z, room, target_object_idx=object_idx,
             run=input_buffer.pointer_run,
+            steering=(kind == "steer"),
         )
         input_buffer.follow_last = payload
     elif kind == "blocked":
@@ -728,8 +754,11 @@ def _cancel_follow(game, input_buffer):
         input_buffer.pointer_run = False
         # what the next press may resume if it turns out to be the second
         # half of a double press; _drop_destination is about to clear the
-        # fields it is copied from
-        input_buffer.resume_last = input_buffer.follow_last
+        # fields it is copied from. A bearing is never stashed: it was
+        # resolved from where the hero stood at the press that made it, and he
+        # has walked since, so the second press must take a fresh one.
+        steered = game.nav_intent is not None and game.nav_intent.steering
+        input_buffer.resume_last = None if steered else input_buffer.follow_last
         input_buffer.resume_pos = input_buffer.follow_pos
     return _drop_destination(game, input_buffer)
 
@@ -783,9 +812,14 @@ def _marker_for(game, floor, payload):
 
 
 def _intent_marker(game, floor):
-    """Where the live intent is heading, on screen, or None."""
+    """Where the live intent is heading, on screen, or None.
+
+    A steer has no destination to mark: its `dest` is a bearing 12000 units
+    out, so a diamond there would sit near the horizon pointing at nothing the
+    hero is trying to reach.
+    """
     intent = getattr(game, "nav_intent", None)
-    if intent is None:
+    if intent is None or intent.steering:
         return None
     return _marker_for(game, floor, (intent.dest_x, intent.dest_z, intent.room, -1))
 

@@ -36,8 +36,9 @@ def test_prove_mouse_counts_occluded_pixels_per_camera(data_dir, profile):
 def test_no_camera_slot_on_any_floor_loses_all_its_clickable_floor(data_dir, profile):
     """THE gate. A camera slot with pickable floor before the occlusion
     filter and none after is a camera under which the player cannot walk at
-    all: every pixel resolves `blocked`, and because visible_accept shares the
-    filter, every object click in that room goes with it.
+    all: no pixel names a destination -- clicks can only steer a bearing, and
+    because visible_accept shares the filter, every object click in that room
+    goes with it.
 
     It runs over ALL EIGHT floors on purpose. Floor 0, the attic, is the one
     floor whose cameras sit INSIDE the room they film; every other floor puts
