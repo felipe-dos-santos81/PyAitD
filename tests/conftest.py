@@ -32,6 +32,13 @@ def profile():
 
 
 @pytest.fixture
+def example_pack_dir():
+    """The in-repo example content pack (packs/example), used by the
+    content-pack tests and by `make run content=packs/example`."""
+    return REPO_ROOT / "packs" / "example"
+
+
+@pytest.fixture
 def gl_ctx():
     moderngl = pytest.importorskip("moderngl")
     try:

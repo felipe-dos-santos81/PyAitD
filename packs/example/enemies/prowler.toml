@@ -1,0 +1,30 @@
+# A third attic creature: the stair creature's body (world object 21, body
+# 24) and its own animation set, placed where the window creature's entry
+# track ends. Strike operands copied from LISTLIFE 21's LM_HIT (anim 25,
+# frame 1, group 22, radius 400, force 1, next 22); it strikes from a
+# Manhattan distance of about 2000 in the original, hence `range`.
+id = "prowler"
+kind = "pursuer"
+body = 24
+stage = 0
+room = 0
+position = [-5600, 0, 1000]
+beta = 0
+zv = "max"
+life_mode = "room"
+falls = false
+hit_points = 3
+
+[anims]
+stand = 22
+walk = 23
+attack = 25
+hurt = 21
+death = 24
+
+[attack]
+frame = 1
+group = 22
+radius = 400
+force = 1
+range = 2000

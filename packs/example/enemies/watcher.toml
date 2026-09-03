@@ -1,0 +1,26 @@
+# The same creature standing guard in the attic's north-east, turning to
+# face the hero and striking only when the hero walks into range.
+id = "watcher"
+kind = "sentry"
+body = 24
+stage = 0
+room = 0
+position = [2500, 0, 3500]
+beta = 512
+zv = "max"
+life_mode = "room"
+falls = false
+hit_points = 2
+
+[anims]
+stand = 22
+attack = 25
+hurt = 21
+death = 24
+
+[attack]
+frame = 1
+group = 22
+radius = 400
+force = 1
+range = 1500

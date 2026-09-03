@@ -98,3 +98,102 @@ def test_parse_enemy_names_file_key_and_value_on_every_failure(changes, key, mes
 def test_parse_enemy_rejects_a_non_table():
     with pytest.raises(PackError, match=r"^e\.toml: root: expected a table"):
         parse_enemy(["not", "a", "table"], "e.toml")
+
+
+# ── the directory reader ─────────────────────────────────────────────────────
+
+PACK_TOML = 'name = "t"\nversion = "1"\ngame = "aitd1"\n'
+PROWLER_TOML = """
+id = "prowler"
+kind = "pursuer"
+body = 24
+stage = 0
+room = 0
+position = [-5600, 0, 1000]
+hit_points = 3
+[anims]
+stand = 22
+walk = 23
+attack = 25
+hurt = 21
+death = 24
+[attack]
+frame = 1
+group = 22
+radius = 400
+force = 1
+range = 2000
+"""
+
+
+def _write_pack(root, enemies=(), manifest=PACK_TOML):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pack.toml").write_text(manifest)
+    if enemies:
+        (root / "enemies").mkdir(exist_ok=True)
+    for name, text in enemies:
+        (root / "enemies" / name).write_text(text)
+    return root
+
+
+def test_read_pack_reads_the_manifest_and_every_enemy_in_name_order(tmp_path):
+    from PyAitD.engine.content.pack import Pack, read_pack
+    root = _write_pack(tmp_path / "p", [
+        ("b.toml", PROWLER_TOML.replace('"prowler"', '"second"')),
+        ("a.toml", PROWLER_TOML),
+    ])
+    pack = read_pack(root)
+    assert isinstance(pack, Pack)
+    assert (pack.name, pack.version, pack.game, pack.path) == ("t", "1", "aitd1", root)
+    assert [e.id for e in pack.enemies] == ["prowler", "second"]
+    assert [e.file for e in pack.enemies] == ["enemies/a.toml", "enemies/b.toml"]
+    assert pack.identity() == {"name": "t", "version": "1", "digest": pack.digest}
+
+
+def test_an_empty_pack_is_a_manifest_alone(tmp_path):
+    from PyAitD.engine.content.pack import read_pack
+    pack = read_pack(_write_pack(tmp_path / "p"))
+    assert pack.enemies == ()
+
+
+def test_read_pack_errors_name_the_file_and_key(tmp_path):
+    from PyAitD.engine.content.pack import read_pack
+    with pytest.raises(PackError, match=r"^pack\.toml: root: not found in "):
+        read_pack(tmp_path / "missing")
+    with pytest.raises(PackError, match=r"^pack\.toml: root: cannot parse: "):
+        read_pack(_write_pack(tmp_path / "p1", manifest="name = \n"))
+    with pytest.raises(PackError, match=r"^pack\.toml: root: expected exactly the keys \['game', 'name', 'version'\], got \['name'\]"):
+        read_pack(_write_pack(tmp_path / "p2", manifest='name = "t"\n'))
+    with pytest.raises(PackError, match=r"^pack\.toml: version: expected a non-empty string, got 1"):
+        read_pack(_write_pack(tmp_path / "p3", manifest='name = "t"\nversion = 1\ngame = "aitd1"\n'))
+    with pytest.raises(PackError, match=r"^enemies/x\.toml: root: cannot parse: "):
+        read_pack(_write_pack(tmp_path / "p4", [("x.toml", "id = \n")]))
+    with pytest.raises(PackError, match=r"^enemies/x\.toml: hit_points: missing"):
+        read_pack(_write_pack(tmp_path / "p5", [("x.toml", PROWLER_TOML.replace("hit_points = 3\n", ""))]))
+    with pytest.raises(PackError, match=r"^enemies/b\.toml: id: 'prowler' is already used by enemies/a\.toml"):
+        read_pack(_write_pack(tmp_path / "p6", [("a.toml", PROWLER_TOML), ("b.toml", PROWLER_TOML)]))
+
+
+def test_pack_digest_covers_every_toml_by_relative_path_and_is_order_free(tmp_path):
+    from PyAitD.engine.content.pack import pack_digest
+    a = _write_pack(tmp_path / "a", [("x.toml", PROWLER_TOML), ("y.toml", PROWLER_TOML.replace('"prowler"', '"y"'))])
+    b = _write_pack(tmp_path / "b", [("y.toml", PROWLER_TOML.replace('"prowler"', '"y"')), ("x.toml", PROWLER_TOML)])
+    assert pack_digest(a) == pack_digest(b)
+    (a / "enemies" / "x.toml").write_text(PROWLER_TOML.replace("range = 2000", "range = 2001"))
+    assert pack_digest(a) != pack_digest(b)
+    (b / "enemies" / "x.toml").rename(b / "enemies" / "z.toml")
+    assert pack_digest(a) != pack_digest(b)
+
+
+def test_the_example_pack_reads(example_pack_dir):
+    from PyAitD.engine.content.pack import read_pack
+    pack = read_pack(example_pack_dir)
+    assert (pack.name, pack.version, pack.game) == ("example", "1", "aitd1")
+    assert [(e.id, e.kind) for e in pack.enemies] == [("prowler", "pursuer"), ("watcher", "sentry")]
+    prowler, watcher = pack.enemies
+    assert (prowler.body, prowler.position, prowler.hit_points) == (24, (-5600, 0, 1000), 3)
+    assert (prowler.anims, prowler.attack) == (
+        Anims(stand=22, walk=23, attack=25, hurt=21, death=24),
+        Attack(frame=1, group=22, radius=400, force=1, range=2000),
+    )
+    assert (watcher.position, watcher.beta, watcher.anims.walk, watcher.attack.range) == ((2500, 0, 3500), 512, None, 1500)
