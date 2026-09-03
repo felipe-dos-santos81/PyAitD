@@ -8,6 +8,8 @@ import tomllib
 from dataclasses import dataclass
 
 from PyAitD.engine.content.schema import PackError, parse_enemy
+from PyAitD.engine.data.floor import Floor
+from PyAitD.engine.data.pak import Pak, PakError, find_pak
 
 PACK_FILE = "pack.toml"
 PACK_KEYS = ("game", "name", "version")
@@ -73,3 +75,41 @@ def read_pack(path):
         owner[record.id] = rel
         enemies.append(record)
     return Pack(table["name"], table["version"], table["game"], tuple(enemies), pack_digest(root), root)
+
+
+def _pak_count(data_dir, name):
+    return Pak(str(find_pak(data_dir, name))).count
+
+
+def check_archives(pack, data_dir, profile):
+    """Every body and anim must exist in *both* hero archives (Carnby's and
+    Emily's paks differ in count, and a character switch must not fail
+    later), and every stage/room must exist in the floor archive."""
+    if pack.game != profile.name:
+        raise PackError(PACK_FILE, "game", f"{pack.game!r} is not {profile.name!r}")
+    archives = []
+    for hero in range(len(profile.heroes)):
+        body_pak, anim_pak = profile.hero_archives(hero)
+        archives.append((body_pak, _pak_count(data_dir, body_pak), anim_pak, _pak_count(data_dir, anim_pak)))
+    rooms = {}
+    for record in pack.enemies:
+        for body_pak, num_bodies, anim_pak, num_anims in archives:
+            if record.body >= num_bodies:
+                raise PackError(record.file, "body", f"{record.body} is not below {num_bodies} ({body_pak})")
+            for key, anim in record.anims.present():
+                if anim >= num_anims:
+                    raise PackError(record.file, f"anims.{key}", f"{anim} is not below {num_anims} ({anim_pak})")
+        if record.stage not in rooms:
+            try:
+                rooms[record.stage] = len(Floor(data_dir, record.stage, profile).rooms)
+            except PakError as exc:
+                raise PackError(record.file, "stage", f"{record.stage}: {exc}") from None
+        if record.room >= rooms[record.stage]:
+            raise PackError(record.file, "room", f"{record.room} is not below {rooms[record.stage]} on stage {record.stage}")
+
+
+def load_pack(path, data_dir, profile):
+    """read_pack + check_archives: the only entry point the app uses."""
+    pack = read_pack(path)
+    check_archives(pack, data_dir, profile)
+    return pack

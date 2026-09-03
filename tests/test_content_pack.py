@@ -197,3 +197,46 @@ def test_the_example_pack_reads(example_pack_dir):
         Attack(frame=1, group=22, radius=400, force=1, range=2000),
     )
     assert (watcher.position, watcher.beta, watcher.anims.walk, watcher.attack.range) == ((2500, 0, 3500), 512, None, 1500)
+
+
+# ── archive checks (need game data) ──────────────────────────────────────────
+
+
+def test_load_pack_accepts_the_example_pack_against_real_data(data_dir, profile, example_pack_dir):
+    from PyAitD.engine.content.pack import load_pack
+    pack = load_pack(example_pack_dir, data_dir, profile)
+    assert [e.id for e in pack.enemies] == ["prowler", "watcher"]
+
+
+def test_check_archives_names_the_offending_key_exactly(tmp_path, data_dir, profile):
+    from PyAitD.engine.content.pack import load_pack
+    cases = [
+        ("body = 24", "body = 272", "body", "272 is not below 272 (LISTBODY)"),
+        ("walk = 23", "walk = 305", "anims.walk", "305 is not below 305 (LISTANIM)"),
+        ("stage = 0", "stage = 40", "stage", "40: PAK not found"),
+        ("room = 0", "room = 99", "room", "99 is not below 1 on stage 0"),
+    ]
+    for i, (old, new, key, message) in enumerate(cases):
+        root = _write_pack(tmp_path / f"p{i}", [("x.toml", PROWLER_TOML.replace(old, new))])
+        with pytest.raises(PackError) as caught:
+            load_pack(root, data_dir, profile)
+        assert (caught.value.file, caught.value.key) == ("enemies/x.toml", key)
+        assert caught.value.message.startswith(message), caught.value.message
+
+
+def test_check_archives_refuses_another_game(tmp_path, data_dir, profile):
+    from PyAitD.engine.content.pack import load_pack
+    root = _write_pack(tmp_path / "p", manifest=PACK_TOML.replace('"aitd1"', '"aitd2"'))
+    with pytest.raises(PackError, match=r"^pack\.toml: game: 'aitd2' is not 'aitd1'"):
+        load_pack(root, data_dir, profile)
+
+
+def test_check_archives_validates_against_both_hero_archives(tmp_path, data_dir, profile, monkeypatch):
+    # Carnby's and Emily's paks are validated in turn; a record that fits the
+    # first must still fail if it does not fit the second.
+    from PyAitD.engine.content import pack as pack_module
+    counts = {"LISTBODY": 300, "LISTBOD2": 25, "LISTANIM": 400, "LISTANI2": 400}
+    monkeypatch.setattr(pack_module, "_pak_count", lambda data_dir, name: counts[name])
+    root = _write_pack(tmp_path / "p", [("x.toml", PROWLER_TOML.replace("body = 24", "body = 30"))])
+    with pytest.raises(PackError, match=r"^enemies/x\.toml: body: 30 is not below 25 \(LISTBOD2\)"):
+        pack_module.load_pack(root, data_dir, profile)
