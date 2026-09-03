@@ -206,7 +206,7 @@ def gere_anim(game, actor_idx):
         if a.body_num == -1:
             return  # ponytail: body -1 cannot be skinned, FITD would fault
         player = anim_player_for(game, actor_idx)
-        a.end_frame = player.advance(game.timer)
+        a.end_frame = int(player.advance(game.timer))
         anim_move_z, anim_move_x = rotate_step(a.beta, player.anim_step[0], player.anim_step[2])
         step_x = anim_move_x + a.anim_neg_x - old_step_x
         step_z = anim_move_z + a.anim_neg_z - old_step_z

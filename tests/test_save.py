@@ -3,6 +3,7 @@
 and full validation before anything may touch a live game."""
 import copy
 import json
+import re
 import tomllib
 from dataclasses import fields
 
@@ -19,7 +20,7 @@ pytestmark = pytest.mark.engine
 ROOT_KEYS = {
     "schema", "engine_version", "source", "hero", "game", "actors",
     "world_objects", "anim_players", "inventory", "messages", "rng_state",
-    "settings",
+    "settings", "content_state",
 }
 
 SETTINGS = {"schema": 2, "sticky_action": False, "bindings": {}, "render": {}}
@@ -44,7 +45,7 @@ def test_engine_version_matches_pyproject():
 def test_snapshot_root_keys_pinned(data_dir, profile):
     payload = _snapshot(data_dir, profile)
     assert set(payload) == ROOT_KEYS
-    assert payload["schema"] == SCHEMA == 2
+    assert payload["schema"] == SCHEMA == 3
     assert payload["engine_version"] == __version__
     assert payload["hero"] == 0
 
@@ -121,6 +122,7 @@ def test_source_identity_names_and_digest_stable(data_dir, profile):
         "LISTLIFE.PAK", "LISTTRAK.PAK", "LISTBODY.PAK", "LISTANIM.PAK",
     ]
     assert source["digest"] == source_identity(data_dir, profile, hero=0)["digest"]
+    assert source["pack"] is None
     emily = source_identity(data_dir, profile, hero=1)
     assert emily["archives"][-2:] == ["LISTBOD2.PAK", "LISTANI2.PAK"]
     assert emily["digest"] != source["digest"]
@@ -157,7 +159,7 @@ def test_validate_round_trip_json(data_dir, profile):
 
 def test_validate_rejects_unknown_schema(data_dir, profile):
     payload = _snapshot(data_dir, profile)
-    payload["schema"] = 3
+    payload["schema"] = 4
     with pytest.raises(SaveError, match=r"schema"):
         validate_snapshot(payload, data_dir, profile)
 
@@ -323,6 +325,17 @@ def test_restored_game_ticks_and_draws_like_the_original(data_dir, profile):
     play_tick(restored, Floor(data_dir, restored.current_floor, profile), _input_buffer())
     assert snapshot_game(game, SETTINGS) == snapshot_game(restored, SETTINGS)
     assert game.rng.randrange(1000) == restored.rng.randrange(1000)
+
+
+def test_a_snapshot_taken_after_ticking_still_validates(data_dir, profile):
+    """actors.py once stored gere_anim's bool in Actor.end_frame; JSON kept it a
+    bool and _require_int refused the save. Every mid-play save hit this."""
+    game = _game(data_dir, profile)
+    floor = Floor(data_dir, game.current_floor, profile)
+    for _ in range(5):
+        play_tick(game, floor, _input_buffer())
+    payload = json.loads(json.dumps(snapshot_game(game, SETTINGS)))
+    assert validate_snapshot(payload, data_dir, profile)
 
 
 def _input_buffer():
@@ -534,3 +547,100 @@ print(json.dumps({{"world": snapshot_game(restored, settings), "draw": restored.
     assert checkpoint["world"] == payload
     # the restored RNG draws exactly what the writer's stream draws next
     assert checkpoint["draw"] == game.rng.randrange(1000)
+
+
+# ── content packs ────────────────────────────────────────────────────────────
+
+
+def _packed(data_dir, profile, example_pack_dir):
+    from PyAitD.engine.content import load_pack
+    pack = load_pack(example_pack_dir, data_dir, profile)
+    return init_game(data_dir, profile, pack=pack), pack
+
+
+def test_snapshot_records_the_pack_identity_and_the_content_state(data_dir, profile, example_pack_dir):
+    game, pack = _packed(data_dir, profile, example_pack_dir)
+    payload = snapshot_game(game, SETTINGS)
+    assert payload["source"]["pack"] == {"name": "example", "version": "1", "digest": pack.digest}
+    assert len(payload["world_objects"]) == 294
+    assert payload["content_state"] == {"292": {"hp": 3, "phase": "idle"}, "293": {"hp": 2, "phase": "idle"}}
+    assert validate_snapshot(json.loads(json.dumps(payload)), data_dir, profile, pack=pack)
+    vanilla = _snapshot(data_dir, profile)
+    assert vanilla["source"]["pack"] is None
+    assert vanilla["content_state"] == {}
+
+
+def test_validate_refuses_a_pack_mismatch_in_both_directions(data_dir, profile, example_pack_dir):
+    game, pack = _packed(data_dir, profile, example_pack_dir)
+    packed = snapshot_game(game, SETTINGS)
+    vanilla = _snapshot(data_dir, profile)
+    with pytest.raises(SaveError, match=r"source\.pack: save was made with content pack example; none is attached"):
+        validate_snapshot(packed, data_dir, profile)
+    with pytest.raises(SaveError, match=r"source\.pack: save was made without a content pack; example is attached"):
+        validate_snapshot(vanilla, data_dir, profile, pack=pack)
+    edited = copy.deepcopy(packed)
+    edited["source"]["pack"]["digest"] = "0" * 64
+    with pytest.raises(SaveError, match=r"source\.pack: content pack mismatch: save has example 1 \(00000000\), attached is example 1 \("):
+        validate_snapshot(edited, data_dir, profile, pack=pack)
+
+
+def test_validate_checks_world_object_count_and_content_state_against_the_pack(data_dir, profile, example_pack_dir):
+    game, pack = _packed(data_dir, profile, example_pack_dir)
+    payload = snapshot_game(game, SETTINGS)
+    short = copy.deepcopy(payload)
+    short["world_objects"] = short["world_objects"][:292]
+    with pytest.raises(SaveError, match=r"world_objects: expected 294 world objects, got 292"):
+        validate_snapshot(short, data_dir, profile, pack=pack)
+    for state, path, message in [
+        ({"291": {"hp": 3, "phase": "idle"}}, "content_state.291", "expected a world index in 292..293"),
+        ({"292": {"hp": 3}}, "content_state.292", "missing keys: phase"),
+        ({"292": {"hp": "3", "phase": "idle"}}, "content_state.292.hp", "expected an integer"),
+        ({"292": {"hp": 3, "phase": "flying"}}, "content_state.292.phase", "expected one of idle, chase, attack, hurt, dying, dead, got 'flying'"),
+        ([], "content_state", "expected an object"),
+    ]:
+        bad = copy.deepcopy(payload)
+        bad["content_state"] = state
+        with pytest.raises(SaveError, match=re.escape(f"{path}: {message}")):
+            validate_snapshot(bad, data_dir, profile, pack=pack)
+    vanilla = _snapshot(data_dir, profile)
+    vanilla["content_state"] = {"5": {"hp": 1, "phase": "idle"}}
+    with pytest.raises(SaveError, match=r"content_state: expected no content state without a pack"):
+        validate_snapshot(vanilla, data_dir, profile)
+
+
+def test_restore_round_trips_a_pack_game_mid_chase(data_dir, profile, example_pack_dir):
+    from PyAitD.engine.data.floor import Floor
+    from PyAitD.engine.script.playworld import play_tick
+    game, pack = _packed(data_dir, profile, example_pack_dir)
+    floor = Floor(data_dir, 0, profile)
+    for _ in range(120):
+        play_tick(game, floor, _input_buffer())
+    assert game.content_state[292]["phase"] == "chase"
+    game.content_state[292]["hp"] = 1
+    payload = json.loads(json.dumps(snapshot_game(game, SETTINGS)))
+    restored, settings = restore_game(data_dir, profile, payload, pack=pack)
+    assert settings == SETTINGS
+    assert restored.pack is pack
+    assert restored.content_state == {292: {"hp": 1, "phase": "chase"}, 293: {"hp": 2, "phase": "idle"}}
+    # restore_game re-arms the boot (flag_init_view 2, flag_genere_aff_list 1);
+    # a game 120 ticks in has consumed both, so they are the one expected delta.
+    after = snapshot_game(restored, SETTINGS)
+    assert (after["game"]["flag_init_view"], after["game"]["flag_genere_aff_list"]) == (2, 1)
+    after["game"]["flag_init_view"] = payload["game"]["flag_init_view"]
+    after["game"]["flag_genere_aff_list"] = payload["game"]["flag_genere_aff_list"]
+    assert after == payload
+    play_tick(game, floor, _input_buffer())
+    play_tick(restored, Floor(data_dir, restored.current_floor, profile), _input_buffer())
+    assert snapshot_game(game, SETTINGS) == snapshot_game(restored, SETTINGS)
+
+
+def test_read_slot_reports_a_pack_mismatch_without_touching_anything(tmp_path, data_dir, profile, example_pack_dir):
+    from PyAitD.engine.script.save import read_slot, write_slot
+    game, pack = _packed(data_dir, profile, example_pack_dir)
+    path = tmp_path / "save-manual.json"
+    write_slot(path, snapshot_game(game, SETTINGS))
+    payload, error = read_slot(path, data_dir, profile)
+    assert payload is None
+    assert error == "Could not load save-manual.json: source.pack: save was made with content pack example; none is attached"
+    payload, error = read_slot(path, data_dir, profile, pack=pack)
+    assert error is None and payload["schema"] == 3

@@ -13,16 +13,17 @@ from dataclasses import fields as dataclass_fields
 
 from PyAitD import __version__
 from PyAitD.engine.actor.anim import AnimPlayer
+from PyAitD.engine.content.schema import PHASES
 from PyAitD.engine.script.effects import TimedMessage
 from PyAitD.engine.data.formats import WorldObject, parse_defines, parse_objets, parse_vars
 from PyAitD.engine.script.game import NUM_MAX_OBJECT, Actor, FloorStart, init_game
 
-SCHEMA = 2
+SCHEMA = 3
 
 ROOT_KEYS = (
     "schema", "engine_version", "source", "hero", "game", "actors",
     "world_objects", "anim_players", "inventory", "messages", "rng_state",
-    "settings",
+    "settings", "content_state",
 )
 
 GAME_KEYS = (
@@ -51,6 +52,9 @@ _INVENTORY_KEYS = {"table", "count", "in_hand", "current"}
 _MESSAGE_KEYS = {"message_id", "age"}
 _PLAYER_KEYS = {"frame", "start_tick", "prev_frame_index", "states", "anim_step", "wrapped"}
 _RNG_STATE_LENGTH = 625  # CPython Mersenne Twister: 624 words + index
+_SOURCE_KEYS = {"profile", "archives", "digest", "pack"}
+_PACK_KEYS = {"name", "version", "digest"}
+_CONTENT_STATE_KEYS = {"hp", "phase"}
 
 
 class SaveError(Exception):
@@ -58,15 +62,19 @@ class SaveError(Exception):
     the JSON path of the first offending value."""
 
 
-def source_identity(data_dir, profile, hero):
+def source_identity(data_dir, profile, hero, pack=None):
     """The archive names plus one SHA-256 over their bytes, in order: the
-    three world files, the life/track paks, then the hero's body/anim paks.
-    A save is only loadable against the data it came from."""
+    three world files, the life/track paks, then the hero's body/anim paks;
+    plus the attached content pack's identity (or None). A save is only
+    loadable against the data, and the pack, it came from."""
     archives = source_identity_names(profile, hero)
     digest = hashlib.sha256()
     for name in archives:
         digest.update((pathlib.Path(data_dir) / name).read_bytes())
-    return {"profile": profile.name, "archives": archives, "digest": digest.hexdigest()}
+    return {
+        "profile": profile.name, "archives": archives, "digest": digest.hexdigest(),
+        "pack": None if pack is None else pack.identity(),
+    }
 
 
 def save_dir(*, platform=None, home=None):
@@ -112,7 +120,7 @@ def write_slot(path, payload):
                 pass
 
 
-def read_slot(path, data_dir, profile):
+def read_slot(path, data_dir, profile, pack=None):
     """Return (payload, None) on success, (None, None) when the slot does
     not exist, and (None, error) for a corrupt or incompatible one."""
     path = pathlib.Path(path)
@@ -123,7 +131,7 @@ def read_slot(path, data_dir, profile):
     except (OSError, ValueError) as exc:
         return None, f"Could not load {path.name}: {exc}"
     try:
-        return validate_snapshot(payload, data_dir, profile), None
+        return validate_snapshot(payload, data_dir, profile, pack=pack), None
     except SaveError as exc:
         return None, f"Could not load {path.name}: {exc}"
 
@@ -134,7 +142,7 @@ def snapshot_game(game, settings):
     return {
         "schema": SCHEMA,
         "engine_version": __version__,
-        "source": source_identity(game._data_dir, profile, hero),
+        "source": source_identity(game._data_dir, profile, hero, game.pack),
         "hero": hero,
         "game": _snapshot_state(game),
         "actors": [_snapshot_actor(a) for a in game.actors],
@@ -153,11 +161,13 @@ def snapshot_game(game, settings):
             for m in game.messages
         ],
         "rng_state": _rng_to_json(game.rng.getstate()),
+        "content_state": {str(idx): {"hp": s["hp"], "phase": s["phase"]}
+                          for idx, s in sorted(game.content_state.items())},
         "settings": settings,
     }
 
 
-def validate_snapshot(payload, data_dir, profile):
+def validate_snapshot(payload, data_dir, profile, pack=None):
     """Parse and validate the complete payload before a fresh Game may be
     built from it; raises SaveError with JSON-path context. Returns the
     payload unchanged."""
@@ -175,10 +185,12 @@ def validate_snapshot(payload, data_dir, profile):
     if not 0 <= hero < len(profile.heroes):
         _fail("hero", f"expected 0..{len(profile.heroes) - 1}, got {hero}")
 
-    _validate_source(payload["source"], data_dir, profile, hero)
+    _validate_source(payload["source"], data_dir, profile, hero, pack)
     _validate_state(payload["game"], data_dir, profile)
     _validate_actors(payload["actors"])
-    _validate_world_objects(payload["world_objects"], data_dir, profile.world_object_has_mark)
+    extra = 0 if pack is None else len(pack.enemies)
+    first = _validate_world_objects(payload["world_objects"], data_dir, profile.world_object_has_mark, extra)
+    _validate_content_state(payload["content_state"], pack, first)
     _validate_anim_players(payload["anim_players"])
     _validate_inventory(payload["inventory"])
     _validate_messages(payload["messages"])
@@ -307,8 +319,8 @@ def _read_archives(data_dir, archives):
     return raws
 
 
-def _validate_source(source, data_dir, profile, hero):
-    _require_keys(source, {"profile", "archives", "digest"}, "source")
+def _validate_source(source, data_dir, profile, hero, pack=None):
+    _require_keys(source, _SOURCE_KEYS, "source")
     expected = source_identity_names(profile, hero)
     archives = source["archives"]
     if source["profile"] != profile.name or archives != expected:
@@ -319,6 +331,21 @@ def _validate_source(source, data_dir, profile, hero):
         digest.update(raws[name])
     if source["digest"] != digest.hexdigest():
         _fail("source", "data identity mismatch: digest does not match this game data")
+    saved = source["pack"]
+    if saved is not None:
+        _require_keys(saved, _PACK_KEYS, "source.pack")
+        for key in sorted(_PACK_KEYS):
+            if type(saved[key]) is not str:
+                _fail(f"source.pack.{key}", f"expected a string, got {type(saved[key]).__name__}")
+    attached = None if pack is None else pack.identity()
+    if saved is None and attached is not None:
+        _fail("source.pack", f"save was made without a content pack; {attached['name']} is attached")
+    if saved is not None and attached is None:
+        _fail("source.pack", f"save was made with content pack {saved['name']}; none is attached")
+    if saved != attached:
+        _fail("source.pack",
+              f"content pack mismatch: save has {saved['name']} {saved['version']} ({saved['digest'][:8]}), "
+              f"attached is {attached['name']} {attached['version']} ({attached['digest'][:8]})")
     return raws
 
 
@@ -371,8 +398,9 @@ def _validate_actors(actors):
                 _require_int(value[key], f"{path}.{name}.{key}")
 
 
-def _validate_world_objects(world_objects, data_dir, has_mark):
-    expected = len(parse_objets((pathlib.Path(data_dir) / "OBJETS.ITD").read_bytes(), has_mark=has_mark))
+def _validate_world_objects(world_objects, data_dir, has_mark, extra=0):
+    original = len(parse_objets((pathlib.Path(data_dir) / "OBJETS.ITD").read_bytes(), has_mark=has_mark))
+    expected = original + extra
     if not isinstance(world_objects, list) or len(world_objects) != expected:
         count = len(world_objects) if isinstance(world_objects, list) else type(world_objects).__name__
         _fail("world_objects", f"expected {expected} world objects, got {count}")
@@ -381,6 +409,25 @@ def _validate_world_objects(world_objects, data_dir, has_mark):
         _require_keys(world, set(_WORLD_FIELDS), path)
         for name in _WORLD_FIELDS:
             _require_int(world[name], f"{path}.{name}")
+    return original
+
+
+def _validate_content_state(state, pack, first_index):
+    if not isinstance(state, dict):
+        _fail("content_state", "expected an object")
+    if pack is None:
+        if state:
+            _fail("content_state", "expected no content state without a pack")
+        return
+    last = first_index + len(pack.enemies) - 1
+    for key, entry in state.items():
+        path = f"content_state.{key}"
+        if not (type(key) is str and key.isdigit() and first_index <= int(key) <= last):
+            _fail(path, f"expected a world index in {first_index}..{last}")
+        _require_keys(entry, _CONTENT_STATE_KEYS, path)
+        _require_int(entry["hp"], f"{path}.hp")
+        if entry["phase"] not in PHASES:
+            _fail(f"{path}.phase", f"expected one of {', '.join(PHASES)}, got {entry['phase']!r}")
 
 
 def _validate_inventory(inventory):
@@ -444,13 +491,13 @@ def _validate_anim_players(players):
             _fail(f"{path}.wrapped", f"expected a boolean, got {type(entry['wrapped']).__name__}")
 
 
-def restore_game(data_dir, profile, payload):
+def restore_game(data_dir, profile, payload, pack=None):
     """Validate the complete payload, then rebuild a fresh Game from it.
     Nothing live is mutated: any failure raises SaveError before the new
     game is returned. The settings block comes back untouched for
     app/config.validate_settings to own."""
-    payload = validate_snapshot(payload, data_dir, profile)
-    game = init_game(data_dir, profile, hero=payload["hero"])
+    payload = validate_snapshot(payload, data_dir, profile, pack=pack)
+    game = init_game(data_dir, profile, hero=payload["hero"], pack=pack)
 
     state = payload["game"]
     game.timer = state["timer"]
@@ -502,6 +549,10 @@ def restore_game(data_dir, profile, payload):
     for world, entry in zip(game.world_objects, payload["world_objects"]):
         for name in _WORLD_FIELDS:
             setattr(world, name, entry[name])
+    game.content_state = {
+        int(key): {"hp": entry["hp"], "phase": entry["phase"]}
+        for key, entry in payload["content_state"].items()
+    }
 
     for key, entry in payload["anim_players"].items():
         idx = int(key)
