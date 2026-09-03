@@ -62,6 +62,11 @@ HIT_FEEDBACK_MS = 250
 CUT_DEAD_ZONE_PX = 6   # after a camera cut the pointer must move this far on
                        # an axis before the hold re-resolves; smaller motion is
                        # the hand settling, not a gesture
+DOUBLE_PRESS_RESUME_PX = 6   # how far the pointer may drift between the two
+                             # presses of a double press and still mean the
+                             # same place. The same hand jitter the cut dead
+                             # zone answers, measured across a release rather
+                             # than across a camera cut
 
 
 def _integration_level(text):
@@ -515,6 +520,9 @@ def route_play_click(
         return
     if kind == "blocked":
         return
+    resumed = _resume_destination(input_buffer, logical_pos) if kind != "push" else None
+    if resumed is not None:
+        payload = resumed
     dest_x, dest_z, room, object_idx = payload
     apply_click_intent(
         game, dest_x, dest_z, room, target_object_idx=object_idx,
@@ -532,6 +540,32 @@ def route_play_click(
         input_buffer.follow_camera = game.num_camera if kind != "push" else None
         input_buffer.follow_settle_origin = None
         input_buffer.follow_spent = kind == "push"
+
+
+def _resume_destination(input_buffer, logical_pos):
+    """The destination this press should reuse, or None to pick afresh.
+
+    The second press of a double press is the same finger on the same spot
+    saying "faster", so it resumes what the first press committed to instead
+    of resolving again -- a pixel of drift between the two halves of one
+    gesture must not choose a different cell, and under the snap budget it
+    could otherwise find nothing at all. Only a double press (pointer_run)
+    within DOUBLE_PRESS_RESUME_PX of the first press's pixel resumes; a
+    deliberate second click elsewhere picks normally.
+
+    This hands back a destination for a press to act on. It never moves the
+    hero by itself: the button is down by the time this is consulted, and the
+    release that stashed the destination cancelled the intent that carried it.
+    """
+    if input_buffer is None or not input_buffer.pointer_run:
+        return None
+    last, pos = input_buffer.resume_last, input_buffer.resume_pos
+    if last is None or pos is None:
+        return None
+    if (abs(logical_pos[0] - pos[0]) > DOUBLE_PRESS_RESUME_PX
+            or abs(logical_pos[1] - pos[1]) > DOUBLE_PRESS_RESUME_PX):
+        return None
+    return last
 
 
 def _stamp_press(game, input_buffer):
@@ -692,6 +726,11 @@ def _cancel_follow(game, input_buffer):
     if input_buffer is not None:
         input_buffer.follow_spent = False
         input_buffer.pointer_run = False
+        # what the next press may resume if it turns out to be the second
+        # half of a double press; _drop_destination is about to clear the
+        # fields it is copied from
+        input_buffer.resume_last = input_buffer.follow_last
+        input_buffer.resume_pos = input_buffer.follow_pos
     return _drop_destination(game, input_buffer)
 
 
@@ -703,7 +742,14 @@ def _rebase_follow(game, input_buffer):
     would stop the hero dead on the stairs and demand a fresh press. The
     cleared follow_pos is the one case where a still pointer is re-resolved:
     the old destination is gone, so there is nothing left to hold on to.
+
+    A stashed resume goes with it: its room indexes the floor that was just
+    unloaded, so a press arriving inside the double-press window must pick
+    afresh rather than resume a destination on a floor the hero has left.
     """
+    if input_buffer is not None:
+        input_buffer.resume_last = None
+        input_buffer.resume_pos = None
     return _drop_destination(game, input_buffer)
 
 

@@ -96,6 +96,14 @@ class InputBuffer:
     # hold state, so a run never outlives the hold that started it.
     pointer_run: bool = False
     last_press_tick: int | None = None
+    # What the hold that just ended was heading for, and the pixel that said
+    # so, kept only so the second press of a double press can resume it
+    # instead of picking again -- one motion of one finger means one
+    # destination. Stashed by _cancel_follow as it clears follow_last, and
+    # honoured for one press within DOUBLE_PRESS_TICKS and
+    # DOUBLE_PRESS_RESUME_PX; it never moves the hero on its own.
+    resume_last: tuple | None = None
+    resume_pos: tuple[int, int] | None = None
 
 
 _DIRECTION_CONTROL = {
@@ -168,6 +176,8 @@ def reset_input(state):
     state.follow_spent = False
     state.pointer_run = False
     state.last_press_tick = None
+    state.resume_last = None
+    state.resume_pos = None
     state.commands.clear()
 
 

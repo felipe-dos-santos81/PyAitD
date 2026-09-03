@@ -2647,13 +2647,13 @@ def test_release_still_ends_a_hold_rebased_by_a_floor_change(data_dir, profile,
     assert (buf.follow_last, buf.follow_pos, buf.follow_spent) == (None, None, False)
 
 
-def _press(main, game, floor, buf, near, monkeypatch, tick):
+def _press(main, game, floor, buf, near, monkeypatch, tick, pixel=(10, 10)):
     """One PLAY press at game.timer == tick, resolving to a walk."""
     game.timer = tick
     _resolving(monkeypatch, [("walk", near)])
     buf.pointer_held = True
-    buf.pointer_pos = (10, 10)
-    route_play_click(game, ModalSession(), floor, (10, 10), [], buf)
+    buf.pointer_pos = pixel
+    route_play_click(game, ModalSession(), floor, pixel, [], buf)
     return game.nav_intent
 
 
@@ -2701,6 +2701,64 @@ def test_a_second_press_outside_the_window_walks(data_dir, profile, monkeypatch)
 
     assert intent.run is False, "the window is exclusive"
     assert buf.pointer_run is False
+
+
+def test_the_second_press_of_a_double_press_resumes_the_first_destination(
+        data_dir, profile, monkeypatch):
+    # A double click is one motion of one finger, and its second press means
+    # "there, faster" -- not a fresh pick. Re-resolving it lets a pixel of
+    # hand drift choose a different cell halfway through one gesture, so the
+    # second press reuses what the first committed to and only raises the
+    # speed.
+    import PyAitD.app.shell as main
+    game, floor, buf, near, far = _follow_fixture(data_dir, profile)
+    _primed(main, game, floor, buf, near, monkeypatch)
+    assert game.nav_intent is None, (
+        "the release still ends the intent: the hero never moves button-up"
+    )
+
+    intent = _press(main, game, floor, buf, far, monkeypatch, 103)
+
+    assert (intent.dest_x, intent.dest_z) == near[:2], (
+        "the second press resumed the first press's destination"
+    )
+    assert intent.run is True
+
+
+def test_a_double_press_that_moved_off_the_first_pixel_picks_the_new_spot(
+        data_dir, profile, monkeypatch):
+    # Resuming is for the jitter of one finger, not for a deliberate second
+    # click somewhere else: past the resume window the new pick wins, and it
+    # still runs, because the run belongs to the gesture.
+    import PyAitD.app.shell as main
+    from PyAitD.app.shell import DOUBLE_PRESS_RESUME_PX
+    game, floor, buf, near, far = _follow_fixture(data_dir, profile)
+    _primed(main, game, floor, buf, near, monkeypatch)
+
+    intent = _press(
+        main, game, floor, buf, far, monkeypatch, 103,
+        pixel=(10 + DOUBLE_PRESS_RESUME_PX + 1, 10),
+    )
+
+    assert (intent.dest_x, intent.dest_z) == far[:2]
+    assert intent.run is True
+
+
+def test_a_floor_change_drops_the_resumable_destination(
+        data_dir, profile, monkeypatch):
+    # resume_last carries a room index, and a floor change unloads the floor
+    # that index belongs to. The hold survives the stairs; what it was
+    # heading for cannot.
+    import PyAitD.app.shell as main
+    game, floor, buf, near, far = _follow_fixture(data_dir, profile)
+    _primed(main, game, floor, buf, near, monkeypatch)
+    assert buf.resume_last == near
+
+    main._rebase_follow(game, buf)
+
+    assert (buf.resume_last, buf.resume_pos) == (None, None)
+    intent = _press(main, game, floor, buf, far, monkeypatch, 103)
+    assert (intent.dest_x, intent.dest_z) == far[:2]
 
 
 def test_a_retarget_within_a_running_hold_keeps_running(
