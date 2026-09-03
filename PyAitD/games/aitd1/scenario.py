@@ -1,11 +1,45 @@
 # SPDX-License-Identifier: GPL-2.0-only
-"""The one supported debug/test venue: floor 5, room 4, in front of world
-object 222 (an enemy). Pinned so manual play, integration tests, and the
-headless proof tool share a single "immediately be in combat" entry point
-instead of each hand-rolling their own floor transition."""
+"""The supported debug/test venues: floor 5, room 4, in front of world object
+222 (an enemy), and the attic's own window creature. Pinned so manual play,
+integration tests, and the headless proof tool share single entry points
+instead of each hand-rolling their own floor transition or script state."""
 from PyAitD.engine.script.game import FloorStart, enter_floor_start, relocate_actor
 
 COMBAT_VENUE = FloorStart(5, 4, -7800, -4010, -1000, 0)
+
+ATTIC_WINDOW_OBJECT = 9
+"""The attic creature that comes in through the window (body 23).
+
+Its LIFE 16 waits on two gates -- vars[19] == 1 and a chrono past 20 -- then
+runs LM_MOVE(3, 0) + LM_BODY(23) + LM_ANIM_REPEAT(19) and hands over to LIFE
+17. Track 0 drops it from y=3000 (the window) to the floor, walks it clear of
+the wall, and LIFE 18 puts it in track mode 2 following world object 1, the
+hero. The attic is one room, so the whole encounter plays out on floor 0.
+"""
+
+ATTIC_STAIR_OBJECT = 21
+"""The attic's other creature (body 24), the one that walks in through the
+doorway in the north wall.
+
+Its LIFE 19 -> 20 -> 21 chain is the mirror of the window creature's: track 1
+walks it in from z=10000 with collision off, TL_COL_ON turns collision back
+on, and LIFE 21 puts it in track mode 2 following the hero. It needs no
+fixture -- it arms itself about 3600 ticks into the attic.
+"""
+
+ATTIC_WINDOW_ARMED_VAR = 19
+"""The flag the attic's *other* creature raises (LISTLIFE 20 byte 58, LISTLIFE
+21 byte 164) to arm the window entry. Setting it is the whole fixture: the
+20-second chrono then runs on its own."""
+
+
+def arm_attic_window_creature(game):
+    """Open LIFE 16's first gate so the window entry runs on its own clock.
+
+    Deliberately does not touch the actor: the point of the fixture is to
+    exercise the real script chain, not to pose the creature.
+    """
+    game.vars[ATTIC_WINDOW_ARMED_VAR] = 1
 
 MOUSE_COMBAT_OBJECT = 38
 MOUSE_COMBAT_HERO = (5500, -4010, 5250)

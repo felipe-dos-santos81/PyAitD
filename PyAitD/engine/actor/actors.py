@@ -29,6 +29,34 @@ def _glisser(flag, step_x, step_z):
     return step_x, step_z
 
 
+def _overlap(a1, a2, b1, b2):
+    return min(a2, b2) - max(a1, b1)
+
+
+def _escape_step(old_zv, fix_zv, step_x, step_z):
+    """Movement allowance for an actor whose box already overlaps fix_zv.
+
+    ponytail: FITD zeroes the whole step in this case (main.cpp:3394-3401),
+    which is a permanent trap -- an actor that is somehow inside a blocker can
+    never move again, in any direction, for the rest of the game. AITD1's own
+    data walks actors into that state: an entry track carries a creature in
+    with TL_COL_OFF and then re-arms collision with TL_COL_ON wherever
+    TL_GOTO's 400-unit "close enough" threshold happened to leave it, which
+    for the attic's doorway creature is inside the doorway hard-col.
+
+    So instead of freezing it, keep each component that does not press deeper
+    in. An actor *outside* the box never reaches this branch, so walls stay
+    exactly as solid as before for ordinary movement.
+    """
+    if _overlap(old_zv[0] + step_x, old_zv[1] + step_x, fix_zv[0], fix_zv[1]) > \
+            _overlap(old_zv[0], old_zv[1], fix_zv[0], fix_zv[1]):
+        step_x = 0
+    if _overlap(old_zv[4] + step_z, old_zv[5] + step_z, fix_zv[4], fix_zv[5]) > \
+            _overlap(old_zv[4], old_zv[5], fix_zv[4], fix_zv[5]):
+        step_z = 0
+    return step_x, step_z
+
+
 def gere_collision(old_zv, animated_zv, fix_zv, step_x, step_z):
     # FITD GereCollision port: zeroes out the attempted step components that
     # would push the actor through fix_zv
@@ -44,7 +72,8 @@ def gere_collision(old_zv, animated_zv, fix_zv, step_x, step_z):
     if oldpos in (5, 9, 6, 10):
         oldtype = 2
     elif oldpos == 0:
-        return (0, 0)  # actor already inside: FITD zeroes the whole step
+        # actor already inside the blocker -- see _escape_step
+        return _escape_step(old_zv, fix_zv, step_x, step_z)
     else:
         oldtype = 1
 

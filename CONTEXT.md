@@ -214,6 +214,35 @@ action runner.
   crossings); modal result records live in `ui.py` though locked ownership
   puts them in `engine/script/effects.py`; `op_special` still carries an M3b stub label.
 
+## Attic creatures and the already-inside collision rule
+
+- The attic's two enemies are pinned in `games/aitd1/scenario.py`:
+  `ATTIC_WINDOW_OBJECT` (world 9, body 23, LIFE 16 -> 17 -> 18, track 0 --
+  drops in at the window from y=3000) and `ATTIC_STAIR_OBJECT` (world 21,
+  body 24, LIFE 19 -> 20 -> 21, track 1 -- walks in through the north
+  doorway). Before this the repo pinned only the floor-5 venue, so the game's
+  first two monsters had no coverage at all. The window creature waits on
+  `vars[19] == 1` plus a 20-second chrono; `arm_attic_window_creature` opens
+  that first gate and lets the rest run on the real scripts. The stair
+  creature arms itself around tick 3600.
+- `actors.gere_collision`'s "actor already inside the blocker" case
+  (`oldpos == 0`) does **not** zero the whole step the way FITD does
+  (main.cpp:3394-3401). FITD's version is a permanent trap, and AITD1's own
+  data walks actors into it: an entry track carries a creature in under
+  `TL_COL_OFF`, then `TL_COL_ON` re-arms collision wherever `TL_GOTO`'s
+  400-unit "close enough" threshold left it. For world 21 that is 382 units
+  short of its own target, with its 1062-unit `getZvMax` cube straddling the
+  doorway hard-col at z 5000..5300 -- so it animated in the doorway forever
+  and never came for the player. `_escape_step` instead keeps each step
+  component that does not deepen the overlap. An actor *outside* a box never
+  reaches that branch, so walls are exactly as solid as before; only an
+  already-penetrating actor is affected.
+- Gated by `tests/test_m3b_attic.py`:
+  `test_the_attic_window_creature_drops_in_and_comes_for_the_hero` walks the
+  window creature's whole chain, and
+  `test_the_attic_stair_creature_can_still_walk_once_it_stops_in_the_doorway`
+  fails on the old rule with "the creature is frozen at (50, 4882)".
+
 ## M3e mouse-reachability boundary
 
 - `tracks.face_toward` is an instantaneous clicked-attack adapter; ordinary

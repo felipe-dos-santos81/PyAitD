@@ -3,26 +3,126 @@
 Python engine reimplementation of **Alone in the Dark 1** (DOS, 1992).
 pygame-ce + ModernGL, Apple Silicon, windowed. GPLv2.
 
-This port is inspired by [FITD](https://github.com/yaz0r/FITD) and
+Inspired by [FITD](https://github.com/yaz0r/FITD) and
 [AloneInTheDarkReHaunted](https://github.com/spacefarergames/AloneInTheDarkReHaunted).
-It aims to improve the game's accessibility (mouse-only play, remappable
-controls, sticky actions) and is built for **educational purposes only**.
+It aims to improve accessibility (mouse-only play, remappable controls, sticky
+actions) and is built for **educational purposes only**.
 
 **You must own the original game** — this repo never ships game data.
 
 ## Setup
 
 ```bash
-make install            # .venv + editable install with dev deps
+make install    # .venv + editable install with dev deps
 ```
 
-Add your legally owned base game files to
-`data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK`
-at the repo root — i.e. copy the original game's `INDARK` directory (the one
-holding the `.PAK` archives) into that path, keeping the `.app` folder
-structure shown. If your copy lives elsewhere, override with `data=` on any
-make target or `--data DIR`.
-Tests honor env `PYAITD_DATA` and skip when data is absent.
+Copy the original game's `INDARK` directory (the one holding the `.PAK`
+archives) to:
+
+```
+data/aitd1/Alone in the Dark 1.app/Contents/Resources/game/INDARK
+```
+
+Override with `data=DIR` on any make target or `--data DIR`. Tests honor
+`PYAITD_DATA` and skip when data is absent.
+
+## Run
+
+```bash
+make run             # character selection, then play
+make run textures=   # same, with the original 320x200 backgrounds
+make run-combat      # floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
+make compare         # live mirror: original AITD1 in DOSBox-X below the port (macOS)
+```
+
+`make run` loads replacement textures from `data/aitd1/textures` if present
+(git-ignored, never shipped); anything missing falls back to the original asset
+silently. `textures=DIR` points elsewhere, empty `textures=` disables them.
+
+### Controls
+
+**Mouse (default).** Press and hold the left button — the hero walks toward the
+pointer and keeps following it while you hold; release stops immediately. Press
+twice quickly and hold the second press to run. Every pixel is walkable: a spot
+with no reachable floor under it walks the hero in that *direction* instead of
+refusing. Hold over an object to approach and use it. A diamond marks the
+destination (faint before you press, solid while you hold) and a ring around the
+cursor shows the button is down. Pushable scenery shows an amber opposed-arrow
+cursor: hold to approach and push. Armed enemies and the inventory button answer
+a single press. A red X is now rare: an attack with an empty hand or mid-swing,
+or a pointer with no bearing to take because the hero's feet are off screen. The
+OS cursor is never locked or grabbed.
+
+**Keyboard.** Arrows/WASD walk, Space acts, Enter or I opens inventory, Esc
+opens the system menu (Return to Game / Save / Load / Quick Save /
+Configuration / Quit). Tab switches schemes; menus accept both throughout.
+
+**Menus.** Arrows move, Enter/Space accepts, Esc cancels, or single-click any
+button. Configuration offers control remapping, sticky Action (one-finger
+Space-then-direction), and the Graphics and Realism renderer pages; settings
+persist per user. A key picker accepts a physical key press or a click on an
+on-screen key cell, so remapping needs no keyboard at all. Found objects open a
+Take/Leave prompt; inventory exposes each object's own actions; letters and
+books are readable; pictures play full-screen.
+
+### Save and load
+
+Save writes `save-manual.json`; Quick Save writes `save-quick.json` at the first
+stable tick; Load lists both (a missing slot is dimmed and inert). Slots live
+beside the settings file (`--save-dir DIR`). A load validates schema, counts and
+a digest of the source game data before the live game is touched — any failure
+leaves the running session untouched. Manual save is refused while a script
+continuation is pending.
+
+## Renderer options
+
+The Configuration screen's **Graphics** page (display knobs) and **Realism**
+page (lighting and motion) persist like any other setting. The same knobs are
+available as CLI flags for a single session only — never persisted.
+
+| Flag | Values (default **bold**) | Effect |
+|---|---|---|
+| `--render-scale` | 1–8 (**4**) | internal render resolution, in multiples of 320x200 |
+| `--shading` | flat, lambert, **smooth** | where per-actor surface normals come from |
+| `--background-filter` | nearest, **bilinear**, xbr | how the 320x200 backgrounds are upscaled |
+| `--msaa` | 0, 2, **4**, 8 | multisampling on the internal render target |
+| `--lighting` | fixed, **scene** | `scene` estimates each camera's light from its own background and casts a ground shadow |
+| `--realism` | classic, **enhanced** | `enhanced` gives every surface a material (specular, rim, occlusion, detail relief, warm skin, emissive flame) |
+| `--smoothing` | 0, 1, **2**, 3 | GPU mesh smoothing: 4/16/64 curved sub-triangles per face, edges past 80° stay sharp |
+| `--shadows` | hard, **soft**, room | `soft` adds penumbra and inter-actor shadowing; `room` also drapes shadows over floor and collision boxes |
+| `--integration` | 0, 1, **2**, 3 | how much of the room's own picture the actors take on (grain, cell, value range) |
+| `--motion` | tick, **smooth** | `smooth` blends actor motion between 50 Hz ticks at display rate |
+| `--occlusion` | off, **ssao** | half-res screen-space ambient occlusion over the actor layer |
+| `--atmosphere` | off, **on** | past 2500 units, fades actors toward the room's ambient tone |
+| `--textures` | DIR | replacement asset directory (see below) |
+
+`--integration`'s original `off`/`on` still parse as 0 and 2. `--atmosphere`
+applies under `--lighting scene` with `--integration 1` or above. Without a
+GL 3.3 context the software backend takes over at scale 1 with a settings
+notice; the game always runs. Per-class numbers and trade-offs live in
+`docs/materials-v2-proof.md` and the other renderer proofs under `docs/`.
+
+The UI layer — character select, inventory, menus, messages, cursor — is drawn
+at the window's resolution so its text stays sharp, but authored in 320x200
+coordinates, which keeps mouse targets and what you see in step.
+
+### Texture directories
+
+A texture directory holds `backgrounds/floor<NN>/camera<NNN>.png` (any size),
+`palette.png` (256px wide), `bodies/body<NNN>.json` (material remap, optional
+`crease` degrees), and `bodies/body<NNN>.png` (a painted albedo atlas sampled in
+place of palette-ramp colour, laid out to `bodies/body<NNN>.uv.json`). A missing
+file falls back silently; a corrupt one logs a warning and falls back. The game
+never crashes on a bad texture file.
+
+```bash
+make export-textures      # originals + guides + UV sidecars + manifest.json, then the materials survey
+make check-textures       # validate a directory the way the game loads it
+```
+
+`out=DIR` chooses the destination, `uvs=0` skips the body guides, `materials=0`
+skips the survey half. Painting itself happens outside this repo; play against
+the result with `make run textures=DIR`.
 
 ## Layout
 
@@ -31,230 +131,59 @@ PyAitD/engine/   simulation ported from FITD — no pygame, no GL, no game const
 PyAitD/render/   frame description → pixels (GL and software backends)
 PyAitD/games/    per-game GameProfile + opcode handlers; aitd1/ is the only game
 PyAitD/app/      window, event pump, settings, CLI
-tools/           proofs, texture exporters, the materials bootstrap,
-                 the compare-with-original harness (DOSBox-X + CGEvent helper)
+tools/           proofs, texture exporters, materials bootstrap, compare harness
 ```
 
 `render/` and `games/` import only `engine/`; `engine/` imports none of the
-others; `app/` may import everything. `tests/test_layering.py` enforces it. `AGENTS.md` says where new
-code goes and how to split a module; `CONTEXT.md` maps every file.
-
-## Run
-
-```bash
-make run                # boots into character selection (floor=0 bypasses it for debugging)
-make run textures=      # same, but with the original 320x200 backgrounds
-make run-combat         # floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
-make compare            # live mirror: original AITD1 in DOSBox-X below the port (macOS)
-```
-
-`make run` loads replacement textures from `data/aitd1/textures` by
-default. That directory is git-ignored and this repo never ships it: if it is
-absent, or a camera is missing from it, the game falls back to the original
-asset silently. Point elsewhere with `textures=DIR`, or pass an empty
-`textures=` to disable replacement textures for the run.
-
-Pick Emily or Carnby by mouse or keyboard, then play. Mouse (default): press
-and hold the left button — the hero walks toward the pointer and keeps
-following it while you hold; press twice in quick succession and hold the
-second press to run instead of walk (the mouse's reading of the keyboard's
-double-tap forward); hold over an object to approach and use it;
-release to stop immediately. A diamond on the floor marks where the hero is
-heading (faint before you press, solid while you hold), a ring around the
-cursor shows the button is down, and a red X means the pointer is somewhere
-the hero cannot be sent. Pushable scenery shows an amber opposed-arrow
-cursor: press and hold to approach and push (the push target stays latched
-while you hold), release to stop. Armed enemies and the inventory button
-answer a single press. The OS cursor is never locked or grabbed. Tab switches
-to the keyboard scheme (arrows/WASD walk, Space acts) and back. Menus accept
-both throughout.
-
-Keyboard: arrows/WASD walk, Space acts, Enter or I opens inventory,
-Esc cancels — while playing it opens the system menu (Return to Game /
-Save / Load / Quick Save / Configuration / Quit). Configuration offers
-control remapping, sticky Action
-(one-finger sequential Space-then-direction), and the Graphics and Realism
-sub-pages of renderer options; settings persist per user.
-Choosing a control opens a key picker: press the physical key, or click one
-of the on-screen key cells (or Cancel) so remapping needs no keyboard at all.
-In menus: arrows move, Enter/Space accepts, Esc cancels. Mouse: single left
-click on any large button. Found objects open a Take/Leave prompt; inventory
-exposes the object's own actions; letters and books are readable; pictures
-play full-screen.
-
-Save and load: the system menu's Save writes `save-manual.json`; Load lists
-`save-manual.json` and `save-quick.json` (a missing slot's row is dimmed and
-inert); Quick Save closes the menu and writes `save-quick.json` at the first
-stable tick. Slots live beside the settings file (`--save-dir DIR` points
-elsewhere). A load validates the whole file — schema, counts, and a digest of
-the game data it was written from — before the live game is touched, and the
-restored session lands back in play with clean pointer state; any failure
-leaves the running game untouched and raises the dismissible notice. Manual
-save is refused while a script continuation is pending.
-
-`make compare` runs the original DOS game (bundled inside the Mac `.app`) in
-DOSBox-X in a window stacked below ours and live-forwards every keyboard
-control the port consumes while playing (keyboard input mode) into it, for
-side-by-side comparison. macOS only; needs `dosbox-x` and a one-time
-Accessibility grant; see `docs/compare-original-proof.md`.
-
-The in-game Configuration screen's Graphics and Realism pages, and thirteen CLI
-flags for a single session, control the enhanced renderer: Graphics holds the
-display knobs (scale, shading, background filter, AA, mesh smoothing) and
-Realism the lighting and motion ones (lighting, shadows, realism preset, plate
-integration, motion, occlusion, atmosphere). `--render-scale N` (1-8, the
-internal render resolution as a multiple of 320x200), `--shading
-{flat,lambert,smooth}` (the per-actor shading model: where surface normals
-come from), `--background-filter {nearest,bilinear,xbr}` (how the original
-320x200 backgrounds are upscaled),
-`--lighting {fixed,scene}` (`fixed` is the old hard-coded rig; `scene`
-estimates each camera's light direction and colour from its own background
-image and casts a ground shadow under every actor), `--msaa {0,2,4,8}`
-(multisampling on the internal render target),
-`--realism {classic,enhanced}` (`classic` is the flat-material look;
-`enhanced` gives every surface a material — a normalised specular lobe,
-rim, occlusion, and a procedural detail field that is both a colour grain
-and real relief, lit by a derivative bump that fades out before it can
-alias; skin also gets a warm terminator, and a flame's palette ramp
-renders as emissive whatever the light does — from a palette-index table
-in `PyAitD/render/materials.json`, which `make export-textures`
-regenerates and a texture directory can remap per body under
-`DIR/bodies/body<NNN>.json` (re-running the bootstrap without the hand
-labels each ramp's `note` records silently reintroduces the survey's
-heuristic and vision-model guesses in place of the reviewed class —
-`docs/materials-v2-proof.md`'s Known limitations covers this); that
-document records the per-class numbers and what each was traded
-against),
-`--smoothing {0,1,2,3}` (GPU mesh smoothing: `0` draws the flat 1992 mesh,
-`1`–`3` round every body with 4/16/64 curved sub-triangles per face, keeping
-edges sharper than 80° — overridable per body with a `"crease"` degrees key
-in `DIR/bodies/body<NNN>.json`),
-`--shadows {hard,soft,room}` (`hard` is the flat projected silhouette; `soft`
-gives every shadow a penumbra that hardens where the actor meets the ground,
-composites every actor's shadow once before any body is drawn, and lets
-limbs and actors shadow each other through a light-view depth map; `room`
-does everything `soft` does and also darkens the room's floor and the tops
-of its `hard_col` collision boxes through that same shadow map, so a cast
-shadow can drape over furniture-proxy geometry instead of stopping dead at
-its edge — `hard_cols` are proxies, not painted furniture, so `soft` stays
-the default until a human reviews real fixtures),
-`--motion {tick,smooth}` (`smooth`, the default, blends actor motion between
-simulation ticks at the display rate; `tick` renders one pose per 50 Hz
-tick),
-`--occlusion {off,ssao}` (`ssao`, the default, adds a half-resolution
-screen-space ambient occlusion pass over the actor layer — reading a
-G-buffer prepass of view normals and depth, seeing pose and neighbours every
-frame — and attenuates the fill light's share where it finds contact
-occlusion; `off` runs today's renderer verbatim. Additive to the baked
-rest-pose occlusion every body already carries, which cannot see pose or
-neighbours),
-`--atmosphere {off,on}` (`on`, the default, gives the actor layer distance:
-the composite reads a per-pixel linear eye depth alongside colour and, past
-2500 world units, fades an actor toward the room's own ambient tone while
-grading its softness and grain mildly upward with distance, so a far figure
-reads as far away rather than as a sharp cut-out. A near actor is untouched
-by construction, and a small room shows nothing at all; `off` runs today's
-composite verbatim. Applies under `--lighting scene` and `--integration 1`
-or above only — every term lives in the composite pass),
-`--integration {0,1,2,3}` (how much of the room's own picture the actors take
-on: any level above 0 resolves the bodies into their own layer and composites
-them back — softened or pixelated to the plate's cell, clamped into the
-range the room can actually print (nothing darker than its floor, nothing
-brighter than its ceiling, and no opinion about a value already in between),
-and grained with a dither built the way the background filter built the
-room's own — so the actors sit inside the room rather than on top of it. 2 is the full match and the
-default, 1 does half of it, 3 half again as much; 0 is the previous
-single-target path, which draws the bodies straight over the plate. The
-option's original `off` and `on` still parse as 0 and 2),
-and `--textures DIR` (a user-supplied replacement asset directory; this repo
-still ships no game data — `make run` passes `data/aitd1/textures` unless you
-point or clear `textures=`). A texture directory holds
-`DIR/backgrounds/floor<NN>/camera<NNN>.png` (any size) per camera and
-`DIR/palette.png` (256 pixels wide) for the palette, `DIR/bodies/body<NNN>.json`
-(a per-body material remap and, optionally, its `crease` threshold), and
-`DIR/bodies/body<NNN>.png` — the painted albedo atlas the game samples in
-place of the palette-ramp colour when present, laid out to the per-corner
-UVs in that body's `DIR/bodies/body<NNN>.uv.json` sidecar; a missing texture file
-falls back to the original asset silently, while one that exists but fails
-to load logs a warning and falls back — the game never crashes on a bad
-texture file. CLI flags apply only to the current session and are not persisted;
-the Graphics and Realism pages' rows persist like every other setting.
-If no GL 3.3 context is available, rendering falls back to the software
-backend at scale 1 with a settings notice; the game always runs.
-
-The UI layer — character selection, the inventory, menus, messages and the
-cursor — is drawn at the window's own resolution rather than at 320x200, so
-its text stays sharp at any window size. It is authored in 320x200
-coordinates regardless, which is what keeps mouse targets and what you see
-in step.
-
-To regenerate the backgrounds with an external tool, `make export-textures`
-writes the originals plus structure guides, a layout sidecar per camera (the
-guide's geometry as JSON, used to describe and verify the scene), a
-per-corner UV sidecar and a painter's guide per actor body (`DIR/bodies/body<NNN>.uv.json`
-+ `DIR/bodies/body<NNN>-guide.png`, `uvs=0` skips this stage), and a
-manifest (`manifest.json`) into `data/aitd1/textures` (git-ignored; `out=DIR`
-to choose another), then surveys palette ramps and body usage into
-`materials-survey/` beside them and emits `PyAitD/render/materials.json`
-(`materials=0` skips that half), and `make check-textures` validates the results the way
-the game loads them. An external painter opens the guide and paints
-`DIR/bodies/body<NNN>.png`, the albedo the game will sample when present
-(see above). The regeneration itself happens outside this repo;
-`make run textures=DIR` plays the game against the directory.
+others; `app/` may import everything, and `tests/test_layering.py` enforces it.
+`AGENTS.md` says where new code goes; `CONTEXT.md` maps every file.
 
 ## Tests
 
 ```bash
-make test                          # whole pytest suite, headless (real game data where available)
-make test-engine                   # simulation, LIFE VM, formats, actors, anim, tracks, collision, navmesh, picking, opcodes
-make test-render                   # scene, geometry, both backends, asset resolution, texture export/check
-make test-shell                    # event pump, settings, CLI, UI screens and modals
-make test-tools                    # the standalone scripts under tools/
-make test-meta                     # the repo's own rules (package layering, test grouping)
-make test-journey                  # real run() event pump and long real-data simulations
-make proof-mouse                   # navmesh coverage for every camera-visible room, every floor (needs game data)
-make proof-combat                  # combat venue proof: real enemy damage, player arms, game over (needs game data)
-make proof-graphics                # render attic + combat fixtures at every shading mode x realism preset, plus flat-mesh, hard-shadow, un-composited, over-composited, blended-motion, painted, SSAO-off, room-shadow and un-hazed pairs, to docs/graphics-proof/ (needs GL + game data)
-make proof-intro                   # opening cutscene: headless gate + one GL render per visited camera
-make prove-persistence             # M4a2 gate: save schema, slots, restoration, menu pages, loop policy, journeys, mouse contract
-make check-textures proof=1        # validate data/aitd1/textures (or textures=DIR); side-by-sides to docs/graphics-proof/textures/
+make test              # whole suite, headless (real game data where available)
+make test-engine       # simulation, LIFE VM, formats, actors, anim, collision, navmesh, picking
+make test-render       # scene, geometry, both backends, asset resolution, texture export/check
+make test-shell        # event pump, settings, CLI, UI screens and modals
+make test-tools        # the standalone scripts under tools/
+make test-meta         # the repo's own rules (package layering, test grouping)
+make test-journey      # real run() event pump and long real-data simulations
 ```
 
-The nine legacy `prove-*` names (`prove`, `prove-m3b`, `prove-shell`,
-`prove-mouse-only`, `prove-mouse`, `prove-mouse-accessibility`,
-`prove-combat`, `prove-graphics`, `prove-intro`) remain as aliases of the
-targets above -- see `AGENTS.md` and `CONTEXT.md`'s `## Test grouping`
-section for exactly what each one aliases.
+Proof targets (most need game data, some need GL):
 
-Mouse accessibility hardening is automated by `make prove-mouse-accessibility`
-and has user-attested windowed standard-mouse and macOS Accessibility Keyboard
-passes for Emily and Carnby. The current evidence in
-the [mouse accessibility hardening proof](docs/mouse-accessibility-hardening-proof.md)
-supersedes the older pending window checks in the
+```bash
+make proof-mouse           # navmesh coverage for every camera-visible room, every floor
+make proof-combat          # real enemy damage, player arms, game over
+make proof-graphics        # every shading x realism pair, plus each renderer knob's off/on pair
+make proof-intro           # opening cutscene: headless gate + one GL render per camera
+make prove-persistence     # save schema, slots, restoration, menu pages, journeys, mouse contract
+make check-textures proof=1  # validate a texture directory, side-by-sides to docs/graphics-proof/
+```
+
+The nine legacy `prove-*` names remain as aliases; `CONTEXT.md`'s
+`## Test grouping` section says what each one maps to.
+
+Mouse accessibility is automated by `make prove-mouse-accessibility` and has
+user-attested windowed standard-mouse and macOS Accessibility Keyboard passes
+for both heroes — see the
+[hardening proof](docs/mouse-accessibility-hardening-proof.md), which
+supersedes the pending window checks in the older
 [M4a1 shell](docs/m4a1-shell-proof.md) and
-[mouse hold-to-push](docs/mouse-hold-push-proof.md) proofs; the held-push
-inventory takeover regression is covered and closed.
+[hold-to-push](docs/mouse-hold-push-proof.md) proofs.
 
 ## Status
 
-M1 data layer, M2 actors, M3a LIFE script VM, M3b interaction, M3c combat,
-M3d/M3e mouse-only input (including held scenery pushing), M4a1 shell
-(character select, system menu, remappable controls, settings persistence),
-M4a2 save/load (versioned slots, source-identity validation, atomic load
-replacement, deferred quick save), the full enhanced-rendering roadmap (soft
-shadows, plate integration, materials, integration levels), all four of
-roadmap 2's sub-projects — motion interpolation (actors blend between the
-50 Hz simulation ticks at the display rate), actor surface textures (a
-painted albedo atlas per body, baked per-corner UVs), light transport
-(screen-space ambient occlusion over the actor layer, and shadows the
-room's floor and furniture proxies receive) and atmosphere (distance haze
-plus depth-graded softness and grain) — each behind its own Realism knob,
-and the
-compare-with-original live mirror (`make compare`) are done: the game boots
-into an asset-faithful character selector, the attic is fully interactive by
-mouse or keyboard, and progress persists across sessions. The renderer
-proofs under `docs/` carry per-sub-project attestation tables; several rows
-are still `pending` a human's eye on real fixtures. Next: M4b
-audio/sequences, M4c ending.
-See `CONTEXT.md` for the architecture map and `docs/superpowers/` for specs
-and plans.
+Done: M1 data layer, M2 actors, M3a LIFE script VM, M3b interaction, M3c
+combat, M3d/M3e mouse-only input, M4a1 shell, M4a2 save/load, the full
+enhanced-rendering roadmap, all four of roadmap 2's sub-projects (motion
+interpolation, actor surface textures, light transport, atmosphere), and the
+`make compare` live mirror. The game boots into an asset-faithful character
+selector, the attic is fully interactive by mouse or keyboard, and progress
+persists across sessions. Several renderer-proof attestation rows still await a
+human's eye on real fixtures.
+
+Next: M4b audio/sequences, M4c ending.
+
+See `CONTEXT.md` for the architecture map and `docs/superpowers/` for specs and
+plans.

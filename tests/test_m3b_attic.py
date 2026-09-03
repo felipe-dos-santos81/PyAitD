@@ -56,3 +56,125 @@ def test_attic_lamp_find_take_use_and_drop_checkpoint(data_dir, profile):
         play_tick(game, floor, InputBuffer())
     assert lamp_idx not in inventory_items(game)
     assert lamp.found_flag & 0x4000
+
+
+def _tick_until(game, floor, predicate, *, limit):
+    """Tick until predicate(game) holds. Returns the tick it held on, or -1."""
+    for tick in range(limit):
+        play_tick(game, floor, InputBuffer())
+        if predicate(game):
+            return tick
+    return -1
+
+
+def _window_creature(game):
+    from PyAitD.games.aitd1.scenario import ATTIC_WINDOW_OBJECT
+
+    slot = game.world_objects[ATTIC_WINDOW_OBJECT].obj_index
+    return game.actors[slot] if slot != -1 else None
+
+
+def test_the_attic_window_creature_drops_in_and_comes_for_the_hero(data_dir, profile):
+    """The attic's own encounter, end to end, against the real scripts.
+
+    The repo pinned only the floor-5 venue (scenario.COMBAT_VENUE), so the
+    game's first monster had no coverage at all. This walks the whole chain --
+    LIFE 16's gate, track 0's drop from the window, and LIFE 18's pursuit --
+    because each stage fails in a different place, and a bug report of "it
+    breaks in and then just stands there" cannot say which one.
+    """
+    from PyAitD.games.aitd1.scenario import arm_attic_window_creature
+
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, 0, profile)
+    play_tick(game, floor, InputBuffer())
+    hero = game.actors[game.current_camera_target_actor]
+
+    creature = _window_creature(game)
+    assert creature is not None, "the window creature is placed from the start"
+    assert (creature.room, creature.life) == (0, 16)
+
+    arm_attic_window_creature(game)
+
+    # LIFE 16 hands over to the entry track once its chrono passes 20.
+    entered = _tick_until(
+        game, floor, lambda g: _window_creature(g).track_mode == 3, limit=2500,
+    )
+    assert entered != -1, "LIFE 16 never armed the entry track"
+    assert (creature.track_number, creature.body_num) == (0, 23)
+    # INIT_COOR puts it up at the window before anything else moves.
+    assert creature.room_y == 3000
+
+    # Track 0's GOTO_3D is the drop to the floor: 240 ticks of y_handler.
+    landed = _tick_until(
+        game, floor,
+        lambda g: _window_creature(g).room_y == 0
+        and _window_creature(g).position_in_track > 6,
+        limit=600,
+    )
+    assert landed != -1, "the creature never came down from the window"
+
+    # Track 0 ends by handing the actor to LIFE 18, which follows the hero.
+    chasing = _tick_until(
+        game, floor,
+        lambda g: _window_creature(g).track_mode == 2, limit=400,
+    )
+    assert chasing != -1, "the entry track never handed over to the chase"
+    assert creature.life == 18
+    # track mode 2 follows a *world* object; 1 is the hero.
+    assert creature.track_number == 1
+
+    def gap(g):
+        c = _window_creature(g)
+        return abs(c.room_x - hero.room_x) + abs(c.room_z - hero.room_z)
+
+    start_gap = gap(game)
+    closed = _tick_until(game, floor, lambda g: gap(g) < start_gap // 4, limit=2500)
+    assert closed != -1, (
+        f"the creature did not close on the hero: {start_gap} -> {gap(game)}"
+    )
+
+
+def test_the_attic_stair_creature_can_still_walk_once_it_stops_in_the_doorway(
+        data_dir, profile):
+    """The attic's second creature must not be frozen by the door it came through.
+
+    World object 21 walks in on track 1 with collision off, stops ~400 units
+    short of the track's own target (TL_GOTO's DISTANCE_TO_POINT_TRESSHOLD),
+    and then TL_COL_ON turns collision back on -- with its 1062-unit bounding
+    cube still straddling the doorway hard-col at z 5000..5300. From that tick
+    on, gere_collision's "already inside" case zeroes every step, so it
+    animates forever without moving.
+    """
+    from PyAitD.games.aitd1.scenario import ATTIC_STAIR_OBJECT
+
+    game = init_game(data_dir, profile)
+    floor = Floor(data_dir, 0, profile)
+
+    def creature(g):
+        slot = g.world_objects[ATTIC_STAIR_OBJECT].obj_index
+        return g.actors[slot] if slot != -1 else None
+
+    chasing = _tick_until(
+        game, floor, lambda g: creature(g).track_mode == 2, limit=4200,
+    )
+    assert chasing != -1, "the second creature never reached its chase life"
+
+    hero = game.actors[game.current_camera_target_actor]
+
+    def gap(g):
+        c = creature(g)
+        return abs(c.room_x - hero.room_x) + abs(c.room_z - hero.room_z)
+
+    # let the pending step from the entry track commit before measuring
+    _tick_until(game, floor, lambda g: False, limit=60)
+    parked = (creature(game).room_x, creature(game).room_z)
+    start_gap = gap(game)
+    _tick_until(game, floor, lambda g: False, limit=300)
+    moved = abs(creature(game).room_x - parked[0]) + abs(creature(game).room_z - parked[1])
+    assert moved > 0, (
+        f"the creature is frozen at {parked} six seconds into its chase"
+    )
+    # and it must actually cross the room, not merely twitch free
+    closed = _tick_until(game, floor, lambda g: gap(g) < start_gap // 4, limit=2000)
+    assert closed != -1, f"the creature never reached the hero: {start_gap} -> {gap(game)}"
