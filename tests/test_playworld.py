@@ -25,7 +25,6 @@ def test_play_tick_advances_the_world_without_a_display(data_dir, profile):
 from PyAitD.engine.script.effects import GameMode, InputMode, NavIntent
 from PyAitD.engine.nav.navmesh import agent_extent
 from PyAitD.engine.script.playworld import apply_play_input
-from tests.conftest import held_pointer
 
 
 def test_keyboard_mode_still_reads_the_input_buffer(data_dir, profile):
@@ -468,7 +467,7 @@ def test_hero_walks_to_a_clicked_destination_and_arrives(data_dir, profile):
     ), "the goal must not be a trigger/transition zone"
     start = (hero.room_x, hero.room_z)
     game.nav_intent = NavIntent(goal[0], goal[1], hero.room)
-    buf = held_pointer()
+    buf = PlayInput(pointer_held=True)
     joyd_seen = 0
     for tick in range(600):
         # play_tick returns False whenever a LIFE script suspends mid-tick

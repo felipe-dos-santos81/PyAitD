@@ -959,7 +959,7 @@ def test_a_steer_press_walks_while_held_and_stops_on_release(data_dir, profile):
     Walking is what the decision says, and the release still ends it.
     """
     import PyAitD.app.shell as main
-    from PyAitD.engine.script.playworld import play_tick
+    from PyAitD.engine.script.playworld import PlayInput, play_tick
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
@@ -970,13 +970,16 @@ def test_a_steer_press_walks_while_held_and_stops_on_release(data_dir, profile):
     route_play_click(game, ModalSession(), floor, (0, 0), [], buf)
 
     assert game.nav_intent is not None and game.nav_intent.steering is True
+    # route_play_click needs the InputBuffer; play_tick needs its own
+    # PlayInput -- the engine's own snapshot, not the app's buffer.
+    play_input = PlayInput(pointer_held=True)
     for _ in range(4):
-        play_tick(game, floor, buf)
+        play_tick(game, floor, play_input)
     assert game.nav_decision is not None and game.nav_decision.advance is True
     assert hero.speed == 4, "a steer walks; only a double press runs"
 
-    buf.pointer_held = False
-    play_tick(game, floor, buf)
+    play_input = PlayInput(pointer_held=False)
+    play_tick(game, floor, play_input)
 
     assert game.nav_intent is None, "the release still ends the intent"
 
@@ -991,7 +994,7 @@ def test_a_cell_that_cannot_be_snapped_walks_the_hero_toward_it(
     that way, and this measures the ground he covers.
     """
     import PyAitD.app.shell as main
-    from PyAitD.engine.script.playworld import play_tick
+    from PyAitD.engine.script.playworld import PlayInput, play_tick
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
@@ -1008,8 +1011,11 @@ def test_a_cell_that_cannot_be_snapped_walks_the_hero_toward_it(
 
     route_play_click(game, ModalSession(), floor, pixel, [], buf)
     assert game.nav_intent.steering is True
+    # route_play_click needs the InputBuffer; play_tick needs its own
+    # PlayInput -- the engine's own snapshot, not the app's buffer.
+    play_input = PlayInput(pointer_held=True)
     for _ in range(8):
-        play_tick(game, floor, buf)
+        play_tick(game, floor, play_input)
 
     moved = (hero.room_x + hero.step_x, hero.room_z + hero.step_z)
     assert moved != start, "the unsnappable pixel left the hero standing still"
@@ -1594,8 +1600,7 @@ def test_clicking_floor_zero_s_interactable_walks_there_and_dispatches(data_dir,
     # 875 units short after 6000 ticks). The click must snap to a standing spot
     # instead, so the walk actually finishes and the arrival dispatches.
     from PyAitD.engine.script.effects import GameMode
-    from PyAitD.engine.script.playworld import play_tick
-    from PyAitD.app.ui import InputBuffer
+    from PyAitD.engine.script.playworld import PlayInput, play_tick
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -1624,10 +1629,10 @@ def test_clicking_floor_zero_s_interactable_walks_there_and_dispatches(data_dir,
         game.current_camera_target_actor]))
     assert mesh.is_walkable(intent.dest_x, intent.dest_z)
 
-    buf = held_pointer()
+    play_input = PlayInput(pointer_held=True)
     dispatched = False
     for _tick in range(2000):
-        play_tick(game, floor, buf)
+        play_tick(game, floor, play_input)
         if game.mode is not GameMode.PLAY:
             dispatched = True   # a foundable target would open its prompt
             break
@@ -2929,15 +2934,18 @@ def test_a_click_of_ordinary_length_walks_before_the_button_comes_up(
     a click walks.
     """
     import PyAitD.app.shell as main
-    from PyAitD.engine.script.playworld import play_tick
+    from PyAitD.engine.script.playworld import PlayInput, play_tick
     game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
     game.current_floor_data = floor
     hero = game.actors[game.current_camera_target_actor]
     start = (hero.room_x + hero.step_x, hero.room_z + hero.step_z)
 
     _press(main, game, floor, buf, near, monkeypatch, 100)
+    # _press needs the InputBuffer; play_tick needs its own PlayInput -- the
+    # press is still held throughout this short click.
+    play_input = PlayInput(pointer_held=True)
     for _ in range(5):   # 100ms, a short but entirely ordinary click
-        play_tick(game, floor, buf)
+        play_tick(game, floor, play_input)
 
     assert (hero.room_x + hero.step_x, hero.room_z + hero.step_z) != start, (
         "the click was over before the hero took a step"
