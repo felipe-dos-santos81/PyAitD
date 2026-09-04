@@ -46,7 +46,11 @@ from PyAitD.games.aitd1.mirror import MIRROR_KEYCODES
 from PyAitD.render.motion import snapshot as motion_snapshot
 from PyAitD.render.scene import build_frame
 from PyAitD.app.controls.actions import Action
-from PyAitD.app.controls.pointer import CUT_DEAD_ZONE_PX, DOUBLE_PRESS_RESUME_PX, DOUBLE_PRESS_TICKS
+from PyAitD.app.controls.pointer import (
+    CANCEL, CUT_DEAD_ZONE_PX, DOUBLE_PRESS_RESUME_PX, DOUBLE_PRESS_TICKS,
+    OPEN_INVENTORY, Attack, Issue, drop_destination, end_hold, hold_decision,
+    press_decision, rebase,
+)
 from PyAitD.app.controls.snapshot import ControlsState, build_play_input, configure, feed_event, reset
 from PyAitD.app.ui import (
     ModalSession, UIPainter,
@@ -524,196 +528,66 @@ def route_play_click(
     """Route one resolved PLAY click; HUD and world share the resolver."""
     from PyAitD.engine.script.interaction import apply_click_intent, attack_in_hand
 
-    _stamp_press(game, controls)
-    kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
-    if kind == "inventory":
-        if controls is not None:
-            # a press resolving to anything but walk/target spends the hold
-            # (spec Non-goals: no resuming a follow after a strike without a
-            # fresh press) -- generalised past attack to cover every
-            # press-only kind, inventory included
-            controls.pointer.spent = True
-        route_command(
-            game, session, Action.INVENTORY_CONFIRM, controls,
-        )
-        return
-    if kind == "attack":
-        # attack_in_hand only validates, stops and faces. The strike itself is
-        # published by the fixed-tick input snapshot, so the accepted target is
-        # latched into the application-owned buffer here and nowhere else.
-        if controls is not None:
-            # spends the hold regardless of whether the target was accepted:
-            # the press still resolved to "attack", not walk/target
-            controls.pointer.spent = True
-        if attack_in_hand(game, payload):
-            arm_mouse_attack(game, payload)
+    if controls is None:
+        # callers that own no controls: resolve and act once, nothing to latch
+        kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
+        if kind == "inventory":
+            route_command(game, session, Action.INVENTORY_CONFIRM, None)
+        elif kind == "attack":
+            attack_in_hand(game, payload)
+        elif kind not in ("blocked",) and not (game.nav_intent is not None and game.nav_intent.requires_hold):
+            dest_x, dest_z, room, object_idx = payload
+            apply_click_intent(game, dest_x, dest_z, room, target_object_idx=object_idx,
+                               requires_hold=(kind == "push"), run=False, steering=(kind == "steer"))
         return
     intent = game.nav_intent
-    if intent is not None and intent.requires_hold:
-        return
-    if kind == "blocked":
-        return
-    resumed = _resume_destination(controls, logical_pos) if kind != "push" else None
-    if resumed is not None:
-        payload = resumed
-    dest_x, dest_z, room, object_idx = payload
-    apply_click_intent(
-        game, dest_x, dest_z, room, target_object_idx=object_idx,
-        requires_hold=(kind == "push"),
-        run=controls is not None and controls.pointer.run,
-        steering=(kind == "steer"),
+    decision = press_decision(
+        controls.pointer, tick=game.timer, pos=logical_pos, camera=game.num_camera,
+        resolve=lambda pos: resolve_play_click(game, floor, pos, draw_list),
+        latched_push=intent is not None and intent.requires_hold,
     )
-    if controls is not None:
-        # a walk or target press opens a held pointer follow (follow_pointer
-        # compares later resolutions against this); a push is latched and
-        # never re-resolved, so it leaves no latch behind and spends the
-        # hold -- its requires_hold intent can die mid-hold (arrival,
-        # give-up), and the still-held button must not resume the follow
-        controls.pointer.follow_last = payload if kind != "push" else None
-        controls.pointer.follow_pos = logical_pos if kind != "push" else None
-        controls.pointer.follow_camera = game.num_camera if kind != "push" else None
-        controls.pointer.settle_origin = None
-        controls.pointer.spent = kind == "push"
-
-
-def _resume_destination(controls, logical_pos):
-    """The destination this press should reuse, or None to pick afresh.
-
-    The second press of a double press is the same finger on the same spot
-    saying "faster", so it resumes what the first press committed to instead
-    of resolving again -- a pixel of drift between the two halves of one
-    gesture must not choose a different cell, and under the snap budget it
-    could otherwise find nothing at all. Only a double press (pointer_run)
-    within DOUBLE_PRESS_RESUME_PX of the first press's pixel resumes; a
-    deliberate second click elsewhere picks normally.
-
-    This hands back a destination for a press to act on. It never moves the
-    hero by itself: the button is down by the time this is consulted, and the
-    release that stashed the destination cancelled the intent that carried it.
-    """
-    if controls is None or not controls.pointer.run:
-        return None
-    last, pos = controls.pointer.resume_last, controls.pointer.resume_pos
-    if last is None or pos is None:
-        return None
-    if (abs(logical_pos[0] - pos[0]) > DOUBLE_PRESS_RESUME_PX
-            or abs(logical_pos[1] - pos[1]) > DOUBLE_PRESS_RESUME_PX):
-        return None
-    return last
-
-
-def _stamp_press(game, controls):
-    """Decide whether this press is the second half of a double press.
-
-    Timed on game.timer, so the window stops counting while a modal has the
-    game paused, and against the mouse's own DOUBLE_PRESS_TICKS rather than
-    the keyboard's much shorter double-tap window -- see the constant for why
-    the two gestures do not share a number. Every PLAY press is stamped, not
-    just the walks: two presses are two presses whatever each one turned out
-    to resolve to.
-    """
-    if controls is None:
-        return
-    previous = controls.pointer.last_press_tick
-    controls.pointer.run = (
-        previous is not None and game.timer - previous < DOUBLE_PRESS_TICKS
-    )
-    controls.pointer.last_press_tick = game.timer
+    if decision is OPEN_INVENTORY:
+        route_command(game, session, Action.INVENTORY_CONFIRM, controls)
+    elif isinstance(decision, Attack):
+        # attack_in_hand only validates, stops and faces. The strike itself is
+        # published by the fixed-tick input snapshot from the game-owned latch.
+        if attack_in_hand(game, decision.target):
+            arm_mouse_attack(game, decision.target)
+    elif isinstance(decision, Issue):
+        dest_x, dest_z, room, object_idx = decision.payload
+        apply_click_intent(
+            game, dest_x, dest_z, room, target_object_idx=object_idx,
+            requires_hold=(decision.kind == "push"), run=decision.run,
+            steering=(decision.kind == "steer"),
+        )
 
 
 def follow_pointer(game, session, floor, logical_pos, draw_list, controls):
     """Held pointer follow: re-aim the hero at whatever the held pointer
     resolves to, once per frame in which it moved
-    (docs/superpowers/specs/2026-08-26-held-pointer-follow-design.md).
-
-    The movement gate is what makes a camera cut survivable. A pixel means a
-    different world point under every camera -- in the attic's five, the same
-    pixel is up to 10,000 units apart -- so re-resolving a still pointer at a
-    cut sends the hero somewhere nobody pointed at, and where the new camera
-    cannot pick that pixel at all it resolves `blocked` and stops the hero
-    dead until the hand moves. Neither is a gesture the player made. Gating on
-    controls.pointer.follow_pos costs nothing elsewhere: with the camera unchanged
-    a still pointer re-resolves to the same payload anyway.
-
-    A pointer that DID move is not automatically safe either: the same hand
-    settling after a cut nudges the pointer a pixel or two without the player
-    aiming anywhere. controls.pointer.follow_camera records the slot follow_pos
-    was resolved under, so a mismatch against game.num_camera means a cut just
-    happened. From there, controls.pointer.settle_origin pins the pointer
-    position at the moment the cut was noticed, and motion within
-    CUT_DEAD_ZONE_PX of it on either axis (Chebyshev) is treated as settling,
-    not a gesture: the destination holds and neither follow_pos nor
-    follow_camera advance. Only once the pointer clears the zone does
-    follow_settle_origin reset to None and resolution proceed against the new
-    camera.
-
-    The resolution is compared against controls.pointer.follow_last, never the
-    live intent: the engine clears an intent when the follower arrives or
-    gives up, and _push_into_target re-aims a target intent at the object
-    itself, so an unchanged resolution must never be re-issued within one
-    hold. That one rule is both the arrival one-shot latch and the "a dead
-    click is not retried until the pointer moves" rule. A transition frame
-    (num_camera == -1) is skipped rather than resolved: the resolver reports
-    blocked there, which would stop the hero for a tick at every room change.
-    """
+    (docs/superpowers/specs/2026-08-26-held-pointer-follow-design.md)."""
     from PyAitD.engine.script.interaction import apply_click_intent, cancel_nav_intent
-
     if (game.active_modal is not None or game.mode is not GameMode.PLAY
             or game.input_mode is not InputMode.MOUSE or session.cutscene
             or game.num_camera == -1
             or not controls.pointer.held or not controls.focused
-            or game.mouse_attack_target is not None
-            # a press that resolved to attack/inventory/push spends the
-            # hold: no follow starts from it even after the underlying latch
-            # (mouse_attack_target, a push's requires_hold intent) dies
-            # mid-hold -- only release-and-a-fresh-press clears this
-            or controls.pointer.spent):
+            or game.mouse_attack_target is not None):
         return
     intent = game.nav_intent
-    if intent is not None and intent.requires_hold:
-        return  # a latched push ignores pointer motion until release
-    if logical_pos == controls.pointer.follow_pos:
-        return  # a still pointer means what it meant last frame
-    if (controls.pointer.follow_camera is not None
-            and controls.pointer.follow_camera != game.num_camera):
-        # a cut: the pixel now means something else, but the hand has not
-        # said so. Keep the destination until the pointer leaves the dead
-        # zone around where it was when the cut landed.
-        if controls.pointer.settle_origin is None:
-            controls.pointer.settle_origin = (
-                controls.pointer.follow_pos
-                if controls.pointer.follow_pos is not None else logical_pos
-            )
-        ox, oy = controls.pointer.settle_origin
-        if (abs(logical_pos[0] - ox) <= CUT_DEAD_ZONE_PX
-                and abs(logical_pos[1] - oy) <= CUT_DEAD_ZONE_PX):
-            return
-    # Every path that advances follow_camera closes the dead zone with it,
-    # the branch above and the fall-through alike: the camera can cut BACK to
-    # the slot the follow was resolved under while the zone is still open,
-    # and a settle origin left behind then draws the cursor's dashed ring for
-    # the rest of the hold.
-    controls.pointer.settle_origin = None
-    controls.pointer.follow_pos = logical_pos
-    controls.pointer.follow_camera = game.num_camera
-    kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
-    if kind in ("walk", "target", "steer"):
-        if payload == controls.pointer.follow_last:
-            return
-        dest_x, dest_z, room, object_idx = payload
-        # the run belongs to the hold, not to the destination: aiming
-        # somewhere else without releasing keeps the hero running
+    decision = hold_decision(
+        controls.pointer, pos=logical_pos, camera=game.num_camera,
+        resolve=lambda pos: resolve_play_click(game, floor, pos, draw_list),
+        latched_push=intent is not None and intent.requires_hold,
+        intent_alive=intent is not None,
+    )
+    if isinstance(decision, Issue):
+        dest_x, dest_z, room, object_idx = decision.payload
         apply_click_intent(
             game, dest_x, dest_z, room, target_object_idx=object_idx,
-            run=controls.pointer.run,
-            steering=(kind == "steer"),
+            run=decision.run, steering=(decision.kind == "steer"),
         )
-        controls.pointer.follow_last = payload
-    elif kind == "blocked":
-        if intent is not None:
-            cancel_nav_intent(game)
-        controls.pointer.follow_last = None
-    # inventory, attack and push need a fresh press: nothing to follow
+    elif decision is CANCEL:
+        cancel_nav_intent(game)
 
 
 def _cancel_pointer_invalidation(game, event, controls):
@@ -729,21 +603,9 @@ def _cancel_pointer_invalidation(game, event, controls):
 
 
 def _drop_destination(game, controls):
-    """Forget where this hold was heading and which pixel said so, and drop
-    the intent that was carrying it. True when an intent was live.
-
-    The whole of what ending a *destination* means; what ending the *hold*
-    additionally means is the two lines in _cancel_follow below. Keeping them
-    apart is what stops the next per-hold buffer field from being cleared in
-    one path and silently forgotten in the other. The buffer is optional only
-    for callers that own no buffer.
-    """
     from PyAitD.engine.script.interaction import cancel_nav_intent
     if controls is not None:
-        controls.pointer.follow_last = None
-        controls.pointer.follow_pos = None
-        controls.pointer.follow_camera = None
-        controls.pointer.settle_origin = None
+        drop_destination(controls.pointer)
     if game.nav_intent is None:
         return False
     cancel_nav_intent(game)
@@ -751,45 +613,15 @@ def _drop_destination(game, controls):
 
 
 def _cancel_follow(game, controls):
-    """End the hold itself: the destination, plus everything that belonged to
-    the press that opened it.
-
-    Clearing follow_spent here is what makes "released and pressed again"
-    work: _cancel_pointer_invalidation runs this on MOUSEBUTTONUP and on
-    focus loss, so a spent hold cannot outlive the release that ends it. The
-    run goes the same way, while last_press_tick survives -- it is what the
-    *next* press is measured against.
-    """
     if controls is not None:
-        controls.pointer.spent = False
-        controls.pointer.run = False
-        # what the next press may resume if it turns out to be the second
-        # half of a double press; _drop_destination is about to clear the
-        # fields it is copied from. A bearing is never stashed: it was
-        # resolved from where the hero stood at the press that made it, and he
-        # has walked since, so the second press must take a fresh one.
         steered = game.nav_intent is not None and game.nav_intent.steering
-        controls.pointer.resume_last = None if steered else controls.pointer.follow_last
-        controls.pointer.resume_pos = controls.pointer.follow_pos
+        end_hold(controls.pointer, steering=steered)
     return _drop_destination(game, controls)
 
 
 def _rebase_follow(game, controls):
-    """Drop a destination the new floor cannot mean, keeping the hold alive.
-
-    A floor change invalidates the intent -- its `room` indexes the floor that
-    was just unloaded -- but the button never came up, so ending the hold here
-    would stop the hero dead on the stairs and demand a fresh press. The
-    cleared follow_pos is the one case where a still pointer is re-resolved:
-    the old destination is gone, so there is nothing left to hold on to.
-
-    A stashed resume goes with it: its room indexes the floor that was just
-    unloaded, so a press arriving inside the double-press window must pick
-    afresh rather than resume a destination on a floor the hero has left.
-    """
     if controls is not None:
-        controls.pointer.resume_last = None
-        controls.pointer.resume_pos = None
+        rebase(controls.pointer)
     return _drop_destination(game, controls)
 
 
