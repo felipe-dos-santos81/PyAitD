@@ -10,6 +10,20 @@ from PyAitD.app.controls.keyboard import KeyboardState, feed_key_event, reset_ke
 pytestmark = pytest.mark.shell
 
 
+@pytest.fixture(autouse=True)
+def _pygame_initialized():
+    # compile_bindings calls pygame.key.key_code, which warns "pygame.init()
+    # has not been called" otherwise -- the same init/quit pairing
+    # tests/test_ui_reducers.py's pickable-keys test applies per-test, as an
+    # autouse fixture instead of a module-level call so it holds regardless
+    # of what an earlier-running test module left pygame's init state in,
+    # and quit so a later module is not left seeing an initialized pygame
+    # it didn't ask for.
+    pygame.init()
+    yield
+    pygame.quit()
+
+
 def key(kind, value, *, repeat=False):
     return pygame.event.Event(kind, key=value, repeat=repeat)
 

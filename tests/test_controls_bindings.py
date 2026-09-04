@@ -11,6 +11,20 @@ from PyAitD.app.controls.bindings import (
 pytestmark = pytest.mark.shell
 
 
+@pytest.fixture(autouse=True)
+def _pygame_initialized():
+    # compile_bindings/canonical_key_name call pygame.key.key_code/
+    # pygame.key.name, which warn "pygame.init() has not been called"
+    # otherwise -- the same init/quit pairing tests/test_ui_reducers.py's
+    # pickable-keys test applies per-test, as an autouse fixture instead of
+    # a module-level call so it holds regardless of what an earlier-running
+    # test module left pygame's init state in, and quit so a later module
+    # is not left seeing an initialized pygame it didn't ask for.
+    pygame.init()
+    yield
+    pygame.quit()
+
+
 def test_control_is_the_key_bindable_half_of_action():
     assert Control is Action
     assert tuple(action.name for action in KEY_BINDABLE) == (
