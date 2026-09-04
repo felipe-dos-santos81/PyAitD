@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from PyAitD.engine.script.playworld import play_tick
+from PyAitD.engine.script.playworld import IDLE, play_tick
 from PyAitD.engine.script.effects import FoundResult, OpenInventory
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.script.game import init_game
@@ -7,7 +7,7 @@ from PyAitD.engine.script.interaction import (
     apply_found_result, apply_inventory_result, inventory_actions,
     inventory_items, request_found,
 )
-from PyAitD.app.ui import InputBuffer, InventoryResult
+from PyAitD.app.ui import InventoryResult
 import pytest
 
 pytestmark = [pytest.mark.engine, pytest.mark.journey]
@@ -53,7 +53,7 @@ def test_attic_lamp_find_take_use_and_drop_checkpoint(data_dir, profile):
             break
         # A False return is a legitimate mid-tick suspend (the attic boot
         # cutscene actor 2 takes object 2 on the first tick); keep ticking.
-        play_tick(game, floor, InputBuffer())
+        play_tick(game, floor, IDLE)
     assert lamp_idx not in inventory_items(game)
     assert lamp.found_flag & 0x4000
 
@@ -61,7 +61,7 @@ def test_attic_lamp_find_take_use_and_drop_checkpoint(data_dir, profile):
 def _tick_until(game, floor, predicate, *, limit):
     """Tick until predicate(game) holds. Returns the tick it held on, or -1."""
     for tick in range(limit):
-        play_tick(game, floor, InputBuffer())
+        play_tick(game, floor, IDLE)
         if predicate(game):
             return tick
     return -1
@@ -87,7 +87,7 @@ def test_the_attic_window_creature_drops_in_and_comes_for_the_hero(data_dir, pro
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, 0, profile)
-    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, IDLE)
     hero = game.actors[game.current_camera_target_actor]
 
     creature = _window_creature(game)

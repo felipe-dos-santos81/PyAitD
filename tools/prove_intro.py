@@ -17,11 +17,11 @@ from PyAitD.render.asset_resolver import AssetResolver
 from PyAitD.engine.script.effects import CutsceneFinished
 from PyAitD.engine.script.game import init_game, start_game
 from PyAitD.engine.script.interaction import apply_reading_result
-from PyAitD.engine.script.playworld import play_tick
+from PyAitD.engine.script.playworld import IDLE, play_tick
 from PyAitD.render.render_gl import GLBackend
 from PyAitD.render.render_options import RenderOptions
 from PyAitD.render.scene import build_frame
-from PyAitD.app.ui import InputBuffer, ReadingResult
+from PyAitD.app.ui import ReadingResult
 from PyAitD.games.aitd1.profile import AITD1
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -38,7 +38,7 @@ def _boot(data_dir):
 
 
 def _step(game, floor):
-    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, IDLE)
     if floor.number != game.current_floor:
         floor = game.load_floor(game.current_floor)
     if game.mode.name != "PLAY" and not isinstance(game.active_modal, CutsceneFinished):

@@ -4,9 +4,8 @@ import struct
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.script.game import FloorStart, enter_floor_start, init_game, relocate_actor, start_game
 from PyAitD.engine.script.life import process_life
-from PyAitD.engine.script.playworld import play_tick
+from PyAitD.engine.script.playworld import IDLE, play_tick
 from PyAitD.games.aitd1.scenario import enter_combat_venue
-from PyAitD.app.ui import InputBuffer
 import pytest
 
 pytestmark = pytest.mark.engine
@@ -85,7 +84,7 @@ def test_natural_lm_stage_records_a_reenterable_floor_start(data_dir, profile, m
     game.num_camera = game.new_num_camera
     game.flag_init_view = 0
     for _ in range(3):
-        play_tick(game, floor, InputBuffer())
+        play_tick(game, floor, IDLE)
     assert game.num_camera not in (-1, 0), (
         "precondition: the venue's camera switch must have left slot 0, so the "
         "entry slot below cannot be leftover state"

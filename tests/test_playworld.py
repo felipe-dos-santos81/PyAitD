@@ -6,22 +6,18 @@ import pytest
 from PyAitD.engine.actor.anim_action import WAIT_FRAPPE_ANIM
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.script.game import init_game
-from PyAitD.engine.script.playworld import _anim_pass, play_tick
-from PyAitD.app.ui import InputBuffer
+from PyAitD.engine.script.playworld import IDLE, PlayInput, _anim_pass, play_tick
 
 pytestmark = pytest.mark.engine
 
 
 def test_play_tick_advances_the_world_without_a_display(data_dir, profile):
-    # No Renderer, no display, and no SDL_VIDEODRIVER needed. Constructing the
-    # InputBuffer still imports pygame: it is a pygame-free dataclass that lives
-    # in ui.py, whose module scope evaluates pygame.K_* and pygame.Rect.
+    # No Renderer, no display, and no SDL_VIDEODRIVER needed.
     game = init_game(data_dir, profile, hero=0)
     floor = Floor(data_dir, game.current_floor, profile)
-    buf = InputBuffer()
     start = game.timer
     for _ in range(60):
-        play_tick(game, floor, buf)
+        play_tick(game, floor, IDLE)
     assert game.timer > start
     assert game.flag_game_over == 0
 
@@ -35,10 +31,7 @@ from tests.conftest import held_pointer
 def test_keyboard_mode_still_reads_the_input_buffer(data_dir, profile):
     game = init_game(data_dir, profile, hero=0)
     game.input_mode = InputMode.KEYBOARD
-    buf = InputBuffer()
-    buf.held_joyd = 5
-    buf.action_held = True
-    apply_play_input(game, buf)
+    apply_play_input(game, PlayInput(joyd=5, action_held=True))
     assert game.local_joyd == 5
     assert game.action == 0x2000
     assert game.nav_decision is None
@@ -46,9 +39,7 @@ def test_keyboard_mode_still_reads_the_input_buffer(data_dir, profile):
 
 def test_mouse_mode_ignores_the_keyboard_buffer(data_dir, profile):
     game = init_game(data_dir, profile, hero=0)
-    buf = InputBuffer()
-    buf.held_joyd = 5
-    apply_play_input(game, buf)
+    apply_play_input(game, PlayInput(joyd=5))
     assert game.local_joyd == 0, "mouse mode must not read held keys"
 
 
@@ -63,7 +54,7 @@ def test_mouse_mode_mirrors_the_follower_joystick(data_dir, profile):
         dest_x=hero.room_x, dest_z=hero.room_z + 9000, room=hero.room,
         waypoints=[(hero.room_x, hero.room_z + 9000)],
     )
-    apply_play_input(game, InputBuffer(pointer_held=True))
+    apply_play_input(game, PlayInput(pointer_held=True))
     assert game.nav_decision is not None
     assert game.local_joyd & 1, "scripts reading evalVar 0x13 must see movement"
 
@@ -91,7 +82,7 @@ def test_engaged_wardrobe_retargets_and_never_asserts_action(data_dir, profile, 
         requires_hold=True, engaged=True,
         waypoints=[(target.room_x, target.room_z)], path_room=target.room,
     )
-    buf = InputBuffer(pointer_held=True)
+    buf = PlayInput(pointer_held=True)
     apply_play_input(game, buf)
     assert game.action == game.local_click == 0
     old = _push_point(game.nav_intent, target)
@@ -115,7 +106,7 @@ def test_held_intent_cancels_when_release_is_observed(data_dir, profile):
         requires_hold=True, engaged=True, waypoints=[(target.room_x, target.room_z)],
         path_room=target.room,
     )
-    apply_play_input(game, InputBuffer(pointer_held=False))
+    apply_play_input(game, PlayInput(pointer_held=False))
     assert game.nav_intent is None
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
 
@@ -151,7 +142,7 @@ def test_held_intent_cancels_when_the_live_target_is_invalid(
         game.current_floor += 1
     else:
         target.body_num = -1
-    apply_play_input(game, InputBuffer(pointer_held=True))
+    apply_play_input(game, PlayInput(pointer_held=True))
     assert game.nav_intent is None
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
 
@@ -180,7 +171,7 @@ def test_latched_world_target_cancels_if_slot_points_at_another_eligible_actor(
     replacement_idx = game.world_objects[6].obj_index
     assert is_hold_action_target(game, replacement_idx) is True
     world.obj_index = replacement_idx
-    apply_play_input(game, InputBuffer(pointer_held=True))
+    apply_play_input(game, PlayInput(pointer_held=True))
     assert game.nav_intent is None
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
 
@@ -209,7 +200,7 @@ def test_held_intent_cancels_an_out_of_range_actor_world_backlink(
     )
     target.index_in_world = len(game.world_objects)
 
-    apply_play_input(game, InputBuffer(pointer_held=True))
+    apply_play_input(game, PlayInput(pointer_held=True))
 
     assert game.nav_intent is None
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
@@ -254,7 +245,7 @@ def test_held_intent_cancels_when_hero_and_target_leave_the_route_origin_togethe
         game.current_floor += 1
         world.stage += 1
 
-    apply_play_input(game, InputBuffer(pointer_held=True))
+    apply_play_input(game, PlayInput(pointer_held=True))
 
     assert game.nav_intent is None
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
@@ -273,7 +264,7 @@ def test_approach_replans_after_its_snapshotted_target_moves(data_dir, profile):
     assert payload is not None
     old_x, old_z, room, world_idx = payload
     game.nav_intent = NavIntent(old_x, old_z, room, world_idx, requires_hold=True)
-    buffer = InputBuffer(pointer_held=True)
+    buffer = PlayInput(pointer_held=True)
     apply_play_input(game, buffer)
     intent = game.nav_intent
     assert intent is not None and intent.engaged is False
@@ -327,7 +318,7 @@ def test_stationary_target_does_not_replan_away_the_approach_stall(data_dir, pro
     payload = hold_action_approach(game, floor, hero_idx, actor_idx)
     assert payload == (-3550, 3850, 0, 4)
     game.nav_intent = NavIntent(*payload, requires_hold=True)
-    buffer = InputBuffer(pointer_held=True)
+    buffer = PlayInput(pointer_held=True)
     apply_play_input(game, buffer)
     intent = game.nav_intent
     assert intent is not None and intent.engaged is False
@@ -368,7 +359,7 @@ def test_active_push_suppresses_the_verified_pending_walk_request(data_dir, prof
     hero.new_anim = 254
     hero.new_anim_type = ANIM_REPEAT
     hero.new_anim_info = -1
-    apply_play_input(game, InputBuffer(pointer_held=True))
+    apply_play_input(game, PlayInput(pointer_held=True))
     assert (hero.new_anim, hero.new_anim_type, hero.new_anim_info) == (-1, 0, -1)
 
 
@@ -389,7 +380,7 @@ def test_active_push_preserves_an_unrelated_uninterruptible_animation_request(da
     hero.new_anim = 99
     hero.new_anim_type = ANIM_UNINTERRUPTABLE
     hero.new_anim_info = 77
-    apply_play_input(game, InputBuffer(pointer_held=True))
+    apply_play_input(game, PlayInput(pointer_held=True))
     assert (hero.new_anim, hero.new_anim_type, hero.new_anim_info) == (
         99, ANIM_UNINTERRUPTABLE, 77,
     )
@@ -409,7 +400,7 @@ def test_stale_off_route_collision_witness_does_not_redirect_contact(data_dir, p
         requires_hold=True, engaged=True,
         waypoints=[(target.room_x, target.room_z)], path_room=target.room,
     )
-    apply_play_input(game, InputBuffer(pointer_held=True))
+    apply_play_input(game, PlayInput(pointer_held=True))
     assert game.nav_decision is not None
     assert (game.nav_decision.target_x, game.nav_decision.target_z) == _push_point(
         game.nav_intent, target,
@@ -426,8 +417,8 @@ def test_real_wardrobe_moves_only_after_life_enables_it(data_dir, profile, hero_
     # The real opening scripts perform an unrelated begin_take(object 2) on
     # their first pass, which sets Action 0x800 for that boot tick.  Complete
     # that bootstrap before measuring the held-push interval.
-    play_tick(game, floor, InputBuffer())
-    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, IDLE)
+    play_tick(game, floor, IDLE)
     assert game.action == game.local_click == 0
     hero_idx = game.current_camera_target_actor
     actor_idx = game.world_objects[4].obj_index
@@ -439,7 +430,7 @@ def test_real_wardrobe_moves_only_after_life_enables_it(data_dir, profile, hero_
     )
     wardrobe = game.actors[actor_idx]
     start = (wardrobe.room_x, wardrobe.room_z)
-    buffer = InputBuffer(pointer_held=True)
+    buffer = PlayInput(pointer_held=True)
     movable_seen = False
     action_seen = 0
     for _tick in range(2500):
@@ -529,8 +520,10 @@ def test_anim_pass_refreshes_before_anim_and_strikes_after_dec(monkeypatch, data
 
 
 def _latched_attack(data_dir, profile):
-    """A mouse-mode game whose InputBuffer holds an accepted target click."""
+    """A mouse-mode game whose latch (Game.mouse_attack_target) holds an
+    accepted target click."""
     from PyAitD.engine.script.interaction import _finish_take
+    from PyAitD.engine.script.playworld import arm_mouse_attack
     from PyAitD.games.aitd1.scenario import enter_mouse_combat_fixture
 
     game = init_game(data_dir, profile, hero=0)
@@ -539,8 +532,8 @@ def _latched_attack(data_dir, profile):
     _finish_take(game, 38)
     game.in_hand_table[game.current_inventory] = 38
     enemy_idx = game.world_objects[222].obj_index
-    buf = InputBuffer(mouse_attack_target=enemy_idx)
-    return game, buf, enemy_idx
+    arm_mouse_attack(game, enemy_idx)
+    return game, IDLE, enemy_idx
 
 
 def test_a_latched_click_publishes_fitd_action_input_on_its_first_tick(data_dir, profile):
@@ -552,7 +545,7 @@ def test_a_latched_click_publishes_fitd_action_input_on_its_first_tick(data_dir,
     apply_play_input(game, buf)
 
     assert (game.local_joyd, game.local_click, game.action) == (1, 1, 0x2000)
-    assert buf.mouse_attack_ticks == 1
+    assert game.mouse_attack_ticks == 1
     assert game.nav_decision is None
 
 
@@ -567,7 +560,7 @@ def test_a_latched_click_holds_the_action_while_the_strike_animates(data_dir, pr
     apply_play_input(game, buf)
 
     assert (game.local_joyd, game.local_click, game.action) == (1, 1, 0x2000)
-    assert buf.mouse_attack_ticks == 2
+    assert game.mouse_attack_ticks == 2
 
 
 def test_a_latched_click_ends_when_the_strike_animation_completes(data_dir, profile):
@@ -580,7 +573,7 @@ def test_a_latched_click_ends_when_the_strike_animation_completes(data_dir, prof
 
     apply_play_input(game, buf)
 
-    assert (buf.mouse_attack_target, buf.mouse_attack_ticks) == (None, 0)
+    assert (game.mouse_attack_target, game.mouse_attack_ticks) == (None, 0)
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
 
 
@@ -594,11 +587,11 @@ def test_a_latched_click_gives_up_at_its_safety_budget(data_dir, profile):
     for _ in range(MOUSE_ATTACK_TICK_BUDGET):
         apply_play_input(game, buf)
         hero.anim_action_type = WAIT_FRAPPE_ANIM
-    assert buf.mouse_attack_ticks == MOUSE_ATTACK_TICK_BUDGET
+    assert game.mouse_attack_ticks == MOUSE_ATTACK_TICK_BUDGET
 
     apply_play_input(game, buf)
 
-    assert (buf.mouse_attack_target, buf.mouse_attack_ticks) == (None, 0)
+    assert (game.mouse_attack_target, game.mouse_attack_ticks) == (None, 0)
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
 
 
@@ -610,7 +603,7 @@ def test_a_latched_click_drops_when_its_target_or_weapon_goes_away(data_dir, pro
 
     apply_play_input(game, buf)
 
-    assert (buf.mouse_attack_target, buf.mouse_attack_ticks) == (None, 0)
+    assert (game.mouse_attack_target, game.mouse_attack_ticks) == (None, 0)
     assert game.action == 0
 
     game, buf, _enemy_idx = _latched_attack(data_dir, profile)
@@ -620,7 +613,7 @@ def test_a_latched_click_drops_when_its_target_or_weapon_goes_away(data_dir, pro
 
     apply_play_input(game, buf)
 
-    assert (buf.mouse_attack_target, buf.mouse_attack_ticks) == (None, 0)
+    assert (game.mouse_attack_target, game.mouse_attack_ticks) == (None, 0)
     assert game.action == 0
 
 
@@ -649,7 +642,7 @@ def test_held_push_on_the_rocking_horse_never_wedges_the_hero(data_dir, profile)
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
-    buf = InputBuffer()
+    buf = IDLE
     play_tick(game, floor, buf)
     play_tick(game, floor, buf)
     game.timer = 300
@@ -658,7 +651,7 @@ def test_held_push_on_the_rocking_horse_never_wedges_the_hero(data_dir, profile)
     payload = hold_action_approach(game, floor, game.current_camera_target_actor, horse_idx)
     assert payload is not None, "fixture: the horse is a hold target"
     apply_click_intent(game, *payload, requires_hold=True)
-    buf.pointer_held = True
+    buf = PlayInput(pointer_held=True)
     horse = game.actors[horse_idx]
     assert horse.anim == -1, "fixture: the horse starts still"
     rocked_at = None
@@ -669,7 +662,7 @@ def test_held_push_on_the_rocking_horse_never_wedges_the_hero(data_dir, profile)
     # the push still reaches the horse's face promptly and its LIFE rocks it
     # (the pre-fix diagonal aim touched at tick 299 and rocked at 300)
     assert rocked_at is not None and rocked_at <= 320, rocked_at
-    buf.pointer_held = False
+    buf = PlayInput(pointer_held=False)
     play_tick(game, floor, buf)
     assert game.nav_intent is None
     # a shallow brush with the beam's hard col while turning clears itself;
@@ -680,7 +673,7 @@ def test_held_push_on_the_rocking_horse_never_wedges_the_hero(data_dir, profile)
     start_x = hero.room_x + hero.step_x
     mesh = game.nav_meshes.mesh_for(floor, hero.room, agent_extent(hero))
     dest = nearest_walkable(mesh, start_x - 1500, hero.room_z + hero.step_z)
-    buf.pointer_held = True
+    buf = PlayInput(pointer_held=True)
     apply_click_intent(game, dest[0], dest[1], hero.room)
     for _ in range(300):
         play_tick(game, floor, buf)
@@ -705,7 +698,7 @@ def test_teleport_limit_has_headroom_over_a_real_run_step(data_dir, profile):
 
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
-    buf = InputBuffer()
+    buf = IDLE
     play_tick(game, floor, buf)
     play_tick(game, floor, buf)   # settle the camera, as other fixtures do
 
@@ -720,7 +713,7 @@ def test_teleport_limit_has_headroom_over_a_real_run_step(data_dir, profile):
         for i in range(nx) for j in range(nz) if mesh.walkable[i, j]
     )
     dest = mesh.center_of(*far_cell)
-    buf.pointer_held = True
+    buf = PlayInput(pointer_held=True)
     apply_click_intent(game, dest[0], dest[1], hero.room, run=True)
     assert not check_hard_col(hero.zv, floor.rooms[hero.room].hard_cols), "fixture"
 
@@ -744,7 +737,7 @@ def test_teleport_limit_has_headroom_over_a_real_run_step(data_dir, profile):
 
 
 @pytest.mark.parametrize(
-    "buf", [InputBuffer(pointer_held=False), InputBuffer(pointer_held=True, focused=False)],
+    "buf", [PlayInput(pointer_held=False), PlayInput(pointer_held=True, focused=False)],
     ids=["released", "unfocused"],
 )
 def test_an_unheld_or_unfocused_buffer_cancels_a_walk_intent_on_the_next_tick(
@@ -762,3 +755,38 @@ def test_an_unheld_or_unfocused_buffer_cancels_a_walk_intent_on_the_next_tick(
     apply_play_input(game, buf)
     assert game.nav_intent is None
     assert (game.nav_decision, game.local_joyd) == (None, 0)
+
+
+def test_play_input_is_frozen_and_idle_by_default():
+    from PyAitD.engine.script.playworld import IDLE, PlayInput
+    assert IDLE == PlayInput(joyd=0, action_held=False, action_pulse=False, pointer_held=False, focused=True)
+    with pytest.raises(Exception):
+        IDLE.joyd = 1
+
+
+def test_the_engine_publishes_a_pulse_every_tick_it_is_handed_one(data_dir, profile):
+    """Consumption moved to the app (controls.snapshot builds one snapshot per
+    tick and clears the keyboard pulse then); the engine no longer writes
+    back into its input."""
+    from PyAitD.engine.script.effects import InputMode
+    from PyAitD.engine.script.playworld import PlayInput, apply_play_input
+    game = init_game(data_dir, profile)
+    game.input_mode = InputMode.KEYBOARD
+    pulse = PlayInput(action_pulse=True)
+    apply_play_input(game, pulse)
+    assert (game.local_click, game.action) == (1, 0x2000)
+    apply_play_input(game, pulse)
+    assert (game.local_click, game.action) == (1, 0x2000)
+    apply_play_input(game, PlayInput())
+    assert (game.local_click, game.action) == (0, 0)
+
+
+def test_the_mouse_attack_latch_lives_on_the_game(data_dir, profile):
+    from PyAitD.engine.script.playworld import arm_mouse_attack, clear_mouse_attack
+    game = init_game(data_dir, profile)
+    assert (game.mouse_attack_target, game.mouse_attack_ticks) == (None, 0)
+    arm_mouse_attack(game, 7)
+    assert (game.mouse_attack_target, game.mouse_attack_ticks) == (7, 0)
+    game.mouse_attack_ticks = 12
+    clear_mouse_attack(game)
+    assert (game.mouse_attack_target, game.mouse_attack_ticks) == (None, 0)

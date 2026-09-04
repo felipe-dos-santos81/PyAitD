@@ -416,6 +416,7 @@ def test_capture_consumes_the_captured_key_exclusively(data_dir, profile, monkey
 
 
 def test_menu_entry_and_exit_never_replay_held_input(data_dir, profile, monkeypatch):
+    import PyAitD.app.shell as main
     import PyAitD.engine.script.playworld as playworld
 
     game = init_game(data_dir, profile)
@@ -423,22 +424,31 @@ def test_menu_entry_and_exit_never_replay_held_input(data_dir, profile, monkeypa
     session = ModalSession()
 
     observed = []
-    state = {"frames": 0, "close_frame": None}
+    state = {"frames": 0, "close_frame": None, "pending": None}
+    real_play_input = main._play_input
     real_apply = playworld.apply_play_input
 
-    def observe(game_arg, buffer_arg):
-        snapshot = (
-            buffer_arg.held_joyd, buffer_arg.action_held,
-            buffer_arg.sticky_armed, buffer_arg.action_pulse,
+    def observe_snapshot(input_buffer):
+        # the live InputBuffer's own held/sticky state, sampled at the
+        # _play_input seam: the tick's own PlayInput carries neither
+        # held_joyd nor sticky_armed (they never cross the engine boundary),
+        # so this is the only place left to observe them per tick.
+        state["pending"] = (
+            input_buffer.held_joyd, input_buffer.action_held,
+            input_buffer.sticky_armed, input_buffer.action_pulse,
         )
-        real_apply(game_arg, buffer_arg)
+        return real_play_input(input_buffer)
+
+    def observe_apply(game_arg, play_input_arg):
+        real_apply(game_arg, play_input_arg)
         observed.append({
             "frame": state["frames"],
-            "buffer": snapshot,
+            "buffer": state["pending"],
             "tick": (game_arg.local_joyd, game_arg.local_click, game_arg.action),
         })
 
-    monkeypatch.setattr(playworld.tick, "apply_play_input", observe)
+    monkeypatch.setattr(main, "_play_input", observe_snapshot)
+    monkeypatch.setattr(playworld.tick, "apply_play_input", observe_apply)
 
     def next_events():
         state["frames"] += 1
@@ -1149,7 +1159,7 @@ def test_load_clears_transient_pointer_state(data_dir, profile, monkeypatch, tmp
         if state["frames"] == 3:
             buffer = live["buffer"]
             assert buffer is not None, "the replacement game ticked with its new buffer"
-            assert (buffer.held_joyd, buffer.action_held, buffer.pointer_held) == (0, False, False)
+            assert (buffer.joyd, buffer.action_held, buffer.pointer_held) == (0, False, False)
             return [_quit()]
         return []
 

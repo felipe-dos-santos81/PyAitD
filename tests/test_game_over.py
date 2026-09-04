@@ -7,8 +7,8 @@ import pytest
 from PyAitD.app.shell import route_command, route_mouse
 from PyAitD.engine.script.effects import GameMode, GameOver
 from PyAitD.engine.script.game import init_game
-from PyAitD.engine.script.playworld import play_tick
-from PyAitD.app.ui import Command, InputBuffer, ModalSession
+from PyAitD.engine.script.playworld import IDLE, play_tick
+from PyAitD.app.ui import Command, ModalSession
 
 pytestmark = pytest.mark.engine
 
@@ -30,13 +30,13 @@ def test_game_over_finishes_current_life_pass_then_opens_modal(data_dir, profile
 
     monkeypatch.setattr(playworld.tick, "run_life", fake_run_life)
     monkeypatch.setattr(playworld.tick, "life_gate", lambda actor: actor.index_in_world >= 0)
-    assert play_tick(game, floor, InputBuffer()) is False
+    assert play_tick(game, floor, IDLE) is False
     assert seen == live
     assert game.flag_game_over == 0
     assert game.mode is GameMode.GAME_OVER
     assert game.active_modal == GameOver(120)
     timer = game.timer
-    assert play_tick(game, floor, InputBuffer()) is False
+    assert play_tick(game, floor, IDLE) is False
     assert game.timer == timer
 
 
@@ -103,6 +103,6 @@ def test_game_over_during_a_cutscene_is_cutscene_finished(data_dir, profile, mon
     floor = game.load_floor(game.current_floor)
     monkeypatch.setattr(playworld.tick, "run_life", lambda current, frame: setattr(current, "flag_game_over", 1) or True)
     monkeypatch.setattr(playworld.tick, "life_gate", lambda actor: actor.index_in_world >= 0)
-    assert play_tick(game, floor, InputBuffer()) is False
+    assert play_tick(game, floor, IDLE) is False
     assert game.active_modal == CutsceneFinished() and game.mode is GameMode.CUTSCENE_END
     assert game.flag_game_over == 0

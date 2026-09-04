@@ -3,8 +3,9 @@
 the former flat playworld module; every name re-exported)."""
 from PyAitD.engine.script.playworld.tick import TICK_MS, play_tick
 from PyAitD.engine.script.playworld.input import (
-    MOUSE_ATTACK_TICK_BUDGET, NATIVE_ACTION, _apply_mouse_attack,
-    _apply_mouse_input, _clear_mouse_attack, apply_play_input,
+    IDLE, MOUSE_ATTACK_TICK_BUDGET, NATIVE_ACTION, PlayInput,
+    _apply_mouse_attack, _apply_mouse_input, apply_play_input,
+    arm_mouse_attack, clear_mouse_attack,
 )
 from PyAitD.engine.script.playworld.held_push import (
     _corridor_hits_actor, _held_contact_detour, _held_push_point,

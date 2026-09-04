@@ -171,6 +171,9 @@ class Game:
         # mouse navigation state (see docs/superpowers/specs/2026-08-23-...)
         self.input_mode = InputMode.MOUSE
         self.nav_intent = None
+        # the accepted target click's action hold (playworld.input.arm_mouse_attack); transient like nav_intent
+        self.mouse_attack_target = None
+        self.mouse_attack_ticks = 0
         self.nav_decision = None
         self.nav_arrived_target = -1
         self.nav_meshes = MeshCache()

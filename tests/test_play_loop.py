@@ -33,38 +33,25 @@ def test_life_gate(data_dir, profile):
 
 def test_apply_play_input_mapping(data_dir, profile):
     from PyAitD.engine.script.effects import InputMode
-    from PyAitD.engine.script.playworld import apply_play_input
-    from PyAitD.app.ui import InputBuffer
+    from PyAitD.engine.script.playworld import PlayInput, apply_play_input
     game = init_game(data_dir, profile)
     # this asserts the keyboard mapping specifically; mouse is the default
     # input_mode (task 9: playworld — wire the follower into the input
     # snapshot), so it must be selected explicitly to exercise this path.
     game.input_mode = InputMode.KEYBOARD
-    state = InputBuffer(held_joyd=9, action_held=True)
-    apply_play_input(game, state)
+    apply_play_input(game, PlayInput(joyd=9, action_held=True))
     assert game.local_joyd == 9
     assert game.local_click == 1
     assert game.action == 0x2000
 
 
-def test_sticky_action_pulse_is_visible_for_exactly_one_keyboard_tick(data_dir, profile):
-    from PyAitD.engine.script.effects import InputMode
-    from PyAitD.engine.script.playworld import apply_play_input
-    game = init_game(data_dir, profile)
-    game.input_mode = InputMode.KEYBOARD
-    state = InputBuffer(action_pulse=True)
-    apply_play_input(game, state)
-    assert (game.local_click, game.action, state.action_pulse) == (1, 0x2000, False)
-    apply_play_input(game, state)
-    assert (game.local_click, game.action, state.action_pulse) == (0, 0, False)
-
-
-def test_mouse_mode_ignores_and_consumes_a_stale_sticky_pulse(data_dir, profile):
-    from PyAitD.engine.script.playworld import apply_play_input
-    game = init_game(data_dir, profile)
-    state = InputBuffer(action_pulse=True)
-    apply_play_input(game, state)
-    assert state.action_pulse is False
+def test_the_shell_snapshot_consumes_the_sticky_pulse_exactly_once():
+    import PyAitD.app.shell as main
+    from PyAitD.app.ui import InputBuffer
+    state = InputBuffer(action_pulse=True, held_joyd=3)
+    first = main._play_input(state)
+    assert (first.action_pulse, first.joyd, state.action_pulse) == (True, 3, False)
+    assert main._play_input(state).action_pulse is False
 
 
 def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(profile, monkeypatch, tmp_path):
@@ -1271,11 +1258,16 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
         present=lambda image: None, close=lambda: None,
     ))
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
+    # the play_tick snapshot (PlayInput) carries only what the engine reads;
+    # pointer_touch/pointer_pos never cross that boundary, so they are read
+    # off the live InputBuffer (the same object main.InputBuffer() below
+    # always returns) instead of off the tick's own argument.
     monkeypatch.setattr(
         main, "play_tick",
         lambda game, _floor, state: seen.append((
             game.nav_intent, state.pointer_held, state.action_held,
-            state.held_joyd, state.focused, state.pointer_touch, state.pointer_pos,
+            state.joyd, state.focused,
+            input_buffer.pointer_touch, input_buffer.pointer_pos,
         )),
     )
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
@@ -1402,11 +1394,24 @@ def test_run_routes_physical_and_touch_down_through_the_same_held_push_path(
         close=lambda: None,
     ))
     monkeypatch.setattr(main, "_scene_frame", lambda *_args: (frame, draw_list))
+    # pointer_touch/pointer_pos never cross the play_tick boundary (PlayInput
+    # carries only what the engine reads); capture them off the live
+    # InputBuffer at the _play_input seam instead, right before it builds
+    # that tick's snapshot.
+    pending = {}
+    real_play_input = main._play_input
+
+    def capture_play_input(input_buffer):
+        pending["touch"] = input_buffer.pointer_touch
+        pending["pos"] = input_buffer.pointer_pos
+        return real_play_input(input_buffer)
+
+    monkeypatch.setattr(main, "_play_input", capture_play_input)
     monkeypatch.setattr(
         main, "play_tick",
         lambda current_game, _floor, state: seen.append((
             current_game.nav_intent.target_object_idx, state.pointer_held,
-            state.pointer_touch, state.pointer_pos,
+            pending["touch"], pending["pos"],
         )),
     )
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
@@ -2071,8 +2076,8 @@ def test_attack_click_delegates_actor_index(data_dir, profile, monkeypatch):
 def test_attack_click_latches_native_mouse_combat(data_dir, profile):
     # A validated target click arms FITD's own action input for the following
     # fixed ticks; it never picks the inventory "Throw" row on the player's
-    # behalf. The latch lives in the application-owned InputBuffer so every
-    # existing focus/modal/input-mode reset already clears it.
+    # behalf. The latch lives on Game (playworld.input.arm_mouse_attack) so
+    # the engine's own tick owns clearing it, not a bespoke combat path.
     from PyAitD.engine.script.interaction import choose_inventory_action
 
     game = init_game(data_dir, profile)
@@ -2089,8 +2094,8 @@ def test_attack_click_latches_native_mouse_combat(data_dir, profile):
         [(enemy_idx, (100, 60, 200, 160))], state,
     )
 
-    assert state.mouse_attack_target == enemy_idx
-    assert state.mouse_attack_ticks == 0
+    assert game.mouse_attack_target == enemy_idx
+    assert game.mouse_attack_ticks == 0
     assert game.nav_intent is None
     assert game.world_objects[38].obj_index == -1, "the saber must stay in hand"
     assert 38 in inventory_items(game)
@@ -2111,11 +2116,11 @@ def test_a_refused_attack_click_leaves_no_latch(data_dir, profile):
         [(enemy_idx, (100, 60, 200, 160))], state,
     )
 
-    assert (state.mouse_attack_target, state.mouse_attack_ticks) == (None, 0)
+    assert (game.mouse_attack_target, game.mouse_attack_ticks) == (None, 0)
 
 
 def _click_to_attack(data_dir, profile):
-    """Drive one accepted target click and hand back its latched buffer."""
+    """Drive one accepted target click and hand back the game whose latch it armed."""
     game = init_game(data_dir, profile)
     enter_combat_venue(game)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -2129,7 +2134,7 @@ def _click_to_attack(data_dir, profile):
         game, session, floor, (150, 100),
         [(enemy_idx, (100, 60, 200, 160))], state,
     )
-    assert state.mouse_attack_target == enemy_idx
+    assert game.mouse_attack_target == enemy_idx
     return game, session, state
 
 
@@ -2146,7 +2151,7 @@ def test_releasing_the_button_does_not_cancel_an_accepted_attack(data_dir, profi
     assert main._cancel_pointer_invalidation(game, release, state) is False
     event_to_input(release, state, (150, 100))
 
-    assert state.mouse_attack_target is not None
+    assert game.mouse_attack_target is not None
     assert state.pointer_held is False
 
 
@@ -2159,18 +2164,24 @@ def test_modal_takeover_cannot_leave_an_attack_to_resume_later(data_dir, profile
 
     main._take_over_play_input(game, session, state)
 
-    assert (state.mouse_attack_target, state.mouse_attack_ticks) == (None, 0)
+    assert (game.mouse_attack_target, game.mouse_attack_ticks) == (None, 0)
 
 
 def test_focus_loss_cannot_leave_an_attack_to_resume_later(data_dir, profile):
+    import PyAitD.app.shell as main
     from PyAitD.app.shell import pygame
     from PyAitD.app.ui import event_to_input
 
-    _game, _session, state = _click_to_attack(data_dir, profile)
+    game, _session, state = _click_to_attack(data_dir, profile)
 
-    event_to_input(pygame.event.Event(pygame.WINDOWFOCUSLOST), state)
+    # run()'s event loop calls both for every event; the latch is cleared by
+    # the shell side (_cancel_pointer_invalidation), not by event_to_input,
+    # which only owns the InputBuffer's own fields.
+    event = pygame.event.Event(pygame.WINDOWFOCUSLOST)
+    event_to_input(event, state)
+    main._cancel_pointer_invalidation(game, event, state)
 
-    assert (state.mouse_attack_target, state.mouse_attack_ticks) == (None, 0)
+    assert (game.mouse_attack_target, game.mouse_attack_ticks) == (None, 0)
 
 
 def test_attack_click_keeps_priority_over_an_active_held_push(data_dir, profile, monkeypatch):
@@ -2435,7 +2446,7 @@ def test_follow_is_skipped_while_a_push_or_attack_latch_lives(data_dir, profile,
     assert game.nav_intent.requires_hold is True and len(queue) == 1
 
     game.nav_intent = None
-    buf.mouse_attack_target = 3
+    game.mouse_attack_target = 3
     main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
     assert game.nav_intent is None and len(queue) == 1
 
@@ -2469,16 +2480,16 @@ def test_follow_requires_a_held_pointer_in_live_play(data_dir, profile, monkeypa
 def test_follow_does_not_resume_after_an_attack_latch_clears_within_the_hold(
         data_dir, profile, monkeypatch):
     # Spec Non-goal: "resuming a follow after a strike without a fresh
-    # press." mouse_attack_target clears itself inside the engine
-    # (playworld._clear_mouse_attack) as soon as the hero returns to idle,
-    # but the button never came up -- the still-held press must not let a
-    # walk/target resolution start a follow.
+    # press." game.mouse_attack_target clears itself inside the engine
+    # (playworld.input.clear_mouse_attack) as soon as the hero returns to
+    # idle, but the button never came up -- the still-held press must not let
+    # a walk/target resolution start a follow.
     import PyAitD.app.shell as main
     game, _session, state = _click_to_attack(data_dir, profile)
     state.pointer_held = True
     assert state.follow_spent is True, "an attack press spends the hold"
-    state.mouse_attack_target = None   # what the engine does on idle/timeout
-    state.mouse_attack_ticks = 0
+    game.mouse_attack_target = None   # what the engine does on idle/timeout
+    game.mouse_attack_ticks = 0
 
     hero = game.actors[game.current_camera_target_actor]
     would_walk = (hero.room_x + 1000, hero.room_z, hero.room, -1)

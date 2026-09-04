@@ -18,7 +18,7 @@ from PyAitD.app.config import (
     REMAPPABLE_CONTROLS, Control, Settings, default_settings, load_settings,
 )
 from PyAitD.render.render_options import RenderOptions
-from PyAitD.engine.script.playworld import apply_play_input
+from PyAitD.engine.script.playworld import IDLE, PlayInput, apply_play_input
 from PyAitD.engine.script.effects import (
     ChooseCharacter, FoundResult, GameMode, GameOver, InputMode, NavDecision, NavIntent,
     OpenInventory, OpenStartupMenu, OpenSystemMenu, ReadText, ShowFound, ShowPicture, ShowTitle,
@@ -572,18 +572,6 @@ def test_inventory_hud_availability_is_the_complete_shared_policy(data_dir, prof
     assert not inventory_hud_available(game)
 
 
-def test_play_input_reads_held_state_without_consuming_edges(data_dir, profile):
-    game = init_game(data_dir, profile)
-    # this asserts the keyboard mapping specifically; mouse is the default
-    # input_mode (task 9: playworld — wire the follower into the input
-    # snapshot), so it must be selected explicitly to exercise this path.
-    game.input_mode = InputMode.KEYBOARD
-    state = InputBuffer(held_joyd=5, action_held=True, commands=deque([Command.OPEN_INVENTORY]))
-    apply_play_input(game, state)
-    assert (game.local_joyd, game.local_click, game.action) == (5, 1, 0x2000)
-    assert list(state.commands) == [Command.OPEN_INVENTORY]
-
-
 def test_inventory_edge_opens_once_and_play_ticks_pause(data_dir, profile):
     game = init_game(data_dir, profile)
     game.inventory_count[0] = 1
@@ -855,8 +843,11 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
     ])
     times = iter([0, 20, 20])
 
-    def raise_modal(current_game, _floor, input_buffer):
-        input_buffer.commands.append(Command.UP)
+    def raise_modal(current_game, _floor, _play_input):
+        # play_tick's own argument is the PlayInput snapshot, not the live
+        # InputBuffer -- `buffer` (the outer closure variable) is the object
+        # main.InputBuffer() below is patched to always return.
+        buffer.commands.append(Command.UP)
         current_game.open_modal(effect)
         current_game.current_floor = 1
 
@@ -1141,7 +1132,13 @@ def test_leaving_the_system_menu_cannot_replay_input_into_the_first_play_tick(da
     assert game.mode is GameMode.PLAY
     assert (state.held_joyd, state.action_held, state.sticky_armed,
             state.action_pulse, list(state.commands)) == (0, False, False, False, [])
-    apply_play_input(game, state)
+    # the drained buffer's own snapshot, the same mapping main._play_input
+    # builds for the real play tick
+    apply_play_input(game, PlayInput(
+        joyd=state.held_joyd, action_held=state.action_held,
+        action_pulse=state.action_pulse, pointer_held=state.pointer_held,
+        focused=state.focused,
+    ))
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
 
 
@@ -1191,7 +1188,7 @@ def test_the_input_snapshot_re_asserts_the_follower_mode(data_dir, profile):
     game = init_game(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]
     hero.track_mode = 1
-    apply_play_input(game, InputBuffer())
+    apply_play_input(game, IDLE)
     assert hero.track_mode == 4
 
 
@@ -1202,7 +1199,7 @@ def test_a_scripted_track_survives_the_input_snapshot(data_dir, profile):
     hero = game.actors[game.current_camera_target_actor]
     for mode in (0, 2, 3):
         hero.track_mode = mode
-        apply_play_input(game, InputBuffer())
+        apply_play_input(game, IDLE)
         assert hero.track_mode == mode
 
 
@@ -1211,7 +1208,7 @@ def test_keyboard_mode_hands_the_hero_back_to_tank_controls(data_dir, profile):
     game.input_mode = InputMode.KEYBOARD
     hero = game.actors[game.current_camera_target_actor]
     assert hero.track_mode == 4, "fixture: init_game starts in mouse mode"
-    apply_play_input(game, InputBuffer())
+    apply_play_input(game, IDLE)
     assert hero.track_mode == 1
 
 

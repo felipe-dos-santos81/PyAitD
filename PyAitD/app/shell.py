@@ -32,7 +32,9 @@ from PyAitD.engine.script.save import (
 )
 # imported by name, not module-qualified: run() reads play_tick as a module
 # global, which is the patch point tests/test_play_loop.py relies on
-from PyAitD.engine.script.playworld import TICK_MS, play_tick
+from PyAitD.engine.script.playworld import (
+    TICK_MS, PlayInput, arm_mouse_attack, clear_mouse_attack, play_tick,
+)
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import (
     ATMOSPHERE_MODES, BACKGROUND_FILTERS, LIGHTING_MODES, MSAA_LEVELS, REALISM_MODES, SHADING_MODES,
@@ -243,6 +245,22 @@ def configure_session_input(session, input_buffer):
             f"Could not load settings from {session.settings_path}: {exc}"
         )
         configure_input(input_buffer, session.settings)
+
+
+def _play_input(input_buffer):
+    """The engine's snapshot for one tick. Consumes the sticky pulse: the
+    engine no longer writes back into its input (playworld.input.PlayInput),
+    and a pulse raised while a modal is open must still fire on the first
+    play tick after it, so it is cleared here and nowhere else."""
+    snapshot = PlayInput(
+        joyd=input_buffer.held_joyd,
+        action_held=input_buffer.action_held,
+        action_pulse=input_buffer.action_pulse,
+        pointer_held=input_buffer.pointer_held,
+        focused=input_buffer.focused,
+    )
+    input_buffer.action_pulse = False
+    return snapshot
 
 
 def replacement_session(session):
@@ -549,9 +567,8 @@ def route_play_click(
             # spends the hold regardless of whether the target was accepted:
             # the press still resolved to "attack", not walk/target
             input_buffer.follow_spent = True
-        if attack_in_hand(game, payload) and input_buffer is not None:
-            input_buffer.mouse_attack_target = payload
-            input_buffer.mouse_attack_ticks = 0
+        if attack_in_hand(game, payload):
+            arm_mouse_attack(game, payload)
         return
     intent = game.nav_intent
     if intent is not None and intent.requires_hold:
@@ -667,7 +684,7 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
             or game.input_mode is not InputMode.MOUSE or session.cutscene
             or game.num_camera == -1
             or not input_buffer.pointer_held or not input_buffer.focused
-            or input_buffer.mouse_attack_target is not None
+            or game.mouse_attack_target is not None
             # a press that resolved to attack/inventory/push spends the
             # hold: no follow starts from it even after the underlying latch
             # (mouse_attack_target, a push's requires_hold intent) dies
@@ -728,6 +745,8 @@ def _cancel_pointer_invalidation(game, event, input_buffer):
     ) or event.type == pygame.WINDOWFOCUSLOST
     if not invalidated:
         return False
+    if event.type == pygame.WINDOWFOCUSLOST:
+        clear_mouse_attack(game)
     return _cancel_follow(game, input_buffer)
 
 
@@ -1107,6 +1126,7 @@ def _take_over_play_input(game, session, input_buffer) -> None:
         reset_input(input_buffer)
     from PyAitD.engine.script.interaction import cancel_nav_intent
     cancel_nav_intent(game)
+    clear_mouse_attack(game)
     # route_hover owns presenter-only hover and deliberately does not own the
     # modal lifecycle: ModalSession.reset_for remains at the open/render seams.
     route_hover(game, session, None)
@@ -1144,6 +1164,7 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
             InputMode.KEYBOARD if game.input_mode is InputMode.MOUSE else InputMode.MOUSE
         )
         cancel_nav_intent(game)
+        clear_mouse_attack(game)
         sync_player_track_mode(game)
         if input_buffer is not None:
             reset_input(input_buffer)
@@ -1800,7 +1821,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
             ticked = False
             while accumulator >= TICK_MS and game.mode is GameMode.PLAY:
                 motion_prev = motion_snapshot(game)
-                play_tick(game, floor, input_buffer)
+                play_tick(game, floor, _play_input(input_buffer))
                 ticked = True
                 for actor_idx in _hit_actor_ids(game):
                     hit_feedback_deadlines[actor_idx] = now + HIT_FEEDBACK_MS

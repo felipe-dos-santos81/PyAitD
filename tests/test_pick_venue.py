@@ -10,9 +10,8 @@ import PyAitD.app.shell as main
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.script.game import init_game, relocate_actor
 from PyAitD.engine.nav.picking import _camera_state_global, pick_floor_any_room, project_floor_point
-from PyAitD.engine.script.playworld import play_tick
+from PyAitD.engine.script.playworld import IDLE, play_tick
 from PyAitD.games.aitd1.scenario import enter_mouse_combat_fixture
-from PyAitD.app.ui import InputBuffer
 import pytest
 
 pytestmark = pytest.mark.engine
@@ -27,7 +26,7 @@ def _settled_venue(data_dir, profile):
     relocate_actor(game, hero_idx, 5, 4, -7400, -4010, -1000)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
-    play_tick(game, floor, InputBuffer())  # one tick: the camera settles
+    play_tick(game, floor, IDLE)  # one tick: the camera settles
     return game, floor
 
 

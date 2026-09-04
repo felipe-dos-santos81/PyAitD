@@ -8,8 +8,7 @@ from PyAitD.engine.content import BEHAVIOUR_LIFE, load_pack
 from PyAitD.engine.content.enemies import step_enemy
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.script.game import init_game, relocate_actor, spawn_stage_actors
-from PyAitD.engine.script.playworld import play_tick
-from PyAitD.app.ui import InputBuffer
+from PyAitD.engine.script.playworld import IDLE, play_tick
 
 pytestmark = [pytest.mark.engine, pytest.mark.journey]
 
@@ -20,7 +19,7 @@ def _boot(data_dir, profile, example_pack_dir):
     pack = load_pack(example_pack_dir, data_dir, profile)
     game = init_game(data_dir, profile, pack=pack)
     floor = Floor(data_dir, 0, profile)
-    play_tick(game, floor, InputBuffer())   # commits the spawn's pending anims
+    play_tick(game, floor, IDLE)   # commits the spawn's pending anims
     return game, floor
 
 
@@ -35,7 +34,7 @@ def _slot(game, world_idx):
 
 def _tick_until(game, floor, predicate, *, limit):
     for tick in range(limit):
-        play_tick(game, floor, InputBuffer())
+        play_tick(game, floor, IDLE)
         if predicate(game):
             return tick
     return -1
@@ -122,7 +121,7 @@ def test_a_hit_costs_hit_points_then_hurt_then_dying_then_deletion(data_dir, pro
     actor = game.actors[slot]
     hero_idx = game.current_camera_target_actor
     step_enemy(game, slot, record, state)      # idle -> chase
-    play_tick(game, floor, InputBuffer())      # walk anim commits
+    play_tick(game, floor, IDLE)      # walk anim commits
     step_enemy(game, slot, record, state)
 
     actor.hit_by, actor.hit_force = hero_idx, 1
@@ -133,7 +132,7 @@ def test_a_hit_costs_hit_points_then_hurt_then_dying_then_deletion(data_dir, pro
     actor.hit_by = -1
 
     # a second hit while hurt still counts, the anim is not restarted
-    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, IDLE)
     actor.hit_by, actor.hit_force = hero_idx, 1
     step_enemy(game, slot, record, state)
     assert (state["hp"], state["phase"]) == (1, "hurt")
@@ -153,7 +152,7 @@ def test_a_hit_costs_hit_points_then_hurt_then_dying_then_deletion(data_dir, pro
     assert (state["hp"], state["phase"]) == (0, "dying")
     assert (actor.new_anim, actor.new_anim_type, actor.new_anim_info) == (24, 2, -1)
     actor.hit_by = -1
-    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, IDLE)
     assert actor.anim == 24
     # a hit while dying changes nothing
     actor.hit_by, actor.hit_force = hero_idx, 5
@@ -184,7 +183,7 @@ def test_an_attack_returns_a_pursuer_to_chase_and_a_sentry_to_idle(data_dir, pro
             step_enemy(game, slot, record, state)   # idle -> chase
         step_enemy(game, slot, record, state)       # in range -> attack (one step: a sentry arms from idle)
         assert state["phase"] == "attack"
-        play_tick(game, floor, InputBuffer())
+        play_tick(game, floor, IDLE)
         assert actor.anim == 25
         ended = _tick_until(game, floor, lambda g: game.actors[slot].flag_end_anim == 1, limit=300)
         assert ended != -1
@@ -204,10 +203,10 @@ def test_the_prowler_chases_the_hero_across_the_attic_and_arms_a_strike(data_dir
     hero = game.actors[game.current_camera_target_actor]
     prowler = _actor(game, PROWLER)
     assert prowler is not None
-    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, IDLE)
     assert game.content_state[PROWLER]["phase"] == "chase"
     assert (prowler.track_mode, prowler.track_number, prowler.new_anim) == (2, game.current_world_target, 23)
-    play_tick(game, floor, InputBuffer())      # gere_anim commits the walk on the next anim pass
+    play_tick(game, floor, IDLE)      # gere_anim commits the walk on the next anim pass
     assert prowler.anim == 23
 
     def gap(g):
@@ -238,7 +237,7 @@ def test_a_pack_enemy_keeps_its_phase_and_hit_points_across_a_despawn_and_respaw
     def gap(g):
         return abs(prowler.room_x - hero.room_x) + abs(prowler.room_z - hero.room_z)
 
-    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, IDLE)
     assert game.content_state[PROWLER]["phase"] == "chase"
     start = (prowler.room_x, prowler.room_z)
     moved = _tick_until(
@@ -318,7 +317,7 @@ def test_hits_in_the_real_loop_take_the_prowler_through_hurt_dying_and_out(data_
     # leaving and re-entering the room regenerates the active list; a dead
     # record has stage -1 and is skipped like a taken object
     game.flag_genere_aff_list = 1
-    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, IDLE)
     assert game.world_objects[PROWLER].obj_index == -1
     assert game.content_state[PROWLER] == {"hp": 0, "phase": "dead"}
 
@@ -346,8 +345,8 @@ def test_the_trace_records_each_behaviour_step(data_dir, profile, example_pack_d
     from PyAitD.engine.script.life import Trace
     game, floor = _boot(data_dir, profile, example_pack_dir)
     game.trace = Trace(tmp_path / "t.log")
-    play_tick(game, floor, InputBuffer())
-    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, IDLE)
+    play_tick(game, floor, IDLE)
     game.trace.close()
     lines = (tmp_path / "t.log").read_text().splitlines()
     prowler, watcher = _slot(game, PROWLER), _slot(game, WATCHER)

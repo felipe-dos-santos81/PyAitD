@@ -16,9 +16,9 @@ from PyAitD.engine.script.game import AF_ANIMATED, AF_MOVABLE, init_game
 from PyAitD.engine.script.interaction import (
     _finish_take, choose_inventory_action, inventory_actions, inventory_items,
 )
-from PyAitD.engine.script.playworld import play_tick
+from PyAitD.engine.script.playworld import IDLE, play_tick
 from PyAitD.games.aitd1.scenario import enter_combat_venue, enter_mouse_combat_fixture
-from PyAitD.app.ui import InputBuffer, ModalLayout, PlayLayout
+from PyAitD.app.ui import ModalLayout, PlayLayout
 from PyAitD.games.aitd1.mouse_contract import (
     ALL_MODES, CAPABILITY_ROUTES, COMMAND_MOUSE_CAPABILITIES,
     KEYBOARD_ONLY_DECISIONS, LEGACY_COMMAND_REPLACEMENTS,
@@ -225,7 +225,7 @@ def test_real_data_combat_action_set_is_exactly_32(data_dir, profile):
                 break
             if game.active_modal is not None:
                 break
-            play_tick(game, floor, InputBuffer())
+            play_tick(game, floor, IDLE)
     assert armed == set(profile.combat_action_text_ids) == {32}
 
 
@@ -305,8 +305,8 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, profile, monkeypat
     # Opening LIFE performs an unrelated begin_take(object 2), which publishes
     # Action 0x800 on its first boot tick.  Complete that real bootstrap before
     # measuring the held path; do not hide an Action emitted while held.
-    play_tick(game, floor, InputBuffer())
-    play_tick(game, floor, InputBuffer())
+    play_tick(game, floor, IDLE)
+    play_tick(game, floor, IDLE)
     assert game.action == game.local_click == 0
     game.timer = 300
 

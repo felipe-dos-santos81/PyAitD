@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """PLAY input snapshot: track-mode re-assert, mouse follower decision, bounded attack publishing."""
+from dataclasses import dataclass
+
 from PyAitD.engine.script.effects import InputMode
 from PyAitD.engine.script.interaction import sync_player_track_mode
 from PyAitD.engine.nav.navigate import decide
@@ -15,30 +17,55 @@ NATIVE_ACTION = 0x2000  # mainLoop.cpp:87-101 held-action input
 MOUSE_ATTACK_TICK_BUDGET = 100
 
 
-def apply_play_input(game, input_buffer):
+@dataclass(frozen=True)
+class PlayInput:
+    """What the engine reads from the player each tick, and nothing else.
+
+    Built once per tick by app.controls.snapshot; the app keeps every piece
+    of gesture state (hold-follow, double press, cut settling) on its side of
+    this boundary. Frozen so the engine cannot write back into it: the
+    sticky-action pulse is consumed by the app when it builds the snapshot.
+    """
+    joyd: int = 0
+    action_held: bool = False
+    action_pulse: bool = False
+    pointer_held: bool = False
+    focused: bool = True
+
+
+IDLE = PlayInput()
+
+
+def arm_mouse_attack(game, target_idx):
+    """An accepted target click holds FITD's own action input for the next
+    few ticks (mainLoop.cpp:87-101); the engine owns the countdown because
+    the engine is what ends it (the hero back to idle, or the budget)."""
+    game.mouse_attack_target = target_idx
+    game.mouse_attack_ticks = 0
+
+
+def clear_mouse_attack(game):
+    game.mouse_attack_target = None
+    game.mouse_attack_ticks = 0
+
+
+def apply_play_input(game, play_input):
     # The hero's manual-control track mode belongs to the input mode, and a
     # script can hand it back to tank mode at any time (LM_INIT_DEPLACEMENT),
     # so it is re-asserted here rather than only at init and on the Tab toggle.
     sync_player_track_mode(game)
     if game.input_mode is InputMode.MOUSE:
-        input_buffer.action_pulse = False
-        _apply_mouse_input(game, input_buffer)
+        _apply_mouse_input(game, play_input)
         return
     game.nav_decision = None
-    game.local_joyd = input_buffer.held_joyd if input_buffer.focused else 0
-    pressed = input_buffer.focused and (input_buffer.action_held or input_buffer.action_pulse)
+    game.local_joyd = play_input.joyd if play_input.focused else 0
+    pressed = play_input.focused and (play_input.action_held or play_input.action_pulse)
     game.local_click = 1 if pressed else 0
     game.local_key = 0
-    input_buffer.action_pulse = False
     game.action = 0x2000 if game.local_click else 0
 
 
-def _clear_mouse_attack(input_buffer):
-    input_buffer.mouse_attack_target = None
-    input_buffer.mouse_attack_ticks = 0
-
-
-def _apply_mouse_attack(game, input_buffer):
+def _apply_mouse_attack(game, play_input):
     """Publish one tick of FITD's own action input for an accepted click.
 
     A single tick of action is not enough: the player's LIFE queues the idle
@@ -49,22 +76,22 @@ def _apply_mouse_attack(game, input_buffer):
     """
     from PyAitD.engine.script.interaction import can_strike, is_combat_target
 
-    target_idx = input_buffer.mouse_attack_target
+    target_idx = game.mouse_attack_target
     if target_idx is None:
         return False
     hero_idx = game.current_camera_target_actor
     if (not is_combat_target(game, target_idx)
             or not can_strike(game, require_idle=False)):
-        _clear_mouse_attack(input_buffer)
+        clear_mouse_attack(game)
         return False
-    ticks = input_buffer.mouse_attack_ticks
+    ticks = game.mouse_attack_ticks
     # The first tick is what arms the animation, so it publishes before any
     # completion test; afterwards the hero returning to idle ends the strike.
     if ticks and (game.actors[hero_idx].anim_action_type == 0
                   or ticks >= MOUSE_ATTACK_TICK_BUDGET):
-        _clear_mouse_attack(input_buffer)
+        clear_mouse_attack(game)
         return False
-    input_buffer.mouse_attack_ticks = ticks + 1
+    game.mouse_attack_ticks = ticks + 1
     game.nav_decision = None
     game.local_key = 0
     game.local_joyd = 1
@@ -73,7 +100,7 @@ def _apply_mouse_attack(game, input_buffer):
     return True
 
 
-def _apply_mouse_input(game, input_buffer):
+def _apply_mouse_input(game, play_input):
     # The follower decision is made here, in the input snapshot, so the tick
     # order stays exactly FITD's mainLoop order and the mouse is a peer of the
     # keyboard rather than a bolt-on.
@@ -82,7 +109,7 @@ def _apply_mouse_input(game, input_buffer):
     game.action = 0
     # An accepted target click outranks navigation: attack_in_hand already
     # cancelled the intent, and the strike owns the hero until it finishes.
-    if _apply_mouse_attack(game, input_buffer):
+    if _apply_mouse_attack(game, play_input):
         return
     hero_idx = game.current_camera_target_actor
     intent = game.nav_intent
@@ -91,7 +118,7 @@ def _apply_mouse_input(game, input_buffer):
         game.local_joyd = 0
         return
     from PyAitD.engine.script.interaction import cancel_nav_intent
-    if not input_buffer.focused or not input_buffer.pointer_held:
+    if not play_input.focused or not play_input.pointer_held:
         # Held pointer follow: every intent is hold-bound, plain walks
         # included. Enforced here, at the tick where FITD reads input, so a
         # release stops the hero on the very next tick, between frames too.

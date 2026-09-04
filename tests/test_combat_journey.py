@@ -20,9 +20,9 @@ from PyAitD.engine.script.effects import GameMode, GameOver
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.script.game import AF_ANIMATED, init_game, relocate_actor
 from PyAitD.engine.script.life import process_life
-from PyAitD.engine.script.playworld import TICK_MS, play_tick
+from PyAitD.engine.script.playworld import IDLE, TICK_MS, PlayInput, play_tick
 from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
-from PyAitD.app.ui import InputBuffer, ModalSession, UIPainter, render_game_over, transparent_canvas
+from PyAitD.app.ui import ModalSession, UIPainter, render_game_over, transparent_canvas
 
 pytestmark = [pytest.mark.engine, pytest.mark.journey]
 
@@ -38,7 +38,7 @@ def test_obj222_real_script_hits_and_hero_consumes_same_tick(data_dir, profile):
     hero_idx = game.current_camera_target_actor
     observed = False
     for _ in range(2400):
-        play_tick(game, floor, InputBuffer())
+        play_tick(game, floor, IDLE)
         if game.actors[hero_idx].hit_by == enemy_idx:
             observed = True
             assert game.actors[enemy_idx].hit == hero_idx
@@ -63,7 +63,7 @@ def _fight_to_death(data_dir, profile, budget):
                 game, enemy_idx, 5, 4,
                 hero.room_x, hero.room_y, hero.room_z + 300,
             )
-        play_tick(game, floor, InputBuffer())
+        play_tick(game, floor, IDLE)
         saw_death_life |= hero.life == 39
         if saw_death_life and game.vars[21] == 0:
             break
@@ -95,7 +95,7 @@ def _journey_to_game_over(data_dir, profile, budget=12000):
             loop_session.elapsed_ms += TICK_MS
             _auto_dismiss_picture(game, loop_session)
             continue
-        play_tick(game, floor, InputBuffer())
+        play_tick(game, floor, IDLE)
         if floor.number != game.current_floor:
             # the outer loop owns Floor I/O (__main__.run does exactly this)
             floor = Floor(data_dir, game.current_floor, profile)
@@ -251,7 +251,7 @@ def test_armed_melee_survives_a_hot_point_group_the_body_does_not_have(
     _finish_take(game, 38)
     game.in_hand_table[game.current_inventory] = 38
     hero = game.actors[game.current_camera_target_actor]
-    buf = InputBuffer(action_held=True, held_joyd=1, focused=True)
+    buf = PlayInput(action_held=True, joyd=1, focused=True)
 
     landed = False
     for _ in range(400):

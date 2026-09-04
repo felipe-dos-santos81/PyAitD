@@ -21,7 +21,7 @@ from PyAitD.engine.script.playworld.passes import (
 TICK_MS = 20  # 50 Hz logic tick
 
 
-def play_tick(game, floor, input_buffer):
+def play_tick(game, floor, play_input):
     # mainLoop.cpp:41-281 PlayWorld, one 50Hz iteration, PLAY mode only.
     # Rendering stays outside this fixed-step function so catch-up ticks
     # cannot block input behind repeated GPU work.
@@ -38,7 +38,7 @@ def play_tick(game, floor, input_buffer):
         # suspend on the picture again and strand the flag forever.
         return False
     game.current_floor_data = floor   # the mesh cache needs the loaded Floor
-    apply_play_input(game, input_buffer)
+    apply_play_input(game, play_input)
     if not dispatch_nav_arrival(game):
         return False
     game_step_tick(game)

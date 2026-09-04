@@ -313,9 +313,8 @@ def test_an_empty_pack_ticks_identically_to_no_pack(data_dir, profile, tmp_path)
     from PyAitD.engine.content import load_pack
     from PyAitD.engine.data.floor import Floor
     from PyAitD.engine.script.game import init_game
-    from PyAitD.engine.script.playworld import play_tick
+    from PyAitD.engine.script.playworld import IDLE, play_tick
     from PyAitD.engine.script.save import _snapshot_actor
-    from PyAitD.app.ui import InputBuffer
     empty = load_pack(_write_pack(tmp_path / "empty"), data_dir, profile)
     vanilla = init_game(data_dir, profile)
     packed = init_game(data_dir, profile, pack=empty)
@@ -323,7 +322,7 @@ def test_an_empty_pack_ticks_identically_to_no_pack(data_dir, profile, tmp_path)
         game.rng.seed(7)
     floor = Floor(data_dir, 0, profile)
     for tick in range(400):
-        play_tick(vanilla, floor, InputBuffer())
-        play_tick(packed, floor, InputBuffer())
+        play_tick(vanilla, floor, IDLE)
+        play_tick(packed, floor, IDLE)
         assert [_snapshot_actor(a) for a in vanilla.actors] == [_snapshot_actor(a) for a in packed.actors], tick
     assert vanilla.timer == packed.timer == 400
