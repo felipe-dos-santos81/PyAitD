@@ -256,7 +256,7 @@ from PyAitD.engine.script.effects import TimedMessage
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.script.game import FloorStart
 from PyAitD.engine.nav.navmesh import MeshCache
-from PyAitD.engine.script.playworld import play_tick
+from PyAitD.engine.script.playworld import IDLE, play_tick
 from PyAitD.engine.script.save import restore_game
 
 
@@ -321,8 +321,8 @@ def test_restored_game_ticks_and_draws_like_the_original(data_dir, profile):
     payload = json.loads(json.dumps(snapshot_game(game, SETTINGS)))
     restored, _ = restore_game(data_dir, profile, payload)
 
-    play_tick(game, Floor(data_dir, game.current_floor, profile), _input_buffer())
-    play_tick(restored, Floor(data_dir, restored.current_floor, profile), _input_buffer())
+    play_tick(game, Floor(data_dir, game.current_floor, profile), IDLE)
+    play_tick(restored, Floor(data_dir, restored.current_floor, profile), IDLE)
     assert snapshot_game(game, SETTINGS) == snapshot_game(restored, SETTINGS)
     assert game.rng.randrange(1000) == restored.rng.randrange(1000)
 
@@ -333,14 +333,9 @@ def test_a_snapshot_taken_after_ticking_still_validates(data_dir, profile):
     game = _game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     for _ in range(5):
-        play_tick(game, floor, _input_buffer())
+        play_tick(game, floor, IDLE)
     payload = json.loads(json.dumps(snapshot_game(game, SETTINGS)))
     assert validate_snapshot(payload, data_dir, profile)
-
-
-def _input_buffer():
-    from PyAitD.app.ui import InputBuffer
-    return InputBuffer()
 
 
 def test_restore_resets_transient_state_and_forces_boot_flags(data_dir, profile):
@@ -643,11 +638,11 @@ def test_validate_requires_every_pack_index_present_in_content_state(data_dir, p
 
 def test_restore_round_trips_a_pack_game_mid_chase(data_dir, profile, example_pack_dir):
     from PyAitD.engine.data.floor import Floor
-    from PyAitD.engine.script.playworld import play_tick
+    from PyAitD.engine.script.playworld import IDLE, play_tick
     game, pack = _packed(data_dir, profile, example_pack_dir)
     floor = Floor(data_dir, 0, profile)
     for _ in range(120):
-        play_tick(game, floor, _input_buffer())
+        play_tick(game, floor, IDLE)
     assert game.content_state[292]["phase"] == "chase"
     game.content_state[292]["hp"] = 1
     payload = json.loads(json.dumps(snapshot_game(game, SETTINGS)))
@@ -662,8 +657,8 @@ def test_restore_round_trips_a_pack_game_mid_chase(data_dir, profile, example_pa
     after["game"]["flag_init_view"] = payload["game"]["flag_init_view"]
     after["game"]["flag_genere_aff_list"] = payload["game"]["flag_genere_aff_list"]
     assert after == payload
-    play_tick(game, floor, _input_buffer())
-    play_tick(restored, Floor(data_dir, restored.current_floor, profile), _input_buffer())
+    play_tick(game, floor, IDLE)
+    play_tick(restored, Floor(data_dir, restored.current_floor, profile), IDLE)
     assert snapshot_game(game, SETTINGS) == snapshot_game(restored, SETTINGS)
 
 

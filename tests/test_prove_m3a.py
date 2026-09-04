@@ -44,16 +44,14 @@ def test_headless_boot_ticks(data_dir, profile):
     from PyAitD.engine.data.floor import Floor
     from PyAitD.engine.script.game import init_game
     from PyAitD.engine.script.life import Trace
-    from PyAitD.engine.script.playworld import play_tick
-    from PyAitD.app.ui import InputBuffer
+    from PyAitD.engine.script.playworld import IDLE, play_tick
 
     trace_path = "/tmp/m3a_trace.log"
     game = init_game(data_dir, profile, hero=0)
     game.trace = Trace(trace_path)
     floor = Floor(data_dir, game.current_floor, profile)
-    buf = InputBuffer()
     for tick in range(60):
-        play_tick(game, floor, buf)
+        play_tick(game, floor, IDLE)
     game.trace.close()
     assert game.flag_game_over == 0
     assert pathlib.Path(trace_path).stat().st_size > 0

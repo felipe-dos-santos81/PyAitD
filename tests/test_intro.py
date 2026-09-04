@@ -6,8 +6,8 @@ import pytest
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.script.game import init_game, start_game
 from PyAitD.engine.script.interaction import apply_reading_result
-from PyAitD.engine.script.playworld import play_tick
-from PyAitD.app.ui import InputBuffer, ReadingResult
+from PyAitD.engine.script.playworld import IDLE, play_tick
+from PyAitD.app.ui import ReadingResult
 
 pytestmark = [pytest.mark.engine, pytest.mark.journey]
 
@@ -21,11 +21,10 @@ def boot_intro(data_dir, profile, hero=0):
 def run_intro(data_dir, profile, game, floor, ticks, on_modal=None):
     """Tick the cutscene, swapping Floor on floor changes like shell.run and
     auto-dismissing pictures. Returns (last_tick, floor, events)."""
-    buf = InputBuffer()
     events = []
     t = -1
     for t in range(ticks):
-        play_tick(game, floor, buf)
+        play_tick(game, floor, IDLE)
         if floor.number != game.current_floor:
             floor = Floor(data_dir, game.current_floor, profile)
             events.append((t, "floor", game.current_floor, game.current_room))
