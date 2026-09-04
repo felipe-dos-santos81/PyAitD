@@ -419,13 +419,13 @@ is the pin.
   that is the accepted trade, not a bug to "fix" by blending `draw_list`.
 - Mouse movement is a held pointer follow: every navigation intent is
   hold-bound (`playworld._apply_mouse_input` cancels an intent whose buffer is
-  not held and focused), `app.shell.follow_pointer` re-resolves the held
-  pointer on the frames it moved off `InputBuffer.follow_pos` and re-issues an
-  intent only when the resolution differs from `InputBuffer.follow_last`, and
+  not held and focused), `app.controls.router.follow_pointer` re-resolves the held
+  pointer on the frames it moved off `PointerState.follow_pos` and re-issues an
+  intent only when the resolution differs from `PointerState.follow_last`, and
   hold-push keeps its latched target. Only pointer motion retargets: the same
   pixel names a different world point under every camera, so re-resolving a
   still pointer at a camera cut would steer or stop the hero on its own. A
-  press within `ui.DOUBLE_PRESS_TICKS` of the previous one runs
+  press within `controls.pointer.DOUBLE_PRESS_TICKS` of the previous one runs
   (`NavIntent.run` -> `NavDecision.run` -> speed 5), timed on `game.timer` so
   a paused modal does not count; the engine never learns which device asked.
   That window is the mouse's own and is deliberately far longer than the

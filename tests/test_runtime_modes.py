@@ -20,7 +20,7 @@ from PyAitD.app.config import (
     REMAPPABLE_CONTROLS, Control, Settings, default_settings, load_settings,
 )
 from PyAitD.render.render_options import RenderOptions
-from PyAitD.engine.script.playworld import IDLE, PlayInput, apply_play_input
+from PyAitD.engine.script.playworld import IDLE, apply_play_input
 from PyAitD.engine.script.effects import (
     ChooseCharacter, FoundResult, GameMode, GameOver, InputMode, NavDecision, NavIntent,
     OpenInventory, OpenStartupMenu, OpenSystemMenu, ReadText, ShowFound, ShowPicture, ShowTitle,
@@ -31,7 +31,7 @@ from PyAitD.app.startup import StartupLayout, StartupRow, TitlePhase, TITLE_TIME
 from PyAitD.app.controls.actions import Action
 from PyAitD.app.controls.keyboard import KeyboardState
 from PyAitD.app.controls.pointer import PointerState
-from PyAitD.app.controls.snapshot import ControlsState
+from PyAitD.app.controls.snapshot import ControlsState, build_play_input
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
     ModalLayout, ModalSession, ReadingResult, SettingsNoticeLayout,
@@ -1145,13 +1145,9 @@ def test_leaving_the_system_menu_cannot_replay_input_into_the_first_play_tick(da
     assert game.mode is GameMode.PLAY
     assert (state.keyboard.held_joyd, state.keyboard.action_held, state.keyboard.sticky_armed,
             state.keyboard.action_pulse, list(state.keyboard.queue)) == (0, False, False, False, [])
-    # the drained buffer's own snapshot, the same mapping main._play_input
+    # the drained buffer's own snapshot, the same one build_play_input
     # builds for the real play tick
-    apply_play_input(game, PlayInput(
-        joyd=state.keyboard.held_joyd, action_held=state.keyboard.action_held,
-        action_pulse=state.keyboard.action_pulse, pointer_held=state.pointer.held,
-        focused=state.focused,
-    ))
+    apply_play_input(game, build_play_input(state))
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
 
 

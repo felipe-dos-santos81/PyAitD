@@ -780,6 +780,16 @@ def test_the_engine_publishes_a_pulse_every_tick_it_is_handed_one(data_dir, prof
     assert (game.local_click, game.action) == (0, 0)
 
 
+def test_a_pulse_is_swallowed_in_mouse_input_mode(data_dir, profile):
+    """MOUSE mode never reads action_held or action_pulse -- only an
+    accepted click arms the attack latch -- so a stray pulse cannot publish
+    native action."""
+    game = init_game(data_dir, profile)
+    game.input_mode = InputMode.MOUSE
+    apply_play_input(game, PlayInput(action_pulse=True))
+    assert game.action == 0
+
+
 def test_the_mouse_attack_latch_lives_on_the_game(data_dir, profile):
     from PyAitD.engine.script.playworld import arm_mouse_attack, clear_mouse_attack
     game = init_game(data_dir, profile)

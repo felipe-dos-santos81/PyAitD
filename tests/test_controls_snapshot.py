@@ -78,6 +78,8 @@ def test_configure_compiles_the_table_sets_sticky_and_resets():
     assert controls.keyboard.table[pygame.K_q] is Action.UP
     assert controls.keyboard.sticky_action is True
     assert (controls.keyboard.held_joyd, controls.pointer.held, controls.pointer.spent) == (0, False, False)
+    configure(controls, default_settings())
+    assert controls.keyboard.sticky_action is False
 
 
 def test_reset_clears_both_states_and_the_game_latch(data_dir, profile):

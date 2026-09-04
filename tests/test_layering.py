@@ -103,6 +103,28 @@ def test_ui_never_imports_controls_so_the_dependency_runs_one_way():
     assert not bad, bad
 
 
+def test_the_controls_package_init_reexports_only_actions():
+    # anything re-exported here besides actions would run this package's
+    # __init__ before app.config's own import of controls.actions finishes,
+    # a cycle -- see the package docstring.
+    bad = [
+        name for name in _imports(ROOT / "app" / "controls" / "__init__.py")
+        if name != "PyAitD.app.controls.actions"
+        and not name.startswith("PyAitD.app.controls.actions.")
+    ]
+    assert not bad, bad
+
+
+def test_router_never_imports_cursor():
+    # router routes into the game; cursor is presentation-only PLAY-cursor
+    # state read by ui, so router importing it back would be a cycle.
+    bad = [
+        name for name in _imports(ROOT / "app" / "controls" / "router.py")
+        if name.startswith("PyAitD.app.controls.cursor")
+    ]
+    assert not bad, bad
+
+
 def test_the_shell_holds_no_key_codes_and_no_pointer_state():
     # the spec's "done when": every key code lives in controls.bindings and
     # every gesture field in controls.pointer; the shell only pumps.

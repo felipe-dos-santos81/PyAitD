@@ -271,6 +271,9 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, controls):
     from PyAitD.engine.script.interaction import apply_click_intent, cancel_nav_intent
     if (game.active_modal is not None or game.mode is not GameMode.PLAY
             or game.input_mode is not InputMode.MOUSE or session.cutscene
+            # a transition frame is skipped rather than resolved: the
+            # resolver reports blocked there, which would stop the hero for
+            # a tick at every room change
             or game.num_camera == -1
             or not controls.pointer.held or not controls.focused
             or game.mouse_attack_target is not None):
@@ -305,6 +308,12 @@ def cancel_pointer_invalidation(game, event, controls):
 
 
 def drop_destination(game, controls):
+    """Forget where this hold was heading and drop the intent that was
+    carrying it; True when an intent was live. The whole of what ending a
+    *destination* means -- what ending the *hold* additionally means is the
+    extra clearing in cancel_follow below. Keeping them apart is what stops
+    the next per-hold field being cleared in one path and forgotten in the
+    other. `controls` is optional only for callers that own no controls state."""
     from PyAitD.engine.script.interaction import cancel_nav_intent
     if controls is not None:
         pointer_drop_destination(controls.pointer)
@@ -315,6 +324,8 @@ def drop_destination(game, controls):
 
 
 def cancel_follow(game, controls):
+    """End the hold itself: the destination, plus everything that belonged
+    to the press that opened it."""
     if controls is not None:
         steered = game.nav_intent is not None and game.nav_intent.steering
         end_hold(controls.pointer, steering=steered)
@@ -322,6 +333,11 @@ def cancel_follow(game, controls):
 
 
 def rebase_follow(game, controls):
+    """Drop a destination the new floor cannot mean, keeping the hold alive:
+    a floor change invalidates the intent -- its `room` indexes the floor
+    that was just unloaded -- but the button never came up, so ending the
+    hold here would stop the hero dead on the stairs and demand a fresh
+    press."""
     if controls is not None:
         rebase(controls.pointer)
     return drop_destination(game, controls)
@@ -500,10 +516,10 @@ def apply_system_result(game, session, controls, result, renderer=None):
     if result.load_slot is not None:
         request_load(game, session, result.load_slot)
     if result.close:
-        reset(controls, None)
+        reset(controls, game)
         game.close_modal()
     if result.quit:
-        reset(controls, None)
+        reset(controls, game)
         return False
     return True
 
@@ -536,7 +552,7 @@ def route_command(game, session, command, controls=None, renderer=None):
     if session.cutscene:
         # PlayWorld(allowSystemMenu=0): every command is a skip, never a
         # route into PLAY's own commands (CANCEL opening the system menu,
-        # OPEN_INVENTORY, TOGGLE_INPUT_MODE) -- mainLoop.cpp:71-89. Checked
+        # the inventory-confirm action, TOGGLE_INPUT_MODE) -- mainLoop.cpp:71-89. Checked
         # first so that claim holds for every command, TOGGLE_INPUT_MODE
         # included -- defence-in-depth only: shell.run's event-pump swallow
         # already marks skip_cutscene and `continue`s for every KEYDOWN
@@ -652,10 +668,14 @@ def apply_startup_result(game, session, controls, result):
         session.reset_for(game.active_modal)
         if controls is not None:
             reset(controls, game)
+        if controls is None:
+            clear_mouse_attack(game)
         return True
     if result.quit:
         if controls is not None:
             reset(controls, game)
+        if controls is None:
+            clear_mouse_attack(game)
         return False
     return True   # continue_game cannot be produced while continue_available is False
 

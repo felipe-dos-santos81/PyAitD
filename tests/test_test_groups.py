@@ -273,3 +273,15 @@ def test_tests_take_the_profile_from_the_fixture():
         and needle in p.read_text()
     )
     assert not offenders, offenders
+
+
+def test_every_test_path_named_in_a_makefile_recipe_exists_on_disk():
+    """A recipe that names a moved or deleted test file silently stops
+    running it -- catch that the moment the path and the file on disk
+    diverge, rather than waiting for someone to notice a gate got
+    quieter."""
+    text = _makefile()
+    named = set(re.findall(r"tests/test_[a-z0-9_]+\.py", text))
+    assert named, "no tests/test_*.py path found in the Makefile"
+    missing = sorted(path for path in named if not (REPO_ROOT / path).exists())
+    assert not missing, f"Makefile names test file(s) that do not exist: {missing}"

@@ -263,39 +263,40 @@ action runner.
   ENGLISH.PAK text 32 is `Throw`, so delegating to `choose_inventory_action`
   launched the held object at the floor instead of swinging it.
 - A target click instead arms a bounded input-local native combat latch.
-  `route_play_click` stores the accepted target in the application-owned
-  `InputBuffer`; `playworld._apply_mouse_attack` publishes FITD's ordinary
-  `local_joyd = 1`, `local_click = 1` and `action = 0x2000` on each fixed tick
-  until the melee animation completes, bounded at 100 ticks. The simulation
-  never learns that a mouse exists, and every existing focus, modal,
-  input-mode and restart `reset_input` seam already clears the latch, so no
-  click can resume a swing after a takeover.
+  `route_play_click` latches the accepted target on `Game` via
+  `arm_mouse_attack`; `playworld._apply_mouse_attack` publishes FITD's
+  ordinary `local_joyd = 1`, `local_click = 1` and `action = 0x2000` on each
+  fixed tick until the melee animation completes, bounded at 100 ticks. The
+  simulation never learns that a mouse exists, and every existing focus,
+  modal, input-mode and restart seam already clears the latch via
+  `clear_mouse_attack` (reached through `controls.snapshot.reset(controls,
+  game)`), so no click can resume a swing after a takeover.
 - Explicit inventory `Throw` is unchanged and remains reachable only by
   choosing that row; throw setup, flight and floor placement are untouched.
 - `game.activate_world_object` is shared by normal active-list regeneration
   and throw release so a released projectile exists before later LIFE reads.
 - `scenario.enter_mouse_combat_fixture` owns the deterministic object-38
   automated/manual proof start; the M3c `enter_combat_venue` remains unchanged.
-- `app.shell.resolve_play_click` is the one HUD/attack/target/walk/steer/blocked
+- `app.controls.router.resolve_play_click` is the one HUD/attack/target/walk/steer/blocked
   resolver used by hover, the press, and the per-frame held follow. Its attack
   branch gates on `interaction.can_strike` -- something in hand, hero idle --
   not on the held object's Fight action: equipping leaves the wielded variant
   in hand (the attic lamp's Fight leaves object 2, whose flags carry no
   Fight), and the swing comes from that object's own LIFE, which `play_tick`
   runs every tick.
-- `app.shell.follow_pointer` runs after the ticks and the scene refresh
+- `app.controls.router.follow_pointer` runs after the ticks and the scene refresh
   while the left button is held in PLAY, and resolves only on the frames the
-  pointer moved off `InputBuffer.follow_pos` -- a camera cut with a still
+  pointer moved off `PointerState.follow_pos` -- a camera cut with a still
   hand therefore changes nothing, where re-resolving would retarget the hero
   onto the new camera's reading of that pixel or stop it outright. It
   re-issues an intent only when the resolution differs from
-  `InputBuffer.follow_last`, which is also the arrival one-shot latch.
+  `PointerState.follow_last`, which is also the arrival one-shot latch.
   Button-up, focus loss and modal takeover clear both and end the hold; a
-  floor change goes through `_rebase_follow`, which clears both but keeps the
+  floor change goes through `router.rebase_follow`, which clears both but keeps the
   hold live so the hero walks on off the stairs. Push and attack latches
   suspend it.
-- `app.shell._stamp_press` marks a PLAY press that landed within
-  `ui.DOUBLE_PRESS_TICKS` of the previous one, and that hold runs instead of
+- `controls.pointer.press_decision` marks a PLAY press that landed within
+  `controls.pointer.DOUBLE_PRESS_TICKS` of the previous one, and that hold runs instead of
   walking: `NavIntent.run` -> `navigate.decide` -> `NavDecision.run` ->
   `tracks._process_track_mouse` speed 5, which the hero's own ANIM_MOVE
   already answers with the run animation. Timed on `game.timer`, so the
@@ -484,8 +485,8 @@ action runner.
   `route_command`'s cutscene branch, `route_mouse`'s `CutsceneFinished`
   branch, and the command-drain's cutscene `pass` in `run()` are
   defence-in-depth, not additional live routes: with the pump swallow in
-  place, no `Command` can exist while `session.cutscene` (nothing ever
-  calls `event_to_input` to produce one) and no click can reach
+  place, no `Action` can exist while `session.cutscene` (nothing ever
+  calls `feed_event` to produce one) and no click can reach
   `route_mouse` while `CutsceneFinished` is the active modal (`session.
   cutscene` is still `True` then, so the swallow catches the click first).
   They exist for callers that invoke `route_command`/`route_mouse` directly

@@ -65,7 +65,7 @@ def apply_play_input(game, play_input):
     game.action = 0x2000 if game.local_click else 0
 
 
-def _apply_mouse_attack(game, play_input):
+def _apply_mouse_attack(game):
     """Publish one tick of FITD's own action input for an accepted click.
 
     A single tick of action is not enough: the player's LIFE queues the idle
@@ -109,7 +109,7 @@ def _apply_mouse_input(game, play_input):
     game.action = 0
     # An accepted target click outranks navigation: attack_in_hand already
     # cancelled the intent, and the strike owns the hero until it finishes.
-    if _apply_mouse_attack(game, play_input):
+    if _apply_mouse_attack(game):
         return
     hero_idx = game.current_camera_target_actor
     intent = game.nav_intent

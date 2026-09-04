@@ -35,14 +35,14 @@ from PyAitD.render.motion import snapshot as motion_snapshot
 from PyAitD.render.scene import build_frame
 from PyAitD.app.controls.actions import Action
 from PyAitD.app.controls.cursor import cursor_state, hit_actor_ids, hit_feedback_rects, intent_marker, marker_for
-from PyAitD.app.controls.pointer import CUT_DEAD_ZONE_PX, DOUBLE_PRESS_RESUME_PX, DOUBLE_PRESS_TICKS, settling
+from PyAitD.app.controls.pointer import CUT_DEAD_ZONE_PX, DOUBLE_PRESS_RESUME_PX, DOUBLE_PRESS_TICKS, settling  # re-exported: tests read these through app.shell
 from PyAitD.app.controls.snapshot import ControlsState, build_play_input, configure, feed_event
 from PyAitD.app.controls.modals import hit_test_settings_notice
 from PyAitD.app.controls.router import (
-    MENU_RENDER_FIELDS as _MENU_RENDER_FIELDS,
+    MENU_RENDER_FIELDS as _MENU_RENDER_FIELDS,  # re-exported: tests read these through app.shell
     apply_system_result, available_slots, cancel_pointer_invalidation, continue_available,
     credits_entry, follow_pointer, game_over_ready, inventory_hud_available, inventory_view,
-    open_startup_menu, rebase_follow, resolve_play_click, route_command, route_hover,
+    rebase_follow, resolve_play_click, route_command, route_hover,  # resolve_play_click re-exported: tests read these through app.shell
     route_mouse, route_play_click, take_over_play_input, write_save,
 )
 from PyAitD.app.ui import (
