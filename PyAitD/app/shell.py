@@ -534,7 +534,8 @@ def route_play_click(
         if kind == "inventory":
             route_command(game, session, Action.INVENTORY_CONFIRM, None)
         elif kind == "attack":
-            attack_in_hand(game, payload)
+            if attack_in_hand(game, payload):
+                arm_mouse_attack(game, payload)
         elif kind not in ("blocked",) and not (game.nav_intent is not None and game.nav_intent.requires_hold):
             dest_x, dest_z, room, object_idx = payload
             apply_click_intent(game, dest_x, dest_z, room, target_object_idx=object_idx,
