@@ -10,7 +10,7 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 - Python 3.12, `.venv/`; deps: pygame-ce, moderngl, numpy, pytest — no more.
   `tools/bootstrap_materials.py` reaches Gemini through the `agy` CLI
   (`subprocess`), so the one external service costs no Python dependency
-- Version 0.8.0 (`pyproject.toml`); GPL-2.0-only
+- Version 0.9.0 (`pyproject.toml`); GPL-2.0-only
 
 ## Commands
 

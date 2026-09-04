@@ -16,7 +16,7 @@ textures ?= data/aitd1/textures
 # the mixer from opening a device on machines that have one.
 HEADLESS = SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy
 
-.PHONY: help install run run-combat run-mouse-combat test test-engine test-render test-shell test-tools test-meta test-journey proof-mouse proof-combat proof-graphics proof-intro prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro prove-persistence compare export-textures check-textures clean
+.PHONY: help install run run-combat run-mouse-combat test test-engine test-render test-shell test-tools test-meta test-journey test-controls record-controls-golden proof-mouse proof-combat proof-graphics proof-intro prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro prove-persistence compare export-textures check-textures clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -62,7 +62,7 @@ test-engine: install ## Engine group: simulation, LIFE VM, formats, actors, anim
 test-render: install ## Render group: scene, geometry, both backends, asset resolution, texture export and check
 	$(HEADLESS) $(PYTHON) -m pytest -m render -q
 
-test-shell: install ## Shell group: event pump, settings, CLI, UI screens and modals
+test-shell: install ## Shell group: event pump, controls, settings, CLI, UI screens and modals
 	$(HEADLESS) $(PYTHON) -m pytest -m shell -q
 
 test-tools: install ## Tools group: the standalone scripts under tools/
@@ -73,6 +73,12 @@ test-meta: install ## Meta group: the repo's own rules (package layering, test g
 
 test-journey: install ## Journey group: real run() event pump and long real-data simulations
 	$(HEADLESS) $(PYTHON) -m pytest -m journey -q
+
+test-controls: install ## The input package alone: bindings, keyboard, pointer decisions, snapshot, modals, layering pins, and the recorded-events golden
+	$(HEADLESS) $(PYTHON) -m pytest tests/test_controls_bindings.py tests/test_controls_keyboard.py tests/test_controls_pointer.py tests/test_controls_pointer_state.py tests/test_controls_snapshot.py tests/test_controls_modals.py tests/test_controls_golden.py tests/test_layering.py -q
+
+record-controls-golden: install ## Re-record tests/golden/controls_events.json — only when a mouse/keyboard behaviour change is the point; say why in the commit
+	PYAITD_RECORD_GOLDEN=1 $(HEADLESS) $(PYTHON) -m pytest tests/test_controls_golden.py -q
 
 # ── Artifact proofs (need GL and real game data) ─────────────────────────────
 

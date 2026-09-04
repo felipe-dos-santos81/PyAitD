@@ -143,12 +143,15 @@ pack's digest and refuse to load against a different pack or none.
 PyAitD/engine/   simulation ported from FITD — no pygame, no GL, no game constants
 PyAitD/render/   frame description → pixels (GL and software backends)
 PyAitD/games/    per-game GameProfile + opcode handlers; aitd1/ is the only game
-PyAitD/app/      window, event pump, settings, CLI
+PyAitD/app/      window, event pump, settings, CLI, UI screens
+PyAitD/app/controls/  input: actions, bindings, keyboard/pointer state, routing, cursor
 tools/           proofs, texture exporters, materials bootstrap, compare harness
 ```
 
 `render/` and `games/` import only `engine/`; `engine/` imports none of the
-others; `app/` may import everything, and `tests/test_layering.py` enforces it.
+others; `app/` may import everything, `app/controls/` never imports the shell or the
+renderer, `app/ui.py` never imports `controls`, and `tests/test_layering.py`
+enforces all of it.
 `AGENTS.md` says where new code goes; `CONTEXT.md` maps every file.
 
 ## Tests
@@ -157,11 +160,17 @@ others; `app/` may import everything, and `tests/test_layering.py` enforces it.
 make test              # whole suite, headless (real game data where available)
 make test-engine       # simulation, LIFE VM, formats, actors, anim, collision, navmesh, picking
 make test-render       # scene, geometry, both backends, asset resolution, texture export/check
-make test-shell        # event pump, settings, CLI, UI screens and modals
+make test-shell        # event pump, controls, settings, CLI, UI screens and modals
 make test-tools        # the standalone scripts under tools/
 make test-meta         # the repo's own rules (package layering, test grouping)
 make test-journey      # real run() event pump and long real-data simulations
+make test-controls     # the input package alone, including the recorded-events golden
 ```
+
+Mouse and keyboard behaviour is pinned by a recorded session
+(`tests/golden/controls_events.json`). It stays byte-identical across refactors;
+when a behaviour change is the point, `make record-controls-golden` re-records
+it and the commit says why.
 
 Proof targets (most need game data, some need GL):
 
@@ -191,7 +200,8 @@ Done: M1 data layer, M2 actors, M3a LIFE script VM, M3b interaction, M3c
 combat, M3d/M3e mouse-only input, M4a1 shell, M4a2 save/load, the full
 enhanced-rendering roadmap, all four of roadmap 2's sub-projects (motion
 interpolation, actor surface textures, light transport, atmosphere), and the
-`make compare` live mirror. The game boots into an asset-faithful character
+`make compare` live mirror, and the input layer's move into `app/controls/`
+(engine-owned input snapshot, pure gesture state, layering pins). The game boots into an asset-faithful character
 selector, the attic is fully interactive by mouse or keyboard, and progress
 persists across sessions. Several renderer-proof attestation rows still await a
 human's eye on real fixtures.

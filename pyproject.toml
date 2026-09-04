@@ -1,6 +1,6 @@
 [project]
 name = "PyAitD"
-version = "0.8.0"
+version = "0.9.0"
 description = "Alone in the Dark 1 engine reimplementation (Python/pygame-ce/ModernGL)"
 requires-python = ">=3.12"
 license = "GPL-2.0-only"
@@ -34,7 +34,7 @@ addopts = "--strict-markers"
 markers = [
     "engine: simulation, LIFE VM, formats, actors, animation, tracks, collision, navmesh, picking, AITD1 opcode handlers",
     "render: FrameDescription to pixels: scene, geometry, both backends, asset resolution, override export and check",
-    "shell: app/: window, event pump, settings schema and persistence, CLI, UI screens and modals",
+    "shell: app/: window, event pump, the controls package (actions, bindings, pointer/keyboard state, routing, cursor), settings schema and persistence, CLI, UI screens and modals",
     "tools: standalone scripts under tools/",
     "meta: the repo's own rules rather than its behaviour",
     "journey: drives the real run() event pump or a long real-data simulation",

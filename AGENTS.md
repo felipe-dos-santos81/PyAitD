@@ -370,8 +370,10 @@ is the pin.
   `hit_test_*` input.
 - `app/ui.py` never mutates world/actor/inventory/LIFE state; `app/config.py`
   is pygame-free settings schema/persistence; `app/shell.py` owns the single
-  event pump, the settings lifecycle, game/floor replacement, and one present
-  per frame. Settings live on `ModalSession`, never `Game`.
+  event pump, game/floor replacement, and one present per frame;
+  `app/controls/router.py` owns what a click or action does to the session
+  (menu policy, saves, settings persistence). Settings live on `ModalSession`,
+  never `Game`.
 - `render/texture_export.py` and `render/texture_check.py` are pure like
   `render/scene.py`; PNG encoding lives only in `tools/`. The export
   directory layout is `render/asset_resolver.texture_background_path`'s and
@@ -480,4 +482,5 @@ is the pin.
   `tests/test_controls_pointer.py` or `tests/test_controls_keyboard.py` first,
   and must keep `tests/test_controls_golden.py` byte-identical unless the
   change is the point, in which case re-record with
-  `PYAITD_RECORD_GOLDEN=1` and say why in the commit.
+  `make record-controls-golden` (`PYAITD_RECORD_GOLDEN=1`) and say why in the
+  commit.
