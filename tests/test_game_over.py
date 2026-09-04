@@ -4,7 +4,7 @@
 never mid-loop."""
 import pytest
 
-from PyAitD.app.shell import route_command, route_mouse
+from PyAitD.app.controls.router import route_command, route_mouse
 from PyAitD.engine.script.effects import GameMode, GameOver
 from PyAitD.engine.script.game import init_game
 from PyAitD.engine.script.playworld import IDLE, play_tick

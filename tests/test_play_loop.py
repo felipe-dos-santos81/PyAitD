@@ -685,7 +685,7 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_texture_dir(monkeypa
         load_floor=lambda number: SimpleNamespace(number=0),
     )
     monkeypatch.setattr(main, "init_game", lambda data, profile, hero, pack=None: new_game)
-    monkeypatch.setattr(main, "_take_over_play_input", lambda *a: None)
+    monkeypatch.setattr(main, "take_over_play_input", lambda *a: None)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (None, []))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
 
@@ -725,7 +725,7 @@ def test_restart_branch_builds_its_resolver_from_the_session_s_texture_dir(monke
         load_floor=lambda number: SimpleNamespace(number=0),
     )
     monkeypatch.setattr(main, "restart_session", lambda game: new_game)
-    monkeypatch.setattr(main, "_take_over_play_input", lambda *a: None)
+    monkeypatch.setattr(main, "take_over_play_input", lambda *a: None)
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (None, []))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
 
@@ -840,7 +840,9 @@ def test_depth_sort_y_bands():
     assert len(order) == 2
 
 
-from PyAitD.app.shell import _is_interactable, resolve_play_click, route_play_click
+from PyAitD.app.controls import router
+from PyAitD.app.controls.router import is_interactable, resolve_play_click, route_play_click
+from PyAitD.engine.nav.navmesh import TARGET_SNAP_CELLS
 from PyAitD.engine.script.effects import GameMode, InputMode
 from PyAitD.engine.script.game import AF_ANIMATED, AF_FOUNDABLE
 from PyAitD.engine.script.interaction import _finish_take, inventory_items
@@ -889,7 +891,7 @@ def test_a_click_on_an_actor_becomes_a_target_intent(data_dir, profile):
         i for i, a in enumerate(game.actors)
         if a.index_in_world >= 0 and a.body_num != -1
         and i != game.current_camera_target_actor
-        and _is_interactable(game, i)
+        and is_interactable(game, i)
     )
     draw_list = [(other_idx, (100, 60, 200, 160))]
     route_play_click(game, ModalSession(), floor, (150, 100), draw_list)
@@ -1008,7 +1010,7 @@ def test_a_cell_that_cannot_be_snapped_walks_the_hero_toward_it(
     assert resolve_play_click(game, floor, pixel, [])[0] == "walk", (
         "the fixture pixel must be an ordinary walkable one"
     )
-    monkeypatch.setattr(main, "nearest_walkable", lambda *a, **k: None)
+    monkeypatch.setattr(router, "nearest_walkable", lambda *a, **k: None)
     start = (hero.room_x + hero.step_x, hero.room_z + hero.step_z)
     buf = held_pointer(pixel)
 
@@ -1028,9 +1030,9 @@ def test_a_cell_that_cannot_be_snapped_walks_the_hero_toward_it(
 def main_pick_floor_any_room(game, floor, pixel):
     import PyAitD.app.shell as main
     hero = game.actors[game.current_camera_target_actor]
-    return main.pick_floor_any_room(
+    return router.pick_floor_any_room(
         pixel, floor, hero.room, game.num_camera, hero.world_y,
-        agent=main.agent_extent(hero),
+        agent=router.agent_extent(hero),
     )
 
 
@@ -1047,7 +1049,7 @@ def test_a_snap_past_the_budget_steers_instead_of_walking_somewhere_else(
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     hero = game.actors[game.current_camera_target_actor]
-    agent = main.agent_extent(hero)
+    agent = router.agent_extent(hero)
     # Bottom-of-screen pixels foreshorten so hard that even a blocked cell's
     # nearest walkable neighbour can project dozens of pixels away -- past
     # any camera slot's budget. Loop slots inside the pixel scan (as the task
@@ -1056,7 +1058,7 @@ def test_a_snap_past_the_budget_steers_instead_of_walking_somewhere_else(
     found = None
     for p in _sampled_pixels():
         for slot in range(len(floor.rooms[hero.room].camera_indices)):
-            hit = main.pick_floor_any_room(p, floor, hero.room, slot, hero.world_y, agent=agent)
+            hit = router.pick_floor_any_room(p, floor, hero.room, slot, hero.world_y, agent=agent)
             if hit is None or game.nav_meshes.mesh_for(floor, hit[2], agent).is_walkable(hit[0], hit[1]):
                 continue
             game.num_camera = slot
@@ -1074,7 +1076,7 @@ def test_a_snap_past_the_budget_steers_instead_of_walking_somewhere_else(
     def refusing(mesh, x, z, max_cells=6, accept=None):
         seen["accept"] = accept
         return None
-    monkeypatch.setattr(main, "nearest_walkable", refusing)
+    monkeypatch.setattr(router, "nearest_walkable", refusing)
     kind, payload = resolve_play_click(game, floor, pixel, [])
     assert kind == "steer"
     assert callable(seen["accept"]), "the resolver did not hand nearest_walkable a filter"
@@ -1090,12 +1092,12 @@ def test_object_approach_uses_a_visibility_filter(data_dir, profile, monkeypatch
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     seen = {}
-    real = main.approach_cell
+    real = router.approach_cell
 
-    def spy(mesh, x, z, from_x, from_z, max_cells=main.TARGET_SNAP_CELLS, accept=None):
+    def spy(mesh, x, z, from_x, from_z, max_cells=TARGET_SNAP_CELLS, accept=None):
         seen["accept"] = accept
         return real(mesh, x, z, from_x, from_z, max_cells, accept)
-    monkeypatch.setattr(main, "approach_cell", spy)
+    monkeypatch.setattr(router, "approach_cell", spy)
     # world object 13 (actor 10) is floor 0's clickable interactable; hand the
     # resolver its bbox so the click lands on it
     target = game.actors[10]
@@ -1114,15 +1116,15 @@ def test_an_object_with_no_visible_approach_cell_retries_unfiltered(data_dir, pr
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
-    real = main.approach_cell
+    real = router.approach_cell
     calls = []
 
-    def spy(mesh, x, z, from_x, from_z, max_cells=main.TARGET_SNAP_CELLS, accept=None):
+    def spy(mesh, x, z, from_x, from_z, max_cells=TARGET_SNAP_CELLS, accept=None):
         calls.append(accept)
         if accept is not None:
             return None      # the filtered search finds nothing
         return real(mesh, x, z, from_x, from_z, max_cells, accept)
-    monkeypatch.setattr(main, "approach_cell", spy)
+    monkeypatch.setattr(router, "approach_cell", spy)
     target = game.actors[10]
     draw_list = [(10, (0, 0, 319, 199))]
     kind, payload = resolve_play_click(game, floor, (160, 100), draw_list)
@@ -1147,7 +1149,7 @@ def test_an_object_with_no_approach_cell_at_all_still_targets_its_centre(
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
-    monkeypatch.setattr(main, "approach_cell", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(router, "approach_cell", lambda *_args, **_kwargs: None)
     target = game.actors[10]
     kind, payload = resolve_play_click(game, floor, (160, 100), [(10, (0, 0, 319, 199))])
 
@@ -1202,7 +1204,7 @@ def test_pointer_invalidation_routes_mouseup_and_focus_loss(data_dir, profile):
         main.pygame.event.Event(main.pygame.WINDOWFOCUSLOST),
     ):
         apply_click_intent(game, 100, 200, hero.room, 4, requires_hold=True)
-        assert main._cancel_pointer_invalidation(game, event, ControlsState()) is True
+        assert router.cancel_pointer_invalidation(game, event, ControlsState()) is True
         assert game.nav_intent is None
 
 
@@ -1611,7 +1613,7 @@ def test_clicking_floor_zero_s_interactable_walks_there_and_dispatches(data_dir,
     target_idx = next(
         i for i, a in enumerate(game.actors)
         if a.index_in_world >= 0 and a.body_num != -1
-        and i != game.current_camera_target_actor and _is_interactable(game, i)
+        and i != game.current_camera_target_actor and is_interactable(game, i)
     )
     entry = _real_draw_list_entry(game, floor, target_idx)
     box = entry[1]
@@ -1697,12 +1699,12 @@ def test_pointer_invalidation_cancels_a_plain_walk_intent(data_dir, profile):
     ):
         buf = ControlsState(pointer=PointerState(held=True, follow_last=(100, 200, hero.room, -1)))
         apply_click_intent(game, 100, 200, hero.room)
-        assert main._cancel_pointer_invalidation(game, event, buf) is True
+        assert router.cancel_pointer_invalidation(game, event, buf) is True
         assert game.nav_intent is None
         assert buf.pointer.follow_last is None
     up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
-    assert main._cancel_pointer_invalidation(game, up, ControlsState()) is False
-    assert main._cancel_pointer_invalidation(game, up, buf) is False, (
+    assert router.cancel_pointer_invalidation(game, up, ControlsState()) is False
+    assert router.cancel_pointer_invalidation(game, up, buf) is False, (
         "a second release on an already-cleared buffer is a no-op"
     )
 
@@ -1806,17 +1808,17 @@ def test_the_approach_bias_is_converted_into_the_target_room_s_frame(data_dir, p
     game, floor, hero, target, draw_list = _cross_room_target_setup(data_dir, profile)
 
     seen = {}
-    original = main.approach_cell
+    original = router.approach_cell
 
     def spy(mesh, x, z, from_x, from_z, **kwargs):
         seen["from"] = (from_x, from_z)
         return original(mesh, x, z, from_x, from_z, **kwargs)
 
-    main.approach_cell = spy
+    router.approach_cell = spy
     try:
         kind, _args = resolve_play_click(game, floor, (150, 100), draw_list)
     finally:
-        main.approach_cell = original
+        router.approach_cell = original
 
     assert kind == "target"
     assert "from" in seen, "approach_cell was never reached"
@@ -1842,17 +1844,17 @@ def test_a_same_room_target_passes_the_hero_position_unchanged(data_dir, profile
     target.room_x, target.room_z = hero.room_x + 900, hero.room_z + 900
 
     seen = {}
-    original = main.approach_cell
+    original = router.approach_cell
 
     def spy(mesh, x, z, from_x, from_z, **kwargs):
         seen["from"] = (from_x, from_z)
         return original(mesh, x, z, from_x, from_z, **kwargs)
 
-    main.approach_cell = spy
+    router.approach_cell = spy
     try:
         resolve_play_click(game, floor, (150, 100), draw_list)
     finally:
-        main.approach_cell = original
+        router.approach_cell = original
 
     assert seen.get("from") == (hero.room_x, hero.room_z)
 
@@ -1865,7 +1867,7 @@ def test_inventory_hud_wins_before_world_resolution(data_dir, profile, monkeypat
     game.num_camera = game.new_num_camera
     _finish_take(game, 38)
     monkeypatch.setattr(
-        main,
+        router,
         "pick_floor_any_room",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("HUD leaked to world picking")),
     )
@@ -1885,7 +1887,7 @@ def test_inventory_hud_effective_padding_has_priority_and_exclusive_far_edges(
     _finish_take(game, 38)
     calls = []
     monkeypatch.setattr(
-        main, "pick_floor_any_room",
+        router, "pick_floor_any_room",
         lambda *args, **kwargs: calls.append(args) or None,
     )
     padded_points = (
@@ -1984,7 +1986,7 @@ def test_expansion_only_overlap_keeps_the_frontmost_actor(data_dir, profile):
 
 
 def test_original_actor_hit_wins_over_a_frontmost_expanded_actor(data_dir, profile):
-    from PyAitD.app.shell import expand_actor_targets
+    from PyAitD.app.controls.router import expand_actor_targets
     from PyAitD.engine.nav.picking import pick_actor
 
     game = init_game(data_dir, profile)
@@ -2015,11 +2017,11 @@ def test_expanded_actor_target_wins_before_floor_walking(data_dir, profile, monk
     actor_idx = _expanded_target_candidates(game)[0]
     game.actors[actor_idx].object_type |= AF_FOUNDABLE
     hero = game.actors[game.current_camera_target_actor]
-    # the shell imported pick_floor_any_room by name, so it reads its OWN
+    # router imported pick_floor_any_room by name, so it reads its OWN
     # module global; patching engine.nav.picking here would be inert. The
-    # stand-in takes **kwargs because the shell passes agent=.
+    # stand-in takes **kwargs because router passes agent=.
     monkeypatch.setattr(
-        main, "pick_floor_any_room",
+        router, "pick_floor_any_room",
         lambda *_args, **_kwargs: (0, 0, hero.room),
     )
 
@@ -2154,7 +2156,7 @@ def test_releasing_the_button_does_not_cancel_an_accepted_attack(data_dir, profi
     game, _session, state = _click_to_attack(data_dir, profile)
     release = pygame.event.Event(pygame.MOUSEBUTTONUP, button=1, pos=(150, 100))
 
-    assert main._cancel_pointer_invalidation(game, release, state) is False
+    assert router.cancel_pointer_invalidation(game, release, state) is False
     feed_event(state, release, (150, 100))
 
     assert game.mouse_attack_target is not None
@@ -2168,7 +2170,7 @@ def test_modal_takeover_cannot_leave_an_attack_to_resume_later(data_dir, profile
 
     game, session, state = _click_to_attack(data_dir, profile)
 
-    main._take_over_play_input(game, session, state)
+    router.take_over_play_input(game, session, state)
 
     assert (game.mouse_attack_target, game.mouse_attack_ticks) == (None, 0)
 
@@ -2185,7 +2187,7 @@ def test_focus_loss_cannot_leave_an_attack_to_resume_later(data_dir, profile):
     # which only owns the ControlsState's own fields.
     event = pygame.event.Event(pygame.WINDOWFOCUSLOST)
     feed_event(state, event)
-    main._cancel_pointer_invalidation(game, event, state)
+    router.cancel_pointer_invalidation(game, event, state)
 
     assert (game.mouse_attack_target, game.mouse_attack_ticks) == (None, 0)
 
@@ -2341,11 +2343,10 @@ def test_run_presents_only_the_selector_until_a_hero_is_chosen(data_dir, profile
 
 
 def _resolving(monkeypatch, results):
-    """Queue (kind, payload) pairs for shell.resolve_play_click; returns the
+    """Queue (kind, payload) pairs for router.resolve_play_click; returns the
     queue so a test can assert how many resolutions were consumed."""
-    import PyAitD.app.shell as main
     queue = list(results)
-    monkeypatch.setattr(main, "resolve_play_click", lambda *args: queue.pop(0))
+    monkeypatch.setattr(router, "resolve_play_click", lambda *args: queue.pop(0))
     return queue
 
 
@@ -2549,7 +2550,7 @@ def test_release_and_a_fresh_press_clears_follow_spent(data_dir, profile, monkey
     assert state.pointer.spent is True
 
     up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
-    main._cancel_pointer_invalidation(game, up, state)
+    router.cancel_pointer_invalidation(game, up, state)
     assert state.pointer.spent is False, "release clears the spent hold"
 
     hero = game.actors[game.current_camera_target_actor]
@@ -2781,7 +2782,7 @@ def test_release_clears_the_settle_state(data_dir, profile):
     assert buf.pointer.settle_origin is not None
 
     up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
-    main._cancel_pointer_invalidation(game, up, buf)
+    router.cancel_pointer_invalidation(game, up, buf)
     assert buf.pointer.settle_origin is None
     assert buf.pointer.follow_camera is None
     assert game.nav_intent is None
@@ -2794,7 +2795,7 @@ def test_a_floor_change_clears_the_settle_state_but_keeps_the_hold(data_dir, pro
     )
     buf.pointer.settle_origin = pixel
     buf.pointer.follow_camera = cut_slot
-    main._rebase_follow(game, buf)
+    router.rebase_follow(game, buf)
     assert buf.pointer.settle_origin is None
     assert buf.pointer.follow_camera is None
     assert buf.pointer.follow_pos is None
@@ -2831,7 +2832,7 @@ def test_a_floor_change_keeps_the_hold_and_re_resolves_a_still_pointer(
     main.follow_pointer(game, ModalSession(), floor, buf.pointer.pos, [], buf)
     assert game.nav_intent is not None
 
-    assert main._rebase_follow(game, buf) is True   # what run() does at the swap
+    assert router.rebase_follow(game, buf) is True   # what run() does at the swap
     assert game.nav_intent is None, "the old floor's destination is dropped"
     assert buf.pointer.held is True and buf.pointer.spent is False, (
         "the hold outlives the floor it started on"
@@ -2852,10 +2853,10 @@ def test_release_still_ends_a_hold_rebased_by_a_floor_change(data_dir, profile,
     _resolving(monkeypatch, [("walk", near)])
     buf.pointer.pos = (10, 10)
     main.follow_pointer(game, ModalSession(), floor, buf.pointer.pos, [], buf)
-    main._rebase_follow(game, buf)
+    router.rebase_follow(game, buf)
 
     up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
-    main._cancel_pointer_invalidation(game, up, buf)
+    router.cancel_pointer_invalidation(game, up, buf)
 
     assert game.nav_intent is None
     assert (buf.pointer.follow_last, buf.pointer.follow_pos, buf.pointer.spent) == (None, None, False)
@@ -2875,7 +2876,7 @@ def _primed(main, game, floor, buf, near, monkeypatch, tick=100):
     """A hold opened at `tick` and released, so the next press has something
     to be the second half of."""
     intent = _press(main, game, floor, buf, near, monkeypatch, tick)
-    main._cancel_follow(game, buf)
+    router.cancel_follow(game, buf)
     return intent
 
 
@@ -2975,7 +2976,7 @@ def test_a_double_press_never_resumes_a_bearing(data_dir, profile, monkeypatch):
     game.timer = 100
     route_play_click(game, ModalSession(), floor, pixel, [], buf)
     stale = (game.nav_intent.dest_x, game.nav_intent.dest_z)
-    main._cancel_follow(game, buf)
+    router.cancel_follow(game, buf)
 
     hero.room_x += 900          # he walked while the button was up
     game.timer = 103
@@ -3038,7 +3039,7 @@ def test_a_floor_change_drops_the_resumable_destination(
     _primed(main, game, floor, buf, near, monkeypatch)
     assert buf.pointer.resume_last == near
 
-    main._rebase_follow(game, buf)
+    router.rebase_follow(game, buf)
 
     assert (buf.pointer.resume_last, buf.pointer.resume_pos) == (None, None)
     intent = _press(main, game, floor, buf, far, monkeypatch, 103)
@@ -3073,7 +3074,7 @@ def test_release_ends_the_run_but_keeps_the_press_clock(
     assert buf.pointer.run is True
 
     up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
-    main._cancel_pointer_invalidation(game, up, buf)
+    router.cancel_pointer_invalidation(game, up, buf)
 
     assert buf.pointer.run is False, "the run ends with the hold"
     assert buf.pointer.last_press_tick == 105

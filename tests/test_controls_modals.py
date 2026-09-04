@@ -5,8 +5,11 @@ from PyAitD.engine.script.effects import FoundResult
 from PyAitD.app.ui import (
     CharacterPhase, CharacterSelectPresenter, CharacterSelectResult,
     FoundPresenter, InventoryPresenter, SystemMenuPage,
-    SystemMenuPresenter, SystemMenuResult, capture_system_key, config_row_count,
-    reduce_character_select, reduce_found, reduce_inventory, reduce_system_menu,
+    SystemMenuPresenter, SystemMenuResult, config_row_count,
+)
+from PyAitD.app.controls.modals import (
+    capture_system_key, reduce_character_select, reduce_found, reduce_inventory,
+    reduce_system_menu,
 )
 import pytest
 
@@ -290,7 +293,8 @@ def test_choosing_a_control_row_opens_the_key_picker():
 
 
 def test_clicking_a_picker_cell_binds_and_returns_to_configuration():
-    from PyAitD.app.ui import PICKABLE_KEYS, pick_system_key
+    from PyAitD.app.ui import PICKABLE_KEYS
+    from PyAitD.app.controls.modals import pick_system_key
     state = SystemMenuPresenter(page=SystemMenuPage.KEY_PICK, capture="ACTION", cursor=5)
     result = pick_system_key(state, default_settings(), PICKABLE_KEYS.index("q"))
     assert result.settings.bindings["ACTION"] == ("q",)
@@ -300,7 +304,8 @@ def test_clicking_a_picker_cell_binds_and_returns_to_configuration():
 
 
 def test_picker_cancel_cell_keeps_settings_and_returns_to_configuration():
-    from PyAitD.app.ui import PICKABLE_KEYS, pick_system_key
+    from PyAitD.app.ui import PICKABLE_KEYS
+    from PyAitD.app.controls.modals import pick_system_key
     state = SystemMenuPresenter(page=SystemMenuPage.KEY_PICK, capture="ACTION", cursor=5)
     assert pick_system_key(state, default_settings(), len(PICKABLE_KEYS)) is None
     assert state.capture is None

@@ -12,7 +12,8 @@ import struct
 import numpy as np
 import pytest
 
-from PyAitD.app.shell import _auto_dismiss_picture, restart_session, route_mouse
+from PyAitD.app.shell import _auto_dismiss_picture, restart_session
+from PyAitD.app.controls.router import route_mouse
 from PyAitD.engine.actor.anim_action import (
     DO_TIR, FRAPPE_OK, THROW_OBJECT, WAIT_FRAPPE_ANIM, WAIT_FRAPPE_FRAME, gere_frappe,
 )

@@ -493,6 +493,7 @@ def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
     data_dir, profile, monkeypatch, tmp_path,
 ):
     import PyAitD.app.shell as main
+    from PyAitD.app.controls import router
 
     path = tmp_path / "settings.json"
     path.write_text("{ definitely not json", encoding="utf-8")
@@ -525,7 +526,7 @@ def test_corrupt_boot_and_save_failure_notices_dismiss_without_mode_change(
 
     save_calls = []
     monkeypatch.setattr(
-        main, "save_settings",
+        router, "save_settings",
         lambda *args: save_calls.append(args)
         or f"Could not save settings to {path}: forced failure",
     )

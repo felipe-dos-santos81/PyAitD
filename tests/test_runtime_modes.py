@@ -10,9 +10,11 @@ import pygame
 import pytest
 
 from PyAitD.app.shell import (
-    _apply_system_result, _capture_keydown, continue_available, open_startup_menu,
-    replacement_session, restart_session,
-    route_command, render_active_mode, route_hover, route_mouse,
+    _capture_keydown, replacement_session, render_active_mode, restart_session,
+)
+from PyAitD.app.controls.router import (
+    apply_system_result, continue_available, open_startup_menu,
+    route_command, route_hover, route_mouse,
 )
 from PyAitD.app.config import (
     REMAPPABLE_CONTROLS, Control, Settings, default_settings, load_settings,
@@ -151,7 +153,7 @@ def test_route_hover_previews_every_enabled_modal_and_shell_target_without_game_
     game.inventory_count[0] = 2
     game.open_modal(OpenInventory())
     monkeypatch.setattr(
-        "PyAitD.app.shell._inventory_view", lambda game, session: ((13, 38), (23, 24)),
+        "PyAitD.app.controls.router.inventory_view", lambda game, session: ((13, 38), (23, 24)),
     )
     before = _hover_game_snapshot(game)
     for row, target in enumerate((0, 1)):
@@ -644,7 +646,7 @@ def test_apply_system_result_pushes_a_changed_render_option_to_the_renderer():
     changed = replace(session.settings, render=RenderOptions(scale=6))
     result = SystemMenuResult(settings=changed)
 
-    assert _apply_system_result(object(), session, ControlsState(), result, renderer=renderer) is True
+    assert apply_system_result(object(), session, ControlsState(), result, renderer=renderer) is True
     assert calls == [RenderOptions(scale=6)]
     assert session.settings.render == RenderOptions(scale=6)
 
@@ -657,7 +659,7 @@ def test_apply_system_result_does_not_push_a_non_render_setting_change():
     changed = replace(session.settings, sticky_action=not session.settings.sticky_action)
     result = SystemMenuResult(settings=changed)
 
-    assert _apply_system_result(object(), session, ControlsState(), result, renderer=renderer) is True
+    assert apply_system_result(object(), session, ControlsState(), result, renderer=renderer) is True
     assert calls == []
     assert session.settings.sticky_action == changed.sticky_action
 
@@ -668,7 +670,7 @@ def test_apply_system_result_tolerates_a_missing_renderer():
     changed = replace(session.settings, render=RenderOptions(scale=8))
     result = SystemMenuResult(settings=changed)
 
-    assert _apply_system_result(object(), session, ControlsState(), result) is True
+    assert apply_system_result(object(), session, ControlsState(), result) is True
     assert session.settings.render == RenderOptions(scale=8)
 
 
@@ -707,7 +709,7 @@ def test_inventory_subview_transitions_clear_keyboard_and_mouse_hover(
     session = ModalSession()
     session.reset_for(effect)
     monkeypatch.setattr(
-        "PyAitD.app.shell._inventory_view", lambda game, session: ((13, 38), (23, 24)),
+        "PyAitD.app.controls.router.inventory_view", lambda game, session: ((13, 38), (23, 24)),
     )
     session.inventory.hover = 1
 
@@ -972,8 +974,8 @@ def test_repeated_modal_takeover_is_idempotent_without_presenter_reset(data_dir,
         keyboard=KeyboardState(action_held=True, held_joyd=8, queue=deque([Action.UP])),
     )
 
-    main._take_over_play_input(game, session, state)
-    main._take_over_play_input(game, session, state)
+    main.take_over_play_input(game, session, state)
+    main.take_over_play_input(game, session, state)
 
     assert session.last_effect is effect
     assert session.inventory is presenter
@@ -1031,7 +1033,7 @@ def test_failed_quit_save_stays_in_menu_with_live_settings(data_dir, profile, tm
     session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
     session.settings = Settings(dict(session.settings.bindings), True)
     session.system_menu.cursor = 5
-    monkeypatch.setattr("PyAitD.app.shell.save_settings", lambda *args: "Could not save settings to target: read only")
+    monkeypatch.setattr("PyAitD.app.controls.router.save_settings", lambda *args: "Could not save settings to target: read only")
     assert route_command(game, session, Action.ACTION, ControlsState()) is True
     assert game.mode is GameMode.SYSTEM_MENU
     assert session.settings.sticky_action is True
@@ -1063,7 +1065,7 @@ def test_failed_return_closes_to_play_and_keeps_the_named_error(data_dir, profil
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
     session.system_menu.cursor = 0
-    monkeypatch.setattr("PyAitD.app.shell.save_settings", lambda *args: "Could not save settings to target: read only")
+    monkeypatch.setattr("PyAitD.app.controls.router.save_settings", lambda *args: "Could not save settings to target: read only")
     assert route_command(game, session, Action.ACTION, ControlsState()) is True
     assert game.mode is GameMode.PLAY
     assert session.settings_dirty is True

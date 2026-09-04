@@ -431,9 +431,8 @@ def test_config_menu_save_does_not_persist_untouched_cli_render_overrides(tmp_pa
 
     import pygame
 
-    from PyAitD.app.shell import (
-        _apply_system_result, apply_render_overrides, load_runtime_session, parse_args,
-    )
+    from PyAitD.app.shell import apply_render_overrides, load_runtime_session, parse_args
+    from PyAitD.app.controls.router import apply_system_result
     from PyAitD.app.config import SCHEMA, default_settings
     from PyAitD.app.controls.snapshot import ControlsState
     from PyAitD.app.ui import SystemMenuResult
@@ -460,10 +459,10 @@ def test_config_menu_save_does_not_persist_untouched_cli_render_overrides(tmp_pa
     game = SimpleNamespace(close_modal=lambda: None)
     # The only row actually pressed in CONFIG: Sticky Action.
     toggle = SystemMenuResult(settings=replace(session.settings, sticky_action=True))
-    assert _apply_system_result(game, session, input_buffer, toggle) is True
+    assert apply_system_result(game, session, input_buffer, toggle) is True
     # Escape back out of the menu: closes and triggers the save.
     leave = SystemMenuResult(close=True, save=True)
-    assert _apply_system_result(game, session, input_buffer, leave) is True
+    assert apply_system_result(game, session, input_buffer, leave) is True
 
     on_disk = json.loads(settings_file.read_text(encoding="utf-8"))
     assert on_disk["sticky_action"] is True  # the one thing actually changed
@@ -486,9 +485,8 @@ def test_config_menu_save_persists_a_render_field_the_player_actually_cycled(tmp
 
     import pygame
 
-    from PyAitD.app.shell import (
-        _apply_system_result, apply_render_overrides, load_runtime_session, parse_args,
-    )
+    from PyAitD.app.shell import apply_render_overrides, load_runtime_session, parse_args
+    from PyAitD.app.controls.router import apply_system_result
     from PyAitD.app.config import SCHEMA, default_settings
     from PyAitD.render.render_options import cycle_shading
     from PyAitD.app.controls.snapshot import ControlsState
@@ -514,9 +512,9 @@ def test_config_menu_save_persists_a_render_field_the_player_actually_cycled(tmp
     cycled = SystemMenuResult(
         settings=replace(session.settings, render=cycle_shading(session.settings.render)),
     )
-    assert _apply_system_result(game, session, input_buffer, cycled) is True
+    assert apply_system_result(game, session, input_buffer, cycled) is True
     leave = SystemMenuResult(close=True, save=True)
-    assert _apply_system_result(game, session, input_buffer, leave) is True
+    assert apply_system_result(game, session, input_buffer, leave) is True
 
     on_disk = json.loads(settings_file.read_text(encoding="utf-8"))
     # The explicitly-cycled field persists...

@@ -95,7 +95,7 @@ def test_pick_actor_returns_the_topmost_hit():
 
 
 def test_expanded_actor_target_reaches_a_tiny_actor_s_minimum_size():
-    from PyAitD.app.shell import expand_actor_targets
+    from PyAitD.app.controls.router import expand_actor_targets
 
     # A four-pixel square must become a 12x12 logical target. The expectation
     # is hand-derived: two pixels of padding make it 8x8, then the minimum

@@ -8,6 +8,8 @@ from PyAitD.app.ui import (
     SettingsNoticeLayout, SystemMenuLayout, SystemMenuPage,
     SystemMenuPresenter,
     effective_rects,
+)
+from PyAitD.app.controls.modals import (
     hit_test_character, hit_test_found, hit_test_inventory, hit_test_reading,
     hit_test_settings_notice, hit_test_system_menu,
 )
