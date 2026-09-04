@@ -154,6 +154,11 @@ def test_subjects_partition_the_suite_and_only_known_markers_are_used():
 # expression no longer covers what a proof document says it proves --
 # fix the marker or the expression. Never edit this table to make a
 # failure go away: that silently invalidates the proof docs' evidence.
+# Exception: `test_ui_input` -> `test_controls_pointer_state` below tracks
+# 2026-09-03's `git mv tests/test_ui_input.py tests/test_controls_pointer_state.py`
+# (controls refactor task 4) -- the file's content and `shell` marker carry
+# over intact under the new name, so the two entries follow it rather than
+# citing a filename that no longer exists.
 LEGACY_GATE_FILES = {
     "prove": ["test_prove_m3a"],
     "prove-m3b": [
@@ -162,14 +167,14 @@ LEGACY_GATE_FILES = {
         "test_m3b_attic",
     ],
     "prove-shell": [
-        "test_config", "test_assets", "test_effects", "test_ui_input",
+        "test_config", "test_assets", "test_effects", "test_controls_pointer_state",
         "test_ui_reducers", "test_ui_mouse", "test_ui_render",
         "test_runtime_modes", "test_main", "test_mouse_only",
         "test_startup", "test_shell_journeys",
     ],
     "prove-mouse-only": ["test_mouse_only"],
     "prove-mouse-accessibility": [
-        "test_ui_input", "test_ui_reducers", "test_ui_mouse", "test_ui_render",
+        "test_controls_pointer_state", "test_ui_reducers", "test_ui_mouse", "test_ui_render",
         "test_play_loop", "test_runtime_modes", "test_main", "test_mouse_only",
         "test_shell_journeys",
     ],

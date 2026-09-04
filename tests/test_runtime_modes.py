@@ -28,9 +28,11 @@ from PyAitD.games.aitd1.scenario import COMBAT_VENUE, enter_combat_venue
 from PyAitD.app.startup import StartupLayout, StartupRow, TitlePhase, TITLE_TIMEOUT_MS
 from PyAitD.app.controls.actions import Action
 from PyAitD.app.controls.keyboard import KeyboardState
+from PyAitD.app.controls.pointer import PointerState
+from PyAitD.app.controls.snapshot import ControlsState
 from PyAitD.app.ui import (
     CharacterLayout, CharacterPhase, CharacterSelectPresenter,
-    InputBuffer, ModalLayout, ModalSession, ReadingResult, SettingsNoticeLayout,
+    ModalLayout, ModalSession, ReadingResult, SettingsNoticeLayout,
     SystemMenuLayout, SystemMenuPage, SystemMenuPresenter, SystemMenuResult,
 )
 
@@ -453,8 +455,8 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
     staging.local_joyd, staging.local_click, staging.action = (8, 1, 0x2000)
     session = ModalSession(settings_error="named error", settings_dirty=True)
     session.pending_hero = 1
-    old_buffer = InputBuffer(
-        pointer_held=True,
+    old_buffer = ControlsState(
+        pointer=PointerState(held=True),
         keyboard=KeyboardState(action_held=True, held_joyd=8, queue=deque([Action.ACTION])),
     )
 
@@ -487,7 +489,7 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
     assert new_game is not staging
     assert new_game.trace is staging.trace
     assert floor_calls == [(new_game, new_game.current_floor)]
-    assert isinstance(new_buffer, InputBuffer) and new_buffer.bindings is not None
+    assert isinstance(new_buffer, ControlsState) and new_buffer.keyboard.table is not None
     assert (new_session.settings_error, new_session.settings_dirty) == (
         "named error", True,
     )
@@ -498,8 +500,8 @@ def test_hero_branch_replaces_game_floor_session_and_input_atomically(data_dir, 
     assert ticked == [], "the old staging game must not be ticked"
     assert staging.nav_intent is None
     assert (staging.local_joyd, staging.local_click, staging.action) == (0, 0, 0)
-    assert (old_buffer.pointer_held, old_buffer.action_held,
-            old_buffer.held_joyd, list(old_buffer.commands)) == (
+    assert (old_buffer.pointer.held, old_buffer.keyboard.action_held,
+            old_buffer.keyboard.held_joyd, list(old_buffer.keyboard.queue)) == (
         False, False, 0, [],
     )
 
@@ -520,8 +522,8 @@ def test_restart_branch_carries_application_settings(data_dir, profile, monkeypa
     game.local_joyd, game.local_click, game.action = (8, 1, 0x2000)
     session = ModalSession(settings_error="named error", settings_dirty=True)
     session.character.choice = 1
-    old_buffer = InputBuffer(
-        pointer_held=True,
+    old_buffer = ControlsState(
+        pointer=PointerState(held=True),
         keyboard=KeyboardState(action_held=True, held_joyd=8, queue=deque([Action.ACTION])),
     )
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
@@ -537,11 +539,11 @@ def test_restart_branch_carries_application_settings(data_dir, profile, monkeypa
         "named error", True,
     )
     assert new_session.character == CharacterSelectPresenter()
-    assert isinstance(new_buffer, InputBuffer) and new_buffer.bindings is not None
+    assert isinstance(new_buffer, ControlsState) and new_buffer.keyboard.table is not None
     assert game.nav_intent is None
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
-    assert (old_buffer.pointer_held, old_buffer.action_held,
-            old_buffer.held_joyd, list(old_buffer.commands)) == (
+    assert (old_buffer.pointer.held, old_buffer.keyboard.action_held,
+            old_buffer.keyboard.held_joyd, list(old_buffer.keyboard.queue)) == (
         False, False, 0, [],
     )
 
@@ -642,7 +644,7 @@ def test_apply_system_result_pushes_a_changed_render_option_to_the_renderer():
     changed = replace(session.settings, render=RenderOptions(scale=6))
     result = SystemMenuResult(settings=changed)
 
-    assert _apply_system_result(object(), session, InputBuffer(), result, renderer=renderer) is True
+    assert _apply_system_result(object(), session, ControlsState(), result, renderer=renderer) is True
     assert calls == [RenderOptions(scale=6)]
     assert session.settings.render == RenderOptions(scale=6)
 
@@ -655,7 +657,7 @@ def test_apply_system_result_does_not_push_a_non_render_setting_change():
     changed = replace(session.settings, sticky_action=not session.settings.sticky_action)
     result = SystemMenuResult(settings=changed)
 
-    assert _apply_system_result(object(), session, InputBuffer(), result, renderer=renderer) is True
+    assert _apply_system_result(object(), session, ControlsState(), result, renderer=renderer) is True
     assert calls == []
     assert session.settings.sticky_action == changed.sticky_action
 
@@ -666,7 +668,7 @@ def test_apply_system_result_tolerates_a_missing_renderer():
     changed = replace(session.settings, render=RenderOptions(scale=8))
     result = SystemMenuResult(settings=changed)
 
-    assert _apply_system_result(object(), session, InputBuffer(), result) is True
+    assert _apply_system_result(object(), session, ControlsState(), result) is True
     assert session.settings.render == RenderOptions(scale=8)
 
 
@@ -679,7 +681,7 @@ def test_system_menu_subview_transitions_clear_keyboard_and_mouse_hover(data_dir
     session.system_menu.cursor = 4
     session.system_menu.hover = 2
 
-    assert route_command(game, session, Action.ACTION, InputBuffer())
+    assert route_command(game, session, Action.ACTION, ControlsState())
     assert (session.system_menu.page, session.system_menu.cursor) == (
         SystemMenuPage.CONFIG, 0,
     )
@@ -688,7 +690,7 @@ def test_system_menu_subview_transitions_clear_keyboard_and_mouse_hover(data_dir
     route_hover(game, session, SystemMenuLayout.CONFIG_ROWS[-1].center)
     assert session.system_menu.hover == len(SystemMenuLayout.CONFIG_ROWS) - 1
     assert route_mouse(
-        game, session, SystemMenuLayout.CONFIG_ROWS[-1].center, InputBuffer(),
+        game, session, SystemMenuLayout.CONFIG_ROWS[-1].center, ControlsState(),
     )
     assert (session.system_menu.page, session.system_menu.cursor) == (
         SystemMenuPage.MAIN, 0,
@@ -709,7 +711,7 @@ def test_inventory_subview_transitions_clear_keyboard_and_mouse_hover(
     )
     session.inventory.hover = 1
 
-    assert route_command(game, session, Action.ACTION, InputBuffer())
+    assert route_command(game, session, Action.ACTION, ControlsState())
     assert (session.inventory.choosing_action, session.inventory.action_cursor) == (True, 0)
     assert session.inventory.hover is None
 
@@ -717,7 +719,7 @@ def test_inventory_subview_transitions_clear_keyboard_and_mouse_hover(
     route_hover(game, session, ModalLayout.INVENTORY_HIT_ROWS[1].center)
     assert session.inventory.hover == 1
     assert route_mouse(
-        game, session, ModalLayout.INVENTORY_HIT_ROWS[1].center, InputBuffer(),
+        game, session, ModalLayout.INVENTORY_HIT_ROWS[1].center, ControlsState(),
     )
     assert (session.inventory.object_cursor, session.inventory.choosing_action,
             session.inventory.action_cursor) == (1, True, 0)
@@ -738,14 +740,14 @@ def test_reading_page_transitions_clear_hover_and_disable_the_new_page_target(
     next_page = ReadingResult(False, 1)
     session.reading.hover = next_page
 
-    assert route_command(game, session, Action.RIGHT, InputBuffer())
+    assert route_command(game, session, Action.RIGHT, ControlsState())
     assert session.reading.page == 1
     assert session.reading.hover is None
 
     session.reading.page = 0
     route_hover(game, session, ModalLayout.READING_NEXT.center)
     assert session.reading.hover == next_page
-    assert route_mouse(game, session, ModalLayout.READING_NEXT.center, InputBuffer())
+    assert route_mouse(game, session, ModalLayout.READING_NEXT.center, ControlsState())
     assert session.reading.page == 1
     assert session.reading.hover is None
 
@@ -762,7 +764,7 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, profile, mo
     from PyAitD.engine.script.game import Game
 
     frame = np.zeros((200, 320, 3), dtype=np.uint8)
-    buffer = InputBuffer()
+    buffer = ControlsState()
     session = ModalSession()
     event_batches = iter([[], [SimpleNamespace(type=main.pygame.QUIT)]])
     times = iter([0, 0, 0])
@@ -772,12 +774,12 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, profile, mo
     # seeded right after that boot step, still before the first pump.
     real_configure = main.configure_session_input
 
-    def seed_after_configure(session, input_buffer):
-        real_configure(session, input_buffer)
-        input_buffer.commands.extend([Action.INVENTORY_CONFIRM, Action.INVENTORY_CONFIRM])
+    def seed_after_configure(session, controls):
+        real_configure(session, controls)
+        controls.keyboard.queue.extend([Action.INVENTORY_CONFIRM, Action.INVENTORY_CONFIRM])
 
     monkeypatch.setattr(main, "configure_session_input", seed_after_configure)
-    monkeypatch.setattr(main, "InputBuffer", lambda: buffer)
+    monkeypatch.setattr(main, "ControlsState", lambda: buffer)
     monkeypatch.setattr(main, "ModalSession", lambda: session)
     monkeypatch.setattr(
         Game, "load_floor",
@@ -810,7 +812,7 @@ def test_run_flushes_leftover_command_edges_on_modal_entry(data_dir, profile, mo
     assert game.mode is GameMode.INVENTORY
     assert isinstance(game.active_modal, OpenInventory)
     assert session.inventory.choosing_action is False
-    assert list(buffer.commands) == []
+    assert list(buffer.keyboard.queue) == []
 
 
 @pytest.mark.parametrize(
@@ -833,8 +835,8 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
         joyd=8, target_x=100, target_z=200, advance=True, arrived=False,
     )
     game.local_joyd, game.local_click, game.action = (8, 1, 0x2000)
-    buffer = InputBuffer(
-        pointer_held=True, pointer_pos=(150, 100),
+    buffer = ControlsState(
+        pointer=PointerState(held=True, pos=(150, 100)),
         keyboard=KeyboardState(action_held=True, held_joyd=8),
     )
     session = ModalSession(last_effect=effect)
@@ -848,9 +850,9 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
 
     def raise_modal(current_game, _floor, _play_input):
         # play_tick's own argument is the PlayInput snapshot, not the live
-        # InputBuffer -- `buffer` (the outer closure variable) is the object
-        # main.InputBuffer() below is patched to always return.
-        buffer.commands.append(Action.UP)
+        # ControlsState -- `buffer` (the outer closure variable) is the object
+        # main.ControlsState() below is patched to always return.
+        buffer.keyboard.queue.append(Action.UP)
         current_game.open_modal(effect)
         current_game.current_floor = 1
 
@@ -860,8 +862,8 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
         assert (
             game.local_joyd, game.local_click, game.action,
         ) == (0, 0, 0)
-        assert not buffer.pointer_held
-        assert list(buffer.commands) == []
+        assert not buffer.pointer.held
+        assert list(buffer.keyboard.queue) == []
         if isinstance(effect, ShowFound):
             assert session.found.hover is None
         boundaries.append(boundary)
@@ -892,7 +894,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
     monkeypatch.setattr(main, "render_active_mode", assert_clean_before_render)
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
-    monkeypatch.setattr(main, "InputBuffer", lambda: buffer)
+    monkeypatch.setattr(main, "ControlsState", lambda: buffer)
     monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
     monkeypatch.setattr(main.pygame.display, "set_caption", lambda *_args: None)
@@ -911,7 +913,7 @@ def test_simulation_raised_modal_takeover_is_clean_before_floor_load_and_render(
 def test_escape_in_play_opens_system_menu_instead_of_quitting(data_dir, profile):
     game = init_game(data_dir, profile)
     session = ModalSession()
-    state = InputBuffer(keyboard=KeyboardState(
+    state = ControlsState(keyboard=KeyboardState(
         held_joyd=9, action_held=True, sticky_armed=True,
         action_pulse=True, queue=deque([Action.UP]),
     ))
@@ -930,8 +932,8 @@ def test_keyboard_system_menu_modal_takeover_cleans_play_input(data_dir, profile
     game.local_joyd, game.local_click, game.action = (8, 1, 0x2000)
     session = ModalSession()
     session.system_menu.hover = 2
-    state = InputBuffer(
-        pointer_held=True, pointer_pos=(150, 100),
+    state = ControlsState(
+        pointer=PointerState(held=True, pos=(150, 100)),
         keyboard=KeyboardState(action_held=True, held_joyd=8, queue=deque([Action.UP])),
     )
 
@@ -941,8 +943,8 @@ def test_keyboard_system_menu_modal_takeover_cleans_play_input(data_dir, profile
     assert game.nav_intent is None
     assert game.nav_decision is None
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
-    assert (state.pointer_held, state.pointer_pos, state.action_held,
-            state.held_joyd, list(state.commands)) == (
+    assert (state.pointer.held, state.pointer.pos, state.keyboard.action_held,
+            state.keyboard.held_joyd, list(state.keyboard.queue)) == (
         False, None, False, 0, [],
     )
     assert session.system_menu.hover is None
@@ -965,8 +967,8 @@ def test_repeated_modal_takeover_is_idempotent_without_presenter_reset(data_dir,
     session.elapsed_ms = 37
     presenter = session.inventory
     presenter.hover = 0
-    state = InputBuffer(
-        pointer_held=True, pointer_pos=(150, 100),
+    state = ControlsState(
+        pointer=PointerState(held=True, pos=(150, 100)),
         keyboard=KeyboardState(action_held=True, held_joyd=8, queue=deque([Action.UP])),
     )
 
@@ -979,8 +981,8 @@ def test_repeated_modal_takeover_is_idempotent_without_presenter_reset(data_dir,
     assert game.nav_intent is None
     assert game.nav_decision is None
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
-    assert (state.pointer_held, state.pointer_pos, state.action_held,
-            state.held_joyd, list(state.commands)) == (
+    assert (state.pointer.held, state.pointer.pos, state.keyboard.action_held,
+            state.keyboard.held_joyd, list(state.keyboard.queue)) == (
         False, None, False, 0, [],
     )
 
@@ -989,7 +991,7 @@ def test_system_menu_mouse_activates_configuration_and_return(data_dir, profile)
     game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession()
-    state = InputBuffer()
+    state = ControlsState()
     assert route_mouse(
         game, session, SystemMenuLayout.MAIN_ROWS[4].center, state,
     )
@@ -1009,12 +1011,12 @@ def test_configuration_saves_once_when_leaving_and_applies_immediately(data_dir,
     game = init_game(data_dir, profile)
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json")
-    state = InputBuffer()
+    state = ControlsState()
     session.system_menu.page = SystemMenuPage.CONFIG
     session.system_menu.cursor = 0
     assert route_command(game, session, Action.ACTION, state)
     assert session.settings.sticky_action is True
-    assert state.sticky_action is True
+    assert state.keyboard.sticky_action is True
     assert session.settings_dirty is True
     assert route_command(game, session, Action.CANCEL, state)
     assert session.system_menu.page is SystemMenuPage.MAIN
@@ -1030,7 +1032,7 @@ def test_failed_quit_save_stays_in_menu_with_live_settings(data_dir, profile, tm
     session.settings = Settings(dict(session.settings.bindings), True)
     session.system_menu.cursor = 5
     monkeypatch.setattr("PyAitD.app.shell.save_settings", lambda *args: "Could not save settings to target: read only")
-    assert route_command(game, session, Action.ACTION, InputBuffer()) is True
+    assert route_command(game, session, Action.ACTION, ControlsState()) is True
     assert game.mode is GameMode.SYSTEM_MENU
     assert session.settings.sticky_action is True
     assert session.settings_dirty is True
@@ -1042,7 +1044,7 @@ def test_clean_quit_saves_nothing_and_returns_false(data_dir, profile, tmp_path)
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json")
     session.system_menu.cursor = 5
-    assert route_command(game, session, Action.ACTION, InputBuffer()) is False
+    assert route_command(game, session, Action.ACTION, ControlsState()) is False
     assert not session.settings_path.exists()
 
 
@@ -1051,7 +1053,7 @@ def test_dirty_quit_saves_once_then_returns_false(data_dir, profile, tmp_path):
     game.open_modal(OpenSystemMenu())
     session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
     session.system_menu.cursor = 5
-    assert route_command(game, session, Action.ACTION, InputBuffer()) is False
+    assert route_command(game, session, Action.ACTION, ControlsState()) is False
     loaded, error = load_settings(session.settings_path)
     assert error is None
 
@@ -1062,7 +1064,7 @@ def test_failed_return_closes_to_play_and_keeps_the_named_error(data_dir, profil
     session = ModalSession(settings_path=tmp_path / "settings.json", settings_dirty=True)
     session.system_menu.cursor = 0
     monkeypatch.setattr("PyAitD.app.shell.save_settings", lambda *args: "Could not save settings to target: read only")
-    assert route_command(game, session, Action.ACTION, InputBuffer()) is True
+    assert route_command(game, session, Action.ACTION, ControlsState()) is True
     assert game.mode is GameMode.PLAY
     assert session.settings_dirty is True
     assert "read only" in session.settings_error
@@ -1075,7 +1077,7 @@ def test_successful_save_does_not_clear_an_existing_notice(data_dir, profile, tm
         settings_path=tmp_path / "settings.json",
         settings_error="old notice", settings_dirty=True,
     )
-    assert route_command(game, session, Action.CANCEL, InputBuffer()) is True
+    assert route_command(game, session, Action.CANCEL, ControlsState()) is True
     assert game.mode is GameMode.PLAY
     assert session.settings_error == "old notice"
     loaded, error = load_settings(session.settings_path)
@@ -1089,7 +1091,7 @@ def test_raw_capture_replaces_binding_without_activating_the_same_row(data_dir, 
     session.system_menu.page = SystemMenuPage.CONFIG
     session.system_menu.cursor = 1 + REMAPPABLE_CONTROLS.index(Control.ACTION)
     session.system_menu.capture = "ACTION"
-    state = InputBuffer()
+    state = ControlsState()
     handled, running = _capture_keydown(
         pygame.event.Event(pygame.KEYDOWN, key=pygame.K_q, repeat=False),
         game, session, state,
@@ -1097,7 +1099,7 @@ def test_raw_capture_replaces_binding_without_activating_the_same_row(data_dir, 
     assert (handled, running) == (True, True)
     assert session.settings.bindings["ACTION"] == ("q",)
     assert session.system_menu.capture is None
-    assert list(state.commands) == []
+    assert list(state.keyboard.queue) == []
 
 
 def test_capture_escape_cancels_and_repeat_is_swallowed(data_dir, profile):
@@ -1105,7 +1107,7 @@ def test_capture_escape_cancels_and_repeat_is_swallowed(data_dir, profile):
     game.open_modal(OpenSystemMenu())
     session = ModalSession()
     session.system_menu.capture = "ACTION"
-    state = InputBuffer()
+    state = ControlsState()
     repeat = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_q, repeat=True)
     assert _capture_keydown(repeat, game, session, state) == (True, True)
     assert session.system_menu.capture == "ACTION"
@@ -1118,14 +1120,14 @@ def test_capture_escape_cancels_and_repeat_is_swallowed(data_dir, profile):
 def test_opening_the_system_menu_drains_held_and_queued_input(data_dir, profile):
     game = init_game(data_dir, profile)
     session = ModalSession()
-    state = InputBuffer(keyboard=KeyboardState(
+    state = ControlsState(keyboard=KeyboardState(
         held_joyd=9, action_held=True, sticky_armed=True,
         action_pulse=True, queue=deque([Action.UP]),
     ))
     assert route_command(game, session, Action.CANCEL, state)
     assert game.mode is GameMode.SYSTEM_MENU
-    assert (state.held_joyd, state.action_held, state.sticky_armed,
-            state.action_pulse, list(state.commands)) == (0, False, False, False, [])
+    assert (state.keyboard.held_joyd, state.keyboard.action_held, state.keyboard.sticky_armed,
+            state.keyboard.action_pulse, list(state.keyboard.queue)) == (0, False, False, False, [])
 
 
 def test_leaving_the_system_menu_cannot_replay_input_into_the_first_play_tick(data_dir, profile):
@@ -1133,19 +1135,19 @@ def test_leaving_the_system_menu_cannot_replay_input_into_the_first_play_tick(da
     game.input_mode = InputMode.KEYBOARD
     game.open_modal(OpenSystemMenu())
     session = ModalSession()
-    state = InputBuffer(keyboard=KeyboardState(
+    state = ControlsState(keyboard=KeyboardState(
         held_joyd=9, action_held=True, sticky_armed=True,
         action_pulse=True, queue=deque([Action.ACTION, Action.UP]),
     ))
     assert route_command(game, session, Action.CANCEL, state)
     assert game.mode is GameMode.PLAY
-    assert (state.held_joyd, state.action_held, state.sticky_armed,
-            state.action_pulse, list(state.commands)) == (0, False, False, False, [])
+    assert (state.keyboard.held_joyd, state.keyboard.action_held, state.keyboard.sticky_armed,
+            state.keyboard.action_pulse, list(state.keyboard.queue)) == (0, False, False, False, [])
     # the drained buffer's own snapshot, the same mapping main._play_input
     # builds for the real play tick
     apply_play_input(game, PlayInput(
-        joyd=state.held_joyd, action_held=state.action_held,
-        action_pulse=state.action_pulse, pointer_held=state.pointer_held,
+        joyd=state.keyboard.held_joyd, action_held=state.keyboard.action_held,
+        action_pulse=state.keyboard.action_pulse, pointer_held=state.pointer.held,
         focused=state.focused,
     ))
     assert (game.local_joyd, game.local_click, game.action) == (0, 0, 0)
@@ -1156,25 +1158,25 @@ def test_quitting_from_the_system_menu_drains_the_input_buffer(data_dir, profile
     game.open_modal(OpenSystemMenu())
     session = ModalSession()
     session.system_menu.cursor = 5
-    state = InputBuffer(keyboard=KeyboardState(
+    state = ControlsState(keyboard=KeyboardState(
         held_joyd=9, action_held=True, sticky_armed=True,
         action_pulse=True, queue=deque([Action.ACTION]),
     ))
     assert route_command(game, session, Action.ACTION, state) is False
-    assert (state.held_joyd, state.action_held, state.sticky_armed,
-            state.action_pulse, list(state.commands)) == (0, False, False, False, [])
+    assert (state.keyboard.held_joyd, state.keyboard.action_held, state.keyboard.sticky_armed,
+            state.keyboard.action_pulse, list(state.keyboard.queue)) == (0, False, False, False, [])
 
 
 def test_toggle_input_mode_drains_held_and_queued_input(data_dir, profile):
     game = init_game(data_dir, profile)
     session = ModalSession()
-    state = InputBuffer(keyboard=KeyboardState(
+    state = ControlsState(keyboard=KeyboardState(
         held_joyd=9, action_held=True, sticky_armed=True,
         action_pulse=True, queue=deque([Action.UP]),
     ))
     assert route_command(game, session, Action.TOGGLE_INPUT_MODE, state)
-    assert (state.held_joyd, state.action_held, state.sticky_armed,
-            state.action_pulse, list(state.commands)) == (0, False, False, False, [])
+    assert (state.keyboard.held_joyd, state.keyboard.action_held, state.keyboard.sticky_armed,
+            state.keyboard.action_pulse, list(state.keyboard.queue)) == (0, False, False, False, [])
 
 
 def test_game_starts_in_mouse_mode_with_no_intent(data_dir, profile):
@@ -1271,11 +1273,11 @@ def test_restart_and_hero_boot_keep_the_content_pack(data_dir, profile, example_
     import numpy as np
     from types import SimpleNamespace
     import PyAitD.app.shell as main
-    from PyAitD.app.ui import InputBuffer, ModalSession
+    from PyAitD.app.ui import ModalSession
     from PyAitD.app.config import default_settings
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (np.zeros((200, 320, 3), dtype=np.uint8), []))
     session = ModalSession(settings=default_settings())
-    replaced = main._boot_hero(old, SimpleNamespace(), session, InputBuffer(), 1, cutscene=False)
+    replaced = main._boot_hero(old, SimpleNamespace(), session, ControlsState(), 1, cutscene=False)
     assert replaced[0].pack is pack
     assert len(replaced[0].world_objects) == 294
 
@@ -1384,9 +1386,9 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
         # it, so the spy must produce a fully functional session.
         return real_modal_session(*args, **kwargs)
 
-    def spy_input_buffer():
-        calls.append("InputBuffer reset")
-        return InputBuffer()
+    def spy_controls_state():
+        calls.append("ControlsState reset")
+        return ControlsState()
 
     def spy_scene_frame(*args):
         calls.append("_scene_frame")
@@ -1404,7 +1406,7 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
 
     monkeypatch.setattr(main, "restart_session", spy_restart_session)
     monkeypatch.setattr(main, "ModalSession", spy_modal_session)
-    monkeypatch.setattr(main, "InputBuffer", spy_input_buffer)
+    monkeypatch.setattr(main, "ControlsState", spy_controls_state)
     monkeypatch.setattr(main, "_scene_frame", spy_scene_frame)
     monkeypatch.setattr(main, "play_tick", spy_play_tick)
     monkeypatch.setattr(main, "render_active_mode", lambda *a: painter_from_frame(frame))
@@ -1431,7 +1433,7 @@ def test_run_restart_replaces_game_and_floor_before_any_tick_or_present(monkeypa
     assert window[0] == "restart_session"
     assert window[1] == "Floor"
     assert "ModalSession reset" in window[2:-1]
-    assert "InputBuffer reset" in window[2:-1]
+    assert "ControlsState reset" in window[2:-1]
     assert window[-1] == "_scene_frame"
     assert "play_tick" not in window
     assert "present" not in window
@@ -1606,7 +1608,7 @@ class _Renderer:
 def test_boot_hero_cutscene_stages_the_intro(data_dir, profile):
     game = init_game(data_dir, profile)
     session = ModalSession()
-    replaced = _boot_hero(game, _Renderer(), session, InputBuffer(), 1, cutscene=True)
+    replaced = _boot_hero(game, _Renderer(), session, ControlsState(), 1, cutscene=True)
     new_game, new_floor, new_session = replaced[0], replaced[1], replaced[2]
     assert (new_game.current_floor, new_game.current_room) == profile.intro_start
     assert new_floor.number == 7
@@ -1616,7 +1618,7 @@ def test_boot_hero_cutscene_stages_the_intro(data_dir, profile):
 
 def test_boot_hero_plain_boots_the_attic(data_dir, profile):
     game = init_game(data_dir, profile)
-    replaced = _boot_hero(game, _Renderer(), ModalSession(), InputBuffer(), 0, cutscene=False)
+    replaced = _boot_hero(game, _Renderer(), ModalSession(), ControlsState(), 0, cutscene=False)
     new_game, new_session = replaced[0], replaced[2]
     assert (new_game.current_floor, new_game.current_room) == profile.game_start
     assert new_game.allow_system_menu is True and new_session.cutscene is False
@@ -1625,9 +1627,9 @@ def test_boot_hero_plain_boots_the_attic(data_dir, profile):
 def test_cutscene_end_branch_hands_over_to_the_attic_with_the_same_hero(data_dir, profile):
     game = init_game(data_dir, profile, hero=1)
     session = ModalSession(cutscene=True)
-    assert _cutscene_end_branch(game, _Renderer(), session, InputBuffer()) is None
+    assert _cutscene_end_branch(game, _Renderer(), session, ControlsState()) is None
     game.open_modal(CutsceneFinished())
-    replaced = _cutscene_end_branch(game, _Renderer(), session, InputBuffer())
+    replaced = _cutscene_end_branch(game, _Renderer(), session, ControlsState())
     assert replaced is not None
     new_game, new_session = replaced[0], replaced[2]
     assert new_game.cvars[profile.cvar_index("CHOOSE_PERSO")] == 1
@@ -1638,7 +1640,7 @@ def test_cutscene_end_branch_hands_over_to_the_attic_with_the_same_hero(data_dir
 def test_skip_flag_ends_the_cutscene_from_play(data_dir, profile):
     game = init_game(data_dir, profile)
     session = ModalSession(cutscene=True, skip_cutscene=True)
-    assert _cutscene_end_branch(game, _Renderer(), session, InputBuffer()) is not None
+    assert _cutscene_end_branch(game, _Renderer(), session, ControlsState()) is not None
 
 
 def test_cutscene_swallows_play_commands_and_marks_skip(data_dir, profile):

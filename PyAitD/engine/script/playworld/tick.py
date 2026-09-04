@@ -2,8 +2,9 @@
 """PlayWorld simulation tick (FITD mainLoop.cpp:41-281 order).
 
 Imports no pygame, ModernGL or Renderer, so one 50 Hz logic step can be
-advanced without a window. Callers still reach `ui.py` for an InputBuffer;
-freeing that needs InputBuffer moved out of the presentation layer.
+advanced without a window. Callers reach `playworld.input.PlayInput`, a
+frozen snapshot built by `app.controls.snapshot.build_play_input`; nothing
+in this package touches the app's own input state.
 """
 from PyAitD.engine.script.effects import GameMode, LifeFrame
 from PyAitD.engine.content import BEHAVIOUR_LIFE, run_behaviour

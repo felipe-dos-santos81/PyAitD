@@ -50,12 +50,13 @@ def gl_ctx():
 
 
 def held_pointer(pos=None):
-    """An InputBuffer with the left button down. Since held pointer follow
+    """A ControlsState with the left button down. Since held pointer follow
     every navigation intent is hold-bound: a test that ticks a walk must hold
     the button, or the next tick cancels the intent (playworld._apply_mouse_input).
     """
-    from PyAitD.app.ui import InputBuffer
-    return InputBuffer(pointer_held=True, focused=True, pointer_pos=pos)
+    from PyAitD.app.controls.pointer import PointerState
+    from PyAitD.app.controls.snapshot import ControlsState
+    return ControlsState(pointer=PointerState(held=True, pos=pos), focused=True)
 
 
 def stub_renderer(scale=1.0):

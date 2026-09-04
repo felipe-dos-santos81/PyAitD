@@ -46,13 +46,12 @@ def test_apply_play_input_mapping(data_dir, profile):
 
 
 def test_the_shell_snapshot_consumes_the_sticky_pulse_exactly_once():
-    import PyAitD.app.shell as main
     from PyAitD.app.controls.keyboard import KeyboardState
-    from PyAitD.app.ui import InputBuffer
-    state = InputBuffer(keyboard=KeyboardState(action_pulse=True, held_joyd=3))
-    first = main._play_input(state)
-    assert (first.action_pulse, first.joyd, state.action_pulse) == (True, 3, False)
-    assert main._play_input(state).action_pulse is False
+    from PyAitD.app.controls.snapshot import ControlsState, build_play_input
+    state = ControlsState(keyboard=KeyboardState(action_pulse=True, held_joyd=3))
+    first = build_play_input(state)
+    assert (first.action_pulse, first.joyd, state.keyboard.action_pulse) == (True, 3, False)
+    assert build_play_input(state).action_pulse is False
 
 
 def test_run_coalesces_catch_up_ticks_into_one_present_per_frame(profile, monkeypatch, tmp_path):
@@ -702,7 +701,7 @@ def test_hero_branch_builds_its_resolver_from_the_session_s_texture_dir(monkeypa
     )
 
     with _pygame_runtime():
-        result = main._hero_branch(old_game, SimpleNamespace(), session, InputBuffer())
+        result = main._hero_branch(old_game, SimpleNamespace(), session, ControlsState())
 
     new_resolver = result[-1]
     assert isinstance(new_resolver, AssetResolver)
@@ -735,7 +734,7 @@ def test_restart_branch_builds_its_resolver_from_the_session_s_texture_dir(monke
     old_game = SimpleNamespace(restart_requested=True)
 
     with _pygame_runtime():
-        result = main._restart_branch(old_game, SimpleNamespace(), session, InputBuffer())
+        result = main._restart_branch(old_game, SimpleNamespace(), session, ControlsState())
 
     new_resolver = result[-1]
     assert isinstance(new_resolver, AssetResolver)
@@ -847,7 +846,9 @@ from PyAitD.engine.script.game import AF_ANIMATED, AF_FOUNDABLE
 from PyAitD.engine.script.interaction import _finish_take, inventory_items
 from PyAitD.games.aitd1.scenario import enter_combat_venue
 from PyAitD.app.controls.keyboard import KeyboardState
-from PyAitD.app.ui import InputBuffer, ModalSession, PlayLayout
+from PyAitD.app.controls.pointer import PointerState
+from PyAitD.app.controls.snapshot import ControlsState
+from PyAitD.app.ui import ModalSession, PlayLayout
 from tests.conftest import held_pointer
 
 
@@ -972,7 +973,7 @@ def test_a_steer_press_walks_while_held_and_stops_on_release(data_dir, profile):
     route_play_click(game, ModalSession(), floor, (0, 0), [], buf)
 
     assert game.nav_intent is not None and game.nav_intent.steering is True
-    # route_play_click needs the InputBuffer; play_tick needs its own
+    # route_play_click needs the ControlsState; play_tick needs its own
     # PlayInput -- the engine's own snapshot, not the app's buffer.
     play_input = PlayInput(pointer_held=True)
     for _ in range(4):
@@ -1013,7 +1014,7 @@ def test_a_cell_that_cannot_be_snapped_walks_the_hero_toward_it(
 
     route_play_click(game, ModalSession(), floor, pixel, [], buf)
     assert game.nav_intent.steering is True
-    # route_play_click needs the InputBuffer; play_tick needs its own
+    # route_play_click needs the ControlsState; play_tick needs its own
     # PlayInput -- the engine's own snapshot, not the app's buffer.
     play_input = PlayInput(pointer_held=True)
     for _ in range(8):
@@ -1168,9 +1169,9 @@ def test_latched_push_cursor_survives_pointer_drift(data_dir, profile):
     apply_click_intent(game, 10, 20, 0, 4, requires_hold=True)
 
     assert _play_cursor_kind(
-        game, floor, (0, 0), [], InputBuffer(pointer_held=True),
+        game, floor, (0, 0), [], ControlsState(pointer=PointerState(held=True)),
     ) == "push"
-    assert _play_cursor_kind(game, floor, (0, 0), [], InputBuffer()) == "steer", (
+    assert _play_cursor_kind(game, floor, (0, 0), [], ControlsState()) == "steer", (
         "with no hold the resolver answers for itself, and a pixel over "
         "nothing steers rather than refusing"
     )
@@ -1201,7 +1202,7 @@ def test_pointer_invalidation_routes_mouseup_and_focus_loss(data_dir, profile):
         main.pygame.event.Event(main.pygame.WINDOWFOCUSLOST),
     ):
         apply_click_intent(game, 100, 200, hero.room, 4, requires_hold=True)
-        assert main._cancel_pointer_invalidation(game, event, InputBuffer()) is True
+        assert main._cancel_pointer_invalidation(game, event, ControlsState()) is True
         assert game.nav_intent is None
 
 
@@ -1248,10 +1249,8 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     game = init_game(data_dir, profile)
     hero = game.actors[game.current_camera_target_actor]
     apply_click_intent(game, 100, 200, hero.room, 4, requires_hold=True)
-    input_buffer = InputBuffer(
-        pointer_held=True,
-        pointer_touch=touch,
-        pointer_pos=(100, 200),
+    input_buffer = ControlsState(
+        pointer=PointerState(held=True, touch=touch, pos=(100, 200)),
         keyboard=KeyboardState(action_held=True, held_joyd=8),
     )
     seen = []
@@ -1267,14 +1266,14 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (frame, []))
     # the play_tick snapshot (PlayInput) carries only what the engine reads;
     # pointer_touch/pointer_pos never cross that boundary, so they are read
-    # off the live InputBuffer (the same object main.InputBuffer() below
+    # off the live ControlsState (the same object main.ControlsState() below
     # always returns) instead of off the tick's own argument.
     monkeypatch.setattr(
         main, "play_tick",
         lambda game, _floor, state: seen.append((
             game.nav_intent, state.pointer_held, state.action_held,
             state.joyd, state.focused,
-            input_buffer.pointer_touch, input_buffer.pointer_pos,
+            input_buffer.pointer.touch, input_buffer.pointer.pos,
         )),
     )
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
@@ -1283,7 +1282,7 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     # run() renders the cursor through _render_play_cursor -> _play_cursor_state;
     # patching _play_cursor_kind here would be inert (nothing in run() calls it)
     monkeypatch.setattr(main, "_play_cursor_state", lambda *_args: ("blocked", None))
-    monkeypatch.setattr(main, "InputBuffer", lambda: input_buffer)
+    monkeypatch.setattr(main, "ControlsState", lambda: input_buffer)
     monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
@@ -1313,8 +1312,8 @@ def test_held_push_inventory_modal_takeover_is_clean_before_play_resumes(
     )
     game.nav_intent.engaged = engaged
     game.local_joyd, game.local_click, game.action = (8, 1, 0x2000)
-    input_buffer = InputBuffer(
-        pointer_held=True, pointer_pos=(150, 100),
+    input_buffer = ControlsState(
+        pointer=PointerState(held=True, pos=(150, 100)),
         keyboard=KeyboardState(action_held=True, held_joyd=8),
     )
     session = ModalSession()
@@ -1352,7 +1351,7 @@ def test_held_push_inventory_modal_takeover_is_clean_before_play_resumes(
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
     monkeypatch.setattr(main, "render_cursor", lambda image, *_args, **_kwargs: image)
-    monkeypatch.setattr(main, "InputBuffer", lambda: input_buffer)
+    monkeypatch.setattr(main, "ControlsState", lambda: input_buffer)
     monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
     monkeypatch.setattr(main.pygame.display, "set_caption", lambda *_args: None)
@@ -1404,17 +1403,17 @@ def test_run_routes_physical_and_touch_down_through_the_same_held_push_path(
     monkeypatch.setattr(main, "_scene_frame", lambda *_args: (frame, draw_list))
     # pointer_touch/pointer_pos never cross the play_tick boundary (PlayInput
     # carries only what the engine reads); capture them off the live
-    # InputBuffer at the _play_input seam instead, right before it builds
-    # that tick's snapshot.
+    # ControlsState at the build_play_input seam instead, right before it
+    # builds that tick's snapshot.
     pending = {}
-    real_play_input = main._play_input
+    real_build_play_input = main.build_play_input
 
-    def capture_play_input(input_buffer):
-        pending["touch"] = input_buffer.pointer_touch
-        pending["pos"] = input_buffer.pointer_pos
-        return real_play_input(input_buffer)
+    def capture_play_input(controls):
+        pending["touch"] = controls.pointer.touch
+        pending["pos"] = controls.pointer.pos
+        return real_build_play_input(controls)
 
-    monkeypatch.setattr(main, "_play_input", capture_play_input)
+    monkeypatch.setattr(main, "build_play_input", capture_play_input)
     monkeypatch.setattr(
         main, "play_tick",
         lambda current_game, _floor, state: seen.append((
@@ -1448,7 +1447,7 @@ def test_run_routes_physical_and_touch_down_to_the_same_inventory_modal(
     game = init_game(data_dir, profile)
     game.num_camera = game.new_num_camera
     _finish_take(game, 38)
-    input_buffer = InputBuffer()
+    input_buffer = ControlsState()
     event_batches = iter([
         [main.pygame.event.Event(
             main.pygame.MOUSEBUTTONDOWN,
@@ -1474,7 +1473,7 @@ def test_run_routes_physical_and_touch_down_to_the_same_inventory_modal(
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
-    monkeypatch.setattr(main, "InputBuffer", lambda: input_buffer)
+    monkeypatch.setattr(main, "ControlsState", lambda: input_buffer)
     monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
     monkeypatch.setattr(main.pygame.event, "get", lambda: next(event_batches))
@@ -1486,7 +1485,7 @@ def test_run_routes_physical_and_touch_down_to_the_same_inventory_modal(
     assert main.run(game) == 0
     assert game.mode is GameMode.INVENTORY
     assert game.nav_intent is None
-    assert (input_buffer.pointer_held, input_buffer.pointer_touch, input_buffer.pointer_pos) == (
+    assert (input_buffer.pointer.held, input_buffer.pointer.touch, input_buffer.pointer.pos) == (
         False, False, None,
     )
 
@@ -1659,13 +1658,13 @@ def test_a_walk_press_records_the_follow_latch(data_dir, profile):
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     screen = _floor_screen_point(game, floor, 1500, 0)
-    buf = InputBuffer(pointer_held=True)
+    buf = ControlsState(pointer=PointerState(held=True))
     route_play_click(
         game, ModalSession(), floor, (int(screen[0]), int(screen[1])), [], buf,
     )
     intent = game.nav_intent
     assert intent is not None and intent.target_object_idx == -1
-    assert buf.follow_last == (intent.dest_x, intent.dest_z, intent.room, -1)
+    assert buf.pointer.follow_last == (intent.dest_x, intent.dest_z, intent.room, -1)
 
 
 def test_a_push_press_leaves_no_follow_latch(data_dir, profile):
@@ -1675,13 +1674,13 @@ def test_a_push_press_leaves_no_follow_latch(data_dir, profile):
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     actor_idx = game.world_objects[4].obj_index
-    buf = InputBuffer(pointer_held=True, follow_last=(1, 2, 0, -1))
+    buf = ControlsState(pointer=PointerState(held=True, follow_last=(1, 2, 0, -1)))
     route_play_click(
         game, ModalSession(), floor, (150, 100),
         [(actor_idx, (100, 60, 200, 160))], buf,
     )
     assert game.nav_intent.requires_hold is True
-    assert buf.follow_last is None
+    assert buf.pointer.follow_last is None
 
 
 def test_pointer_invalidation_cancels_a_plain_walk_intent(data_dir, profile):
@@ -1696,13 +1695,13 @@ def test_pointer_invalidation_cancels_a_plain_walk_intent(data_dir, profile):
         main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1),
         main.pygame.event.Event(main.pygame.WINDOWFOCUSLOST),
     ):
-        buf = InputBuffer(pointer_held=True, follow_last=(100, 200, hero.room, -1))
+        buf = ControlsState(pointer=PointerState(held=True, follow_last=(100, 200, hero.room, -1)))
         apply_click_intent(game, 100, 200, hero.room)
         assert main._cancel_pointer_invalidation(game, event, buf) is True
         assert game.nav_intent is None
-        assert buf.follow_last is None
+        assert buf.pointer.follow_last is None
     up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
-    assert main._cancel_pointer_invalidation(game, up, InputBuffer()) is False
+    assert main._cancel_pointer_invalidation(game, up, ControlsState()) is False
     assert main._cancel_pointer_invalidation(game, up, buf) is False, (
         "a second release on an already-cleared buffer is a no-op"
     )
@@ -2094,7 +2093,7 @@ def test_attack_click_latches_native_mouse_combat(data_dir, profile):
     _finish_take(game, 38)
     game.in_hand_table[game.current_inventory] = 38
     enemy_idx = game.world_objects[222].obj_index
-    state = InputBuffer()
+    state = ControlsState()
 
     route_play_click(
         game, ModalSession(), floor, (150, 100),
@@ -2116,7 +2115,7 @@ def test_a_refused_attack_click_leaves_no_latch(data_dir, profile):
     _finish_take(game, 38)
     game.in_hand_table[game.current_inventory] = -1  # empty hand: nothing to swing
     enemy_idx = game.world_objects[222].obj_index
-    state = InputBuffer()
+    state = ControlsState()
 
     route_play_click(
         game, ModalSession(), floor, (150, 100),
@@ -2136,7 +2135,7 @@ def _click_to_attack(data_dir, profile):
     game.in_hand_table[game.current_inventory] = 38
     enemy_idx = game.world_objects[222].obj_index
     session = ModalSession()
-    state = InputBuffer()
+    state = ControlsState()
     route_play_click(
         game, session, floor, (150, 100),
         [(enemy_idx, (100, 60, 200, 160))], state,
@@ -2150,16 +2149,16 @@ def test_releasing_the_button_does_not_cancel_an_accepted_attack(data_dir, profi
     # outlive the release that always follows the press a moment later.
     import PyAitD.app.shell as main
     from PyAitD.app.shell import pygame
-    from PyAitD.app.ui import event_to_input
+    from PyAitD.app.controls.snapshot import feed_event
 
     game, _session, state = _click_to_attack(data_dir, profile)
     release = pygame.event.Event(pygame.MOUSEBUTTONUP, button=1, pos=(150, 100))
 
     assert main._cancel_pointer_invalidation(game, release, state) is False
-    event_to_input(release, state, (150, 100))
+    feed_event(state, release, (150, 100))
 
     assert game.mouse_attack_target is not None
-    assert state.pointer_held is False
+    assert state.pointer.held is False
 
 
 def test_modal_takeover_cannot_leave_an_attack_to_resume_later(data_dir, profile):
@@ -2177,15 +2176,15 @@ def test_modal_takeover_cannot_leave_an_attack_to_resume_later(data_dir, profile
 def test_focus_loss_cannot_leave_an_attack_to_resume_later(data_dir, profile):
     import PyAitD.app.shell as main
     from PyAitD.app.shell import pygame
-    from PyAitD.app.ui import event_to_input
+    from PyAitD.app.controls.snapshot import feed_event
 
     game, _session, state = _click_to_attack(data_dir, profile)
 
     # run()'s event loop calls both for every event; the latch is cleared by
-    # the shell side (_cancel_pointer_invalidation), not by event_to_input,
-    # which only owns the InputBuffer's own fields.
+    # the shell side (_cancel_pointer_invalidation), not by feed_event,
+    # which only owns the ControlsState's own fields.
     event = pygame.event.Event(pygame.WINDOWFOCUSLOST)
-    event_to_input(event, state)
+    feed_event(state, event)
     main._cancel_pointer_invalidation(game, event, state)
 
     assert (game.mouse_attack_target, game.mouse_attack_ticks) == (None, 0)
@@ -2357,7 +2356,7 @@ def _follow_fixture(data_dir, profile):
     hero = game.actors[game.current_camera_target_actor]
     near = (hero.room_x + 1000, hero.room_z, hero.room, -1)
     far = (hero.room_x + 2000, hero.room_z, hero.room, -1)
-    return game, floor, InputBuffer(pointer_held=True), near, far
+    return game, floor, ControlsState(pointer=PointerState(held=True)), near, far
 
 
 def _dragged(main, game, floor, buf, frames):
@@ -2369,8 +2368,8 @@ def _dragged(main, game, floor, buf, frames):
     monkeypatched -- but they must differ frame to frame, as a moving hand's do.
     """
     for frame in range(frames):
-        buf.pointer_pos = (10 + frame, 10)
-        main.follow_pointer(game, ModalSession(), floor, buf.pointer_pos, [], buf)
+        buf.pointer.pos = (10 + frame, 10)
+        main.follow_pointer(game, ModalSession(), floor, buf.pointer.pos, [], buf)
         yield frame
 
 
@@ -2383,7 +2382,7 @@ def test_follow_reissues_only_when_the_resolution_changes(data_dir, profile, mon
     next(frames)
     first = game.nav_intent
     assert (first.dest_x, first.dest_z, first.room) == near[:3]
-    assert buf.follow_last == near
+    assert buf.pointer.follow_last == near
     first.waypoints = ["sentinel"]
     next(frames)
     assert game.nav_intent is first and first.waypoints == ["sentinel"], (
@@ -2394,7 +2393,7 @@ def test_follow_reissues_only_when_the_resolution_changes(data_dir, profile, mon
     next(frames)
     assert game.nav_intent is not first
     assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == far[:2]
-    assert buf.follow_last == far
+    assert buf.pointer.follow_last == far
 
 
 def test_follow_blocked_stops_the_hero_and_clears_the_latch(data_dir, profile, monkeypatch):
@@ -2408,11 +2407,11 @@ def test_follow_blocked_stops_the_hero_and_clears_the_latch(data_dir, profile, m
 
     next(frames)
     next(frames)
-    assert game.nav_intent is None and buf.follow_last is None
+    assert game.nav_intent is None and buf.pointer.follow_last is None
     assert (game.local_joyd, game.nav_decision) == (0, None)
     # dragged back over the floor: the same point is issued again, hold live
     next(frames)
-    assert game.nav_intent is not None and buf.follow_last == near
+    assert game.nav_intent is not None and buf.pointer.follow_last == near
 
 
 def test_follow_does_not_reissue_an_arrived_or_abandoned_destination(
@@ -2430,7 +2429,7 @@ def test_follow_does_not_reissue_an_arrived_or_abandoned_destination(
     assert game.nav_intent.target_object_idx == 13
     game.nav_intent = None   # what playworld does when the follower arrives
     main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
-    assert game.nav_intent is None and buf.follow_last == target
+    assert game.nav_intent is None and buf.pointer.follow_last == target
 
 
 @pytest.mark.parametrize("kind", ["inventory", "attack", "push"])
@@ -2439,7 +2438,7 @@ def test_follow_ignores_press_only_kinds(data_dir, profile, monkeypatch, kind):
     game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
     _resolving(monkeypatch, [(kind, near)])
     main.follow_pointer(game, ModalSession(), floor, (10, 10), [], buf)
-    assert game.nav_intent is None and buf.follow_last is None
+    assert game.nav_intent is None and buf.pointer.follow_last is None
 
 
 def test_follow_is_skipped_while_a_push_or_attack_latch_lives(data_dir, profile, monkeypatch):
@@ -2468,7 +2467,7 @@ def test_follow_requires_a_held_pointer_in_live_play(data_dir, profile, monkeypa
     session = ModalSession()
     queue = _resolving(monkeypatch, [("walk", near)])
     if why == "released":
-        buf.pointer_held = False
+        buf.pointer.held = False
     elif why == "unfocused":
         buf.focused = False
     elif why == "modal":
@@ -2480,7 +2479,7 @@ def test_follow_requires_a_held_pointer_in_live_play(data_dir, profile, monkeypa
     elif why == "transition":
         game.num_camera = -1
     main.follow_pointer(game, session, floor, (10, 10), [], buf)
-    assert game.nav_intent is None and buf.follow_last is None
+    assert game.nav_intent is None and buf.pointer.follow_last is None
     assert len(queue) == 1, "nothing was resolved"
 
 
@@ -2493,8 +2492,8 @@ def test_follow_does_not_resume_after_an_attack_latch_clears_within_the_hold(
     # a walk/target resolution start a follow.
     import PyAitD.app.shell as main
     game, _session, state = _click_to_attack(data_dir, profile)
-    state.pointer_held = True
-    assert state.follow_spent is True, "an attack press spends the hold"
+    state.pointer.held = True
+    assert state.pointer.spent is True, "an attack press spends the hold"
     game.mouse_attack_target = None   # what the engine does on idle/timeout
     game.mouse_attack_ticks = 0
 
@@ -2520,13 +2519,13 @@ def test_follow_does_not_resume_after_a_push_intent_dies_mid_hold(
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     actor_idx = game.world_objects[4].obj_index
-    buf = InputBuffer(pointer_held=True)
+    buf = ControlsState(pointer=PointerState(held=True))
     route_play_click(
         game, ModalSession(), floor, (150, 100),
         [(actor_idx, (100, 60, 200, 160))], buf,
     )
     assert game.nav_intent.requires_hold is True
-    assert buf.follow_spent is True, "a push press spends the hold"
+    assert buf.pointer.spent is True, "a push press spends the hold"
     cancel_nav_intent(game)   # what happens when the pushed intent dies
     assert game.nav_intent is None
 
@@ -2546,21 +2545,21 @@ def test_release_and_a_fresh_press_clears_follow_spent(data_dir, profile, monkey
     # _cancel_follow, which must clear follow_spent alongside follow_last.
     import PyAitD.app.shell as main
     game, _session, state = _click_to_attack(data_dir, profile)
-    state.pointer_held = True
-    assert state.follow_spent is True
+    state.pointer.held = True
+    assert state.pointer.spent is True
 
     up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
     main._cancel_pointer_invalidation(game, up, state)
-    assert state.follow_spent is False, "release clears the spent hold"
+    assert state.pointer.spent is False, "release clears the spent hold"
 
     hero = game.actors[game.current_camera_target_actor]
     dest = (hero.room_x + 1000, hero.room_z, hero.room, -1)
-    state.pointer_held = True
+    state.pointer.held = True
     queue = _resolving(monkeypatch, [("walk", dest)])
 
     route_play_click(game, ModalSession(), None, (10, 10), [], state)
 
-    assert state.follow_spent is False
+    assert state.pointer.spent is False
     assert game.nav_intent is not None
     assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == dest[:2]
     assert len(queue) == 0
@@ -2646,7 +2645,7 @@ def test_a_camera_cut_that_unpicks_the_pixel_does_not_retarget_the_hero(data_dir
     assert game.nav_intent.steering is False, "the cut turned a walk into a steer"
     after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
     assert after == before
-    assert buf.follow_last is not None, "the hold is still live"
+    assert buf.pointer.follow_last is not None, "the hold is still live"
 
 
 def test_pointer_motion_after_a_cut_still_retargets(data_dir, profile):
@@ -2665,7 +2664,7 @@ def test_pointer_motion_after_a_cut_still_retargets(data_dir, profile):
         and (resolved := resolve_play_click(game, floor, candidate, []))[0] == "walk"
         and resolved[1][:3] != before
     )
-    buf.pointer_pos = moved
+    buf.pointer.pos = moved
     main.follow_pointer(game, ModalSession(), floor, moved, [], buf)
 
     assert game.nav_intent is not None
@@ -2682,17 +2681,17 @@ def test_a_one_pixel_drift_after_a_cut_does_not_retarget(data_dir, profile):
     game, floor, buf, pixel, cut_slot, before = _cut_fixture(
         data_dir, profile, "walk",
     )
-    assert buf.follow_camera == game.new_num_camera
+    assert buf.pointer.follow_camera == game.new_num_camera
 
     game.num_camera = cut_slot
     drifted = (pixel[0] + 1, pixel[1])
-    buf.pointer_pos = drifted
+    buf.pointer.pos = drifted
     main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
 
     assert game.nav_intent is not None, "the drift stopped the hero"
     after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
     assert after == before, "a one-pixel drift after a cut retargeted"
-    assert buf.follow_settle_origin == pixel
+    assert buf.pointer.settle_origin == pixel
     assert main.CUT_DEAD_ZONE_PX == 6
 
 
@@ -2705,13 +2704,13 @@ def test_drift_of_exactly_the_dead_zone_boundary_does_not_retarget(data_dir, pro
 
     game.num_camera = cut_slot
     at_boundary = (pixel[0] + main.CUT_DEAD_ZONE_PX, pixel[1])
-    buf.pointer_pos = at_boundary
+    buf.pointer.pos = at_boundary
     main.follow_pointer(game, ModalSession(), floor, at_boundary, [], buf)
 
     assert game.nav_intent is not None, "the boundary drift stopped the hero"
     after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
     assert after == before, "a drift of exactly CUT_DEAD_ZONE_PX retargeted"
-    assert buf.follow_settle_origin == pixel
+    assert buf.pointer.settle_origin == pixel
 
 
 def test_motion_past_the_dead_zone_retargets_and_closes_it(data_dir, profile):
@@ -2722,9 +2721,9 @@ def test_motion_past_the_dead_zone_retargets_and_closes_it(data_dir, profile):
     game.num_camera = cut_slot
     # settle first
     drifted = (pixel[0] + 1, pixel[1])
-    buf.pointer_pos = drifted
+    buf.pointer.pos = drifted
     main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
-    assert buf.follow_settle_origin == pixel
+    assert buf.pointer.settle_origin == pixel
     moved = next(
         candidate
         for candidate in _sampled_pixels()
@@ -2732,14 +2731,14 @@ def test_motion_past_the_dead_zone_retargets_and_closes_it(data_dir, profile):
         and (resolved := resolve_play_click(game, floor, candidate, []))[0] == "walk"
         and resolved[1][:3] != before
     )
-    buf.pointer_pos = moved
+    buf.pointer.pos = moved
     main.follow_pointer(game, ModalSession(), floor, moved, [], buf)
 
     assert game.nav_intent is not None
     after = (game.nav_intent.dest_x, game.nav_intent.dest_z, game.nav_intent.room)
     assert after != before, "the hand moved past the dead zone and was ignored"
-    assert buf.follow_settle_origin is None
-    assert buf.follow_camera == cut_slot
+    assert buf.pointer.settle_origin is None
+    assert buf.pointer.follow_camera == cut_slot
 
 
 def test_a_camera_cut_back_closes_the_dead_zone(data_dir, profile):
@@ -2752,22 +2751,22 @@ def test_a_camera_cut_back_closes_the_dead_zone(data_dir, profile):
     game, floor, buf, pixel, cut_slot, before = _cut_fixture(
         data_dir, profile, "walk",
     )
-    original_slot = buf.follow_camera
+    original_slot = buf.pointer.follow_camera
 
     game.num_camera = cut_slot
     drifted = (pixel[0] + 1, pixel[1])
-    buf.pointer_pos = drifted
+    buf.pointer.pos = drifted
     main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
-    assert buf.follow_settle_origin == pixel, "fixture: the dead zone must be open"
+    assert buf.pointer.settle_origin == pixel, "fixture: the dead zone must be open"
 
     game.num_camera = original_slot           # the camera cuts back
     moved = (pixel[0] + 2, pixel[1])
-    buf.pointer_pos = moved
+    buf.pointer.pos = moved
     main.follow_pointer(game, ModalSession(), floor, moved, [], buf)
 
-    assert buf.follow_settle_origin is None, "the settle origin outlived the cut"
-    assert buf.follow_camera == original_slot
-    assert buf.follow_pos == moved
+    assert buf.pointer.settle_origin is None, "the settle origin outlived the cut"
+    assert buf.pointer.follow_camera == original_slot
+    assert buf.pointer.follow_pos == moved
 
 
 def test_release_clears_the_settle_state(data_dir, profile):
@@ -2777,14 +2776,14 @@ def test_release_clears_the_settle_state(data_dir, profile):
     )
     game.num_camera = cut_slot
     drifted = (pixel[0] + 1, pixel[1])
-    buf.pointer_pos = drifted
+    buf.pointer.pos = drifted
     main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
-    assert buf.follow_settle_origin is not None
+    assert buf.pointer.settle_origin is not None
 
     up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
     main._cancel_pointer_invalidation(game, up, buf)
-    assert buf.follow_settle_origin is None
-    assert buf.follow_camera is None
+    assert buf.pointer.settle_origin is None
+    assert buf.pointer.follow_camera is None
     assert game.nav_intent is None
 
 
@@ -2793,13 +2792,13 @@ def test_a_floor_change_clears_the_settle_state_but_keeps_the_hold(data_dir, pro
     game, floor, buf, pixel, cut_slot, before = _cut_fixture(
         data_dir, profile, "walk",
     )
-    buf.follow_settle_origin = pixel
-    buf.follow_camera = cut_slot
+    buf.pointer.settle_origin = pixel
+    buf.pointer.follow_camera = cut_slot
     main._rebase_follow(game, buf)
-    assert buf.follow_settle_origin is None
-    assert buf.follow_camera is None
-    assert buf.follow_pos is None
-    assert buf.pointer_held is True
+    assert buf.pointer.settle_origin is None
+    assert buf.pointer.follow_camera is None
+    assert buf.pointer.follow_pos is None
+    assert buf.pointer.held is True
 
 
 def test_arrival_while_settling_leaves_the_follow_live(data_dir, profile):
@@ -2811,13 +2810,13 @@ def test_arrival_while_settling_leaves_the_follow_live(data_dir, profile):
     )
     game.num_camera = cut_slot
     drifted = (pixel[0] + 1, pixel[1])
-    buf.pointer_pos = drifted
+    buf.pointer.pos = drifted
     main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
     game.nav_intent = None   # what an arrival leaves behind
     main.follow_pointer(game, ModalSession(), floor, drifted, [], buf)
     assert game.nav_intent is None, "a still pointer was re-resolved while settling"
-    assert buf.follow_last is not None, "the hold died"
-    assert buf.pointer_held is True
+    assert buf.pointer.follow_last is not None, "the hold died"
+    assert buf.pointer.held is True
 
 
 def test_a_floor_change_keeps_the_hold_and_re_resolves_a_still_pointer(
@@ -2828,17 +2827,17 @@ def test_a_floor_change_keeps_the_hold_and_re_resolves_a_still_pointer(
     import PyAitD.app.shell as main
     game, floor, buf, near, far = _follow_fixture(data_dir, profile)
     _resolving(monkeypatch, [("walk", near), ("walk", far)])
-    buf.pointer_pos = (10, 10)
-    main.follow_pointer(game, ModalSession(), floor, buf.pointer_pos, [], buf)
+    buf.pointer.pos = (10, 10)
+    main.follow_pointer(game, ModalSession(), floor, buf.pointer.pos, [], buf)
     assert game.nav_intent is not None
 
     assert main._rebase_follow(game, buf) is True   # what run() does at the swap
     assert game.nav_intent is None, "the old floor's destination is dropped"
-    assert buf.pointer_held is True and buf.follow_spent is False, (
+    assert buf.pointer.held is True and buf.pointer.spent is False, (
         "the hold outlives the floor it started on"
     )
 
-    main.follow_pointer(game, ModalSession(), floor, buf.pointer_pos, [], buf)
+    main.follow_pointer(game, ModalSession(), floor, buf.pointer.pos, [], buf)
 
     assert game.nav_intent is not None, "the still pointer was never re-resolved"
     assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == far[:2]
@@ -2851,23 +2850,23 @@ def test_release_still_ends_a_hold_rebased_by_a_floor_change(data_dir, profile,
     import PyAitD.app.shell as main
     game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
     _resolving(monkeypatch, [("walk", near)])
-    buf.pointer_pos = (10, 10)
-    main.follow_pointer(game, ModalSession(), floor, buf.pointer_pos, [], buf)
+    buf.pointer.pos = (10, 10)
+    main.follow_pointer(game, ModalSession(), floor, buf.pointer.pos, [], buf)
     main._rebase_follow(game, buf)
 
     up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
     main._cancel_pointer_invalidation(game, up, buf)
 
     assert game.nav_intent is None
-    assert (buf.follow_last, buf.follow_pos, buf.follow_spent) == (None, None, False)
+    assert (buf.pointer.follow_last, buf.pointer.follow_pos, buf.pointer.spent) == (None, None, False)
 
 
 def _press(main, game, floor, buf, near, monkeypatch, tick, pixel=(10, 10)):
     """One PLAY press at game.timer == tick, resolving to a walk."""
     game.timer = tick
     _resolving(monkeypatch, [("walk", near)])
-    buf.pointer_held = True
-    buf.pointer_pos = pixel
+    buf.pointer.held = True
+    buf.pointer.pos = pixel
     route_play_click(game, ModalSession(), floor, pixel, [], buf)
     return game.nav_intent
 
@@ -2886,7 +2885,7 @@ def test_a_second_press_inside_the_double_press_window_runs(
     # finger, timed at around half a second by every desktop, not the fast key
     # repeat that FITD's double-tap forward reads.
     import PyAitD.app.shell as main
-    from PyAitD.app.ui import DOUBLE_PRESS_TICKS
+    from PyAitD.app.shell import DOUBLE_PRESS_TICKS
     from PyAitD.engine.script.playworld import TICK_MS
     game, floor, buf, near, far = _follow_fixture(data_dir, profile)
     assert DOUBLE_PRESS_TICKS * TICK_MS >= 400, (
@@ -2901,12 +2900,12 @@ def test_a_second_press_inside_the_double_press_window_runs(
     )
 
     assert intent.run is True
-    assert buf.pointer_run is True
+    assert buf.pointer.run is True
 
 
 def test_a_second_press_outside_the_window_walks(data_dir, profile, monkeypatch):
     import PyAitD.app.shell as main
-    from PyAitD.app.ui import DOUBLE_PRESS_TICKS
+    from PyAitD.app.shell import DOUBLE_PRESS_TICKS
     game, floor, buf, near, far = _follow_fixture(data_dir, profile)
     _primed(main, game, floor, buf, near, monkeypatch)
 
@@ -2915,7 +2914,7 @@ def test_a_second_press_outside_the_window_walks(data_dir, profile, monkeypatch)
     )
 
     assert intent.run is False, "the window is exclusive"
-    assert buf.pointer_run is False
+    assert buf.pointer.run is False
 
 
 def test_a_click_of_ordinary_length_walks_before_the_button_comes_up(
@@ -2943,7 +2942,7 @@ def test_a_click_of_ordinary_length_walks_before_the_button_comes_up(
     start = (hero.room_x + hero.step_x, hero.room_z + hero.step_z)
 
     _press(main, game, floor, buf, near, monkeypatch, 100)
-    # _press needs the InputBuffer; play_tick needs its own PlayInput -- the
+    # _press needs the ControlsState; play_tick needs its own PlayInput -- the
     # press is still held throughout this short click.
     play_input = PlayInput(pointer_held=True)
     for _ in range(5):   # 100ms, a short but entirely ordinary click
@@ -2982,7 +2981,7 @@ def test_a_double_press_never_resumes_a_bearing(data_dir, profile, monkeypatch):
     game.timer = 103
     route_play_click(game, ModalSession(), floor, pixel, [], buf)
 
-    assert buf.pointer_run is True, "the fixture must be a double press"
+    assert buf.pointer.run is True, "the fixture must be a double press"
     fresh = resolve_play_click(game, floor, pixel, [])[1]
     assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == fresh[:2]
     assert (game.nav_intent.dest_x, game.nav_intent.dest_z) != stale
@@ -3037,11 +3036,11 @@ def test_a_floor_change_drops_the_resumable_destination(
     import PyAitD.app.shell as main
     game, floor, buf, near, far = _follow_fixture(data_dir, profile)
     _primed(main, game, floor, buf, near, monkeypatch)
-    assert buf.resume_last == near
+    assert buf.pointer.resume_last == near
 
     main._rebase_follow(game, buf)
 
-    assert (buf.resume_last, buf.resume_pos) == (None, None)
+    assert (buf.pointer.resume_last, buf.pointer.resume_pos) == (None, None)
     intent = _press(main, game, floor, buf, far, monkeypatch, 103)
     assert (intent.dest_x, intent.dest_z) == far[:2]
 
@@ -3056,8 +3055,8 @@ def test_a_retarget_within_a_running_hold_keeps_running(
     assert _press(main, game, floor, buf, near, monkeypatch, 105).run is True
 
     _resolving(monkeypatch, [("walk", far)])
-    buf.pointer_pos = (11, 10)
-    main.follow_pointer(game, ModalSession(), floor, buf.pointer_pos, [], buf)
+    buf.pointer.pos = (11, 10)
+    main.follow_pointer(game, ModalSession(), floor, buf.pointer.pos, [], buf)
 
     assert (game.nav_intent.dest_x, game.nav_intent.dest_z) == far[:2]
     assert game.nav_intent.run is True
@@ -3071,13 +3070,13 @@ def test_release_ends_the_run_but_keeps_the_press_clock(
     game, floor, buf, near, _far = _follow_fixture(data_dir, profile)
     _primed(main, game, floor, buf, near, monkeypatch)
     _press(main, game, floor, buf, near, monkeypatch, 105)
-    assert buf.pointer_run is True
+    assert buf.pointer.run is True
 
     up = main.pygame.event.Event(main.pygame.MOUSEBUTTONUP, button=1)
     main._cancel_pointer_invalidation(game, up, buf)
 
-    assert buf.pointer_run is False, "the run ends with the hold"
-    assert buf.last_press_tick == 105
+    assert buf.pointer.run is False, "the run ends with the hold"
+    assert buf.pointer.last_press_tick == 105
 
 
 def test_a_held_push_never_runs(data_dir, profile, monkeypatch):
@@ -3092,7 +3091,7 @@ def test_a_held_push_never_runs(data_dir, profile, monkeypatch):
     _resolving(monkeypatch, [("push", near)])
     route_play_click(game, ModalSession(), floor, (10, 10), [], buf)
 
-    assert buf.pointer_run is True, "the double press was still a double press"
+    assert buf.pointer.run is True, "the double press was still a double press"
     assert game.nav_intent.requires_hold is True
     assert game.nav_intent.run is False
 
@@ -3207,7 +3206,7 @@ def test_play_cursor_state_returns_kind_and_payload(data_dir, profile):
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     pixel = next(p for p in _sampled_pixels() if resolve_play_click(game, floor, p, [])[0] == "walk")
-    buf = InputBuffer()
+    buf = ControlsState()
     kind, payload = main._play_cursor_state(game, floor, pixel, [], buf)
     assert kind == "walk" and payload is not None
     assert main._play_cursor_kind(game, floor, pixel, [], buf) == "walk"
@@ -3233,7 +3232,7 @@ def test_run_hands_the_cursor_its_marker_ring_and_settle_state(data_dir, profile
     # press (it is a brand new gesture, not a cut settling) -- reopen it
     # here to simulate a cut landing mid-hold, which is what the dashed
     # ring is meant to reflect.
-    buf.follow_settle_origin = pixel
+    buf.pointer.settle_origin = pixel
     main._render_play_cursor(game, floor, pixel, [], buf, painter=None)
     (pos, kind, kw), = calls
     assert pos == pixel and kind == "walk"

@@ -21,9 +21,10 @@ from PyAitD.engine.script.game import init_game
 from PyAitD.engine.script.playworld import play_tick as real_play_tick
 from PyAitD.app.controls.actions import Action
 from PyAitD.app.controls.keyboard import KeyboardState
+from PyAitD.app.controls.snapshot import ControlsState, feed_event
 from PyAitD.app.ui import (
-    CharacterLayout, CharacterPhase, InputBuffer, ModalSession,
-    SettingsNoticeLayout, SystemMenuLayout, SystemMenuPage, event_to_input,
+    CharacterLayout, CharacterPhase, ModalSession,
+    SettingsNoticeLayout, SystemMenuLayout, SystemMenuPage,
 )
 
 pytestmark = [pytest.mark.shell, pytest.mark.journey]
@@ -281,16 +282,16 @@ def test_menu_remap_sticky_save_and_reload_journey(data_dir, profile, monkeypatc
     with _pygame_runtime():
         reloaded = load_runtime_session(path)
         assert reloaded.settings_error is None
-        buffer = InputBuffer()
+        buffer = ControlsState()
         configure_session_input(reloaded, buffer)
-        assert buffer.bindings[pygame.K_q] is Control.UP
-        assert buffer.sticky_action is True
-        event_to_input(_key(pygame.K_SPACE), buffer)
-        assert buffer.sticky_armed is True
-        event_to_input(_key(pygame.K_q), buffer)
-        assert buffer.held_joyd == 1
-        assert buffer.action_pulse is True
-        assert buffer.sticky_armed is False
+        assert buffer.keyboard.table[pygame.K_q] is Control.UP
+        assert buffer.keyboard.sticky_action is True
+        feed_event(buffer, _key(pygame.K_SPACE))
+        assert buffer.keyboard.sticky_armed is True
+        feed_event(buffer, _key(pygame.K_q))
+        assert buffer.keyboard.held_joyd == 1
+        assert buffer.keyboard.action_pulse is True
+        assert buffer.keyboard.sticky_armed is False
 
 
 def test_menu_realism_page_cycle_and_save_journey(data_dir, profile, monkeypatch, tmp_path):
@@ -427,19 +428,19 @@ def test_menu_entry_and_exit_never_replay_held_input(data_dir, profile, monkeypa
 
     observed = []
     state = {"frames": 0, "close_frame": None, "pending": None}
-    real_play_input = main._play_input
+    real_build_play_input = main.build_play_input
     real_apply = playworld.apply_play_input
 
-    def observe_snapshot(input_buffer):
-        # the live InputBuffer's own held/sticky state, sampled at the
-        # _play_input seam: the tick's own PlayInput carries neither
+    def observe_snapshot(controls):
+        # the live ControlsState's own held/sticky state, sampled at the
+        # build_play_input seam: the tick's own PlayInput carries neither
         # held_joyd nor sticky_armed (they never cross the engine boundary),
         # so this is the only place left to observe them per tick.
         state["pending"] = (
-            input_buffer.held_joyd, input_buffer.action_held,
-            input_buffer.sticky_armed, input_buffer.action_pulse,
+            controls.keyboard.held_joyd, controls.keyboard.action_held,
+            controls.keyboard.sticky_armed, controls.keyboard.action_pulse,
         )
-        return real_play_input(input_buffer)
+        return real_build_play_input(controls)
 
     def observe_apply(game_arg, play_input_arg):
         real_apply(game_arg, play_input_arg)
@@ -449,7 +450,7 @@ def test_menu_entry_and_exit_never_replay_held_input(data_dir, profile, monkeypa
             "tick": (game_arg.local_joyd, game_arg.local_click, game_arg.action),
         })
 
-    monkeypatch.setattr(main, "_play_input", observe_snapshot)
+    monkeypatch.setattr(main, "build_play_input", observe_snapshot)
     monkeypatch.setattr(playworld.tick, "apply_play_input", observe_apply)
 
     def next_events():
@@ -632,12 +633,12 @@ def test_death_restart_keeps_live_settings_and_drops_input_transients(
         settings=settings, settings_path=path,
         settings_error="visible error", settings_dirty=True,
     )
-    dirty_buffer = InputBuffer(keyboard=KeyboardState(
+    dirty_buffer = ControlsState(keyboard=KeyboardState(
         held_joyd=9, action_held=True, sticky_armed=True, action_pulse=True,
         queue=deque([Action.UP]),
     ))
 
-    monkeypatch.setattr(main, "InputBuffer", lambda: dirty_buffer)
+    monkeypatch.setattr(main, "ControlsState", lambda: dirty_buffer)
     monkeypatch.setattr(Game, "load_floor", lambda self, number: SimpleNamespace(number=0))
     monkeypatch.setattr(main, "_scene_frame", lambda *args: (_FRAME, []))
     monkeypatch.setattr(main.pygame.time, "get_ticks", lambda: 0)
@@ -652,12 +653,12 @@ def test_death_restart_keeps_live_settings_and_drops_input_transients(
     assert new_session.settings_error == "visible error"
     assert new_session.settings_dirty is True
     assert new_buffer is dirty_buffer
-    assert (new_buffer.held_joyd, new_buffer.action_held, new_buffer.sticky_armed,
-            new_buffer.action_pulse, list(new_buffer.commands)) == (
+    assert (new_buffer.keyboard.held_joyd, new_buffer.keyboard.action_held, new_buffer.keyboard.sticky_armed,
+            new_buffer.keyboard.action_pulse, list(new_buffer.keyboard.queue)) == (
         0, False, False, False, [],
     )
-    assert new_buffer.bindings[pygame.K_q] is Control.UP
-    assert new_buffer.sticky_action is True
+    assert new_buffer.keyboard.table[pygame.K_q] is Control.UP
+    assert new_buffer.keyboard.sticky_action is True
 
 
 def test_settings_reload_reads_the_file_fresh(tmp_path):
@@ -679,11 +680,11 @@ def test_settings_reload_reads_the_file_fresh(tmp_path):
     assert second.settings is not first.settings
 
     with _pygame_runtime():
-        buffer = InputBuffer()
+        buffer = ControlsState()
         configure_session_input(second, buffer)
-        assert buffer.bindings[pygame.K_q] is Control.UP
-        assert pygame.K_w not in buffer.bindings, "the remap steals, not adds"
-        assert buffer.sticky_action is True
+        assert buffer.keyboard.table[pygame.K_q] is Control.UP
+        assert pygame.K_w not in buffer.keyboard.table, "the remap steals, not adds"
+        assert buffer.keyboard.sticky_action is True
 
 
 def test_mouse_only_remap_journey_binds_through_the_key_picker(data_dir, profile, monkeypatch, tmp_path):

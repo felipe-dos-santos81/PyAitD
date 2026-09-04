@@ -74,9 +74,9 @@ def test_main_skip_intro_produces_a_session_whose_hero_boot_is_not_a_cutscene(mo
     session.pending_hero = 0
 
     from types import SimpleNamespace
-    from PyAitD.app.ui import InputBuffer
+    from PyAitD.app.controls.snapshot import ControlsState
 
-    replaced = main._hero_branch(game, SimpleNamespace(), session, InputBuffer())
+    replaced = main._hero_branch(game, SimpleNamespace(), session, ControlsState())
     assert replaced is not None
     new_session = replaced[2]
     assert new_session.cutscene is False
@@ -290,7 +290,7 @@ def test_unknown_pygame_key_falls_back_to_defaults_with_a_path_named_notice(tmp_
     from PyAitD.app.shell import configure_session_input, load_runtime_session
     from PyAitD.app.config import SCHEMA, default_settings
     from PyAitD.render.render_options import RenderOptions
-    from PyAitD.app.ui import InputBuffer
+    from PyAitD.app.controls.snapshot import ControlsState
 
     bindings = {name: list(keys) for name, keys in default_settings().bindings.items()}
     bindings["UP"] = ["not-a-real-pygame-key"]
@@ -304,12 +304,12 @@ def test_unknown_pygame_key_falls_back_to_defaults_with_a_path_named_notice(tmp_
     assert session.settings_error is None
     assert session.settings.bindings["UP"] == ("not-a-real-pygame-key",)
 
-    buffer = InputBuffer()
+    buffer = ControlsState()
     configure_session_input(session, buffer)
 
     assert session.settings == default_settings()
     assert str(path) in session.settings_error
-    assert buffer.bindings is not None
+    assert buffer.keyboard.table is not None
 
 
 def test_render_cli_flags_override_settings_for_the_session():
@@ -435,7 +435,8 @@ def test_config_menu_save_does_not_persist_untouched_cli_render_overrides(tmp_pa
         _apply_system_result, apply_render_overrides, load_runtime_session, parse_args,
     )
     from PyAitD.app.config import SCHEMA, default_settings
-    from PyAitD.app.ui import InputBuffer, SystemMenuResult
+    from PyAitD.app.controls.snapshot import ControlsState
+    from PyAitD.app.ui import SystemMenuResult
 
     pygame.init()
     settings_file = tmp_path / "settings.json"
@@ -455,7 +456,7 @@ def test_config_menu_save_does_not_persist_untouched_cli_render_overrides(tmp_pa
     assert (session.settings.render.scale, session.settings.render.shading,
             session.settings.render.texture_dir) == (7, "flat", textures_dir)
 
-    input_buffer = InputBuffer()
+    input_buffer = ControlsState()
     game = SimpleNamespace(close_modal=lambda: None)
     # The only row actually pressed in CONFIG: Sticky Action.
     toggle = SystemMenuResult(settings=replace(session.settings, sticky_action=True))
@@ -490,7 +491,8 @@ def test_config_menu_save_persists_a_render_field_the_player_actually_cycled(tmp
     )
     from PyAitD.app.config import SCHEMA, default_settings
     from PyAitD.render.render_options import cycle_shading
-    from PyAitD.app.ui import InputBuffer, SystemMenuResult
+    from PyAitD.app.controls.snapshot import ControlsState
+    from PyAitD.app.ui import SystemMenuResult
 
     pygame.init()
     settings_file = tmp_path / "settings.json"
@@ -506,7 +508,7 @@ def test_config_menu_save_persists_a_render_field_the_player_actually_cycled(tmp
     args = parse_args(["--textures", textures_dir])
     session.settings = apply_render_overrides(session.settings, args)
 
-    input_buffer = InputBuffer()
+    input_buffer = ControlsState()
     game = SimpleNamespace(close_modal=lambda: None)
     # The player actually presses the Shading row in CONFIG this time.
     cycled = SystemMenuResult(

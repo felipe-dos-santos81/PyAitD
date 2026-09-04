@@ -403,7 +403,7 @@ def test_mouse_hold_push_wardrobe_release_and_retry(data_dir, profile, monkeypat
         )
         if state["phase"] == "hover" and hover == (150, 100):
             state["hover_push_seen"] = kind == "push"
-        if (input_buffer.pointer_held and hover == (10, 10)
+        if (input_buffer.pointer.held and hover == (10, 10)
                 and current_game.nav_intent is not None):
             assert kind == "push"
             state["drift_cursor_seen"] = True

@@ -33,7 +33,7 @@ from PyAitD.engine.script.save import (
 # imported by name, not module-qualified: run() reads play_tick as a module
 # global, which is the patch point tests/test_play_loop.py relies on
 from PyAitD.engine.script.playworld import (
-    TICK_MS, PlayInput, arm_mouse_attack, clear_mouse_attack, play_tick,
+    TICK_MS, arm_mouse_attack, clear_mouse_attack, play_tick,
 )
 from PyAitD.render.render import Renderer
 from PyAitD.render.render_options import (
@@ -46,11 +46,12 @@ from PyAitD.games.aitd1.mirror import MIRROR_KEYCODES
 from PyAitD.render.motion import snapshot as motion_snapshot
 from PyAitD.render.scene import build_frame
 from PyAitD.app.controls.actions import Action
+from PyAitD.app.controls.pointer import CUT_DEAD_ZONE_PX, DOUBLE_PRESS_RESUME_PX, DOUBLE_PRESS_TICKS
+from PyAitD.app.controls.snapshot import ControlsState, build_play_input, configure, feed_event, reset
 from PyAitD.app.ui import (
-    DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, UIPainter, configure_input,
-    event_to_input,
+    ModalSession, UIPainter,
     hit_test_settings_notice, render_cursor, render_hit_feedback, render_play_hud,
-    render_settings_notice, reset_input,
+    render_settings_notice,
 )
 
 DEFAULT_DATA = (
@@ -64,14 +65,6 @@ DEFAULT_DATA = (
     / "INDARK"
 )
 HIT_FEEDBACK_MS = 250
-CUT_DEAD_ZONE_PX = 6   # after a camera cut the pointer must move this far on
-                       # an axis before the hold re-resolves; smaller motion is
-                       # the hand settling, not a gesture
-DOUBLE_PRESS_RESUME_PX = 6   # how far the pointer may drift between the two
-                             # presses of a double press and still mean the
-                             # same place. The same hand jitter the cut dead
-                             # zone answers, measured across a release rather
-                             # than across a camera cut
 
 
 def _integration_level(text):
@@ -237,31 +230,15 @@ def load_runtime_session(path, save_directory=None):
     )
 
 
-def configure_session_input(session, input_buffer):
+def configure_session_input(session, controls):
     try:
-        configure_input(input_buffer, session.settings)
+        configure(controls, session.settings)
     except ValueError as exc:
         session.settings = default_settings()
         session.settings_error = (
             f"Could not load settings from {session.settings_path}: {exc}"
         )
-        configure_input(input_buffer, session.settings)
-
-
-def _play_input(input_buffer):
-    """The engine's snapshot for one tick. Consumes the sticky pulse: the
-    engine no longer writes back into its input (playworld.input.PlayInput),
-    and a pulse raised while a modal is open must still fire on the first
-    play tick after it, so it is cleared here and nowhere else."""
-    snapshot = PlayInput(
-        joyd=input_buffer.held_joyd,
-        action_held=input_buffer.action_held,
-        action_pulse=input_buffer.action_pulse,
-        pointer_held=input_buffer.pointer_held,
-        focused=input_buffer.focused,
-    )
-    input_buffer.action_pulse = False
-    return snapshot
+        configure(controls, session.settings)
 
 
 def replacement_session(session):
@@ -542,32 +519,32 @@ def _steer(game, floor, logical_pos, hero):
 
 
 def route_play_click(
-        game, session, floor, logical_pos, draw_list, input_buffer=None,
+        game, session, floor, logical_pos, draw_list, controls=None,
 ):
     """Route one resolved PLAY click; HUD and world share the resolver."""
     from PyAitD.engine.script.interaction import apply_click_intent, attack_in_hand
 
-    _stamp_press(game, input_buffer)
+    _stamp_press(game, controls)
     kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
     if kind == "inventory":
-        if input_buffer is not None:
+        if controls is not None:
             # a press resolving to anything but walk/target spends the hold
             # (spec Non-goals: no resuming a follow after a strike without a
             # fresh press) -- generalised past attack to cover every
             # press-only kind, inventory included
-            input_buffer.follow_spent = True
+            controls.pointer.spent = True
         route_command(
-            game, session, Action.INVENTORY_CONFIRM, input_buffer,
+            game, session, Action.INVENTORY_CONFIRM, controls,
         )
         return
     if kind == "attack":
         # attack_in_hand only validates, stops and faces. The strike itself is
         # published by the fixed-tick input snapshot, so the accepted target is
         # latched into the application-owned buffer here and nowhere else.
-        if input_buffer is not None:
+        if controls is not None:
             # spends the hold regardless of whether the target was accepted:
             # the press still resolved to "attack", not walk/target
-            input_buffer.follow_spent = True
+            controls.pointer.spent = True
         if attack_in_hand(game, payload):
             arm_mouse_attack(game, payload)
         return
@@ -576,30 +553,30 @@ def route_play_click(
         return
     if kind == "blocked":
         return
-    resumed = _resume_destination(input_buffer, logical_pos) if kind != "push" else None
+    resumed = _resume_destination(controls, logical_pos) if kind != "push" else None
     if resumed is not None:
         payload = resumed
     dest_x, dest_z, room, object_idx = payload
     apply_click_intent(
         game, dest_x, dest_z, room, target_object_idx=object_idx,
         requires_hold=(kind == "push"),
-        run=input_buffer is not None and input_buffer.pointer_run,
+        run=controls is not None and controls.pointer.run,
         steering=(kind == "steer"),
     )
-    if input_buffer is not None:
+    if controls is not None:
         # a walk or target press opens a held pointer follow (follow_pointer
         # compares later resolutions against this); a push is latched and
         # never re-resolved, so it leaves no latch behind and spends the
         # hold -- its requires_hold intent can die mid-hold (arrival,
         # give-up), and the still-held button must not resume the follow
-        input_buffer.follow_last = payload if kind != "push" else None
-        input_buffer.follow_pos = logical_pos if kind != "push" else None
-        input_buffer.follow_camera = game.num_camera if kind != "push" else None
-        input_buffer.follow_settle_origin = None
-        input_buffer.follow_spent = kind == "push"
+        controls.pointer.follow_last = payload if kind != "push" else None
+        controls.pointer.follow_pos = logical_pos if kind != "push" else None
+        controls.pointer.follow_camera = game.num_camera if kind != "push" else None
+        controls.pointer.settle_origin = None
+        controls.pointer.spent = kind == "push"
 
 
-def _resume_destination(input_buffer, logical_pos):
+def _resume_destination(controls, logical_pos):
     """The destination this press should reuse, or None to pick afresh.
 
     The second press of a double press is the same finger on the same spot
@@ -614,9 +591,9 @@ def _resume_destination(input_buffer, logical_pos):
     hero by itself: the button is down by the time this is consulted, and the
     release that stashed the destination cancelled the intent that carried it.
     """
-    if input_buffer is None or not input_buffer.pointer_run:
+    if controls is None or not controls.pointer.run:
         return None
-    last, pos = input_buffer.resume_last, input_buffer.resume_pos
+    last, pos = controls.pointer.resume_last, controls.pointer.resume_pos
     if last is None or pos is None:
         return None
     if (abs(logical_pos[0] - pos[0]) > DOUBLE_PRESS_RESUME_PX
@@ -625,7 +602,7 @@ def _resume_destination(input_buffer, logical_pos):
     return last
 
 
-def _stamp_press(game, input_buffer):
+def _stamp_press(game, controls):
     """Decide whether this press is the second half of a double press.
 
     Timed on game.timer, so the window stops counting while a modal has the
@@ -635,16 +612,16 @@ def _stamp_press(game, input_buffer):
     just the walks: two presses are two presses whatever each one turned out
     to resolve to.
     """
-    if input_buffer is None:
+    if controls is None:
         return
-    previous = input_buffer.last_press_tick
-    input_buffer.pointer_run = (
+    previous = controls.pointer.last_press_tick
+    controls.pointer.run = (
         previous is not None and game.timer - previous < DOUBLE_PRESS_TICKS
     )
-    input_buffer.last_press_tick = game.timer
+    controls.pointer.last_press_tick = game.timer
 
 
-def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
+def follow_pointer(game, session, floor, logical_pos, draw_list, controls):
     """Held pointer follow: re-aim the hero at whatever the held pointer
     resolves to, once per frame in which it moved
     (docs/superpowers/specs/2026-08-26-held-pointer-follow-design.md).
@@ -655,14 +632,14 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
     cut sends the hero somewhere nobody pointed at, and where the new camera
     cannot pick that pixel at all it resolves `blocked` and stops the hero
     dead until the hand moves. Neither is a gesture the player made. Gating on
-    input_buffer.follow_pos costs nothing elsewhere: with the camera unchanged
+    controls.pointer.follow_pos costs nothing elsewhere: with the camera unchanged
     a still pointer re-resolves to the same payload anyway.
 
     A pointer that DID move is not automatically safe either: the same hand
     settling after a cut nudges the pointer a pixel or two without the player
-    aiming anywhere. input_buffer.follow_camera records the slot follow_pos
+    aiming anywhere. controls.pointer.follow_camera records the slot follow_pos
     was resolved under, so a mismatch against game.num_camera means a cut just
-    happened. From there, input_buffer.follow_settle_origin pins the pointer
+    happened. From there, controls.pointer.settle_origin pins the pointer
     position at the moment the cut was noticed, and motion within
     CUT_DEAD_ZONE_PX of it on either axis (Chebyshev) is treated as settling,
     not a gesture: the destination holds and neither follow_pos nor
@@ -670,7 +647,7 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
     follow_settle_origin reset to None and resolution proceed against the new
     camera.
 
-    The resolution is compared against input_buffer.follow_last, never the
+    The resolution is compared against controls.pointer.follow_last, never the
     live intent: the engine clears an intent when the follower arrives or
     gives up, and _push_into_target re-aims a target intent at the object
     itself, so an unchanged resolution must never be re-issued within one
@@ -684,30 +661,30 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
     if (game.active_modal is not None or game.mode is not GameMode.PLAY
             or game.input_mode is not InputMode.MOUSE or session.cutscene
             or game.num_camera == -1
-            or not input_buffer.pointer_held or not input_buffer.focused
+            or not controls.pointer.held or not controls.focused
             or game.mouse_attack_target is not None
             # a press that resolved to attack/inventory/push spends the
             # hold: no follow starts from it even after the underlying latch
             # (mouse_attack_target, a push's requires_hold intent) dies
             # mid-hold -- only release-and-a-fresh-press clears this
-            or input_buffer.follow_spent):
+            or controls.pointer.spent):
         return
     intent = game.nav_intent
     if intent is not None and intent.requires_hold:
         return  # a latched push ignores pointer motion until release
-    if logical_pos == input_buffer.follow_pos:
+    if logical_pos == controls.pointer.follow_pos:
         return  # a still pointer means what it meant last frame
-    if (input_buffer.follow_camera is not None
-            and input_buffer.follow_camera != game.num_camera):
+    if (controls.pointer.follow_camera is not None
+            and controls.pointer.follow_camera != game.num_camera):
         # a cut: the pixel now means something else, but the hand has not
         # said so. Keep the destination until the pointer leaves the dead
         # zone around where it was when the cut landed.
-        if input_buffer.follow_settle_origin is None:
-            input_buffer.follow_settle_origin = (
-                input_buffer.follow_pos
-                if input_buffer.follow_pos is not None else logical_pos
+        if controls.pointer.settle_origin is None:
+            controls.pointer.settle_origin = (
+                controls.pointer.follow_pos
+                if controls.pointer.follow_pos is not None else logical_pos
             )
-        ox, oy = input_buffer.follow_settle_origin
+        ox, oy = controls.pointer.settle_origin
         if (abs(logical_pos[0] - ox) <= CUT_DEAD_ZONE_PX
                 and abs(logical_pos[1] - oy) <= CUT_DEAD_ZONE_PX):
             return
@@ -716,30 +693,30 @@ def follow_pointer(game, session, floor, logical_pos, draw_list, input_buffer):
     # the slot the follow was resolved under while the zone is still open,
     # and a settle origin left behind then draws the cursor's dashed ring for
     # the rest of the hold.
-    input_buffer.follow_settle_origin = None
-    input_buffer.follow_pos = logical_pos
-    input_buffer.follow_camera = game.num_camera
+    controls.pointer.settle_origin = None
+    controls.pointer.follow_pos = logical_pos
+    controls.pointer.follow_camera = game.num_camera
     kind, payload = resolve_play_click(game, floor, logical_pos, draw_list)
     if kind in ("walk", "target", "steer"):
-        if payload == input_buffer.follow_last:
+        if payload == controls.pointer.follow_last:
             return
         dest_x, dest_z, room, object_idx = payload
         # the run belongs to the hold, not to the destination: aiming
         # somewhere else without releasing keeps the hero running
         apply_click_intent(
             game, dest_x, dest_z, room, target_object_idx=object_idx,
-            run=input_buffer.pointer_run,
+            run=controls.pointer.run,
             steering=(kind == "steer"),
         )
-        input_buffer.follow_last = payload
+        controls.pointer.follow_last = payload
     elif kind == "blocked":
         if intent is not None:
             cancel_nav_intent(game)
-        input_buffer.follow_last = None
+        controls.pointer.follow_last = None
     # inventory, attack and push need a fresh press: nothing to follow
 
 
-def _cancel_pointer_invalidation(game, event, input_buffer):
+def _cancel_pointer_invalidation(game, event, controls):
     """Button-up and focus loss end the hold, and every intent is hold-bound."""
     invalidated = (
         event.type == pygame.MOUSEBUTTONUP and event.button == 1
@@ -748,10 +725,10 @@ def _cancel_pointer_invalidation(game, event, input_buffer):
         return False
     if event.type == pygame.WINDOWFOCUSLOST:
         clear_mouse_attack(game)
-    return _cancel_follow(game, input_buffer)
+    return _cancel_follow(game, controls)
 
 
-def _drop_destination(game, input_buffer):
+def _drop_destination(game, controls):
     """Forget where this hold was heading and which pixel said so, and drop
     the intent that was carrying it. True when an intent was live.
 
@@ -762,18 +739,18 @@ def _drop_destination(game, input_buffer):
     for callers that own no buffer.
     """
     from PyAitD.engine.script.interaction import cancel_nav_intent
-    if input_buffer is not None:
-        input_buffer.follow_last = None
-        input_buffer.follow_pos = None
-        input_buffer.follow_camera = None
-        input_buffer.follow_settle_origin = None
+    if controls is not None:
+        controls.pointer.follow_last = None
+        controls.pointer.follow_pos = None
+        controls.pointer.follow_camera = None
+        controls.pointer.settle_origin = None
     if game.nav_intent is None:
         return False
     cancel_nav_intent(game)
     return True
 
 
-def _cancel_follow(game, input_buffer):
+def _cancel_follow(game, controls):
     """End the hold itself: the destination, plus everything that belonged to
     the press that opened it.
 
@@ -783,21 +760,21 @@ def _cancel_follow(game, input_buffer):
     run goes the same way, while last_press_tick survives -- it is what the
     *next* press is measured against.
     """
-    if input_buffer is not None:
-        input_buffer.follow_spent = False
-        input_buffer.pointer_run = False
+    if controls is not None:
+        controls.pointer.spent = False
+        controls.pointer.run = False
         # what the next press may resume if it turns out to be the second
         # half of a double press; _drop_destination is about to clear the
         # fields it is copied from. A bearing is never stashed: it was
         # resolved from where the hero stood at the press that made it, and he
         # has walked since, so the second press must take a fresh one.
         steered = game.nav_intent is not None and game.nav_intent.steering
-        input_buffer.resume_last = None if steered else input_buffer.follow_last
-        input_buffer.resume_pos = input_buffer.follow_pos
-    return _drop_destination(game, input_buffer)
+        controls.pointer.resume_last = None if steered else controls.pointer.follow_last
+        controls.pointer.resume_pos = controls.pointer.follow_pos
+    return _drop_destination(game, controls)
 
 
-def _rebase_follow(game, input_buffer):
+def _rebase_follow(game, controls):
     """Drop a destination the new floor cannot mean, keeping the hold alive.
 
     A floor change invalidates the intent -- its `room` indexes the floor that
@@ -810,24 +787,24 @@ def _rebase_follow(game, input_buffer):
     unloaded, so a press arriving inside the double-press window must pick
     afresh rather than resume a destination on a floor the hero has left.
     """
-    if input_buffer is not None:
-        input_buffer.resume_last = None
-        input_buffer.resume_pos = None
-    return _drop_destination(game, input_buffer)
+    if controls is not None:
+        controls.pointer.resume_last = None
+        controls.pointer.resume_pos = None
+    return _drop_destination(game, controls)
 
 
-def _play_cursor_state(game, floor, hover, draw_list, input_buffer):
+def _play_cursor_state(game, floor, hover, draw_list, controls):
     """(kind, payload) the cursor should show for `hover`: a latched push
     stays "push" whatever the pointer drifts over; otherwise the resolver."""
     intent = getattr(game, "nav_intent", None)
-    if (input_buffer.pointer_held and intent is not None
+    if (controls.pointer.held and intent is not None
             and intent.requires_hold):
         return "push", None
     return resolve_play_click(game, floor, hover, draw_list)
 
 
-def _play_cursor_kind(game, floor, hover, draw_list, input_buffer):
-    return _play_cursor_state(game, floor, hover, draw_list, input_buffer)[0]
+def _play_cursor_kind(game, floor, hover, draw_list, controls):
+    return _play_cursor_state(game, floor, hover, draw_list, controls)[0]
 
 
 def _marker_for(game, floor, payload):
@@ -858,20 +835,20 @@ def _intent_marker(game, floor):
     return _marker_for(game, floor, (intent.dest_x, intent.dest_z, intent.room, -1))
 
 
-def _render_play_cursor(game, floor, hover, draw_list, input_buffer, painter):
+def _render_play_cursor(game, floor, hover, draw_list, controls, painter):
     """The PLAY cursor with its feedback: the live destination, a preview of
     where a press would head while nothing is held, the press ring, and the
     dashed ring while a cut's dead zone is open."""
-    kind, payload = _play_cursor_state(game, floor, hover, draw_list, input_buffer)
+    kind, payload = _play_cursor_state(game, floor, hover, draw_list, controls)
     destination = _intent_marker(game, floor)
     preview = None
-    if (not input_buffer.pointer_held and destination is None
+    if (not controls.pointer.held and destination is None
             and kind in ("walk", "target")):
         preview = _marker_for(game, floor, payload)
     render_cursor(
         painter, hover, kind,
-        held=input_buffer.pointer_held,
-        settling=input_buffer.follow_settle_origin is not None,
+        held=controls.pointer.held,
+        settling=controls.pointer.settle_origin is not None,
         destination=destination,
         preview=preview,
     )
@@ -1023,7 +1000,7 @@ def _request_load(game, session, kind):
     session.pending_load = payload
 
 
-def _load_branch(game, renderer, session, input_buffer=None):
+def _load_branch(game, renderer, session, controls=None):
     """The atomic load replacement: rebuild the game from the staged payload
     and hand run() every loop local that referenced the old game, exactly
     like _restart_branch. A failure consumes the payload, raises the notice,
@@ -1032,7 +1009,7 @@ def _load_branch(game, renderer, session, input_buffer=None):
         return None
     payload = session.pending_load
     session.pending_load = None
-    _take_over_play_input(game, session, input_buffer)
+    _take_over_play_input(game, session, controls)
     trace = game.trace
     try:
         new_game, settings_dict = restore_game(game._data_dir, game.profile, payload, pack=game.pack)
@@ -1047,8 +1024,8 @@ def _load_branch(game, renderer, session, input_buffer=None):
     floor = new_floor
     session = replacement_session(session)
     session.settings = settings
-    input_buffer = InputBuffer()
-    configure_session_input(session, input_buffer)
+    controls = ControlsState()
+    configure_session_input(session, controls)
     accumulator = 0
     draw_list = []
     hover = None
@@ -1058,12 +1035,12 @@ def _load_branch(game, renderer, session, input_buffer=None):
     scene_frame, draw_list = _scene_frame(game, floor, renderer, new_resolver)
     last = pygame.time.get_ticks()
     return (
-        game, floor, session, input_buffer, accumulator,
+        game, floor, session, controls, accumulator,
         draw_list, hover, scene_frame, last, 0, new_resolver,
     )
 
 
-def _apply_system_result(game, session, input_buffer, result, renderer=None):
+def _apply_system_result(game, session, controls, result, renderer=None):
     if result is None:
         return True
     if result.settings is not None:
@@ -1082,7 +1059,7 @@ def _apply_system_result(game, session, input_buffer, result, renderer=None):
             session.render_touched = frozenset(touched)
         session.settings = result.settings
         session.settings_dirty = True
-        configure_input(input_buffer, session.settings)
+        configure(controls, session.settings)
         if render_changed and renderer is not None:
             renderer.set_options(session.settings.render)
     saved = _save_session_settings(session) if result.save else True
@@ -1095,15 +1072,15 @@ def _apply_system_result(game, session, input_buffer, result, renderer=None):
     if result.load_slot is not None:
         _request_load(game, session, result.load_slot)
     if result.close:
-        reset_input(input_buffer)
+        reset(controls, None)
         game.close_modal()
     if result.quit:
-        reset_input(input_buffer)
+        reset(controls, None)
         return False
     return True
 
 
-def _capture_keydown(event, game, session, input_buffer):
+def _capture_keydown(event, game, session, controls):
     from PyAitD.engine.script.effects import OpenSystemMenu
     from PyAitD.app.controls.bindings import canonical_key_name
     from PyAitD.app.ui import capture_system_key
@@ -1119,22 +1096,23 @@ def _capture_keydown(event, game, session, input_buffer):
     except ValueError as exc:
         session.settings_error = f"Could not bind pygame key {event.key}: {exc}"
         return True, True
-    return True, _apply_system_result(game, session, input_buffer, result)
+    return True, _apply_system_result(game, session, controls, result)
 
 
-def _take_over_play_input(game, session, input_buffer) -> None:
+def _take_over_play_input(game, session, controls) -> None:
     """Atomically drop transient PLAY input before a modal takes control."""
-    if input_buffer is not None:
-        reset_input(input_buffer)
+    if controls is not None:
+        reset(controls, game)
     from PyAitD.engine.script.interaction import cancel_nav_intent
     cancel_nav_intent(game)
-    clear_mouse_attack(game)
+    if controls is None:
+        clear_mouse_attack(game)
     # route_hover owns presenter-only hover and deliberately does not own the
     # modal lifecycle: ModalSession.reset_for remains at the open/render seams.
     route_hover(game, session, None)
 
 
-def route_command(game, session, command, input_buffer=None, renderer=None):
+def route_command(game, session, command, controls=None, renderer=None):
     from PyAitD.engine.script.effects import (
         GameMode, GameOver, OpenInventory, OpenSystemMenu, ReadText, ShowFound,
         ShowPicture,
@@ -1166,22 +1144,23 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
             InputMode.KEYBOARD if game.input_mode is InputMode.MOUSE else InputMode.MOUSE
         )
         cancel_nav_intent(game)
-        clear_mouse_attack(game)
+        if controls is None:
+            clear_mouse_attack(game)
         sync_player_track_mode(game)
-        if input_buffer is not None:
-            reset_input(input_buffer)
+        if controls is not None:
+            reset(controls, game)
         return True
 
     if game.mode is GameMode.PLAY:
         if command is Action.CANCEL:
             game.open_modal(OpenSystemMenu())
-            _take_over_play_input(game, session, input_buffer)
+            _take_over_play_input(game, session, controls)
             session.reset_for(game.active_modal)
             return True
         if command is Action.INVENTORY_CONFIRM and game.status_screen_allowed:
             if game.inventory_count[game.current_inventory]:
                 game.open_modal(OpenInventory())
-                _take_over_play_input(game, session, input_buffer)
+                _take_over_play_input(game, session, controls)
                 session.reset_for(game.active_modal)
         return True
 
@@ -1195,7 +1174,7 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
             session.system_menu, modal_command, session.settings,
             _available_slots(session),
         )
-        return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
+        return _apply_system_result(game, session, controls, result, renderer=renderer)
 
     session.reset_for(game.active_modal)
     # A keyboard command makes the owning keyboard cursor authoritative until
@@ -1210,7 +1189,7 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
     if isinstance(game.active_modal, OpenStartupMenu):
         from PyAitD.app.startup import reduce_startup_menu
         result = reduce_startup_menu(session.startup, modal_command, continue_enabled=continue_available(session))
-        return _apply_startup_result(game, session, input_buffer, result)
+        return _apply_startup_result(game, session, controls, result)
     if isinstance(game.active_modal, ChooseCharacter):
         from PyAitD.app.ui import reduce_character_select
         result = reduce_character_select(session.character, modal_command)
@@ -1255,24 +1234,24 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
     raise RuntimeError(f"unroutable modal {type(game.active_modal).__name__}")
 
 
-def _apply_startup_result(game, session, input_buffer, result):
+def _apply_startup_result(game, session, controls, result):
     if result is None:
         return True
     if result.new_game:
         game.close_modal()
         game.open_modal(ChooseCharacter())
         session.reset_for(game.active_modal)
-        if input_buffer is not None:
-            reset_input(input_buffer)
+        if controls is not None:
+            reset(controls, game)
         return True
     if result.quit:
-        if input_buffer is not None:
-            reset_input(input_buffer)
+        if controls is not None:
+            reset(controls, game)
         return False
     return True   # continue_game cannot be produced while continue_available is False
 
 
-def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
+def route_mouse(game, session, logical_pos, controls=None, renderer=None):
     from PyAitD.engine.script.effects import (
         ChooseCharacter, CutsceneFinished, GameOver, OpenInventory, OpenSystemMenu,
         ReadText, ShowFound, ShowPicture,
@@ -1306,7 +1285,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
             return True
         if session.system_menu.page is SystemMenuPage.KEY_PICK:
             result = pick_system_key(session.system_menu, session.settings, hit)
-            return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
+            return _apply_system_result(game, session, controls, result, renderer=renderer)
         old_page = session.system_menu.page
         session.system_menu.cursor = hit
         result = reduce_system_menu(
@@ -1315,7 +1294,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
         )
         if session.system_menu.page is not old_page:
             session.system_menu.hover = None
-        return _apply_system_result(game, session, input_buffer, result, renderer=renderer)
+        return _apply_system_result(game, session, controls, result, renderer=renderer)
     session.reset_for(effect)
     if isinstance(effect, ShowTitle):
         from PyAitD.app.startup import credits_page_count, hit_test_title, reduce_title
@@ -1332,7 +1311,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
             return True
         session.startup.cursor = hit
         result = reduce_startup_menu(session.startup, Action.ACTION, continue_enabled=enabled)
-        return _apply_startup_result(game, session, input_buffer, result)
+        return _apply_startup_result(game, session, controls, result)
     if isinstance(effect, ChooseCharacter):
         hit = hit_test_character(logical_pos, session.character)
         if hit is None:
@@ -1537,14 +1516,14 @@ def restart_session(old_game):
     return new_game
 
 
-def _boot_hero(game, renderer, session, input_buffer, hero, *, cutscene):
+def _boot_hero(game, renderer, session, controls, hero, *, cutscene):
     """Build the replace tuple run() adopts: a fresh game for `hero`, staged
     on profile.intro_start (cutscene, allowSystemMenu=0, AITD1.cpp:352-361)
     or on the attic init_game already stages (profile.game_start). Shared by
     _hero_branch (character confirmation) and _cutscene_end_branch (the
     startGame(0, 0, 1) hand-over once the opening ends)."""
     from PyAitD.engine.script.game import start_game
-    _take_over_play_input(game, session, input_buffer)
+    _take_over_play_input(game, session, controls)
     try:
         new_game = init_game(game._data_dir, game.profile, hero=hero, pack=game.pack)
         if cutscene:
@@ -1558,8 +1537,8 @@ def _boot_hero(game, renderer, session, input_buffer, hero, *, cutscene):
     new_game.input_mode = game.input_mode
     new_session = replacement_session(session)
     new_session.cutscene = cutscene
-    input_buffer = InputBuffer()
-    configure_session_input(new_session, input_buffer)
+    controls = ControlsState()
+    configure_session_input(new_session, controls)
     # Staged by start_game: num_camera == -1, new_num_camera == 0. This
     # stages camera 0 exactly as FITD's InitView does after startGame -- the
     # same line init_game's own staging (game_start) relies on below.
@@ -1568,12 +1547,12 @@ def _boot_hero(game, renderer, session, input_buffer, hero, *, cutscene):
     new_resolver = _resolver_for(new_game.assets, session.settings.render.texture_dir)
     scene_frame, draw_list = _scene_frame(new_game, new_floor, renderer, new_resolver)
     return (
-        new_game, new_floor, new_session, input_buffer, 0,
+        new_game, new_floor, new_session, controls, 0,
         draw_list, None, scene_frame, pygame.time.get_ticks(), 0, new_resolver,
     )
 
 
-def _hero_branch(game, renderer, session, input_buffer=None):
+def _hero_branch(game, renderer, session, controls=None):
     # Atomic hero replacement: confirming a character rebuilds game, floor,
     # session, and input buffer in one tuple, so run() resumes on the new
     # game with a single assignment plus `continue` -- no PLAY tick and no
@@ -1587,10 +1566,10 @@ def _hero_branch(game, renderer, session, input_buffer=None):
     # (AITD1.cpp:356) -- unless the game has none, or --skip-intro asked
     # to boot the attic directly (development convenience, not FITD).
     cutscene = game.profile.intro_start is not None and not session.skip_intro
-    return _boot_hero(game, renderer, session, input_buffer, session.pending_hero, cutscene=cutscene)
+    return _boot_hero(game, renderer, session, controls, session.pending_hero, cutscene=cutscene)
 
 
-def _cutscene_end_branch(game, renderer, session, input_buffer=None):
+def _cutscene_end_branch(game, renderer, session, controls=None):
     # PlayWorld(allowSystemMenu=0) returns on FlagGameOver or any key/click
     # (mainLoop.cpp:71-89, CutsceneFinished / session.skip_cutscene); then
     # startAITD1 calls startGame(0, 0, 1), the attic (AITD1.cpp:361), with
@@ -1601,10 +1580,10 @@ def _cutscene_end_branch(game, renderer, session, input_buffer=None):
     if not (session.skip_cutscene or isinstance(game.active_modal, CutsceneFinished)):
         return None
     hero = game.cvars[game.profile.cvar_index("CHOOSE_PERSO")]
-    return _boot_hero(game, renderer, session, input_buffer, hero, cutscene=False)
+    return _boot_hero(game, renderer, session, controls, hero, cutscene=False)
 
 
-def _restart_branch(game, renderer, session, input_buffer=None):
+def _restart_branch(game, renderer, session, controls=None):
     # The atomic replace-game-and-floor step run() inlines each frame: a
     # successful restart hands back every loop local that referenced the old
     # game, so a single tuple assignment plus `continue` is enough to resume
@@ -1612,7 +1591,7 @@ def _restart_branch(game, renderer, session, input_buffer=None):
     # Same resolver-reuse note as _hero_branch above.
     if not game.restart_requested:
         return None
-    _take_over_play_input(game, session, input_buffer)
+    _take_over_play_input(game, session, controls)
     try:
         new_game = restart_session(game)
         new_floor = new_game.load_floor(new_game.current_floor)
@@ -1623,8 +1602,8 @@ def _restart_branch(game, renderer, session, input_buffer=None):
     game = new_game
     floor = new_floor
     session = replacement_session(session)
-    input_buffer = InputBuffer()
-    configure_session_input(session, input_buffer)
+    controls = ControlsState()
+    configure_session_input(session, controls)
     accumulator = 0
     draw_list = []
     hover = None
@@ -1634,7 +1613,7 @@ def _restart_branch(game, renderer, session, input_buffer=None):
     scene_frame, draw_list = _scene_frame(game, floor, renderer, new_resolver)
     last = pygame.time.get_ticks()
     return (
-        game, floor, session, input_buffer, accumulator,
+        game, floor, session, controls, accumulator,
         draw_list, hover, scene_frame, last, 0, new_resolver,
     )
 
@@ -1654,8 +1633,8 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
         session.settings_error = renderer.fallback_notice
     resolver = resolver or AssetResolver(game.assets, session.settings.render.texture_dir)
     clock = pygame.time.Clock()
-    input_buffer = InputBuffer()
-    configure_session_input(session, input_buffer)
+    controls = ControlsState()
+    configure_session_input(session, controls)
     running = True
     exit_status = 0
     last = pygame.time.get_ticks()
@@ -1678,10 +1657,10 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
     while running:
         for event in pygame.event.get():
             # raw key capture owns KEYDOWN while the system menu is binding:
-            # the event never reaches event_to_input, mouse routing, or the
+            # the event never reaches feed_event, mouse routing, or the
             # menu reducer; KEYUP and focus events keep the ordinary path
             captured, capture_running = _capture_keydown(
-                event, game, session, input_buffer,
+                event, game, session, controls,
             )
             if captured:
                 running = capture_running and running
@@ -1720,22 +1699,22 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
                 # below; everything else just skips.
                 session.skip_cutscene = True
                 continue
-            running = event_to_input(event, input_buffer, logical_pos) and running
+            running = feed_event(controls, event, logical_pos) and running
             if (mirror_sink is not None
                     and event.type in (pygame.KEYDOWN, pygame.KEYUP)
                     and not bool(getattr(event, "repeat", False))
                     and game.mode is GameMode.PLAY
                     and game.active_modal is None
                     and game.input_mode is InputMode.KEYBOARD):
-                control = input_buffer.bindings.get(event.key)
+                control = controls.keyboard.table.get(event.key)
                 if control is not None and control.name in MIRROR_KEYCODES:
                     if event.type == pygame.KEYDOWN:
                         mirror_sink.key_down(control.name)
                     else:
                         mirror_sink.key_up(control.name)
-            _cancel_pointer_invalidation(game, event, input_buffer)
+            _cancel_pointer_invalidation(game, event, controls)
             if event.type == pygame.MOUSEMOTION:
-                hover = input_buffer.pointer_pos
+                hover = controls.pointer.pos
                 if game.active_modal is not None:
                     route_hover(game, session, hover)
             elif event.type == pygame.WINDOWFOCUSLOST:
@@ -1743,33 +1722,33 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
                 if game.active_modal is not None:
                     route_hover(game, session, None)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                logical = input_buffer.pointer_pos
+                logical = controls.pointer.pos
                 if game.active_modal is None and game.mode is GameMode.PLAY:
                     # keyboard mode swallows play clicks (resolve_play_click
                     # returns "blocked"); the cursor is hidden there too and
                     # the HUD names the mode, so nothing advertises a click
                     # that does nothing
                     route_play_click(
-                        game, session, floor, logical, draw_list, input_buffer,
+                        game, session, floor, logical, draw_list, controls,
                     )
                 else:
                     running = route_mouse(
-                        game, session, logical, input_buffer, renderer=renderer,
+                        game, session, logical, controls, renderer=renderer,
                     ) and running
         now = pygame.time.get_ticks()
         elapsed = min(now - last, 250)
         last = now
         was_play = game.mode is GameMode.PLAY
-        if input_buffer.commands:
-            command = input_buffer.commands.popleft()
+        if controls.keyboard.queue:
+            command = controls.keyboard.queue.popleft()
             if session.cutscene:
                 # defence-in-depth: unreachable in practice, since the
                 # cutscene swallow above `continue`s on every KEYDOWN while
-                # session.cutscene is True -- event_to_input, the only place
-                # that appends to input_buffer.commands, never runs, so
+                # session.cutscene is True -- feed_event, the only place
+                # that appends to controls.keyboard.queue, never runs, so
                 # commands cannot exist here while a cutscene is active. Kept
                 # so this drain still does the right thing if that invariant
-                # is ever weakened (e.g. a caller feeding input_buffer.commands
+                # is ever weakened (e.g. a caller feeding controls.keyboard.queue
                 # directly, as some tests do).
                 pass
             elif ((session.settings_error is not None
@@ -1781,18 +1760,18 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
                 session.runtime_error = None
             else:
                 running = route_command(
-                    game, session, command, input_buffer, renderer=renderer,
+                    game, session, command, controls, renderer=renderer,
                 ) and running
-        replaced = _hero_branch(game, renderer, session, input_buffer)
+        replaced = _hero_branch(game, renderer, session, controls)
         if replaced is None:
-            replaced = _cutscene_end_branch(game, renderer, session, input_buffer)
+            replaced = _cutscene_end_branch(game, renderer, session, controls)
         if replaced is None:
-            replaced = _restart_branch(game, renderer, session, input_buffer)
+            replaced = _restart_branch(game, renderer, session, controls)
         if replaced is None:
-            replaced = _load_branch(game, renderer, session, input_buffer)
+            replaced = _load_branch(game, renderer, session, controls)
         if replaced is not None:
             (
-                new_game, new_floor, new_session, new_input_buffer,
+                new_game, new_floor, new_session, new_controls,
                 new_accumulator, new_draw_list, new_hover, new_scene_frame,
                 new_last, exit_status, new_resolver,
             ) = replaced
@@ -1807,8 +1786,8 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
             # a hero swap, restart, cutscene hand-over or load must never
             # blend from the old game's snapshot
             motion_prev = None
-            game, floor, session, input_buffer = (
-                new_game, new_floor, new_session, new_input_buffer,
+            game, floor, session, controls = (
+                new_game, new_floor, new_session, new_controls,
             )
             accumulator, draw_list, hover, scene_frame, last = (
                 new_accumulator, new_draw_list, new_hover, new_scene_frame, new_last,
@@ -1823,19 +1802,19 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
             ticked = False
             while accumulator >= TICK_MS and game.mode is GameMode.PLAY:
                 motion_prev = motion_snapshot(game)
-                play_tick(game, floor, _play_input(input_buffer))
+                play_tick(game, floor, build_play_input(controls))
                 ticked = True
                 for actor_idx in _hit_actor_ids(game):
                     hit_feedback_deadlines[actor_idx] = now + HIT_FEEDBACK_MS
                 if game.mode is not GameMode.PLAY:
-                    _take_over_play_input(game, session, input_buffer)
+                    _take_over_play_input(game, session, controls)
                 accumulator -= TICK_MS
                 if floor.number != game.current_floor:
                     floor = game.load_floor(game.current_floor)
                     # the intent's room indexes the old floor; the hold
                     # survives and the next frame re-resolves the held
                     # pointer against the new one, still hand or not
-                    _rebase_follow(game, input_buffer)
+                    _rebase_follow(game, controls)
             if (ticked and session.quick_save_requested
                     and game.mode is GameMode.PLAY
                     and not game.life_stack and not game.immediate_effects):
@@ -1854,7 +1833,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
             # with a still pointer changes nothing here: follow_pointer's
             # movement gate leaves the destination alone until the hand moves
             follow_pointer(
-                game, session, floor, input_buffer.pointer_pos, draw_list, input_buffer,
+                game, session, floor, controls.pointer.pos, draw_list, controls,
             )
         else:
             accumulator = 0
@@ -1871,7 +1850,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
             # Simulation-raised effects (found, reading, picture, game over)
             # cross the boundary inside play_tick.  Action/pointer routes use
             # the same idempotent seam immediately when they open their modal.
-            _take_over_play_input(game, session, input_buffer)
+            _take_over_play_input(game, session, controls)
         hit_feedback_deadlines = {
             actor_idx: deadline
             for actor_idx, deadline in hit_feedback_deadlines.items()
@@ -1909,7 +1888,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
         render_settings_notice(painter, session.settings_error or session.runtime_error)
         pygame.mouse.set_visible(not software_cursor and not play_keyboard)
         if software_cursor:
-            _render_play_cursor(game, floor, hover, draw_list, input_buffer, painter)
+            _render_play_cursor(game, floor, hover, draw_list, controls, painter)
         renderer.present(painter)
         if game.num_camera != -1:
             # M3a draw_ready gate: transition frames (change_salle/floor
