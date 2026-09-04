@@ -44,6 +44,7 @@ FORBIDDEN = {
     ),
     "render": ("PyAitD.games", "PyAitD.app"),
     "games": ("pygame", "moderngl", "PyAitD.render", "PyAitD.app"),
+    "app/controls": ("PyAitD.app.shell", "PyAitD.render"),
 }
 # The only render modules allowed to import a graphics library, and which one.
 # Every other module under render/ is pure by construction -- a new
@@ -92,6 +93,33 @@ def test_package_imports_only_what_the_layering_allows(package):
             if name.startswith(FORBIDDEN[package]):
                 bad.append(f"{path.relative_to(ROOT)}: {name}")
     assert not bad, "\n".join(bad)
+
+
+def test_ui_never_imports_controls_so_the_dependency_runs_one_way():
+    # controls reduces and routes; ui draws. controls may import ui's
+    # presenters, results and layouts, so ui importing controls back would
+    # be a cycle waiting to happen.
+    bad = [name for name in _imports(ROOT / "app" / "ui.py") if name.startswith("PyAitD.app.controls")]
+    assert not bad, bad
+
+
+def test_the_shell_holds_no_key_codes_and_no_pointer_state():
+    # the spec's "done when": every key code lives in controls.bindings and
+    # every gesture field in controls.pointer; the shell only pumps.
+    source = (ROOT / "app" / "shell.py").read_text()
+    assert "pygame.K_" not in source
+    for field in ("follow_last", "follow_pos", "settle_origin", "resume_last", "last_press_tick", ".spent"):
+        assert field not in source, field
+
+
+def test_nothing_outside_controls_reads_a_pygame_key_code_at_runtime():
+    # startup and ui draw key *names*; only controls.bindings maps codes
+    offenders = [
+        str(path.relative_to(ROOT))
+        for path in _modules("app")
+        if "controls" not in path.parts and "pygame.K_" in path.read_text()
+    ]
+    assert offenders == [], offenders
 
 
 def _graphics_imports(path):

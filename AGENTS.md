@@ -96,7 +96,7 @@ a rule — add the test with the rule.
 | `PyAitD/engine/` | The simulation, ported from FITD with `file:line` citations, in five domain subpackages: `data/` (formats, PAK/floor data, masks), `space/` (fixed-point math), `actor/` (actors, animation, tracks, skel), `script/` (`Game` state, LIFE VM, interaction, `playworld` tick, `save.py`), `nav/` (navmesh, picking, pointer steering). Game-neutral: reads per-game facts from `game.profile`. | stdlib, NumPy, `engine` |
 | `PyAitD/render/` | `FrameDescription` → pixels: scene description, geometry, both backends, asset resolution, texture export/check. | `engine` |
 | `PyAitD/games/<id>/` | Everything FITD branches on `g_gameId`: the `GameProfile` instance, the game's opcode handlers and reduced dispatch, debug venues, the mouse contract. `games/base.py` holds the dataclass. | `engine` |
-| `PyAitD/app/` | Window, the single event pump, settings schema/persistence, CLI, UI screens. | everything |
+| `PyAitD/app/` | Window, the single event pump, settings schema/persistence, CLI, UI screens; `app/controls/` is the input package (vocabulary, bindings, gesture state, routing). | everything |
 | `tools/` | Standalone scripts: PNG encoding, proofs, the one AI-service caller. | everything |
 
 `__main__.py` owns nothing but the re-export of `app.shell.main`.
@@ -115,7 +115,8 @@ a rule — add the test with the rule.
   `engine/` module constant, never `if profile.name == "aitd1"` in `engine/`.
 - Touches pygame or moderngl → `render/` (only `GRAPHICS_OWNERS` in
   `tests/test_layering.py` may import them) or `app/`.
-- Input, menus, settings, CLI flags → `app/`.
+- Input → `app/controls/` (actions, bindings, pointer/keyboard state, routing);
+  menus and settings → `app/ui.py`/`app/config.py`; CLI flags → `app/shell.py`.
 - Writes PNGs, spawns processes, calls an external service → `tools/`.
 
 **Growing the engine**
@@ -475,3 +476,8 @@ is the pin.
   banned outright and pinned by the same file. The one external service,
   Gemini, is reached through the `agy` CLI, not a Python SDK, so it costs
   this project no dependency at all.
+- A mouse or keyboard behaviour change gets a unit test in
+  `tests/test_controls_pointer.py` or `tests/test_controls_keyboard.py` first,
+  and must keep `tests/test_controls_golden.py` byte-identical unless the
+  change is the point, in which case re-record with
+  `PYAITD_RECORD_GOLDEN=1` and say why in the commit.

@@ -91,6 +91,10 @@ def release(state):
     state.pos = None
 
 
+def settling(state):
+    return state.settle_origin is not None
+
+
 @dataclass(frozen=True)
 class Nothing:
     pass

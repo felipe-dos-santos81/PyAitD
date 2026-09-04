@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Input: the action vocabulary, key bindings, keyboard and pointer state,
-the per-tick engine snapshot, the modal reducers and hit tests, and the
-routing of actions, clicks and hovers into the game.
+the per-tick engine snapshot, the modal reducers and hit tests, the routing
+of actions, clicks and hovers into the game, and what the PLAY cursor shows.
 Layering: may import pygame, PyAitD.engine, app.config and app.ui; never
 app.shell or PyAitD.render (tests/test_layering.py).
 

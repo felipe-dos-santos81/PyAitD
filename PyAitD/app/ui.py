@@ -9,7 +9,6 @@ import numpy as np
 import pygame
 
 from PyAitD.app.config import REMAPPABLE_CONTROLS, Settings, default_settings
-from PyAitD.app.controls.actions import Action
 from PyAitD.engine.script.effects import ChooseCharacter, FoundResult, OpenStartupMenu, OpenSystemMenu, ShowTitle
 from PyAitD.render.texture_export import (
     PORTRAIT_RECTS, READING_CLOSE_RECT, READING_NEXT_RECT, READING_PREV_RECT,

@@ -117,7 +117,17 @@ The games, render, app and tools packages:
 | `render/texture_export.py` | Pure export description: per-camera original background, depth-culled structure guide geometry, manifest records (layout shared with `asset_resolver.texture_background_path`) |
 | `render/texture_check.py` | Pure validation of a texture directory exactly as `AssetResolver` would load it; structural manifest checks |
 | `app/config.py` | Pygame-free settings schema (v1), platform settings path, validated load, atomic save |
-| `app/shell.py` | The process shell formerly in `__main__.py`; `__main__.py` is now a one-line re-export |
+| `app/controls/__init__.py` | The input package: vocabulary, bindings, keyboard/pointer state, snapshot, modal reducers, routing, cursor |
+| `app/controls/actions.py` | `Action`, `KEY_BINDABLE`, `DIRECTION_BITS` |
+| `app/controls/bindings.py` | `compile_bindings`, `canonical_key_name`, `DEFAULT_ACTION_BY_KEY` |
+| `app/controls/keyboard.py` | `KeyboardState`, `feed_key_event`, `reset_keyboard` |
+| `app/controls/pointer.py` | `PointerState`, `press`, `move`, `release`, `reset_pointer`, `rebase`, `press_decision`, `hold_decision`, the decision types, the three constants |
+| `app/controls/snapshot.py` | `ControlsState`, `build_play_input`, `reset`, `configure`, `feed_event` |
+| `app/controls/modals.py` | the modal reducers, `capture_system_key`, `pick_system_key`, the `hit_test_*` functions |
+| `app/controls/router.py` | `route_command`, `route_mouse`, `route_hover`, `resolve_play_click`, `route_play_click`, `apply_pointer`, `cancel_follow`, `rebase_follow`, `take_over_play_input`, the result appliers, `inventory_hud_available`, `pointer_actor_targets`, `expand_actor_targets` |
+| `app/controls/cursor.py` | `cursor_state`, `cursor_kind`, `marker_for`, `intent_marker`, `hit_actor_ids`, `hit_feedback_rects` |
+| `app/ui.py` | presenters, results, layouts, painter, `render_*`, `render_cursor`; nothing about input |
+| `app/shell.py` | CLI, pump, accumulator, persistence policy, branches, presentation; the process shell formerly in `__main__.py`, which is now a one-line re-export |
 | `tools/` | CLI proofs and pipelines: `prove_mouse`, `prove_combat`, `prove_graphics`, `export_textures`, `check_textures`, `bootstrap_materials` (survey/label/emit/check of the material table; its label stage is the only module that talks to an AI service, reaching Gemini through its own `agy_structured`; PNG encoding lives here, not in `PyAitD/`) |
 
 ## Fidelity notes (hard-won)
@@ -351,13 +361,27 @@ action runner.
 
 ## M4a1 shell boundary
 
-- `app/config.py` owns the pygame-free settings schema (v1: bindings for eight
-  controls, CANCEL fixed to Escape, sticky flag), the platform settings path,
-  and the atomic store (temp file + fsync + `os.replace`).
-- `app/ui.py` owns the compiled pygame bindings, transient input state
-  (held/action/sticky/commands), the modal presenters and reducers, all shell
-  drawing, and the hit geometry (`CharacterLayout`/`SystemMenuLayout`/
-  `SettingsNoticeLayout`).
+- `app/config.py` owns the pygame-free settings schema (v1: bindings for the
+  eight key-bindable `Action`s, CANCEL fixed to Escape, sticky flag), the
+  platform settings path, and the atomic store. `config.Control` is
+  `controls.actions.Action`.
+- `app/controls/` owns everything between a pygame event and the engine:
+  `actions` (the fixed vocabulary keys, gestures and packs bind to),
+  `bindings` (key names to codes), `keyboard` (held bits, sticky pulse, the
+  action queue), `pointer` (hold-follow, double-press run, resume and
+  camera-cut settling as pure transitions over `PointerState`), `snapshot`
+  (`ControlsState` and the one fold into the engine's frozen `PlayInput`),
+  `modals` (presenter reducers and hit tests), `router` (mode and modal
+  dispatch into engine calls; the menu result appliers and save/load
+  requests), `cursor` (what the PLAY cursor shows). It may import
+  `engine`, `config` and `ui`; never `shell` or `render`.
+- `engine/script/playworld/input.py` owns `PlayInput` (joyd, action_held,
+  action_pulse, pointer_held, focused) and the mouse attack latch on `Game`
+  (`arm_mouse_attack`/`clear_mouse_attack`); the engine never sees
+  `ControlsState`.
+- `app/ui.py` owns the modal presenters and results, the layouts, all shell
+  drawing (`UIPainter`, `render_*`, `render_cursor`). It never imports
+  `controls`.
 - `app.ui.UIPainter` is the UI canvas: a surface at `(320*s, 200*s)` plus the
   scale, and the only object that knows `s`. `shell.render_active_mode`
   builds one per frame from `Renderer.ui_scale()` and every presenter and
@@ -367,23 +391,15 @@ action runner.
   only the software compositor still needs.
   `screen_surface(resolver, entry, size)` fetches ITD_RESS screens at the
   canvas size, so an override keeps the resolution it came with.
-- `app/shell.py` owns the application session (`ModalSession` settings fields),
-  the persistence policy (load once at boot, save at dirty boundaries), raw
-  remap capture (consumes the captured KEYDOWN exclusively), the event pump,
-  settings-notice first refusal, and the atomic game/floor/session/input
-  replacement (`_hero_branch`/`_restart_branch` + one tuple assignment).
+- `app/shell.py` owns the application session (`ModalSession` settings
+  fields), the persistence policy boundaries (quick-save commit, the load
+  replacement), raw remap capture, the event pump and tick accumulator, the
+  atomic game/floor/session/controls replacement, and presentation. It holds
+  no key codes and no pointer state (`tests/test_layering.py`).
 - `Game` owns no settings; settings never enter world state.
-- `app/startup.py` owns the title/credits/menu presenters; `shell.open_startup_menu`
-  is the one entry into the menu; `continue_available` is the M4a2 seam; no
-  idle-timeout demo (FITD `MainMenu` 0x10000-unit timeout) — a later milestone
-  adds it with the intro cutscene.
-- Normal boot stages floor zero but never ticks or presents PLAY before
-  character confirmation; explicit `--floor 0`, `--combat-venue`, and
-  `--mouse-combat-fixture` bypass the selector.
-- Focused proof: `make prove-shell`; evidence (automated run, windowed pass
-  pending): `docs/m4a1-shell-proof.md`.
-- The three-row MAIN menu (Return/Configuration/Quit) is the stable host into
-  which M4a2 inserts Save/Load.
+- `tests/test_controls_golden.py` replays a recorded event stream through
+  the real pump and pins the per-tick engine input and hero motion; a
+  behaviour change in controls shows up there first.
 
 ## Mouse hold-to-push boundary
 

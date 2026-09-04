@@ -34,7 +34,8 @@ from PyAitD.games.aitd1.mirror import MIRROR_KEYCODES
 from PyAitD.render.motion import snapshot as motion_snapshot
 from PyAitD.render.scene import build_frame
 from PyAitD.app.controls.actions import Action
-from PyAitD.app.controls.pointer import CUT_DEAD_ZONE_PX, DOUBLE_PRESS_RESUME_PX, DOUBLE_PRESS_TICKS
+from PyAitD.app.controls.cursor import cursor_state, hit_actor_ids, hit_feedback_rects, intent_marker, marker_for
+from PyAitD.app.controls.pointer import CUT_DEAD_ZONE_PX, DOUBLE_PRESS_RESUME_PX, DOUBLE_PRESS_TICKS, settling
 from PyAitD.app.controls.snapshot import ControlsState, build_play_input, configure, feed_event
 from PyAitD.app.controls.modals import hit_test_settings_notice
 from PyAitD.app.controls.router import (
@@ -295,84 +296,19 @@ def _resolver_for(assets, texture_dir):
     return AssetResolver(assets, texture_dir)
 
 
-def _hit_actor_ids(game):
-    return {
-        actor_idx for actor_idx, actor in enumerate(game.actors)
-        if actor.hit_by != -1
-    }
-
-
-def _hit_feedback_rects(game, draw_list, actor_ids):
-    """Presentation rectangles for latched hit actors still visible in PLAY."""
-    if game.mode is not GameMode.PLAY or game.active_modal is not None:
-        return ()
-    rects = []
-    for actor_idx, box in draw_list:
-        if box is None or actor_idx not in actor_ids:
-            continue
-        x0, y0, x1, y1 = box
-        rects.append(pygame.Rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1))
-    return tuple(rects)
-
-
-def _play_cursor_state(game, floor, hover, draw_list, controls):
-    """(kind, payload) the cursor should show for `hover`: a latched push
-    stays "push" whatever the pointer drifts over; otherwise the resolver."""
-    intent = getattr(game, "nav_intent", None)
-    if (controls.pointer.held and intent is not None
-            and intent.requires_hold):
-        return "push", None
-    return resolve_play_click(game, floor, hover, draw_list)
-
-
-def _play_cursor_kind(game, floor, hover, draw_list, controls):
-    return _play_cursor_state(game, floor, hover, draw_list, controls)[0]
-
-
-def _marker_for(game, floor, payload):
-    """Project a (dest_x, dest_z, room, object_idx) payload to the logical
-    frame under the camera on screen, or None."""
-    from PyAitD.engine.nav.picking import project_room_point, viewed_floor_y
-    if payload is None or game.num_camera == -1:
-        return None
-    hero_idx = game.current_camera_target_actor
-    if hero_idx == -1:
-        return None
-    hero = game.actors[hero_idx]
-    dest_x, dest_z, room, _object_idx = payload
-    y = viewed_floor_y(floor, hero.room, room, hero.world_y)
-    return project_room_point(floor, hero.room, game.num_camera, room, dest_x, y, dest_z)
-
-
-def _intent_marker(game, floor):
-    """Where the live intent is heading, on screen, or None.
-
-    A steer has no destination to mark: its `dest` is a bearing 12000 units
-    out, so a diamond there would sit near the horizon pointing at nothing the
-    hero is trying to reach.
-    """
-    intent = getattr(game, "nav_intent", None)
-    if intent is None or intent.steering:
-        return None
-    return _marker_for(game, floor, (intent.dest_x, intent.dest_z, intent.room, -1))
-
-
 def _render_play_cursor(game, floor, hover, draw_list, controls, painter):
     """The PLAY cursor with its feedback: the live destination, a preview of
     where a press would head while nothing is held, the press ring, and the
     dashed ring while a cut's dead zone is open."""
-    kind, payload = _play_cursor_state(game, floor, hover, draw_list, controls)
-    destination = _intent_marker(game, floor)
+    kind, payload = cursor_state(game, floor, hover, draw_list, controls.pointer)
+    destination = intent_marker(game, floor)
     preview = None
-    if (not controls.pointer.held and destination is None
-            and kind in ("walk", "target")):
-        preview = _marker_for(game, floor, payload)
+    if not controls.pointer.held and destination is None and kind in ("walk", "target"):
+        preview = marker_for(game, floor, payload)
     render_cursor(
-        painter, hover, kind,
-        held=controls.pointer.held,
-        settling=controls.pointer.settle_origin is not None,
-        destination=destination,
-        preview=preview,
+        painter, hover, kind, held=controls.pointer.held,
+        settling=settling(controls.pointer),
+        destination=destination, preview=preview,
     )
 
 
@@ -677,7 +613,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
     # present(), even on a frame where game.num_camera stays -1 below.
     scene_frame, draw_list = _scene_frame(game, floor, renderer, resolver)
     hit_feedback_deadlines = {
-        actor_idx: last + HIT_FEEDBACK_MS for actor_idx in _hit_actor_ids(game)
+        actor_idx: last + HIT_FEEDBACK_MS for actor_idx in hit_actor_ids(game)
     }
     while running:
         for event in pygame.event.get():
@@ -819,7 +755,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
             )
             hit_feedback_deadlines = {
                 actor_idx: last + HIT_FEEDBACK_MS
-                for actor_idx in _hit_actor_ids(game)
+                for actor_idx in hit_actor_ids(game)
             }
             continue
         if game.mode is GameMode.PLAY:
@@ -829,7 +765,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
                 motion_prev = motion_snapshot(game)
                 play_tick(game, floor, build_play_input(controls))
                 ticked = True
-                for actor_idx in _hit_actor_ids(game):
+                for actor_idx in hit_actor_ids(game):
                     hit_feedback_deadlines[actor_idx] = now + HIT_FEEDBACK_MS
                 if game.mode is not GameMode.PLAY:
                     take_over_play_input(game, session, controls)
@@ -884,7 +820,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
         painter = render_active_mode(game, session, renderer, resolver)
         render_hit_feedback(
             painter,
-            _hit_feedback_rects(game, draw_list, hit_feedback_deadlines),
+            hit_feedback_rects(game, draw_list, hit_feedback_deadlines),
         )
         available = inventory_hud_available(game) and not session.cutscene
         # At most one visible cursor, and none at all where the mouse does

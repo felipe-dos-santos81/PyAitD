@@ -1162,7 +1162,7 @@ def test_an_object_with_no_approach_cell_at_all_still_targets_its_centre(
 def test_latched_push_cursor_survives_pointer_drift(data_dir, profile):
     # A held push must remain visually unambiguous while the pointer moves
     # elsewhere; resolving current hover here would advertise another action.
-    from PyAitD.app.shell import _play_cursor_kind
+    from PyAitD.app.controls.cursor import cursor_kind
     from PyAitD.engine.script.interaction import apply_click_intent
 
     game = init_game(data_dir, profile)
@@ -1170,10 +1170,10 @@ def test_latched_push_cursor_survives_pointer_drift(data_dir, profile):
     game.num_camera = game.new_num_camera
     apply_click_intent(game, 10, 20, 0, 4, requires_hold=True)
 
-    assert _play_cursor_kind(
-        game, floor, (0, 0), [], ControlsState(pointer=PointerState(held=True)),
+    assert cursor_kind(
+        game, floor, (0, 0), [], PointerState(held=True),
     ) == "push"
-    assert _play_cursor_kind(game, floor, (0, 0), [], ControlsState()) == "steer", (
+    assert cursor_kind(game, floor, (0, 0), [], PointerState()) == "steer", (
         "with no hold the resolver answers for itself, and a pixel over "
         "nothing steers rather than refusing"
     )
@@ -1281,9 +1281,9 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
     monkeypatch.setattr(main, "render_active_mode", lambda *_args: painter_from_frame(frame))
     monkeypatch.setattr(main, "render_play_hud", lambda image, **_kwargs: image)
     monkeypatch.setattr(main, "render_settings_notice", lambda image, *_args: image)
-    # run() renders the cursor through _render_play_cursor -> _play_cursor_state;
-    # patching _play_cursor_kind here would be inert (nothing in run() calls it)
-    monkeypatch.setattr(main, "_play_cursor_state", lambda *_args: ("blocked", None))
+    # run() renders the cursor through _render_play_cursor -> cursor_state;
+    # patching cursor_kind here would be inert (nothing in run() calls it)
+    monkeypatch.setattr(main, "cursor_state", lambda *_args: ("blocked", None))
     monkeypatch.setattr(main, "ControlsState", lambda: input_buffer)
     monkeypatch.setattr(main, "configure_session_input", lambda *_args: None)
     monkeypatch.setattr(main.pygame.mouse, "set_visible", lambda _value: None)
@@ -3169,7 +3169,7 @@ def test_the_os_pointer_shows_only_where_the_mouse_still_does_something(
 
 
 def test_intent_marker_projects_the_live_destination(data_dir, profile):
-    import PyAitD.app.shell as main
+    import PyAitD.app.controls.cursor as cursor
     from PyAitD.engine.nav.picking import project_room_point
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
@@ -3183,41 +3183,42 @@ def test_intent_marker_projects_the_live_destination(data_dir, profile):
         floor, hero.room, game.num_camera, intent.room,
         intent.dest_x, hero.world_y, intent.dest_z,
     )
-    assert main._intent_marker(game, floor) == expected
+    assert cursor.intent_marker(game, floor) == expected
     assert expected is not None
 
 
 def test_intent_marker_is_none_without_an_intent_or_on_a_transition_frame(data_dir, profile):
-    import PyAitD.app.shell as main
+    import PyAitD.app.controls.cursor as cursor
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     assert game.nav_intent is None
-    assert main._intent_marker(game, floor) is None
+    assert cursor.intent_marker(game, floor) is None
     hero = game.actors[game.current_camera_target_actor]
     from PyAitD.engine.script.interaction import apply_click_intent
     apply_click_intent(game, hero.room_x + 500, hero.room_z, hero.room)
     game.num_camera = -1
-    assert main._intent_marker(game, floor) is None
+    assert cursor.intent_marker(game, floor) is None
 
 
 def test_play_cursor_state_returns_kind_and_payload(data_dir, profile):
-    import PyAitD.app.shell as main
+    import PyAitD.app.controls.cursor as cursor
     game = init_game(data_dir, profile)
     floor = Floor(data_dir, game.current_floor, profile)
     game.num_camera = game.new_num_camera
     pixel = next(p for p in _sampled_pixels() if resolve_play_click(game, floor, p, [])[0] == "walk")
     buf = ControlsState()
-    kind, payload = main._play_cursor_state(game, floor, pixel, [], buf)
+    kind, payload = cursor.cursor_state(game, floor, pixel, [], buf.pointer)
     assert kind == "walk" and payload is not None
-    assert main._play_cursor_kind(game, floor, pixel, [], buf) == "walk"
-    assert main._marker_for(game, floor, payload) is not None
+    assert cursor.cursor_kind(game, floor, pixel, [], buf.pointer) == "walk"
+    assert cursor.marker_for(game, floor, payload) is not None
 
 
 def test_run_hands_the_cursor_its_marker_ring_and_settle_state(data_dir, profile, monkeypatch):
     # The loop's cursor site passes the live intent's marker, the hold and
     # the dead zone through to render_cursor. Checked by capturing the call.
     import PyAitD.app.shell as main
+    import PyAitD.app.controls.cursor as cursor
     calls = []
 
     def spy(painter, pos, kind, **kw):
@@ -3239,5 +3240,5 @@ def test_run_hands_the_cursor_its_marker_ring_and_settle_state(data_dir, profile
     assert pos == pixel and kind == "walk"
     assert kw["held"] is True
     assert kw["settling"] is True
-    assert kw["destination"] == main._intent_marker(game, floor)
+    assert kw["destination"] == cursor.intent_marker(game, floor)
     assert kw["preview"] is None, "no preview while a press is held"
