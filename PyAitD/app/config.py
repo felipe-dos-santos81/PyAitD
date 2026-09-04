@@ -1,25 +1,20 @@
 # SPDX-License-Identifier: GPL-2.0-only
 from dataclasses import dataclass
-from enum import Enum
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
 
+from PyAitD.app.controls.actions import Action, KEY_BINDABLE
 from PyAitD.render.render_options import RenderOptions, validate_render_options
 
 
 SCHEMA = 2
 
+Control = Action   # the key-bindable half of the vocabulary; settings v1 stores its names
 
-class Control(str, Enum):
-    UP = "UP"; DOWN = "DOWN"; LEFT = "LEFT"; RIGHT = "RIGHT"
-    ACTION = "ACTION"; INVENTORY_CONFIRM = "INVENTORY_CONFIRM"
-    CANCEL = "CANCEL"; TOGGLE_INPUT_MODE = "TOGGLE_INPUT_MODE"
-
-
-REMAPPABLE_CONTROLS = tuple(control for control in Control if control is not Control.CANCEL)
+REMAPPABLE_CONTROLS = tuple(control for control in KEY_BINDABLE if control is not Control.CANCEL)
 _DEFAULT_BINDINGS = {
     "UP": ("up", "w"), "DOWN": ("down", "s"),
     "LEFT": ("left", "a"), "RIGHT": ("right", "d"),
@@ -55,12 +50,12 @@ def validate_settings(payload):
     if type(payload.get("sticky_action")) is not bool:
         raise ValueError("sticky_action must be boolean")
     bindings = payload.get("bindings")
-    expected = {control.name for control in Control}
+    expected = {control.name for control in KEY_BINDABLE}
     if not isinstance(bindings, dict) or set(bindings) != expected:
         raise ValueError("bindings must contain every control exactly once")
     converted = {}
     seen = set()
-    for control in Control:
+    for control in KEY_BINDABLE:
         names = bindings[control.name]
         if not isinstance(names, list):
             raise ValueError(f"{control.name} bindings must be a list")

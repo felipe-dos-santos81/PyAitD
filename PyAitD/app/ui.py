@@ -1,5 +1,4 @@
 # SPDX-License-Identifier: GPL-2.0-only
-from collections import deque
 from functools import lru_cache
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
@@ -12,6 +11,9 @@ import pygame
 from PyAitD.app.config import (
     Control, REMAPPABLE_CONTROLS, Settings, default_settings, replace_binding,
 )
+from PyAitD.app.controls.actions import Action
+from PyAitD.app.controls.bindings import compile_bindings
+from PyAitD.app.controls.keyboard import KeyboardState, feed_key_event, reset_keyboard
 from PyAitD.engine.script.effects import ChooseCharacter, FoundResult, OpenStartupMenu, OpenSystemMenu, ShowTitle
 from PyAitD.render.texture_export import (
     PORTRAIT_RECTS, READING_CLOSE_RECT, READING_NEXT_RECT, READING_PREV_RECT,
@@ -38,25 +40,13 @@ def realism_row_count():
     return REALISM_ROWS + 1    # plus Back
 
 
-class Command(Enum):
-    UP = auto(); DOWN = auto(); LEFT = auto(); RIGHT = auto()
-    ACCEPT = auto(); CANCEL = auto(); OPEN_INVENTORY = auto()
-    TOGGLE_INPUT_MODE = auto()
-
-
 @dataclass
 class InputBuffer:
-    held_joyd: int = 0
-    action_held: bool = False
+    keyboard: KeyboardState = field(default_factory=KeyboardState)
     pointer_held: bool = False
     pointer_touch: bool = False
     pointer_pos: tuple[int, int] | None = None
     focused: bool = True
-    commands: deque = field(default_factory=deque)
-    bindings: dict | None = None
-    sticky_action: bool = False
-    sticky_armed: bool = False
-    action_pulse: bool = False
     # Held pointer follow: the last (dest_x, dest_z, room, object_idx) the
     # shell issued as an intent during this hold. shell.follow_pointer
     # re-issues only when the resolution differs, which is also the one-shot
@@ -98,42 +88,28 @@ class InputBuffer:
     resume_last: tuple | None = None
     resume_pos: tuple[int, int] | None = None
 
-
-_DIRECTION_CONTROL = {
-    Control.UP: (Command.UP, 1), Control.DOWN: (Command.DOWN, 2),
-    Control.LEFT: (Command.LEFT, 4), Control.RIGHT: (Command.RIGHT, 8),
-}
-
-_DEFAULT_CONTROL_BY_KEY = {
-    pygame.K_UP: Control.UP, pygame.K_w: Control.UP,
-    pygame.K_DOWN: Control.DOWN, pygame.K_s: Control.DOWN,
-    pygame.K_LEFT: Control.LEFT, pygame.K_a: Control.LEFT,
-    pygame.K_RIGHT: Control.RIGHT, pygame.K_d: Control.RIGHT,
-    pygame.K_SPACE: Control.ACTION,
-    pygame.K_RETURN: Control.INVENTORY_CONFIRM,
-    pygame.K_i: Control.INVENTORY_CONFIRM,
-    pygame.K_ESCAPE: Control.CANCEL,
-    pygame.K_TAB: Control.TOGGLE_INPUT_MODE,
-}
-
-
-def canonical_key_name(key):
-    name = pygame.key.name(key, use_compat=True)
-    if not name or name == "unknown key":
-        raise ValueError(f"pygame key {key} has no stable name")
-    return name
-
-
-def compile_bindings(settings):
-    compiled = {}
-    for control in Control:
-        for name in settings.bindings[control.name]:
-            try:
-                code = pygame.key.key_code(name)
-            except ValueError as exc:
-                raise ValueError(f"unknown pygame key name {name!r}") from exc
-            compiled[code] = control
-    return compiled
+    @property
+    def held_joyd(self): return self.keyboard.held_joyd
+    @held_joyd.setter
+    def held_joyd(self, value): self.keyboard.held_joyd = value
+    @property
+    def action_held(self): return self.keyboard.action_held
+    @action_held.setter
+    def action_held(self, value): self.keyboard.action_held = value
+    @property
+    def action_pulse(self): return self.keyboard.action_pulse
+    @action_pulse.setter
+    def action_pulse(self, value): self.keyboard.action_pulse = value
+    @property
+    def sticky_armed(self): return self.keyboard.sticky_armed
+    @sticky_armed.setter
+    def sticky_armed(self, value): self.keyboard.sticky_armed = value
+    @property
+    def sticky_action(self): return self.keyboard.sticky_action
+    @property
+    def commands(self): return self.keyboard.queue
+    @property
+    def bindings(self): return self.keyboard.table
 
 
 # How long after a press a second one still reads as a double press, in game
@@ -153,13 +129,10 @@ DOUBLE_PRESS_TICKS = 25
 
 
 def reset_input(state):
-    state.held_joyd = 0
-    state.action_held = False
+    reset_keyboard(state.keyboard)
     state.pointer_held = False
     state.pointer_touch = False
     state.pointer_pos = None
-    state.sticky_armed = False
-    state.action_pulse = False
     state.follow_last = None
     state.follow_pos = None
     state.follow_camera = None
@@ -169,12 +142,11 @@ def reset_input(state):
     state.last_press_tick = None
     state.resume_last = None
     state.resume_pos = None
-    state.commands.clear()
 
 
 def configure_input(state, settings):
-    state.bindings = compile_bindings(settings)
-    state.sticky_action = settings.sticky_action
+    state.keyboard.table = compile_bindings(settings)
+    state.keyboard.sticky_action = settings.sticky_action
     reset_input(state)
 
 
@@ -202,42 +174,8 @@ def event_to_input(event, state, logical_pos=None):
         state.pointer_touch = False
         state.pointer_pos = None
         return True
-    # bindings=None keeps the pre-settings defaults and never touches
-    # pygame.key before initialization; a compiled table is used as-is, even
-    # when intentionally empty.
-    table = _DEFAULT_CONTROL_BY_KEY if state.bindings is None else state.bindings
-    if event.type == pygame.KEYDOWN:
-        repeated = bool(getattr(event, "repeat", False))
-        control = table.get(event.key)
-        if control in _DIRECTION_CONTROL:
-            command, bit = _DIRECTION_CONTROL[control]
-            state.held_joyd |= bit
-            if not repeated:
-                state.commands.append(command)
-                if state.sticky_armed:
-                    state.action_pulse = True
-                    state.sticky_armed = False
-        elif control is Control.ACTION:
-            if state.sticky_action:
-                if not repeated:
-                    state.sticky_armed = True
-                    state.commands.append(Command.ACCEPT)
-            else:
-                state.action_held = True
-                if not repeated:
-                    state.commands.append(Command.ACCEPT)
-        elif not repeated and control is Control.INVENTORY_CONFIRM:
-            state.commands.append(Command.OPEN_INVENTORY)
-        elif not repeated and control is Control.CANCEL:
-            state.commands.append(Command.CANCEL)
-        elif not repeated and control is Control.TOGGLE_INPUT_MODE:
-            state.commands.append(Command.TOGGLE_INPUT_MODE)
-    elif event.type == pygame.KEYUP:
-        control = table.get(event.key)
-        if control in _DIRECTION_CONTROL:
-            state.held_joyd &= ~_DIRECTION_CONTROL[control][1]
-        elif control is Control.ACTION:
-            state.action_held = False
+    if event.type in (pygame.KEYDOWN, pygame.KEYUP):
+        feed_key_event(state.keyboard, event)
     return True
 
 
@@ -277,19 +215,19 @@ class ReadingResult:
 def reduce_found(state, command, *, forced_refuse):
     if forced_refuse:
         state.choice = FoundResult.LEAVE
-    elif command is Command.LEFT:
+    elif command is Action.LEFT:
         state.choice = FoundResult.LEAVE
-    elif command is Command.RIGHT:
+    elif command is Action.RIGHT:
         state.choice = FoundResult.TAKE
-    if command is Command.CANCEL:
+    if command is Action.CANCEL:
         return FoundResult.LEAVE
-    if command is Command.ACCEPT:
+    if command is Action.ACTION:
         return state.choice
     return None
 
 
 def reduce_inventory(state, command, *, object_ids, action_ids):
-    if command is Command.CANCEL:
+    if command is Action.CANCEL:
         if state.choosing_action:
             state.choosing_action = False
             state.action_cursor = 0
@@ -297,9 +235,9 @@ def reduce_inventory(state, command, *, object_ids, action_ids):
         return InventoryResult(cancelled=True)
     if not object_ids:
         return InventoryResult(cancelled=True)
-    if command in (Command.UP, Command.DOWN):
+    if command in (Action.UP, Action.DOWN):
         cursor = state.action_cursor if state.choosing_action else state.object_cursor
-        if command is Command.UP:
+        if command is Action.UP:
             cursor = max(0, cursor - 1)
         else:
             cursor = min(len(action_ids if state.choosing_action else object_ids) - 1, cursor + 1)
@@ -307,10 +245,10 @@ def reduce_inventory(state, command, *, object_ids, action_ids):
             state.action_cursor = cursor
         else:
             state.object_cursor = cursor
-    elif command is Command.ACCEPT and not state.choosing_action:
+    elif command is Action.ACTION and not state.choosing_action:
         state.choosing_action = True
         state.action_cursor = 0
-    elif command is Command.ACCEPT and action_ids:
+    elif command is Action.ACTION and action_ids:
         return InventoryResult(object_ids[state.object_cursor], action_ids[state.action_cursor])
     return None
 
@@ -320,11 +258,11 @@ def turn_page(state, delta, page_count):
 
 
 def reduce_reading(state, command, *, page_count):
-    if command is Command.CANCEL:
+    if command is Action.CANCEL:
         return ReadingResult(True)
-    if command in (Command.LEFT, Command.UP):
+    if command in (Action.LEFT, Action.UP):
         turn_page(state, -1, page_count)
-    elif command in (Command.RIGHT, Command.DOWN, Command.ACCEPT):
+    elif command in (Action.RIGHT, Action.DOWN, Action.ACTION):
         if state.page + 1 >= page_count:
             return ReadingResult(True)
         turn_page(state, 1, page_count)
@@ -400,21 +338,21 @@ class SystemMenuResult:
 
 
 def reduce_character_select(state, command):
-    command = Command.ACCEPT if command is Command.OPEN_INVENTORY else command
-    if command is Command.CANCEL:
+    command = Action.ACTION if command is Action.INVENTORY_CONFIRM else command
+    if command is Action.CANCEL:
         if state.phase is CharacterPhase.STORY:
             state.phase = CharacterPhase.PORTRAITS
             return None
         return CharacterSelectResult(quit=True)
     if state.phase is CharacterPhase.PORTRAITS:
-        if command in (Command.LEFT, Command.UP):
+        if command in (Action.LEFT, Action.UP):
             state.choice = 0
-        elif command in (Command.RIGHT, Command.DOWN):
+        elif command in (Action.RIGHT, Action.DOWN):
             state.choice = 1
-        elif command is Command.ACCEPT:
+        elif command is Action.ACTION:
             state.phase = CharacterPhase.STORY
         return None
-    if command is Command.ACCEPT:
+    if command is Action.ACTION:
         return CharacterSelectResult(hero=1 if state.choice == 0 else 0)
     return None
 
@@ -451,7 +389,7 @@ def _leave_realism(state):
 def reduce_system_menu(state, command, settings, available_slots=frozenset()):
     if state.capture is not None:
         return None
-    command = Command.ACCEPT if command is Command.OPEN_INVENTORY else command
+    command = Action.ACTION if command is Action.INVENTORY_CONFIRM else command
     if state.page is SystemMenuPage.MAIN:
         row_count = len(MAIN_ROW_LABELS)
     elif state.page is SystemMenuPage.SAVE:
@@ -464,11 +402,11 @@ def reduce_system_menu(state, command, settings, available_slots=frozenset()):
         row_count = realism_row_count()
     else:
         row_count = config_row_count()
-    if command is Command.UP:
+    if command is Action.UP:
         state.cursor = (state.cursor - 1) % row_count
-    elif command is Command.DOWN:
+    elif command is Action.DOWN:
         state.cursor = (state.cursor + 1) % row_count
-    elif command is Command.CANCEL:
+    elif command is Action.CANCEL:
         if state.page is SystemMenuPage.GRAPHICS:
             _leave_graphics(state)
             return SystemMenuResult(save=True)
@@ -485,7 +423,7 @@ def reduce_system_menu(state, command, settings, available_slots=frozenset()):
             state.hover = None
             return None
         return SystemMenuResult(close=True, save=True)
-    elif command is Command.ACCEPT and state.page is SystemMenuPage.MAIN:
+    elif command is Action.ACTION and state.page is SystemMenuPage.MAIN:
         if state.cursor == 0:
             return SystemMenuResult(close=True, save=True)
         if state.cursor == 1:
@@ -503,13 +441,13 @@ def reduce_system_menu(state, command, settings, available_slots=frozenset()):
             state.cursor = 0
         else:
             return SystemMenuResult(quit=True, save=True)
-    elif command is Command.ACCEPT and state.page is SystemMenuPage.SAVE:
+    elif command is Action.ACTION and state.page is SystemMenuPage.SAVE:
         if state.cursor == 0:
             return SystemMenuResult(save_slot="manual")
         state.page = SystemMenuPage.MAIN
         state.cursor = 0
         state.hover = None
-    elif command is Command.ACCEPT and state.page is SystemMenuPage.LOAD:
+    elif command is Action.ACTION and state.page is SystemMenuPage.LOAD:
         if state.cursor == 2:
             state.page = SystemMenuPage.MAIN
             state.cursor = 0
@@ -520,38 +458,38 @@ def reduce_system_menu(state, command, settings, available_slots=frozenset()):
             return SystemMenuResult(load_slot="quick")
         # a row whose slot file does not exist is a forgiving no-op: it can
         # never fall through to Back
-    elif command is Command.ACCEPT and state.page is SystemMenuPage.GRAPHICS:
+    elif command is Action.ACTION and state.page is SystemMenuPage.GRAPHICS:
         if state.cursor == row_count - 1:
             _leave_graphics(state)
             return SystemMenuResult(save=True)
         cycle = GRAPHICS_CYCLES[state.cursor]
         return SystemMenuResult(settings=replace(settings, render=cycle(settings.render)))
-    elif command is Command.ACCEPT and state.page is SystemMenuPage.REALISM:
+    elif command is Action.ACTION and state.page is SystemMenuPage.REALISM:
         if state.cursor == row_count - 1:
             _leave_realism(state)
             return SystemMenuResult(save=True)
         cycle = REALISM_CYCLES[state.cursor]
         return SystemMenuResult(settings=replace(settings, render=cycle(settings.render)))
-    elif (command is Command.ACCEPT and state.page is SystemMenuPage.CONFIG
+    elif (command is Action.ACTION and state.page is SystemMenuPage.CONFIG
           and state.cursor == row_count - 1):
         state.page = SystemMenuPage.MAIN
         state.cursor = 0
         return SystemMenuResult(save=True)
-    elif command is Command.ACCEPT and state.cursor == row_count - 3:
+    elif command is Action.ACTION and state.cursor == row_count - 3:
         # the Graphics... row
         state.page = SystemMenuPage.GRAPHICS
         state.cursor = 0
         state.hover = None
-    elif command is Command.ACCEPT and state.cursor == row_count - 2:
+    elif command is Action.ACTION and state.cursor == row_count - 2:
         # the Realism... row
         state.page = SystemMenuPage.REALISM
         state.cursor = 0
         state.hover = None
-    elif command is Command.ACCEPT and state.cursor == 0:
+    elif command is Action.ACTION and state.cursor == 0:
         return SystemMenuResult(
             settings=replace(settings, sticky_action=not settings.sticky_action),
         )
-    elif command is Command.ACCEPT:
+    elif command is Action.ACTION:
         state.capture = REMAPPABLE_CONTROLS[state.cursor - 1].name
         state.page = SystemMenuPage.KEY_PICK
         state.hover = None

@@ -9,7 +9,8 @@ from PyAitD.app.startup import (
     TITLE_TIMEOUT_MS, TitlePhase, TitlePresenter, TitleResult, advance_title, credits_page_count,
     hit_test_startup, hit_test_title, reduce_startup_menu, reduce_title, render_startup_menu, render_title,
 )
-from PyAitD.app.ui import Command, UIPainter
+from PyAitD.app.controls.actions import Action
+from PyAitD.app.ui import UIPainter
 from PyAitD.engine.script.game import init_game
 from PyAitD.render.asset_resolver import AssetResolver
 
@@ -25,23 +26,23 @@ def test_title_advances_by_timeout_then_only_by_input():
 
 def test_title_any_command_pages_then_finishes():
     p = TitlePresenter()
-    assert reduce_title(p, Command.LEFT) is None and p.phase is TitlePhase.CREDITS
-    assert reduce_title(p, Command.CANCEL) == TitleResult(True)
+    assert reduce_title(p, Action.LEFT) is None and p.phase is TitlePhase.CREDITS
+    assert reduce_title(p, Action.CANCEL) == TitleResult(True)
 
 
 def test_menu_cursor_wraps_and_skips_the_disabled_row():
     p = StartupMenuPresenter()
-    reduce_startup_menu(p, Command.DOWN, continue_enabled=False)
+    reduce_startup_menu(p, Action.DOWN, continue_enabled=False)
     assert p.cursor == StartupRow.QUIT.value
-    reduce_startup_menu(p, Command.DOWN, continue_enabled=False)
+    reduce_startup_menu(p, Action.DOWN, continue_enabled=False)
     assert p.cursor == StartupRow.NEW_GAME.value
-    reduce_startup_menu(p, Command.UP, continue_enabled=False)
+    reduce_startup_menu(p, Action.UP, continue_enabled=False)
     assert p.cursor == StartupRow.QUIT.value
-    reduce_startup_menu(p, Command.UP, continue_enabled=True)
+    reduce_startup_menu(p, Action.UP, continue_enabled=True)
     assert p.cursor == StartupRow.CONTINUE.value
 
 
-@pytest.mark.parametrize("command", (Command.ACCEPT, Command.OPEN_INVENTORY))
+@pytest.mark.parametrize("command", (Action.ACTION, Action.INVENTORY_CONFIRM))
 def test_menu_accept_selects_the_cursor_row(command):
     p = StartupMenuPresenter(cursor=StartupRow.QUIT.value)
     assert reduce_startup_menu(p, command, continue_enabled=False) == StartupMenuResult(quit=True)
@@ -54,7 +55,7 @@ def test_menu_accept_selects_the_cursor_row(command):
 
 def test_menu_cancel_is_a_no_op():
     p = StartupMenuPresenter(cursor=2)
-    assert reduce_startup_menu(p, Command.CANCEL, continue_enabled=False) is None and p.cursor == 2
+    assert reduce_startup_menu(p, Action.CANCEL, continue_enabled=False) is None and p.cursor == 2
 
 
 def test_layout_matches_fitd_geometry():
@@ -146,12 +147,12 @@ def test_credits_reaches_every_page_before_handing_off_to_the_menu(data_dir, pro
     presenter = TitlePresenter(TitlePhase.CREDITS)
     seen_pages = [presenter.page]
     for _ in range(page_count - 1):
-        result = reduce_title(presenter, Command.ACCEPT, page_count=page_count)
+        result = reduce_title(presenter, Action.ACTION, page_count=page_count)
         assert result is None, "must not hand off before the last page"
         seen_pages.append(presenter.page)
     assert seen_pages == list(range(page_count)), "every page must be reachable"
 
-    assert reduce_title(presenter, Command.ACCEPT, page_count=page_count) == TitleResult(True)
+    assert reduce_title(presenter, Action.ACTION, page_count=page_count) == TitleResult(True)
     assert presenter.page == page_count - 1, "the handoff must happen on the last page, not the first"
 
 

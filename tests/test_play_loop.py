@@ -47,8 +47,9 @@ def test_apply_play_input_mapping(data_dir, profile):
 
 def test_the_shell_snapshot_consumes_the_sticky_pulse_exactly_once():
     import PyAitD.app.shell as main
+    from PyAitD.app.controls.keyboard import KeyboardState
     from PyAitD.app.ui import InputBuffer
-    state = InputBuffer(action_pulse=True, held_joyd=3)
+    state = InputBuffer(keyboard=KeyboardState(action_pulse=True, held_joyd=3))
     first = main._play_input(state)
     assert (first.action_pulse, first.joyd, state.action_pulse) == (True, 3, False)
     assert main._play_input(state).action_pulse is False
@@ -845,6 +846,7 @@ from PyAitD.engine.script.effects import GameMode, InputMode
 from PyAitD.engine.script.game import AF_ANIMATED, AF_FOUNDABLE
 from PyAitD.engine.script.interaction import _finish_take, inventory_items
 from PyAitD.games.aitd1.scenario import enter_combat_venue
+from PyAitD.app.controls.keyboard import KeyboardState
 from PyAitD.app.ui import InputBuffer, ModalSession, PlayLayout
 from tests.conftest import held_pointer
 
@@ -1250,8 +1252,7 @@ def test_run_cancels_held_push_before_the_same_pump_s_play_tick(
         pointer_held=True,
         pointer_touch=touch,
         pointer_pos=(100, 200),
-        action_held=True,
-        held_joyd=8,
+        keyboard=KeyboardState(action_held=True, held_joyd=8),
     )
     seen = []
     event_batches = iter([
@@ -1313,7 +1314,8 @@ def test_held_push_inventory_modal_takeover_is_clean_before_play_resumes(
     game.nav_intent.engaged = engaged
     game.local_joyd, game.local_click, game.action = (8, 1, 0x2000)
     input_buffer = InputBuffer(
-        pointer_held=True, pointer_pos=(150, 100), action_held=True, held_joyd=8,
+        pointer_held=True, pointer_pos=(150, 100),
+        keyboard=KeyboardState(action_held=True, held_joyd=8),
     )
     session = ModalSession()
     event_batches = iter([

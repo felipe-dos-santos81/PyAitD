@@ -8,8 +8,9 @@ from enum import Enum, auto
 
 import pygame
 
+from PyAitD.app.controls.actions import Action
 from PyAitD.app.ui import (
-    Command, _button, draw_big_cadre, effective_rects, layout_book,
+    _button, draw_big_cadre, effective_rects, layout_book,
     screen_surface,
 )
 
@@ -93,16 +94,16 @@ def _enabled_rows(continue_enabled):
 
 def reduce_startup_menu(presenter, command, *, continue_enabled):
     rows = _enabled_rows(continue_enabled)
-    command = Command.ACCEPT if command is Command.OPEN_INVENTORY else command
-    if command in (Command.UP, Command.LEFT, Command.DOWN, Command.RIGHT):
+    command = Action.ACTION if command is Action.INVENTORY_CONFIRM else command
+    if command in (Action.UP, Action.LEFT, Action.DOWN, Action.RIGHT):
         # step from the nearest enabled row so a cursor parked on the
         # disabled row (never reachable via navigation, only by direct
         # presenter mutation) still moves to a sane neighbour
         index = rows.index(presenter.cursor) if presenter.cursor in rows else 0
-        step = -1 if command in (Command.UP, Command.LEFT) else 1
+        step = -1 if command in (Action.UP, Action.LEFT) else 1
         presenter.cursor = rows[(index + step) % len(rows)]
         return None
-    if command is Command.ACCEPT:
+    if command is Action.ACTION:
         if presenter.cursor not in rows:
             return None  # cursor is parked on the disabled row: no-op
         row = StartupRow(presenter.cursor)

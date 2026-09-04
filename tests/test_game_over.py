@@ -8,7 +8,8 @@ from PyAitD.app.shell import route_command, route_mouse
 from PyAitD.engine.script.effects import GameMode, GameOver
 from PyAitD.engine.script.game import init_game
 from PyAitD.engine.script.playworld import IDLE, play_tick
-from PyAitD.app.ui import Command, ModalSession
+from PyAitD.app.controls.actions import Action
+from PyAitD.app.ui import ModalSession
 
 pytestmark = pytest.mark.engine
 
@@ -48,7 +49,7 @@ def _game_over_session(data_dir, profile):
     return game, session
 
 
-@pytest.mark.parametrize("command", [Command.ACCEPT, Command.CANCEL, Command.OPEN_INVENTORY])
+@pytest.mark.parametrize("command", [Action.ACTION, Action.CANCEL, Action.INVENTORY_CONFIRM])
 def test_game_over_command_locked_at_1999ms_rejects_restart(data_dir, profile, command):
     game, session = _game_over_session(data_dir, profile)
     session.elapsed_ms = 1999
@@ -56,7 +57,7 @@ def test_game_over_command_locked_at_1999ms_rejects_restart(data_dir, profile, c
     assert game.restart_requested is False
 
 
-@pytest.mark.parametrize("command", [Command.ACCEPT, Command.CANCEL, Command.OPEN_INVENTORY])
+@pytest.mark.parametrize("command", [Action.ACTION, Action.CANCEL, Action.INVENTORY_CONFIRM])
 def test_game_over_command_ready_at_2000ms_requests_restart(data_dir, profile, command):
     # OPEN_INVENTORY is translated to ACCEPT by route_command before dispatch,
     # so this parametrization also covers the OPEN_INVENTORY-as-ACCEPT case.

@@ -25,7 +25,7 @@ from PyAitD.games.aitd1.mouse_contract import (
     MODE_MOUSE_CAPABILITIES, MOUSE_INTERACTION_DECISIONS, MouseRoute,
     PlayerCapability,
 )
-from PyAitD.app.ui import Command
+from PyAitD.app.controls.actions import KEY_BINDABLE
 from tests.conftest import painter_from_frame
 
 pytestmark = [pytest.mark.shell, pytest.mark.journey]
@@ -193,8 +193,13 @@ def test_no_operation_remains_keyboard_only():
 
 
 def test_every_command_has_a_mouse_capability_or_reviewed_legacy_decision():
+    # mouse_contract.py's dict keys are frozen to the pre-refactor naming;
+    # ACCEPT and OPEN_INVENTORY are what Action.ACTION and
+    # Action.INVENTORY_CONFIRM used to be called, so they translate back for
+    # a like-for-like comparison against the key-bindable half of Action.
+    legacy_names = {"ACTION": "ACCEPT", "INVENTORY_CONFIRM": "OPEN_INVENTORY"}
     declared = set(COMMAND_MOUSE_CAPABILITIES) | set(LEGACY_COMMAND_REPLACEMENTS)
-    assert declared == set(Command.__members__)
+    assert declared == {legacy_names.get(action.name, action.name) for action in KEY_BINDABLE}
     assert set(COMMAND_MOUSE_CAPABILITIES).isdisjoint(LEGACY_COMMAND_REPLACEMENTS)
     assert all(decision.reason for decision in LEGACY_COMMAND_REPLACEMENTS.values())
     assert LEGACY_COMMAND_REPLACEMENTS["TOGGLE_INPUT_MODE"].replacement is None

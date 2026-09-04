@@ -7,6 +7,7 @@ from PyAitD.app.config import (
     SCHEMA, Control, REMAPPABLE_CONTROLS, Settings, default_settings, load_settings,
     replace_binding, save_settings, settings_path, validate_settings,
 )
+from PyAitD.app.controls.actions import KEY_BINDABLE
 from PyAitD.render.render_options import RenderOptions
 
 pytestmark = pytest.mark.shell
@@ -30,7 +31,7 @@ def valid_payload():
 
 def test_defaults_and_stable_control_surface():
     settings = default_settings()
-    assert [control.name for control in Control] == [
+    assert [control.name for control in KEY_BINDABLE] == [
         "UP", "DOWN", "LEFT", "RIGHT", "ACTION",
         "INVENTORY_CONFIRM", "CANCEL", "TOGGLE_INPUT_MODE",
     ]

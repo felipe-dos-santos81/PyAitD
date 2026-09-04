@@ -45,8 +45,9 @@ from PyAitD.games import load_profile
 from PyAitD.games.aitd1.mirror import MIRROR_KEYCODES
 from PyAitD.render.motion import snapshot as motion_snapshot
 from PyAitD.render.scene import build_frame
+from PyAitD.app.controls.actions import Action
 from PyAitD.app.ui import (
-    Command, DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, UIPainter, configure_input,
+    DOUBLE_PRESS_TICKS, InputBuffer, ModalSession, UIPainter, configure_input,
     event_to_input,
     hit_test_settings_notice, render_cursor, render_hit_feedback, render_play_hud,
     render_settings_notice, reset_input,
@@ -556,7 +557,7 @@ def route_play_click(
             # press-only kind, inventory included
             input_buffer.follow_spent = True
         route_command(
-            game, session, Command.OPEN_INVENTORY, input_buffer,
+            game, session, Action.INVENTORY_CONFIRM, input_buffer,
         )
         return
     if kind == "attack":
@@ -902,12 +903,12 @@ def _game_over_ready(session, effect):
 
 
 def _route_game_over_command(game, session, modal_command):
-    # LM_GAME_OVER's accessibility gate: ignore ACCEPT/CANCEL (and, via the
-    # caller's OPEN_INVENTORY-as-ACCEPT translation, OPEN_INVENTORY too) until
-    # the wall-clock wait has elapsed, so a startled keypress cannot restart
-    # the session before the player has even registered dying.
+    # LM_GAME_OVER's accessibility gate: ignore ACTION/CANCEL (and, via the
+    # caller's INVENTORY_CONFIRM-as-ACTION translation, INVENTORY_CONFIRM too)
+    # until the wall-clock wait has elapsed, so a startled keypress cannot
+    # restart the session before the player has even registered dying.
     ready = _game_over_ready(session, game.active_modal)
-    if ready and modal_command in (Command.ACCEPT, Command.CANCEL):
+    if ready and modal_command in (Action.ACTION, Action.CANCEL):
         game.restart_requested = True
     return True
 
@@ -1104,7 +1105,8 @@ def _apply_system_result(game, session, input_buffer, result, renderer=None):
 
 def _capture_keydown(event, game, session, input_buffer):
     from PyAitD.engine.script.effects import OpenSystemMenu
-    from PyAitD.app.ui import canonical_key_name, capture_system_key
+    from PyAitD.app.controls.bindings import canonical_key_name
+    from PyAitD.app.ui import capture_system_key
     if (not isinstance(game.active_modal, OpenSystemMenu)
             or session.system_menu.capture is None
             or event.type != pygame.KEYDOWN):
@@ -1141,7 +1143,7 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
         apply_found_result, apply_inventory_result, apply_reading_result,
     )
     from PyAitD.app.ui import (
-        Command, ReadingResult, reading_pages, reduce_found, reduce_inventory,
+        ReadingResult, reading_pages, reduce_found, reduce_inventory,
         reduce_reading, reduce_system_menu,
     )
     if session.cutscene:
@@ -1151,14 +1153,14 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
         # first so that claim holds for every command, TOGGLE_INPUT_MODE
         # included -- defence-in-depth only: shell.run's event-pump swallow
         # already marks skip_cutscene and `continue`s for every KEYDOWN
-        # while session.cutscene, so no Command -- this one included -- can
+        # while session.cutscene, so no command -- this one included -- can
         # actually reach route_command while a cutscene is active; this
         # branch exists for callers that invoke route_command directly
         # (tests, and any future caller bypassing the pump).
         session.skip_cutscene = True
         return True
 
-    if command is Command.TOGGLE_INPUT_MODE:
+    if command is Action.TOGGLE_INPUT_MODE:
         from PyAitD.engine.script.interaction import cancel_nav_intent, sync_player_track_mode
         game.input_mode = (
             InputMode.KEYBOARD if game.input_mode is InputMode.MOUSE else InputMode.MOUSE
@@ -1171,19 +1173,19 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
         return True
 
     if game.mode is GameMode.PLAY:
-        if command is Command.CANCEL:
+        if command is Action.CANCEL:
             game.open_modal(OpenSystemMenu())
             _take_over_play_input(game, session, input_buffer)
             session.reset_for(game.active_modal)
             return True
-        if command is Command.OPEN_INVENTORY and game.status_screen_allowed:
+        if command is Action.INVENTORY_CONFIRM and game.status_screen_allowed:
             if game.inventory_count[game.current_inventory]:
                 game.open_modal(OpenInventory())
                 _take_over_play_input(game, session, input_buffer)
                 session.reset_for(game.active_modal)
         return True
 
-    modal_command = Command.ACCEPT if command is Command.OPEN_INVENTORY else command
+    modal_command = Action.ACTION if command is Action.INVENTORY_CONFIRM else command
     if isinstance(game.active_modal, OpenSystemMenu):
         # the presenter resets where the menu is opened (the PLAY CANCEL
         # branch above), not per dispatch: a staged page/cursor/capture must
@@ -1245,7 +1247,7 @@ def route_command(game, session, command, input_buffer=None, renderer=None):
             apply_reading_result(game, result)
         return True
     if isinstance(game.active_modal, ShowPicture):
-        if modal_command in (Command.ACCEPT, Command.CANCEL):
+        if modal_command in (Action.ACTION, Action.CANCEL):
             apply_reading_result(game, ReadingResult(True))
         return True
     if isinstance(game.active_modal, GameOver):
@@ -1308,7 +1310,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
         old_page = session.system_menu.page
         session.system_menu.cursor = hit
         result = reduce_system_menu(
-            session.system_menu, Command.ACCEPT, session.settings,
+            session.system_menu, Action.ACTION, session.settings,
             _available_slots(session),
         )
         if session.system_menu.page is not old_page:
@@ -1319,7 +1321,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
         from PyAitD.app.startup import credits_page_count, hit_test_title, reduce_title
         if hit_test_title(logical_pos):
             page_count = credits_page_count(game.assets, _credits_entry(game))
-            if reduce_title(session.title, Command.ACCEPT, page_count=page_count) is not None:
+            if reduce_title(session.title, Action.ACTION, page_count=page_count) is not None:
                 open_startup_menu(game, session)
         return True
     if isinstance(effect, OpenStartupMenu):
@@ -1329,7 +1331,7 @@ def route_mouse(game, session, logical_pos, input_buffer=None, renderer=None):
         if hit is None:
             return True
         session.startup.cursor = hit
-        result = reduce_startup_menu(session.startup, Command.ACCEPT, continue_enabled=enabled)
+        result = reduce_startup_menu(session.startup, Action.ACTION, continue_enabled=enabled)
         return _apply_startup_result(game, session, input_buffer, result)
     if isinstance(effect, ChooseCharacter):
         hit = hit_test_character(logical_pos, session.character)
@@ -1772,9 +1774,9 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
                 pass
             elif ((session.settings_error is not None
                    or session.runtime_error is not None)
-                    and command in (Command.ACCEPT, Command.OPEN_INVENTORY)):
-                # same first refusal as the Dismiss click: ACCEPT and
-                # OPEN_INVENTORY dismiss the notice instead of reaching the mode
+                    and command in (Action.ACTION, Action.INVENTORY_CONFIRM)):
+                # same first refusal as the Dismiss click: ACTION and
+                # INVENTORY_CONFIRM dismiss the notice instead of reaching the mode
                 session.settings_error = None
                 session.runtime_error = None
             else:
@@ -1867,7 +1869,7 @@ def run(game, trace_path=None, session=None, resolver=None, mirror_sink=None):
                 advance_title(session.title, session.elapsed_ms)
         if was_play and game.mode is not GameMode.PLAY:
             # Simulation-raised effects (found, reading, picture, game over)
-            # cross the boundary inside play_tick.  Command/pointer routes use
+            # cross the boundary inside play_tick.  Action/pointer routes use
             # the same idempotent seam immediately when they open their modal.
             _take_over_play_input(game, session, input_buffer)
         hit_feedback_deadlines = {

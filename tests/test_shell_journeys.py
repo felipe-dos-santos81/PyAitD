@@ -19,8 +19,10 @@ from PyAitD.app.startup import StartupLayout, StartupRow, credits_page_count
 from PyAitD.engine.script.effects import ChooseCharacter, GameMode, InputMode, OpenSystemMenu, ShowTitle
 from PyAitD.engine.script.game import init_game
 from PyAitD.engine.script.playworld import play_tick as real_play_tick
+from PyAitD.app.controls.actions import Action
+from PyAitD.app.controls.keyboard import KeyboardState
 from PyAitD.app.ui import (
-    CharacterLayout, CharacterPhase, Command, InputBuffer, ModalSession,
+    CharacterLayout, CharacterPhase, InputBuffer, ModalSession,
     SettingsNoticeLayout, SystemMenuLayout, SystemMenuPage, event_to_input,
 )
 
@@ -630,10 +632,10 @@ def test_death_restart_keeps_live_settings_and_drops_input_transients(
         settings=settings, settings_path=path,
         settings_error="visible error", settings_dirty=True,
     )
-    dirty_buffer = InputBuffer(
+    dirty_buffer = InputBuffer(keyboard=KeyboardState(
         held_joyd=9, action_held=True, sticky_armed=True, action_pulse=True,
-        commands=deque([Command.UP]),
-    )
+        queue=deque([Action.UP]),
+    ))
 
     monkeypatch.setattr(main, "InputBuffer", lambda: dirty_buffer)
     monkeypatch.setattr(Game, "load_floor", lambda self, number: SimpleNamespace(number=0))
