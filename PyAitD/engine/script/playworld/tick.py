@@ -7,7 +7,7 @@ frozen snapshot built by `app.controls.snapshot.build_play_input`; nothing
 in this package touches the app's own input state.
 """
 from PyAitD.engine.script.effects import GameMode, LifeFrame
-from PyAitD.engine.content import BEHAVIOUR_LIFE, run_behaviour
+from PyAitD.engine.content import BEHAVIOUR_LIFE, run_behaviour, step_triggers
 from PyAitD.engine.script.game import change_salle, game_step_tick
 from PyAitD.engine.script.interaction import (
     advance_messages, dispatch_nav_arrival, drain_immediate_effects, execute_found_life,
@@ -67,6 +67,8 @@ def play_tick(game, floor, play_input):
             run_behaviour(game, index)
         if game.flag_change_etage:
             break
+    if game.content is not None and not game.flag_change_etage:
+        step_triggers(game)   # pack zones: same tick as the step that entered them
     if not _handoff_game_over(game):
         return False
     if game.flag_change_etage:

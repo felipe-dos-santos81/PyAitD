@@ -3,6 +3,7 @@
 the key-and-barricade journeys of the example pack against the real attic
 (2026-09-04-content-packs-objects-design.md, sections 3 and 5)."""
 import copy
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -22,8 +23,11 @@ from PyAitD.engine.script.interaction import (
     apply_found_result, choose_inventory_action, inventory_actions, inventory_items,
 )
 from PyAitD.engine.script.playworld import IDLE, PlayInput, play_tick
+from PyAitD.engine.script.save import SaveError, restore_game, snapshot_game, validate_snapshot
 
 pytestmark = [pytest.mark.engine, pytest.mark.journey]
+
+SETTINGS = {"schema": 2, "sticky_action": False, "bindings": {}, "render": {}}
 
 KEY = {
     "id": "attic_key", "kind": "pickup", "stage": 0, "room": 0,
@@ -250,3 +254,100 @@ def test_leaving_the_key_arms_the_vanilla_cooldown(data_dir, profile, example_pa
     assert game.world_objects[KEY_IDX].track_number == game.timer
     assert _walk_until(game, floor, lambda g: g.active_modal is not None, limit=20) == -1
     assert KEY_IDX not in inventory_items(game) and "has_key" not in game.content.flags
+
+
+def test_without_the_key_the_gate_explains_and_the_barricade_stands(data_dir, profile, example_pack_dir):
+    game, floor, hero = _boot(data_dir, profile, example_pack_dir)
+    texts = game.content.text_ids
+    _reach_the_key(game, floor)
+    apply_found_result(game, FoundResult.LEAVE)
+    entered = _walk_until(game, floor, lambda g: g.content_state[GATE_IDX]["inside"], limit=60)
+    assert entered != -1
+    assert -3100 <= hero.room_z <= -2700
+    assert texts["Something heavy blocks the doorway."] in _shown(game)
+    assert texts["The barricade gives way."] not in _shown(game)
+    assert game.content_state[GATE_IDX]["armed"] is True
+    assert game.world_objects[BARRICADE_IDX].room == 0
+    barricade_slot = game.world_objects[BARRICADE_IDX].obj_index
+    blocked = _walk_until(game, floor, lambda g: barricade_slot in hero.col, limit=60)
+    assert blocked != -1, "the hero never met the barricade"
+    assert hero.room_z > -3200                    # the crate's near face is at -3160
+    assert game.active_modal is None
+
+
+def test_with_the_key_the_gate_clears_the_barricade_and_disarms_itself(data_dir, profile, example_pack_dir):
+    game, floor, hero = _boot(data_dir, profile, example_pack_dir)
+    texts = game.content.text_ids
+    _reach_the_key(game, floor)
+    apply_found_result(game, FoundResult.TAKE)
+    entered = _walk_until(game, floor, lambda g: g.content_state[GATE_IDX]["inside"], limit=60)
+    assert entered != -1
+    assert texts["The barricade gives way."] in _shown(game)
+    assert texts["Something heavy blocks the doorway."] not in _shown(game)
+    barricade = game.world_objects[BARRICADE_IDX]
+    assert (barricade.room, barricade.stage, barricade.obj_index) == (-1, -1, -1)
+    assert game.content_state[GATE_IDX] == {"armed": False, "inside": True}
+    passed = _walk_until(game, floor, lambda g: hero.room_z < -3600, limit=80)
+    assert passed != -1, "the way past the barricade did not open"
+    assert hero.col == [-1, -1, -1]
+
+
+def test_a_trigger_in_the_loop_fires_on_entry_only_and_again_after_leaving(data_dir, profile, example_pack_dir):
+    game, floor, hero = _boot(data_dir, profile, example_pack_dir)
+    hero_idx = game.current_camera_target_actor
+    blocking = game.content.text_ids["Something heavy blocks the doorway."]
+
+    def age():
+        return next(m.age for m in game.messages if m is not None and m.message_id == blocking)
+
+    relocate_actor(game, hero_idx, 0, 0, 3231, 0, -2900)
+    play_tick(game, floor, IDLE)
+    fresh = age()                                 # 0 or 1: advance_messages runs later in the same tick
+    assert fresh <= 1 and game.content_state[GATE_IDX]["inside"] is True
+    for _ in range(10):
+        play_tick(game, floor, IDLE)
+    assert age() == fresh + 10                    # standing inside never re-fires
+    relocate_actor(game, hero_idx, 0, 0, 3231, 0, -2000)
+    play_tick(game, floor, IDLE)
+    assert game.content_state[GATE_IDX]["inside"] is False and age() == fresh + 11
+    relocate_actor(game, hero_idx, 0, 0, 3231, 0, -2900)
+    play_tick(game, floor, IDLE)
+    assert age() == fresh                         # re-entry refreshes the message: fired again
+
+
+def test_the_trace_records_trigger_transitions(data_dir, profile, example_pack_dir, tmp_path):
+    from PyAitD.engine.script.life import Trace
+    game, floor, hero = _boot(data_dir, profile, example_pack_dir)
+    hero_idx = game.current_camera_target_actor
+    game.trace = Trace(tmp_path / "t.log")
+    relocate_actor(game, hero_idx, 0, 0, 3231, 0, -2900)
+    play_tick(game, floor, IDLE)
+    entered = game.timer
+    relocate_actor(game, hero_idx, 0, 0, 3231, 0, -2000)
+    play_tick(game, floor, IDLE)
+    game.trace.close()
+    lines = (tmp_path / "t.log").read_text().splitlines()
+    assert f"{entered} {GATE_IDX} BEHAVIOUR enter" in lines
+    assert f"{game.timer} {GATE_IDX} BEHAVIOUR leave" in lines
+
+
+def test_a_mid_scene_save_round_trips_flags_trigger_state_and_the_inventory(data_dir, profile, example_pack_dir):
+    game, floor, hero = _boot(data_dir, profile, example_pack_dir)
+    _reach_the_key(game, floor)
+    apply_found_result(game, FoundResult.TAKE)
+    assert _walk_until(game, floor, lambda g: g.content_state[GATE_IDX]["inside"], limit=60) != -1
+    payload = json.loads(json.dumps(snapshot_game(game, SETTINGS)))
+    assert payload["schema"] == 4
+    assert payload["content_flags"] == ["has_key"]
+    assert payload["content_state"]["296"] == {"armed": False, "inside": True}
+    restored, _ = restore_game(data_dir, profile, payload, pack=game.pack)
+    assert restored.content.flags == {"has_key"}
+    assert restored.content_state == game.content_state
+    assert KEY_IDX in inventory_items(restored)
+    assert restored.world_objects[BARRICADE_IDX].room == -1
+    assert restored.assets.system_text(restored.world_objects[KEY_IDX].found_name) == "Attic key"
+    assert {m.message_id for m in restored.messages if m} == _shown(game)
+    old = copy.deepcopy(payload)
+    old["schema"] = 3
+    with pytest.raises(SaveError, match="expected schema 4, got 3"):
+        validate_snapshot(old, data_dir, profile, pack=game.pack)
