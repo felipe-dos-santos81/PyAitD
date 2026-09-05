@@ -1265,8 +1265,11 @@ def test_restart_and_hero_boot_keep_the_content_pack(data_dir, profile, example_
     old = init_game(data_dir, profile, pack=pack)
     new = restart_session(old)
     assert new.pack is pack
-    assert len(new.world_objects) == 294
-    assert new.content_state == {292: {"hp": 3, "phase": "idle"}, 293: {"hp": 2, "phase": "idle"}}
+    assert len(new.world_objects) == 297
+    assert new.content_state == {
+        292: {"hp": 3, "phase": "idle"}, 293: {"hp": 2, "phase": "idle"},
+        294: {}, 295: {}, 296: {"armed": True, "inside": False},
+    }
 
     import numpy as np
     from types import SimpleNamespace
@@ -1277,7 +1280,7 @@ def test_restart_and_hero_boot_keep_the_content_pack(data_dir, profile, example_
     session = ModalSession(settings=default_settings())
     replaced = main._boot_hero(old, SimpleNamespace(), session, ControlsState(), 1, cutscene=False)
     assert replaced[0].pack is pack
-    assert len(replaced[0].world_objects) == 294
+    assert len(replaced[0].world_objects) == 297
 
 
 def test_restart_session_rebuilds_state_from_the_initial_floor(data_dir, profile):

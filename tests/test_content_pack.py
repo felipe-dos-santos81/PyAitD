@@ -387,6 +387,9 @@ def test_the_example_pack_reads(example_pack_dir):
     pack = read_pack(example_pack_dir)
     assert (pack.name, pack.version, pack.game) == ("example", "1", "aitd1")
     assert [(e.id, e.kind) for e in pack.enemies] == [("prowler", "pursuer"), ("watcher", "sentry")]
+    assert [(o.id, o.kind) for o in pack.objects] == [
+        ("attic_key", "pickup"), ("barricade", "scenery"), ("gate", "trigger"),
+    ]
     prowler, watcher = pack.enemies
     assert (prowler.body, prowler.position, prowler.hit_points) == (24, (-5600, 0, 1000), 3)
     assert (prowler.anims, prowler.attack) == (
@@ -484,12 +487,15 @@ def test_init_game_appends_the_pack_after_the_original_records(data_dir, profile
     pack = load_pack(example_pack_dir, data_dir, profile)
     game = init_game(data_dir, profile, pack=pack)
     assert game.pack is pack
-    assert len(game.world_objects) == 294
+    assert len(game.world_objects) == 297
     assert game.content.first_index == 292
-    assert [r.id for r in game.content.records.values()] == ["prowler", "watcher"]
+    assert [r.id for r in game.content.records.values()] == ["prowler", "watcher", "attic_key", "barricade", "gate"]
     assert game.content.record_for(292).id == "prowler"
     assert game.content.record_for(9) is None
-    assert game.content_state == {292: {"hp": 3, "phase": "idle"}, 293: {"hp": 2, "phase": "idle"}}
+    assert game.content_state == {
+        292: {"hp": 3, "phase": "idle"}, 293: {"hp": 2, "phase": "idle"},
+        294: {}, 295: {}, 296: {"armed": True, "inside": False},
+    }
     # both spawned into the attic by the ordinary spawn pass, standing
     for idx in (292, 293):
         world = game.world_objects[idx]

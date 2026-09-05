@@ -13,17 +13,17 @@ from dataclasses import fields as dataclass_fields
 
 from PyAitD import __version__
 from PyAitD.engine.actor.anim import AnimPlayer
-from PyAitD.engine.content.schema import PHASES
+from PyAitD.engine.content.schema import KINDS, PHASES
 from PyAitD.engine.script.effects import TimedMessage
 from PyAitD.engine.data.formats import WorldObject, parse_defines, parse_objets, parse_vars
 from PyAitD.engine.script.game import NUM_MAX_OBJECT, Actor, FloorStart, init_game
 
-SCHEMA = 3
+SCHEMA = 4
 
 ROOT_KEYS = (
     "schema", "engine_version", "source", "hero", "game", "actors",
     "world_objects", "anim_players", "inventory", "messages", "rng_state",
-    "settings", "content_state",
+    "settings", "content_state", "content_flags",
 )
 
 GAME_KEYS = (
@@ -54,7 +54,8 @@ _PLAYER_KEYS = {"frame", "start_tick", "prev_frame_index", "states", "anim_step"
 _RNG_STATE_LENGTH = 625  # CPython Mersenne Twister: 624 words + index
 _SOURCE_KEYS = {"profile", "archives", "digest", "pack"}
 _PACK_KEYS = {"name", "version", "digest"}
-_CONTENT_STATE_KEYS = {"hp", "phase"}
+_ENEMY_STATE_KEYS = {"hp", "phase"}
+_TRIGGER_STATE_KEYS = {"armed", "inside"}
 
 
 class SaveError(Exception):
@@ -161,8 +162,8 @@ def snapshot_game(game, settings):
             for m in game.messages
         ],
         "rng_state": _rng_to_json(game.rng.getstate()),
-        "content_state": {str(idx): {"hp": s["hp"], "phase": s["phase"]}
-                          for idx, s in sorted(game.content_state.items())},
+        "content_state": {str(idx): dict(state) for idx, state in sorted(game.content_state.items())},
+        "content_flags": [] if game.content is None else sorted(game.content.flags),
         "settings": settings,
     }
 
@@ -188,9 +189,10 @@ def validate_snapshot(payload, data_dir, profile, pack=None):
     _validate_source(payload["source"], data_dir, profile, hero, pack)
     _validate_state(payload["game"], data_dir, profile)
     _validate_actors(payload["actors"])
-    extra = 0 if pack is None else len(pack.enemies)
+    extra = 0 if pack is None else len(pack.enemies) + len(pack.objects)
     first = _validate_world_objects(payload["world_objects"], data_dir, profile.world_object_has_mark, extra)
     _validate_content_state(payload["content_state"], pack, first)
+    _validate_content_flags(payload["content_flags"], pack)
     _validate_anim_players(payload["anim_players"])
     _validate_inventory(payload["inventory"])
     _validate_messages(payload["messages"])
@@ -419,18 +421,40 @@ def _validate_content_state(state, pack, first_index):
         if state:
             _fail("content_state", "expected no content state without a pack")
         return
-    last = first_index + len(pack.enemies) - 1
+    records = pack.enemies + pack.objects
+    last = first_index + len(records) - 1
     for key, entry in state.items():
         path = f"content_state.{key}"
         if not (type(key) is str and key.isascii() and key.isdigit() and first_index <= int(key) <= last):
             _fail(path, f"expected a world index in {first_index}..{last}")
-        _require_keys(entry, _CONTENT_STATE_KEYS, path)
-        _require_int(entry["hp"], f"{path}.hp")
-        if entry["phase"] not in PHASES:
-            _fail(f"{path}.phase", f"expected one of {', '.join(PHASES)}, got {entry['phase']!r}")
+        record = records[int(key) - first_index]
+        if record.kind in KINDS:
+            _require_keys(entry, _ENEMY_STATE_KEYS, path)
+            _require_int(entry["hp"], f"{path}.hp")
+            if entry["phase"] not in PHASES:
+                _fail(f"{path}.phase", f"expected one of {', '.join(PHASES)}, got {entry['phase']!r}")
+        elif record.kind == "trigger":
+            _require_keys(entry, _TRIGGER_STATE_KEYS, path)
+            for name in sorted(_TRIGGER_STATE_KEYS):
+                if type(entry[name]) is not bool:
+                    _fail(f"{path}.{name}", f"expected a boolean, got {type(entry[name]).__name__}")
+        else:
+            _require_keys(entry, set(), path)
     expected = {str(i) for i in range(first_index, last + 1)}
     if set(state) != expected:
         _fail("content_state", f"expected entries for {first_index}..{last}")
+
+
+def _validate_content_flags(flags, pack):
+    if not isinstance(flags, list):
+        _fail("content_flags", f"expected a list, got {type(flags).__name__}")
+    if pack is None and flags:
+        _fail("content_flags", "expected no content flags without a pack")
+    for i, flag in enumerate(flags):
+        if type(flag) is not str or not flag:
+            _fail(f"content_flags[{i}]", f"expected a non-empty string, got {flag!r}")
+    if len(set(flags)) != len(flags):
+        _fail("content_flags", "duplicate flag names")
 
 
 def _validate_inventory(inventory):
@@ -552,10 +576,9 @@ def restore_game(data_dir, profile, payload, pack=None):
     for world, entry in zip(game.world_objects, payload["world_objects"]):
         for name in _WORLD_FIELDS:
             setattr(world, name, entry[name])
-    game.content_state = {
-        int(key): {"hp": entry["hp"], "phase": entry["phase"]}
-        for key, entry in payload["content_state"].items()
-    }
+    game.content_state = {int(key): dict(entry) for key, entry in payload["content_state"].items()}
+    if game.content is not None:
+        game.content.flags = set(payload["content_flags"])
 
     for key, entry in payload["anim_players"].items():
         idx = int(key)

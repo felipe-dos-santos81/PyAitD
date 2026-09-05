@@ -1,0 +1,14 @@
+# A zone in front of the barricade. With the key the barricade goes and the
+# gate deletes itself; without it a message says why the way is blocked.
+id = "gate"
+kind = "trigger"
+stage = 0
+room = 0
+box = { x = [2800, 3700], y = [-500, 500], z = [-3100, -2700] }
+
+[[on_enter]]
+when = { has_item = "attic_key" }
+then = [{ delete_object = "barricade" }, { message = "The barricade gives way." }, { delete_object = "gate" }]
+
+[[on_enter]]
+then = [{ message = "Something heavy blocks the doorway." }]

@@ -1,0 +1,10 @@
+# The attic crate's body, planted across the walk 1850 units ahead of the
+# start. Not pushable: only the gate removes it.
+id = "barricade"
+kind = "scenery"
+stage = 0
+room = 0
+body = 8
+position = [3231, 0, -3400]
+zv = "cube"
+pushable = false

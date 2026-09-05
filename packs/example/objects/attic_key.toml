@@ -1,0 +1,19 @@
+# A key on the floor 700 units ahead of the attic start (the hero faces -z).
+# Taking it sets the flag the gate reads; "Look" shows a message from the
+# inventory.
+id = "attic_key"
+kind = "pickup"
+stage = 0
+room = 0
+name = "Attic key"
+body = 187
+position = [3231, 0, -2248]
+zv = "body"
+weight = 1
+
+[[on_take]]
+then = [{ set_flag = "has_key" }, { message = "A small brass key." }]
+
+[[actions]]
+label = "Look"
+then = [{ message = "It is warm to the touch." }]

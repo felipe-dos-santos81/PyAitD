@@ -755,4 +755,4 @@ def test_main_boots_the_staging_game_with_the_pack(monkeypatch, data_dir, exampl
     assert main.main(["--data", str(data_dir), "--content", str(example_pack_dir)]) == 0
     game = captured["game"]
     assert game.pack.name == "example"
-    assert len(game.world_objects) == 294
+    assert len(game.world_objects) == 297

@@ -20,7 +20,7 @@ pytestmark = pytest.mark.engine
 ROOT_KEYS = {
     "schema", "engine_version", "source", "hero", "game", "actors",
     "world_objects", "anim_players", "inventory", "messages", "rng_state",
-    "settings", "content_state",
+    "settings", "content_state", "content_flags",
 }
 
 SETTINGS = {"schema": 2, "sticky_action": False, "bindings": {}, "render": {}}
@@ -45,7 +45,7 @@ def test_engine_version_matches_pyproject():
 def test_snapshot_root_keys_pinned(data_dir, profile):
     payload = _snapshot(data_dir, profile)
     assert set(payload) == ROOT_KEYS
-    assert payload["schema"] == SCHEMA == 3
+    assert payload["schema"] == SCHEMA == 4
     assert payload["engine_version"] == __version__
     assert payload["hero"] == 0
 
@@ -159,7 +159,7 @@ def test_validate_round_trip_json(data_dir, profile):
 
 def test_validate_rejects_unknown_schema(data_dir, profile):
     payload = _snapshot(data_dir, profile)
-    payload["schema"] = 4
+    payload["schema"] = 5
     with pytest.raises(SaveError, match=r"schema"):
         validate_snapshot(payload, data_dir, profile)
 
@@ -566,12 +566,17 @@ def test_snapshot_records_the_pack_identity_and_the_content_state(data_dir, prof
     game, pack = _packed(data_dir, profile, example_pack_dir)
     payload = snapshot_game(game, SETTINGS)
     assert payload["source"]["pack"] == {"name": "example", "version": "1", "digest": pack.digest}
-    assert len(payload["world_objects"]) == 294
-    assert payload["content_state"] == {"292": {"hp": 3, "phase": "idle"}, "293": {"hp": 2, "phase": "idle"}}
+    assert len(payload["world_objects"]) == 297
+    assert payload["content_state"] == {
+        "292": {"hp": 3, "phase": "idle"}, "293": {"hp": 2, "phase": "idle"},
+        "294": {}, "295": {}, "296": {"armed": True, "inside": False},
+    }
+    assert payload["content_flags"] == []
     assert validate_snapshot(json.loads(json.dumps(payload)), data_dir, profile, pack=pack)
     vanilla = _snapshot(data_dir, profile)
     assert vanilla["source"]["pack"] is None
     assert vanilla["content_state"] == {}
+    assert vanilla["content_flags"] == []
 
 
 def test_validate_refuses_a_pack_mismatch_in_both_directions(data_dir, profile, example_pack_dir):
@@ -593,13 +598,16 @@ def test_validate_checks_world_object_count_and_content_state_against_the_pack(d
     payload = snapshot_game(game, SETTINGS)
     short = copy.deepcopy(payload)
     short["world_objects"] = short["world_objects"][:292]
-    with pytest.raises(SaveError, match=r"world_objects: expected 294 world objects, got 292"):
+    with pytest.raises(SaveError, match=r"world_objects: expected 297 world objects, got 292"):
         validate_snapshot(short, data_dir, profile, pack=pack)
     for state, path, message in [
-        ({"291": {"hp": 3, "phase": "idle"}}, "content_state.291", "expected a world index in 292..293"),
+        ({"291": {"hp": 3, "phase": "idle"}}, "content_state.291", "expected a world index in 292..296"),
         ({"292": {"hp": 3}}, "content_state.292", "missing keys: phase"),
         ({"292": {"hp": "3", "phase": "idle"}}, "content_state.292.hp", "expected an integer"),
         ({"292": {"hp": 3, "phase": "flying"}}, "content_state.292.phase", "expected one of idle, chase, attack, hurt, dying, dead, got 'flying'"),
+        ({"294": {"hp": 1}}, "content_state.294", "unexpected keys: hp"),
+        ({"296": {"armed": True}}, "content_state.296", "missing keys: inside"),
+        ({"296": {"armed": True, "inside": "no"}}, "content_state.296.inside", "expected a boolean, got str"),
         ([], "content_state", "expected an object"),
     ]:
         bad = copy.deepcopy(payload)
@@ -619,7 +627,7 @@ def test_validate_rejects_a_non_ascii_digit_content_state_key(data_dir, profile,
     payload = snapshot_game(game, SETTINGS)
     bad = copy.deepcopy(payload)
     bad["content_state"] = {"²": {"hp": 3, "phase": "idle"}}
-    with pytest.raises(SaveError, match=r"content_state\.²: expected a world index in 292\.\.293"):
+    with pytest.raises(SaveError, match=r"content_state\.²: expected a world index in 292\.\.296"):
         validate_snapshot(bad, data_dir, profile, pack=pack)
 
 
@@ -628,11 +636,11 @@ def test_validate_requires_every_pack_index_present_in_content_state(data_dir, p
     payload = snapshot_game(game, SETTINGS)
     missing_one = copy.deepcopy(payload)
     del missing_one["content_state"]["293"]
-    with pytest.raises(SaveError, match=r"content_state: expected entries for 292\.\.293"):
+    with pytest.raises(SaveError, match=r"content_state: expected entries for 292\.\.296"):
         validate_snapshot(missing_one, data_dir, profile, pack=pack)
     missing_all = copy.deepcopy(payload)
     missing_all["content_state"] = {}
-    with pytest.raises(SaveError, match=r"content_state: expected entries for 292\.\.293"):
+    with pytest.raises(SaveError, match=r"content_state: expected entries for 292\.\.296"):
         validate_snapshot(missing_all, data_dir, profile, pack=pack)
 
 
@@ -649,7 +657,10 @@ def test_restore_round_trips_a_pack_game_mid_chase(data_dir, profile, example_pa
     restored, settings = restore_game(data_dir, profile, payload, pack=pack)
     assert settings == SETTINGS
     assert restored.pack is pack
-    assert restored.content_state == {292: {"hp": 1, "phase": "chase"}, 293: {"hp": 2, "phase": "idle"}}
+    assert restored.content_state == {
+        292: {"hp": 1, "phase": "chase"}, 293: {"hp": 2, "phase": "idle"},
+        294: {}, 295: {}, 296: {"armed": True, "inside": False},
+    }
     # restore_game re-arms the boot (flag_init_view 2, flag_genere_aff_list 1);
     # a game 120 ticks in has consumed both, so they are the one expected delta.
     after = snapshot_game(restored, SETTINGS)
@@ -662,6 +673,30 @@ def test_restore_round_trips_a_pack_game_mid_chase(data_dir, profile, example_pa
     assert snapshot_game(game, SETTINGS) == snapshot_game(restored, SETTINGS)
 
 
+def test_content_flags_round_trip_and_are_validated(data_dir, profile, example_pack_dir):
+    game, pack = _packed(data_dir, profile, example_pack_dir)
+    game.content.flags.update({"has_key", "attic_seen"})
+    game.content_state[296] = {"armed": False, "inside": True}
+    payload = json.loads(json.dumps(snapshot_game(game, SETTINGS)))
+    assert payload["content_flags"] == ["attic_seen", "has_key"]
+    restored, _ = restore_game(data_dir, profile, payload, pack=pack)
+    assert restored.content.flags == {"attic_seen", "has_key"}
+    assert restored.content_state[296] == {"armed": False, "inside": True}
+    for flags, path, message in [
+        ("has_key", "content_flags", "expected a list, got str"),
+        (["has_key", 3], "content_flags[1]", "expected a non-empty string, got 3"),
+        (["a", "a"], "content_flags", "duplicate flag names"),
+    ]:
+        bad = copy.deepcopy(payload)
+        bad["content_flags"] = flags
+        with pytest.raises(SaveError, match=re.escape(f"{path}: {message}")):
+            validate_snapshot(bad, data_dir, profile, pack=pack)
+    vanilla = _snapshot(data_dir, profile)
+    vanilla["content_flags"] = ["has_key"]
+    with pytest.raises(SaveError, match=r"content_flags: expected no content flags without a pack"):
+        validate_snapshot(vanilla, data_dir, profile)
+
+
 def test_read_slot_reports_a_pack_mismatch_without_touching_anything(tmp_path, data_dir, profile, example_pack_dir):
     from PyAitD.engine.script.save import read_slot, write_slot
     game, pack = _packed(data_dir, profile, example_pack_dir)
@@ -671,4 +706,4 @@ def test_read_slot_reports_a_pack_mismatch_without_touching_anything(tmp_path, d
     assert payload is None
     assert error == "Could not load save-manual.json: source.pack: save was made with content pack example; none is attached"
     payload, error = read_slot(path, data_dir, profile, pack=pack)
-    assert error is None and payload["schema"] == 3
+    assert error is None and payload["schema"] == 4
