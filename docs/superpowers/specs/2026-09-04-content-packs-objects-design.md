@@ -56,13 +56,24 @@ Verified against the port and the real data:
   own `delete_object`.
 - `Game.content_state` is keyed by world index; the save validates one entry
   per pack record and refuses a save against a different pack digest.
+- An actor with no body gets the default 200 x 2000 x 200 volume, and
+  `check_object_col` considers every placed actor, so a body-less actor
+  blocks the hero like an invisible pillar (probed in the attic: the hero
+  stops at it with `col` naming it). Vanilla zones are room data walked by
+  the hero's trigger pass, not actors.
+- `request_found` refuses the prompt while `timer - track_number < 300` and
+  vanilla pickups store `track_number = -1`, so a vanilla pickup cannot be
+  taken in the first 300 ticks of a game.
+- The hero at the attic start stands at (3231, 0, -1548) facing -z, and the
+  corridor ahead is free of hard collision to at least z = -3700.
 
 Consequence: pickups and scenery are ordinary world objects with the vanilla
 flag words and no LIFE; touch, modal, weight, inventory, put, push and draw
 stay vanilla. Three delegations in the interaction layer route a pack
-pickup's take and verbs to the content runner. Triggers are behaviour actors
-like enemies. Pack strings are registered into the assets text table above
-the vanilla range, so no UI code changes.
+pickup's take and verbs to the content runner. Triggers are zones stepped
+once per tick by the content layer, never actors, so they occupy no volume
+and no actor slot. Pack strings are registered into the assets text table
+above the vanilla range, so no UI code changes.
 
 ## 1. Pack format
 
@@ -78,8 +89,8 @@ kind = "pickup"
 stage = 0
 room = 0
 name = "Attic key"          # shown in the found prompt and the inventory
-body = 14                   # validated against both heroes' body archives
-position = [-4000, 0, 1500]
+body = 187                  # validated against both heroes' body archives
+position = [3231, 0, -2248] # 700 units ahead of the attic start
 beta = 0                    # optional, default 0
 zv = "body"                 # max | body | cube | rotated, default "max"
 weight = 1                  # optional, default 0; counts against cvars[2]
@@ -96,8 +107,8 @@ id = "barricade"
 kind = "scenery"
 stage = 0
 room = 0
-body = 30
-position = [-5600, 0, -2000]
+body = 8                    # the attic crate's body
+position = [3231, 0, -3400]
 beta = 0
 zv = "cube"
 pushable = false            # optional, default false; true adds AF_MOVABLE
@@ -109,7 +120,7 @@ id = "gate"
 kind = "trigger"
 stage = 0
 room = 0
-box = { x = [-6200, -5000], y = [-500, 500], z = [-1500, -500] }   # room coords
+box = { x = [2800, 3700], y = [-500, 500], z = [-3100, -2700] }   # room coords
 [[on_enter]]
 when = { has_item = "attic_key" }
 then = [{ delete_object = "barricade" }, { message = "The barricade gives way." },
@@ -176,29 +187,34 @@ record type). Each record becomes one appended `WorldObject`:
 |---|---|---|---|---|
 | pickup | `0xa0` (`AF_FOUNDABLE \| AF_SPECIAL`) | −1 | pack body | `found_life = -1`, `found_flag = 0`, `found_name` = its text id, `position_in_track` = weight, `type_zv` from `zv` |
 | scenery | `0x20`, plus `0x10` if pushable | −1 | pack body | `type_zv` from `zv` |
-| trigger | `0x20` | `BEHAVIOUR_LIFE` | −1 | `type_zv = 2`, position = box centre, `life_mode = 0` (stage) |
+| trigger | `0` | −1 | −1 | a placeholder that never spawns: `stage = -1`, `room = -1`, position 0 |
 
-All three keep `obj_index = -1`, `anim = -1`, `track_mode = 0`,
-`track_number = -1` unless stated. Life −1 records ride the existing spawn
-rule that places them unconditionally on their stage; a trigger keeps its
-actor across rooms as a stage-mode behaviour and checks the hero's room
-itself.
+Pickups and scenery keep `obj_index = -1`, `anim = -1`, `track_mode = 0`.
+Pickups carry `track_number = 0`, not the vanilla −1, so the found prompt
+is not refused during the first 300 ticks of a game (see the facts above);
+scenery keeps `track_number = -1`. Life −1 records ride the existing spawn
+rule that places them unconditionally on their stage. A trigger's world
+record exists only so that every pack object has a world index (`by_id`,
+`content_state`, the save's per-record entries); its stage −1 keeps it out
+of every spawn pass, and its box and room live on the record.
 
 **Texts.** `Assets.register_texts(mapping)` adds ids to the system text
 table and raises `ValueError` on any id already present. `CONTENT_TEXT_BASE
-= 2000`. At attach, the pack's strings get consecutive ids from the base in
-this order: for each object in pack order, the pickup name, then each action
-label, then each message string of its rules in rule order; a message string
-already registered reuses its id. Attach registers before compiling, so
-`found_name` and every `message` effect carry ids. Because the order is a
-pure function of the pack, a saved timed-message id resolves to the same
-string after a load.
+= 2000`. `allocate_texts(objects)` gives every distinct string one id,
+consecutive from the base in first-seen order: for each object in pack
+order, the pickup name, then each action label, then each message string
+of its rules in rule order (`on_take` rules, then each action's rule, or
+`on_enter` rules). A string seen twice keeps its first id. Attach registers
+the table and keeps the string-to-id map as `ContentAttachment.text_ids`;
+compilation sets `found_name` from it and `message` effects look their
+string up at run time. Because the order is a pure function of the pack, a
+saved timed-message id resolves to the same string after a load.
 
 **Attachment.** `attach` appends enemies then objects. `ContentAttachment`
 keeps `records` (world index → record) and gains `by_id` (pack id → world
-index) and `flags: set[str]`, seeded empty. `content_state` per record:
-enemies `{"hp", "phase"}` as today; triggers `{"inside": False}`; pickups
-and scenery `{}`.
+index), `text_ids` (string → text id) and `flags: set[str]`, seeded empty.
+`content_state` per record: enemies `{"hp", "phase"}` as today; triggers
+`{"armed": True, "inside": False}`; pickups and scenery `{}`.
 
 ## 3. Runtime
 
@@ -211,17 +227,19 @@ and scenery `{}`.
   table.
 - `run_rules(game, rules) -> bool` applies the first matching rule's effects
   in order and reports whether one fired. `message` calls
-  `game.add_message(text_id)`; `set_flag`/`clear_flag` edit the flag set;
-  `remove_item` and `delete_object` both call `script.game.objects.
-  delete_object` on the target's world index, which un-places the record
-  (room and stage −1, actor released) and pulls it from the inventory. A
-  deleted record never respawns and needs no separate state; deleting an
-  already-deleted record is a no-op.
-- `step_trigger(game, slot, record, state)`: take the camera-target hero;
-  no hero or a different room counts as outside. Inside means the hero's
-  `room_x/room_y/room_z` lie within the box, bounds inclusive. Fire
-  `on_enter` only on the edge from outside to inside; store the new value in
-  `state["inside"]`. A trigger that deletes itself has no actor next tick.
+  `game.add_message(text_ids[string])`; `set_flag`/`clear_flag` edit the
+  flag set; `remove_item` and `delete_object` on a pickup or scenery call
+  `script.game.objects.delete_object` on the target's world index, which
+  un-places the record (room and stage −1, actor released) and pulls it
+  from the inventory. A deleted record never respawns and needs no separate
+  state; deleting an already-deleted record is a no-op. `delete_object` on a
+  trigger sets its `armed` state to false.
+- `step_triggers(game)`: once per tick, for every armed trigger: take the
+  camera-target hero; no hero, another floor or another room counts as
+  outside. Inside means the hero's `room_x/room_y/room_z` lie within the
+  box, bounds inclusive. Fire `on_enter` only on the edge from outside to
+  inside; store the new value in `state["inside"]` before running the
+  rules. A disarmed trigger is skipped and keeps its `inside` value.
 - `pickup_at(game, world_idx) -> PickupRecord | None` is the single test
   the interaction hooks use.
 - `action_ids(game, world_idx) -> tuple[int]`: the pickup's action text ids
@@ -241,9 +259,13 @@ and scenery `{}`.
 3. `choose_inventory_action`: a pack pickup routes to `use` and returns
    `True`.
 
-**`run_behaviour`** dispatches on record type: enemies to `step_enemy`,
-triggers to `step_trigger`; pickups and scenery never reach it (life −1).
-The trace's phase column shows `inside` or `outside` for a trigger.
+**The tick.** `play_tick` calls `step_triggers` right after the per-actor
+LIFE and behaviour loop, when no floor change is pending, so a trigger fires
+in the same tick as the step that entered it and before the game-over
+handoff. `run_behaviour` is unchanged: only enemies have behaviour actors.
+The trace logs a trigger transition through `log_behaviour` with the
+trigger's world index in the actor column and `enter` or `leave` in the
+phase column.
 
 **Message primitive.** `_add_message` moves from
 `interaction/life_cont.py` to `Game.add_message(message_id)` in
@@ -260,8 +282,8 @@ are untouched vanilla code.
 record's position, room and in-inventory bit. Additions:
 
 - `content_state` validated per record type: enemies `hp` (int) and `phase`
-  (in `PHASES`); triggers exactly `inside` (bool); pickups and scenery an
-  empty object. The count check becomes one entry per pack record, enemies
+  (in `PHASES`); triggers exactly `armed` and `inside` (bools); pickups and
+  scenery an empty object. The count check becomes one entry per pack record, enemies
   and objects together (`first_index .. first_index + len(enemies) +
   len(objects) - 1`).
 - New top-level key `content_flags`: the sorted list of set flag names, `[]`
@@ -282,7 +304,7 @@ cross-reference pass over the whole pack. Archive checks follow as in
 section 2. `register_texts` collisions raise at attach; a test pins that no
 vanilla text id reaches 2000.
 
-**Runtime errors.** `run_rules` and `step_trigger` never raise on game
+**Runtime errors.** `run_rules` and `step_triggers` never raise on game
 state. `use` with an unknown id raises `ValueError`, matching the vanilla
 inventory's contract.
 
@@ -290,11 +312,12 @@ inventory's contract.
 
 **Example pack** adds `objects/attic_key.toml`, `objects/barricade.toml`,
 `objects/gate.toml` as in section 1, all on stage 0 room 0 beside the two
-enemies: the key near the hero's start, the barricade and its gate box
-further along the attic, positions chosen against the attic's hard
-collision so the hero can reach both. World indices: 292–293 enemies,
-294 key, 295 barricade, 296 gate (sorted file order: `attic_key`,
-`barricade`, `gate`). The enemy tests keep their indices.
+enemies, on the straight walk ahead of the attic start (facing −z): the key
+700 units ahead, the gate box from 1150 to 1550 ahead, the barricade 1850
+ahead. World indices: 292–293 enemies, 294 key, 295 barricade, 296 gate
+(sorted file order: `attic_key`, `barricade`, `gate`). The enemy tests keep
+their indices; object journeys delete both enemies at boot so the prowler
+cannot reach the hero mid-scene.
 
 **Unit tests** (`tests/test_content_objects.py`, extensions of
 `tests/test_content_pack.py`), no game data:
@@ -316,16 +339,17 @@ collision so the hero can reach both. World indices: 292–293 enemies,
   accepting takes it, sets `has_key`, and leaves a timed message whose id
   resolves to the pack string;
 - the inventory lists the pack action; choosing it shows its message;
-- entering the gate box without the key shows the blocking message, again on
-  re-entry, never while standing inside;
+- entering the gate box without the key shows the blocking message; a
+  unit-stepped test with the hero relocated proves it fires again on
+  re-entry and never while standing inside;
 - with the key, entering deletes the barricade and the gate: both records
   have room −1 and no actor;
 - one real-loop test through `shell.run()` with the monkeypatched event
   pump, as the controls golden does, drives the key-and-barricade scene by
   pointer clicks;
 - save round trip mid-scene: schema 4, `content_flags` and the trigger's
-  `inside` restore, a schema-3 save is refused, the key stays in the
-  inventory after load.
+  `armed`/`inside` restore, a schema-3 save is refused, the key stays in
+  the inventory after load.
 
 **Existing tests touched**: the save-schema constant and the content-state
 fixtures in `tests/test_save*.py`; the Makefile test list gains the new file
@@ -344,7 +368,7 @@ fixtures in `tests/test_save*.py`; the Makefile test list gains the new file
   `vanilla:` address prefix is reserved, not implemented.
 - Layering: no new forbidden-list entries. The one new import direction,
   `script.interaction` → `content`, matches what `script.playworld.tick`
-  already does; `content` still imports only `script.game.state` and
+  already does (the tick also gains the `step_triggers` call); `content` still imports only `script.game.state` and
   `script.game.objects` from the game package, and `data.assets` for text
   registration.
 
