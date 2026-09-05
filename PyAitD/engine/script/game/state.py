@@ -5,7 +5,7 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from PyAitD.engine.data.assets import Assets
-from PyAitD.engine.script.effects import GameMode, ImmediateEffect, InputMode, MODAL_MODE
+from PyAitD.engine.script.effects import GameMode, ImmediateEffect, InputMode, MODAL_MODE, TimedMessage
 from PyAitD.engine.data.floor import Floor
 from PyAitD.engine.data.formats import parse_defines, parse_objets, parse_vars
 from PyAitD.engine.nav.navmesh import MeshCache
@@ -233,6 +233,18 @@ class Game:
 
     def close_modal(self):
         self.active_modal = None
+
+    def add_message(self, message_id):
+        """Show a timed message: refresh the age of one already showing,
+        else take the first free slot (FITD's five-line message table)."""
+        for message in self.messages:
+            if message is not None and message.message_id == message_id:
+                message.age = 0
+                return
+        for slot, message in enumerate(self.messages):
+            if message is None:
+                self.messages[slot] = TimedMessage(message_id)
+                return
 
     def emit(self, effect):
         if isinstance(effect, ImmediateEffect):

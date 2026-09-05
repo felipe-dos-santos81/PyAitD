@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """LIFE continuation stack, found-LIFE execution, and the message/immediate-effect pump."""
-from PyAitD.engine.script.effects import (
-    AddMessage, AfterLife, BeginTake, LifeFrame, TimedMessage,
-)
+from PyAitD.engine.script.effects import AddMessage, AfterLife, BeginTake, LifeFrame
 from PyAitD.engine.script.life import process_life
 
 
@@ -39,17 +37,6 @@ def resume_life(game):
     return game.active_modal is None
 
 
-def _add_message(game, message_id):
-    for message in game.messages:
-        if message is not None and message.message_id == message_id:
-            message.age = 0
-            return
-    for slot, message in enumerate(game.messages):
-        if message is None:
-            game.messages[slot] = TimedMessage(message_id)
-            return
-
-
 def drain_immediate_effects(game):
     # interaction subpackage cycle: lazy
     from PyAitD.engine.script.interaction.inventory import begin_take
@@ -57,7 +44,7 @@ def drain_immediate_effects(game):
     while game.immediate_effects:
         effect = game.immediate_effects.popleft()
         if isinstance(effect, AddMessage):
-            _add_message(game, effect.message_id)
+            game.add_message(effect.message_id)
         elif isinstance(effect, BeginTake):
             completed = begin_take(game, effect.object_idx)
             if completed and game.active_modal is None:
