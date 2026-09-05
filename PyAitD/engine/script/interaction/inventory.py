@@ -23,6 +23,9 @@ def inventory_weight(game):
 
 
 def inventory_actions(game, object_idx):
+    from PyAitD.engine.content.objects import action_ids, pickup_at   # content reaches interaction through actor.anim_action: lazy
+    if pickup_at(game, object_idx) is not None:
+        return action_ids(game, object_idx)   # at most MAX_VISIBLE_ACTIONS, checked at load
     flags = game.world_objects[object_idx].found_flag
     return tuple(23 + bit for bit in range(11) if flags & (1 << bit))[:MAX_VISIBLE_ACTIONS]
 
@@ -103,9 +106,13 @@ def drop_object(game, object_idx, source_idx):
 
 
 def choose_inventory_action(game, object_idx, action_text_id):
+    from PyAitD.engine.content.objects import pickup_at, use   # lazy, as above
     if action_text_id not in inventory_actions(game, object_idx):
         raise ValueError(f"object {object_idx} does not expose inventory action {action_text_id}")
     game.in_hand_table[game.current_inventory] = object_idx
+    if pickup_at(game, object_idx) is not None:
+        use(game, object_idx, action_text_id)   # a pack verb is a rule, not a LIFE with game.action set
+        return True
     game.action = 1 << (action_text_id - 23)
     return execute_found_life(game, object_idx)
 

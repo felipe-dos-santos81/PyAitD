@@ -13,6 +13,15 @@ from PyAitD.engine.content.objects import (
 )
 from PyAitD.engine.content.schema import Condition, Effect, Rule, parse_object
 from PyAitD.engine.content.world import ContentAttachment, allocate_texts, compile_record, initial_state
+from PyAitD.engine.content import load_pack
+from PyAitD.engine.data.floor import Floor
+from PyAitD.engine.script.effects import FoundResult, InputMode, ShowFound
+from PyAitD.engine.script.game import init_game, relocate_actor
+from PyAitD.engine.script.game.objects import delete_object
+from PyAitD.engine.script.interaction import (
+    apply_found_result, choose_inventory_action, inventory_actions, inventory_items,
+)
+from PyAitD.engine.script.playworld import IDLE, PlayInput, play_tick
 
 pytestmark = [pytest.mark.engine, pytest.mark.journey]
 
@@ -163,3 +172,81 @@ def test_the_box_bounds_are_inclusive():
     game.content_state[G]["inside"] = False
     step_triggers(game)
     assert game.content_state[G]["inside"] is False
+
+
+# ── the example scene against the real attic ─────────────────────────────────
+
+PROWLER, WATCHER, KEY_IDX, BARRICADE_IDX, GATE_IDX = 292, 293, 294, 295, 296
+FORWARD = PlayInput(joyd=1)   # keyboard mode: bit 0 walks forward, ~25 units a tick, along -z from the start
+
+
+def _boot(data_dir, profile, example_pack_dir):
+    pack = load_pack(example_pack_dir, data_dir, profile)
+    game = init_game(data_dir, profile, pack=pack)
+    game.num_camera = game.new_num_camera
+    game.input_mode = InputMode.KEYBOARD   # the mouse route walks only toward a nav intent
+    delete_object(game, PROWLER)           # the pursuer would reach the hero mid-scene
+    delete_object(game, WATCHER)
+    floor = Floor(data_dir, 0, profile)
+    for _ in range(3):
+        play_tick(game, floor, IDLE)       # commits the spawn's pending anims
+    return game, floor, game.actors[game.current_camera_target_actor]
+
+
+def _walk_until(game, floor, predicate, *, limit):
+    for tick in range(limit):
+        play_tick(game, floor, FORWARD)
+        if predicate(game):
+            return tick
+    return -1
+
+
+def _shown(game):
+    return {m.message_id for m in game.messages if m is not None}
+
+
+def _reach_the_key(game, floor):
+    assert _walk_until(game, floor, lambda g: g.active_modal is not None, limit=60) != -1
+    assert isinstance(game.active_modal, ShowFound)
+    assert (game.active_modal.object_idx, game.active_modal.forced_refuse) == (KEY_IDX, False)
+
+
+def test_touching_the_key_prompts_with_its_pack_name_and_taking_it_runs_on_take(data_dir, profile, example_pack_dir):
+    game, floor, hero = _boot(data_dir, profile, example_pack_dir)
+    texts = game.content.text_ids
+    _reach_the_key(game, floor)
+    assert game.assets.system_text(game.world_objects[KEY_IDX].found_name) == "Attic key"
+    assert apply_found_result(game, FoundResult.TAKE) is True
+    assert game.active_modal is None
+    assert KEY_IDX in inventory_items(game)
+    key = game.world_objects[KEY_IDX]
+    assert key.found_flag & 0x8000 and (key.room, key.obj_index) == (-1, -1)
+    assert "has_key" in game.content.flags
+    assert texts["A small brass key."] in _shown(game)
+    assert game.assets.system_text(texts["A small brass key."]) == "A small brass key."
+
+
+def test_the_inventory_lists_the_pack_action_and_choosing_it_runs_its_rule(data_dir, profile, example_pack_dir):
+    game, floor, hero = _boot(data_dir, profile, example_pack_dir)
+    texts = game.content.text_ids
+    _reach_the_key(game, floor)
+    apply_found_result(game, FoundResult.TAKE)
+    look = texts["Look"]
+    assert inventory_actions(game, KEY_IDX) == (look,)
+    assert choose_inventory_action(game, KEY_IDX, look) is True
+    assert texts["It is warm to the touch."] in _shown(game)
+    assert game.in_hand_table[game.current_inventory] == KEY_IDX
+    with pytest.raises(ValueError, match="does not expose inventory action 23"):
+        choose_inventory_action(game, KEY_IDX, 23)
+    before = _shown(game)
+    play_tick(game, floor, IDLE)   # the in-hand item's per-tick found-life is a no-op for a pack pickup
+    assert _shown(game) == before and game.active_modal is None
+
+
+def test_leaving_the_key_arms_the_vanilla_cooldown(data_dir, profile, example_pack_dir):
+    game, floor, hero = _boot(data_dir, profile, example_pack_dir)
+    _reach_the_key(game, floor)
+    assert apply_found_result(game, FoundResult.LEAVE) is True
+    assert game.world_objects[KEY_IDX].track_number == game.timer
+    assert _walk_until(game, floor, lambda g: g.active_modal is not None, limit=20) == -1
+    assert KEY_IDX not in inventory_items(game) and "has_key" not in game.content.flags

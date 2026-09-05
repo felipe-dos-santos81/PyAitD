@@ -66,9 +66,16 @@ def advance_messages(game):
 
 
 def execute_found_life(game, object_idx, *, after=AfterLife.NONE):
-    # interaction subpackage cycle: lazy
+    # interaction subpackage cycle: lazy; content reaches interaction through actor.anim_action
     from PyAitD.engine.script.interaction.inventory import _finish_take
+    from PyAitD.engine.content.objects import pickup_at, take
     if object_idx == -1:
+        return True
+    if pickup_at(game, object_idx) is not None:
+        # a pack pickup has no LIFE: finish the vanilla take, then its on_take rules
+        if after is AfterLife.FINISH_TAKE:
+            _finish_take(game, object_idx)
+            take(game, object_idx)
         return True
     world = game.world_objects[object_idx]
     if world.found_life == -1:
