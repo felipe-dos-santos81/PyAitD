@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
-"""Pack directory reader: pack.toml + enemies/*.toml, the identity digest,
-and the archive-dependent checks (body/anim counts for every hero, floor
-rooms). `read_pack` needs no game data; `load_pack` needs it."""
+"""Pack directory reader: pack.toml, enemies/*.toml and objects/*.toml, the
+identity digest, and the archive-dependent checks (body/anim counts for
+every hero, floor rooms). `read_pack` needs no game data; `load_pack` needs
+it. `check_references` is the pure cross-reference pass over pack ids."""
 import hashlib
 import pathlib
 import tomllib
@@ -72,6 +73,7 @@ def check_references(pack):
     """Every pack id a rule names must exist with the right kind: items are
     pickups, deletions are objects (never enemies). Pure."""
     kinds = {record.id: record.kind for record in pack.objects}
+    enemy_ids = {record.id for record in pack.enemies}
     for record in pack.objects:
         for key, rule in record.rules():
             for name in ("has_item", "not_item"):
@@ -83,6 +85,10 @@ def check_references(pack):
                     raise PackError(record.file, f"{key}.then[{i}].remove_item",
                                     f"{effect.arg!r} is not a pickup of this pack")
                 if effect.op == "delete_object" and effect.arg not in kinds:
+                    if effect.arg in enemy_ids:
+                        raise PackError(record.file, f"{key}.then[{i}].delete_object",
+                                        f"{effect.arg!r} is an enemy; delete_object reaches pickups, "
+                                        "scenery and triggers only")
                     raise PackError(record.file, f"{key}.then[{i}].delete_object",
                                     f"{effect.arg!r} is not an object of this pack")
 

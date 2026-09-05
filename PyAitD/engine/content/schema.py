@@ -268,10 +268,14 @@ def _parse_actions(value, file):
     if len(value) > MAX_ACTIONS:
         raise PackError(file, "actions", f"{len(value)} actions is more than the inventory shows ({MAX_ACTIONS})")
     actions = []
+    seen = {}
     for i, table in enumerate(value):
         key = f"actions[{i}]"
         rule = _parse_rule(table, file, key, ACTION_KEYS)
         label = _string(_require(table, "label", file, key + "."), file, f"{key}.label")
+        if label in seen:
+            raise PackError(file, f"{key}.label", f"{label!r} is already used by actions[{seen[label]}]")
+        seen[label] = i
         actions.append(Action(label, rule))
     return tuple(actions)
 

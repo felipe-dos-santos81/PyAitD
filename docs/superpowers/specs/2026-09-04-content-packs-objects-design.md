@@ -298,7 +298,8 @@ valid.
 **Load-time validation** raises `PackError(file, key, message)` in this
 order: TOML shape and exact key sets per kind; ranges (int16 positions and
 box bounds, `min <= max` on each box axis, `weight >= 0`, at most five
-actions, non-empty `name`, `label`, `message`, `then`); effects and
+actions, non-empty `name`, `label`, `message`, `then`; a pickup's action
+labels must be unique); effects and
 conditions are single-key tables from the fixed vocabulary; then the
 cross-reference pass over the whole pack. Archive checks follow as in
 section 2. `register_texts` collisions raise at attach; a test pins that no

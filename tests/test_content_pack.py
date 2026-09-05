@@ -202,6 +202,9 @@ def test_records_enumerate_their_rules_in_text_order():
     (KEY, {"actions": [{"then": [{"message": "a"}]}]}, "actions[0].label", "missing"),
     (KEY, {"actions": [{"label": "a", "then": [{"message": "a"}]}] * 6}, "actions",
      "6 actions is more than the inventory shows (5)"),
+    (KEY, {"actions": [{"label": "Look", "then": [{"message": "a"}]},
+                        {"label": "Look", "then": [{"message": "b"}]}]}, "actions[1].label",
+     "'Look' is already used by actions[0]"),
     (BARRICADE, {"pushable": "yes"}, "pushable", "expected true or false, got 'yes'"),
     (BARRICADE, {"name": "x"}, "name", "unknown key"),
     (GATE, {"box": {"x": [0, 1], "y": [0, 1]}}, "box", "expected a table with the keys x, y, z"),
@@ -331,6 +334,20 @@ def test_read_pack_checks_every_cross_reference(tmp_path, edit, file, key, messa
     with pytest.raises(PackError) as caught:
         read_pack(_write_pack(tmp_path / "p", objects=objects))
     assert (caught.value.file, caught.value.key, caught.value.message) == (file, key, message)
+
+
+def test_check_references_names_the_enemy_when_delete_object_targets_one(tmp_path):
+    from PyAitD.engine.content.pack import read_pack
+    objects = tuple(
+        (name, text.replace('delete_object = "barricade"', 'delete_object = "prowler"') if name == "gate.toml" else text)
+        for name, text in SCENE
+    )
+    root = _write_pack(tmp_path / "p", enemies=(("a.toml", PROWLER_TOML),), objects=objects)
+    with pytest.raises(PackError) as caught:
+        read_pack(root)
+    assert (caught.value.file, caught.value.key, caught.value.message) == (
+        "objects/gate.toml", "on_enter[0].then[0].delete_object",
+        "'prowler' is an enemy; delete_object reaches pickups, scenery and triggers only")
 
 
 def test_read_pack_reads_the_manifest_and_every_enemy_in_name_order(tmp_path):

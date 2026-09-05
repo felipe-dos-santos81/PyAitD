@@ -2,7 +2,10 @@
 """The object vocabulary at run time: conditions, rules and effects for
 pickups and triggers (spec section 3). Reads world records and the pack's
 flags only; the one primitive it calls is delete_object, as LM_DELETE does.
-Never raises on game state."""
+`run_rules` and `step_triggers` never raise on game state; the pickup
+helpers (`action_ids`, `take`, `use`) expect a pack pickup index and
+dereference `pickup_at(...)` without a None guard -- their call sites in
+the interaction layer guard with `pickup_at` first."""
 from PyAitD.engine.content.schema import TriggerRecord
 from PyAitD.engine.script.game.objects import delete_object
 

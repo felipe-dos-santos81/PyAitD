@@ -247,6 +247,17 @@ def test_the_inventory_lists_the_pack_action_and_choosing_it_runs_its_rule(data_
     assert _shown(game) == before and game.active_modal is None
 
 
+def test_inventory_actions_stays_vanilla_for_a_vanilla_object_while_a_pack_is_attached(
+        data_dir, profile, example_pack_dir):
+    # The attic lamp (world index 13) carries a non-zero found_flag straight out
+    # of OBJETS.ITD -- a real vanilla foundable object, not a manufactured one.
+    game, floor, hero = _boot(data_dir, profile, example_pack_dir)
+    vanilla = init_game(data_dir, profile)
+    lamp_idx = 13
+    assert game.world_objects[lamp_idx].found_flag == vanilla.world_objects[lamp_idx].found_flag == 1545
+    assert inventory_actions(game, lamp_idx) == inventory_actions(vanilla, lamp_idx) == (23, 26, 32, 33)
+
+
 def test_leaving_the_key_arms_the_vanilla_cooldown(data_dir, profile, example_pack_dir):
     game, floor, hero = _boot(data_dir, profile, example_pack_dir)
     _reach_the_key(game, floor)
@@ -271,7 +282,7 @@ def test_without_the_key_the_gate_explains_and_the_barricade_stands(data_dir, pr
     barricade_slot = game.world_objects[BARRICADE_IDX].obj_index
     blocked = _walk_until(game, floor, lambda g: barricade_slot in hero.col, limit=60)
     assert blocked != -1, "the hero never met the barricade"
-    assert hero.room_z > -3200                    # the crate's near face is at -3160
+    assert hero.room_z > -3200                    # the crate's near face is at -3170
     assert game.active_modal is None
 
 
