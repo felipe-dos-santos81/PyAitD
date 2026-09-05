@@ -10,7 +10,7 @@ decompilation (GPLv2), targeting Apple Silicon with pygame-ce + ModernGL.
 - Python 3.12, `.venv/`; deps: pygame-ce, moderngl, numpy, pytest — no more.
   `tools/bootstrap_materials.py` reaches Gemini through the `agy` CLI
   (`subprocess`), so the one external service costs no Python dependency
-- Version 0.9.0 (`pyproject.toml`); GPL-2.0-only
+- Version 0.10.0 (`pyproject.toml`); GPL-2.0-only
 
 ## Commands
 
@@ -88,7 +88,7 @@ The engine is organised into five domain subpackages:
 | `engine/space/` | `cos_table.py` + `world.py` fixed-point rotations, camera transform/projection; `realvalue.py` rotation/speed interpolation, chronos, distances |
 | `engine/actor/` | `actors.py` actor fields + GereAnim movement/collision; `anim.py` AnimPlayer; `anim_action.py` combat action runner; `tracks.py` track processor; `skel.py` skinning/projection (integer path, authoritative) |
 | `engine/script/` | `game/` (`state.py` Game/Actor/FloorStart, `zv.py` ZV geometry, `objects.py` object-slot lifecycle, `boot.py` boot/transitions); `life.py` VM core (dispatch reads `profile.opcode_table`, core table built from `profile.core_slots`); `eval_var.py` evalVar; `interaction/` (`inventory.py`, `life_cont.py`, `combat.py`, `contacts.py`, `nav_intent.py`, `track_mode.py`); `effects.py` typed effects; `playworld/` (`tick.py`, `input.py`, `held_push.py`, `passes.py`); `save.py` versioned snapshots |
-| `engine/content/` | `schema.py` pack records + `BEHAVIOUR_LIFE`; `pack.py` reader, digest, archive checks; `world.py` records -> appended `WorldObject`s, `attach`; `enemies.py` pursuer/sentry state machine; `runner.py` the tick's behaviour branch |
+| `engine/content/` | `schema.py` pack records + `BEHAVIOUR_LIFE`; `pack.py` reader, digest, archive checks; `world.py` records -> appended `WorldObject`s, `attach`; `enemies.py` pursuer/sentry state machine; `objects.py` object rules and effects (`message`, `set_flag`, `clear_flag`, `remove_item`, `delete_object`), pickup helpers (`pickup_at`, `action_ids`, `take`, `use`) and `step_triggers`; `runner.py` the tick's behaviour branch |
 | `engine/nav/` | `navmesh.py` walkable grid + A*; `picking.py` screen->world, hard-col occlusion (off by default), snap budget, steer bearings, marker projection; `navigate.py` pointer follower |
 
 The games, render, app and tools packages:
@@ -563,18 +563,26 @@ action runner.
 
 ## Content packs boundary
 
-- A pack (`packs/example`) is TOML: `pack.toml` + `enemies/*.toml`. Records
-  compile to `WorldObject`s appended after the 292 OBJETS ones with
-  `life = BEHAVIOUR_LIFE (-2)`; `life_gate` admits only `life >= 0`, and the
-  tick's LIFE loop runs `content.run_behaviour` for `-2` actors at the same
-  slot position. Behaviours call only what opcodes call (`init_deplacement`
-  + `process_track`, `init_anim`, `anim_action.arm_strike`, `delete_object`).
-- `game.pack`, `game.content` (records by world index) and
-  `game.content_state[world_idx] = {"hp", "phase"}` are the whole runtime
-  surface; saves (schema 3) carry `source.pack` and `content_state` and
-  refuse a mismatch either way. `--content DIR` is CLI-only; a bad pack exits
-  2 before any window. `engine/content` imports `script.game`'s leaf modules
-  only (`boot.init_game` imports `attach` lazily); `test_layering.py` pins it.
+- A pack (`packs/example`) is TOML: `pack.toml` + `enemies/*.toml` +
+  `objects/*.toml`. Records compile to `WorldObject`s appended after the 292
+  OBJETS ones with `life = BEHAVIOUR_LIFE (-2)`; `life_gate` admits only
+  `life >= 0`, and the tick's LIFE loop runs `content.run_behaviour` for `-2`
+  actors at the same slot position. Behaviours call only what opcodes call
+  (`init_deplacement` + `process_track`, `init_anim`,
+  `anim_action.arm_strike`, `delete_object`).
+- `game.pack`, `game.content` (records by world index, `by_id`, `text_ids`,
+  `flags`) and `game.content_state[world_idx]` are the whole runtime
+  surface: `{"hp", "phase"}` for an enemy, `{"armed", "inside"}` for a
+  trigger, `{}` otherwise. Saves (schema 4) carry `source.pack`,
+  `content_state` and `content_flags`, and refuse a mismatch either way.
+  `--content DIR` is CLI-only; a bad pack exits 2 before any window.
+  `engine/content` imports `script.game`'s leaf modules only
+  (`boot.init_game` imports `attach` lazily); `test_layering.py` pins it.
+- Pack effects reach pack state only: objects are addressed by pack id,
+  flags by name. A `vanilla:` address prefix is reserved for sub-project 4
+  and is not implemented. Triggers are zones stepped by `step_triggers`
+  after the actor loop, never actors, because a body-less actor blocks the
+  hero.
 - Real numbers the example pack rests on: body 24's anims stand 22 / walk 23
   / attack 25 / hurt 21 / death 24, `LM_HIT(25, 1, 22, 400, 1, 22)`, a strike
   from ~2000 Manhattan units, follow no closer than ~800.

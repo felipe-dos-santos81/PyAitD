@@ -157,9 +157,16 @@ engine domain: it may import `data`, `space`, `actor`, and the
 `script.interaction`, `nav`, `games`, or the presentation layer. Tests for
 packs split the same way the engine does: `tests/test_content_pack.py`
 covers the schema, reader and attach step; `tests/test_content_enemies.py`
-covers the behaviour journeys. A pack-free game must stay byte-identical to
-before content packs existed — `test_an_empty_pack_ticks_identically_to_no_pack`
-is the pin.
+covers the behaviour journeys; `tests/test_content_objects.py` covers the
+rule engine and object journeys; `tests/test_content_objects_loop.py`
+drives the scene through the real `shell.run` event pump. A pack-free game
+must stay byte-identical to before content packs existed —
+`test_an_empty_pack_ticks_identically_to_no_pack` is the pin.
+
+- Pack strings live in the assets text table from id 2000
+  (`engine/content/world.py:CONTENT_TEXT_BASE`), registered by `attach`; UI
+  code resolves every name, verb and message through `assets.system_text`
+  and never special-cases packs.
 
 ## Conventions
 

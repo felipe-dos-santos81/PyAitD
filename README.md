@@ -128,14 +128,21 @@ the result with `make run textures=DIR`.
 ### Content packs
 
 A content pack is a directory holding `pack.toml` (`name`, `version`,
-`game = "aitd1"`) and `enemies/*.toml`, one enemy per file: a body and
-animation set copied from an original creature, a position, hit points, and
-the strike operands. `pursuer` chases and strikes; `sentry` stands, turns
-toward the hero and strikes in range. The original scripts stay untouched;
-with no pack the game is byte-identical. `--content DIR` is session-only.
-A bad pack stops the boot with the file, key and value. Saves record the
-pack's digest and refuse to load against a different pack or none.
-`packs/example/` is the reference pack, exercised by the test suite.
+`game = "aitd1"`), `enemies/*.toml` and `objects/*.toml`, one record per
+file. Enemies copy a body and animation set from an original creature:
+`pursuer` chases and strikes, `sentry` stands, turns and strikes in range.
+Objects come in three kinds with pack-supplied strings: a `pickup` the hero
+takes from the found prompt and uses from the inventory, `scenery` that
+blocks or, when `pushable`, is pushed, and a `trigger` box that fires when
+the hero walks in. Takes, inventory verbs and entries run rules — the first
+whose `when` (pack flags, items held) holds — with five effects: `message`,
+`set_flag`, `clear_flag`, `remove_item`, `delete_object`. The original
+scripts stay untouched; with no pack the game is byte-identical.
+`--content DIR` is session-only. A bad pack stops the boot with the file,
+key and value. Saves record the pack's digest and refuse to load against a
+different pack or none. `packs/example/` is the reference pack: two
+enemies and a key-and-barricade scene in the attic, exercised by the test
+suite.
 
 ## Layout
 
