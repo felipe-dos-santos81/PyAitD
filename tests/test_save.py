@@ -164,6 +164,16 @@ def test_validate_rejects_unknown_schema(data_dir, profile):
         validate_snapshot(payload, data_dir, profile)
 
 
+def test_validate_reports_schema_mismatch_before_missing_root_keys(data_dir, profile):
+    # A genuine 0.9.0 (schema 3) save has no content_flags key at all -- that
+    # must not be mistaken for corruption; the schema mismatch is the real story.
+    payload = _snapshot(data_dir, profile)
+    payload["schema"] = 3
+    del payload["content_flags"]
+    with pytest.raises(SaveError, match=r"expected schema 4, got 3"):
+        validate_snapshot(payload, data_dir, profile)
+
+
 def test_validate_rejects_missing_and_extra_root_keys(data_dir, profile):
     payload = _snapshot(data_dir, profile)
     del payload["rng_state"]

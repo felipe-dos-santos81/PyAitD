@@ -174,11 +174,14 @@ def validate_snapshot(payload, data_dir, profile, pack=None):
     payload unchanged."""
     if not isinstance(payload, dict):
         _fail("root", "expected an object")
-    _require_keys(payload, set(ROOT_KEYS), "root")
-
+    if "schema" not in payload:
+        _fail("schema", "missing")
     schema = _require_int(payload["schema"], "schema")
     if schema != SCHEMA:
         _fail("schema", f"expected schema {SCHEMA}, got {schema}")
+
+    _require_keys(payload, set(ROOT_KEYS), "root")
+
     if type(payload["engine_version"]) is not str:
         _fail("engine_version", f"expected a string, got {type(payload['engine_version']).__name__}")
 
