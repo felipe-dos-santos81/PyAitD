@@ -31,7 +31,7 @@ Override with `data=DIR` on any make target or `--data DIR`. Tests honor
 ```bash
 make run             # character selection, then play
 make run textures=   # same, with the original 320x200 backgrounds
-make run content=packs/example   # with the example content pack (a pursuer and a sentry in the attic)
+make run content=packs/example   # with the example content pack (two enemies and a key-and-barricade scene in the attic)
 make run-combat      # floor-5 combat venue (hero=0 Carnby, hero=1 Emily)
 make compare         # live mirror: original AITD1 in DOSBox-X below the port (macOS)
 ```
@@ -172,6 +172,7 @@ make test-tools        # the standalone scripts under tools/
 make test-meta         # the repo's own rules (package layering, test grouping)
 make test-journey      # real run() event pump and long real-data simulations
 make test-controls     # the input package alone, including the recorded-events golden
+make test-content      # content packs alone: schema, reader, enemies, objects, the scene through the real loop
 ```
 
 Mouse and keyboard behaviour is pinned by a recorded session
@@ -207,13 +208,17 @@ Done: M1 data layer, M2 actors, M3a LIFE script VM, M3b interaction, M3c
 combat, M3d/M3e mouse-only input, M4a1 shell, M4a2 save/load, the full
 enhanced-rendering roadmap, all four of roadmap 2's sub-projects (motion
 interpolation, actor surface textures, light transport, atmosphere), and the
-`make compare` live mirror, and the input layer's move into `app/controls/`
-(engine-owned input snapshot, pure gesture state, layering pins). The game boots into an asset-faithful character
-selector, the attic is fully interactive by mouse or keyboard, and progress
-persists across sessions. Several renderer-proof attestation rows still await a
+`make compare` live mirror, the input layer's move into `app/controls/`
+(engine-owned input snapshot, pure gesture state, layering pins), and the first
+three content-pack sub-projects (pack foundation and enemies, the controls
+refactor, objects with pickups, scenery and trigger zones). The game boots into
+an asset-faithful character selector, the attic is fully interactive by mouse or
+keyboard, progress persists across sessions, and a content pack can add
+enemies and a scripted scene without touching the original data. Several renderer-proof attestation rows still await a
 human's eye on real fixtures.
 
-Next: M4b audio/sequences, M4c ending.
+Next: content-pack scenarios and player variants (sub-projects 4 and 5), then
+M4b audio/sequences, M4c ending.
 
 See `CONTEXT.md` for the architecture map and `docs/superpowers/` for specs and
 plans.

@@ -16,7 +16,7 @@ textures ?= data/aitd1/textures
 # the mixer from opening a device on machines that have one.
 HEADLESS = SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy
 
-.PHONY: help install run run-combat run-mouse-combat test test-engine test-render test-shell test-tools test-meta test-journey test-controls record-controls-golden proof-mouse proof-combat proof-graphics proof-intro prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro prove-persistence compare export-textures check-textures clean
+.PHONY: help install run run-combat run-mouse-combat test test-engine test-render test-shell test-tools test-meta test-journey test-controls test-content record-controls-golden proof-mouse proof-combat proof-graphics proof-intro prove prove-m3b prove-shell prove-mouse prove-mouse-only prove-mouse-accessibility prove-combat prove-graphics prove-intro prove-persistence compare export-textures check-textures clean
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -76,6 +76,9 @@ test-journey: install ## Journey group: real run() event pump and long real-data
 
 test-controls: install ## The input package alone: bindings, keyboard, pointer decisions, snapshot, modals, layering pins, and the recorded-events golden
 	$(HEADLESS) $(PYTHON) -m pytest tests/test_controls_bindings.py tests/test_controls_keyboard.py tests/test_controls_pointer.py tests/test_controls_pointer_state.py tests/test_controls_snapshot.py tests/test_controls_modals.py tests/test_controls_golden.py tests/test_layering.py -q
+
+test-content: install ## Content packs alone: schema, reader, compile and attach, enemy journeys, the object rule engine and journeys, and the scene through the real event pump
+	$(HEADLESS) $(PYTHON) -m pytest tests/test_content_pack.py tests/test_content_enemies.py tests/test_content_objects.py tests/test_content_objects_loop.py -q
 
 record-controls-golden: install ## Re-record tests/golden/controls_events.json — only when a mouse/keyboard behaviour change is the point; say why in the commit
 	PYAITD_RECORD_GOLDEN=1 $(HEADLESS) $(PYTHON) -m pytest tests/test_controls_golden.py -q

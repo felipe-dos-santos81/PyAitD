@@ -14,6 +14,8 @@ make test-shell    # event pump, settings, CLI, UI screens and modals
 make test-tools    # the standalone scripts under tools/
 make test-meta     # the repo's own rules (package layering, test grouping)
 make test-journey  # real run() event pump and long real-data simulations
+make test-controls # the input package alone, including the recorded-events golden
+make test-content  # content packs alone: schema, reader, compile/attach, enemy and object journeys, the scene through the real loop
 make proof-mouse   # navmesh for every camera-visible room, every floor (needs game data)
 make proof-combat  # venue, real enemy damage, player arms, game over (needs game data)
 make proof-graphics # attic + combat fixtures per shading mode x realism preset x smoothing default, plus a flat-mesh pair, a hard-shadow pair, the integration range's two ends -- an un-composited pair and an over-composited one -- a motion-blended tickmotion pair, a painted pair, an SSAO-off nossao pair, a room-shadow roomshadow pair and an un-hazed nohaze pair (needs GL + game data)
@@ -53,7 +55,11 @@ is the only gate. Never mass-reformat.
 ## Game data + FITD reference
 
 - Tests use the user's original game data via the `data_dir` fixture and
-  skip when absent. `*.app/` is git-ignored: never commit game data.
+  skip when absent. `*.app/` is git-ignored: never commit game data. A fresh
+  worktree therefore has no game data and most of the suite skips: symlink
+  `data/aitd1/Alone in the Dark 1.app` from the main checkout into the
+  worktree before running `make test` there (the symlink is ignored by the
+  same `*.app` rule; do not link `textures/`, which shows as untracked).
 - The `GameProfile` comes from the `profile` fixture, never a direct `AITD1`
   import — pinned by `tests/test_test_groups.py`; `tests/test_game_profile.py`
   is the sole exception.
@@ -167,6 +173,21 @@ must stay byte-identical to before content packs existed —
   (`engine/content/world.py:CONTENT_TEXT_BASE`), registered by `attach`; UI
   code resolves every name, verb and message through `assets.system_text`
   and never special-cases packs.
+- Pack objects are vanilla `WorldObject`s with no LIFE: pickups and scenery
+  ride the found prompt, weight, inventory, push and draw unchanged, and the
+  only interaction-layer code that knows about packs is three guarded
+  delegations (`life_cont.execute_found_life`, `inventory.inventory_actions`,
+  `inventory.choose_inventory_action`) that import
+  `engine/content/objects.py` lazily — `actor/anim_action.py` imports the
+  interaction package at module level, so a top-level import cycles. Triggers
+  are not actors (a body-less actor blocks the hero with the default zv):
+  they are zones stepped once by `playworld.tick` after the actor loop, from
+  placeholder records that only reserve a world index. Pack pickups compile
+  with `track_number = 0`, not vanilla's −1, or `request_found` refuses the
+  prompt for the first 300 ticks. Effects reach pack state only
+  (`content.flags`, `content_state`, pack world indices via `by_id`), never
+  `game.vars`, a vanilla object or a LIFE script; save schema 4 carries the
+  flags and per-kind state.
 
 ## Conventions
 
