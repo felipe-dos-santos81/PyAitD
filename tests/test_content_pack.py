@@ -244,14 +244,93 @@ range = 2000
 """
 
 
-def _write_pack(root, enemies=(), manifest=PACK_TOML):
+KEY_TOML = """
+id = "attic_key"
+kind = "pickup"
+stage = 0
+room = 0
+name = "Attic key"
+body = 187
+position = [3231, 0, -2248]
+zv = "body"
+weight = 1
+[[on_take]]
+then = [{ set_flag = "has_key" }, { message = "A small brass key." }]
+[[actions]]
+label = "Look"
+then = [{ message = "It is warm to the touch." }]
+"""
+BARRICADE_TOML = """
+id = "barricade"
+kind = "scenery"
+stage = 0
+room = 0
+body = 8
+position = [3231, 0, -3400]
+zv = "cube"
+"""
+GATE_TOML = """
+id = "gate"
+kind = "trigger"
+stage = 0
+room = 0
+box = { x = [2800, 3700], y = [-500, 500], z = [-3100, -2700] }
+[[on_enter]]
+when = { has_item = "attic_key" }
+then = [{ delete_object = "barricade" }, { message = "The barricade gives way." }, { delete_object = "gate" }]
+[[on_enter]]
+then = [{ message = "Something heavy blocks the doorway." }]
+"""
+SCENE = (("attic_key.toml", KEY_TOML), ("barricade.toml", BARRICADE_TOML), ("gate.toml", GATE_TOML))
+
+
+def _write_pack(root, enemies=(), objects=(), manifest=PACK_TOML):
     root.mkdir(parents=True, exist_ok=True)
     (root / "pack.toml").write_text(manifest)
-    if enemies:
-        (root / "enemies").mkdir(exist_ok=True)
-    for name, text in enemies:
-        (root / "enemies" / name).write_text(text)
+    for folder, files in (("enemies", enemies), ("objects", objects)):
+        if files:
+            (root / folder).mkdir(exist_ok=True)
+        for name, text in files:
+            (root / folder / name).write_text(text)
     return root
+
+
+def test_read_pack_reads_objects_in_name_order_after_the_enemies(tmp_path):
+    from PyAitD.engine.content.pack import read_pack
+    pack = read_pack(_write_pack(tmp_path / "p", enemies=(("z.toml", PROWLER_TOML),), objects=SCENE))
+    assert [e.id for e in pack.enemies] == ["prowler"]
+    assert [(o.id, o.kind, o.file) for o in pack.objects] == [
+        ("attic_key", "pickup", "objects/attic_key.toml"),
+        ("barricade", "scenery", "objects/barricade.toml"),
+        ("gate", "trigger", "objects/gate.toml"),
+    ]
+    assert read_pack(_write_pack(tmp_path / "q")).objects == ()
+
+
+def test_an_object_id_may_not_repeat_an_enemy_id(tmp_path):
+    from PyAitD.engine.content.pack import read_pack
+    clash = KEY_TOML.replace('id = "attic_key"', 'id = "prowler"')
+    root = _write_pack(tmp_path / "p", enemies=(("a.toml", PROWLER_TOML),), objects=(("k.toml", clash),))
+    with pytest.raises(PackError) as caught:
+        read_pack(root)
+    assert (caught.value.file, caught.value.key, caught.value.message) == (
+        "objects/k.toml", "id", "'prowler' is already used by enemies/a.toml")
+
+
+@pytest.mark.parametrize("edit, file, key, message", [
+    (lambda t: t.replace('delete_object = "barricade"', 'delete_object = "wall"'),
+     "objects/gate.toml", "on_enter[0].then[0].delete_object", "'wall' is not an object of this pack"),
+    (lambda t: t.replace('has_item = "attic_key"', 'has_item = "barricade"'),
+     "objects/gate.toml", "on_enter[0].when.has_item", "'barricade' is not a pickup of this pack"),
+    (lambda t: t.replace('delete_object = "gate"', 'remove_item = "gate"'),
+     "objects/gate.toml", "on_enter[0].then[2].remove_item", "'gate' is not a pickup of this pack"),
+])
+def test_read_pack_checks_every_cross_reference(tmp_path, edit, file, key, message):
+    from PyAitD.engine.content.pack import read_pack
+    objects = tuple((name, edit(text) if name == "gate.toml" else text) for name, text in SCENE)
+    with pytest.raises(PackError) as caught:
+        read_pack(_write_pack(tmp_path / "p", objects=objects))
+    assert (caught.value.file, caught.value.key, caught.value.message) == (file, key, message)
 
 
 def test_read_pack_reads_the_manifest_and_every_enemy_in_name_order(tmp_path):
@@ -358,6 +437,26 @@ def test_check_archives_validates_against_both_hero_archives(tmp_path, data_dir,
     root = _write_pack(tmp_path / "p", [("x.toml", PROWLER_TOML.replace("body = 24", "body = 30"))])
     with pytest.raises(PackError, match=r"^enemies/x\.toml: body: 30 is not below 25 \(LISTBOD2\)"):
         pack_module.load_pack(root, data_dir, profile)
+
+
+@pytest.mark.parametrize("name, edit, key, message", [
+    ("barricade.toml", lambda t: t.replace("body = 8", "body = 272"), "body", "272 is not below 272"),
+    ("attic_key.toml", lambda t: t.replace("room = 0", "room = 99"), "room", "99 is not below"),
+    ("gate.toml", lambda t: t.replace("stage = 0", "stage = 40"), "stage", "40:"),
+])
+def test_check_archives_covers_object_bodies_and_rooms(tmp_path, data_dir, profile, name, edit, key, message):
+    from PyAitD.engine.content.pack import load_pack
+    objects = tuple((n, edit(t) if n == name else t) for n, t in SCENE)
+    with pytest.raises(PackError) as caught:
+        load_pack(_write_pack(tmp_path / "p", objects=objects), data_dir, profile)
+    assert (caught.value.file, caught.value.key) == (f"objects/{name}", key)
+    assert message in caught.value.message
+
+
+def test_load_pack_accepts_the_scene_against_real_data(tmp_path, data_dir, profile):
+    from PyAitD.engine.content.pack import load_pack
+    pack = load_pack(_write_pack(tmp_path / "ok", objects=SCENE), data_dir, profile)
+    assert [o.id for o in pack.objects] == ["attic_key", "barricade", "gate"]
 
 
 # ── attachment ───────────────────────────────────────────────────────────────
