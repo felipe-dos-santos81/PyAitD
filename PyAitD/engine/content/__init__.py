@@ -9,4 +9,6 @@ from PyAitD.engine.content.runner import run_behaviour
 from PyAitD.engine.content.schema import (
     BEHAVIOUR_LIFE, PackError, PickupRecord, SceneryRecord, TriggerRecord, parse_enemy, parse_object,
 )
-from PyAitD.engine.content.world import ContentAttachment, attach, compile_record
+from PyAitD.engine.content.world import (
+    CONTENT_TEXT_BASE, ContentAttachment, allocate_texts, attach, compile_record, initial_state,
+)

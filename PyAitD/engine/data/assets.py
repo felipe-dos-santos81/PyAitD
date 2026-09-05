@@ -65,6 +65,15 @@ class Assets:
         except KeyError:
             raise KeyError(f"{self._text_pak_name}: text {message_id} not found") from None
 
+    def register_texts(self, texts):
+        """Add strings to the system text table under new ids (content packs
+        from CONTENT_TEXT_BASE up). Refuses an id already present, vanilla
+        or pack, so a pack can never shadow a game string."""
+        taken = sorted(set(texts) & set(self._system_texts))
+        if taken:
+            raise ValueError(f"text ids already present: {taken}")
+        self._system_texts.update(texts)
+
     def book_tokens(self, entry):
         if entry not in self._book_tokens:
             self._book_tokens[entry] = parse_book_tokens(load_entry(self._text_pak, entry))

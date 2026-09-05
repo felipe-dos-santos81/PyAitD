@@ -523,6 +523,94 @@ def test_an_empty_pack_changes_nothing_but_the_identity(data_dir, profile, tmp_p
     assert (game.content.first_index, game.content.records, game.content_state) == (292, {}, {})
 
 
+def test_allocate_texts_gives_every_distinct_string_one_id_in_first_seen_order():
+    from PyAitD.engine.content.world import CONTENT_TEXT_BASE, allocate_texts
+    records = [parse_object(t, "f") for t in (KEY, BARRICADE, GATE)]
+    assert CONTENT_TEXT_BASE == 2000
+    assert allocate_texts(records) == {
+        "Attic key": 2000, "Look": 2001, "A small brass key.": 2002, "It is warm to the touch.": 2003,
+        "The barricade gives way.": 2004, "Something heavy blocks the doorway.": 2005,
+    }
+    twice = parse_object(_object(KEY, name="Look", actions=[
+        {"label": "Look", "then": [{"message": "Look"}]}]), "f")
+    assert allocate_texts([twice]) == {"Look": 2000, "A small brass key.": 2001}
+    assert allocate_texts([]) == {}
+
+
+def test_compile_record_shapes_each_object_kind():
+    from PyAitD.engine.content.world import allocate_texts, compile_record
+    from PyAitD.engine.data.formats import WorldObject
+    records = [parse_object(t, "f") for t in (KEY, BARRICADE, GATE)]
+    text_ids = allocate_texts(records)
+    key, barricade, gate = (compile_record(r, text_ids) for r in records)
+    assert key == WorldObject(
+        obj_index=-1, body=187, flags=0xA0, type_zv=1,
+        found_body=-1, found_name=2000, found_flag=0, found_life=-1,
+        x=3231, y=0, z=-2248, alpha=0, beta=0, gamma=0, stage=0, room=0,
+        life_mode=0, life=-1, floor_life=-1, anim=-1, frame=0, anim_type=0, anim_info=-1,
+        track_mode=0, track_number=0, position_in_track=1, mark=0,
+    )
+    assert barricade == WorldObject(
+        obj_index=-1, body=8, flags=0x20, type_zv=2,
+        found_body=-1, found_name=-1, found_flag=0, found_life=-1,
+        x=3231, y=0, z=-3400, alpha=0, beta=0, gamma=0, stage=0, room=0,
+        life_mode=0, life=-1, floor_life=-1, anim=-1, frame=0, anim_type=0, anim_info=-1,
+        track_mode=0, track_number=-1, position_in_track=0, mark=0,
+    )
+    pushable = compile_record(parse_object(_object(BARRICADE, pushable=True), "f"), text_ids)
+    assert pushable.flags == 0x30
+    assert gate == WorldObject(
+        obj_index=-1, body=-1, flags=0, type_zv=0,
+        found_body=-1, found_name=-1, found_flag=0, found_life=-1,
+        x=0, y=0, z=0, alpha=0, beta=0, gamma=0, stage=-1, room=-1,
+        life_mode=0, life=-1, floor_life=-1, anim=-1, frame=0, anim_type=0, anim_info=-1,
+        track_mode=0, track_number=-1, position_in_track=0, mark=0,
+    )
+
+
+def test_initial_state_per_kind():
+    from PyAitD.engine.content.world import initial_state
+    assert initial_state(parse_enemy(PROWLER, "e")) == {"hp": 3, "phase": "idle"}
+    assert initial_state(parse_object(KEY, "f")) == {}
+    assert initial_state(parse_object(BARRICADE, "f")) == {}
+    assert initial_state(parse_object(GATE, "f")) == {"armed": True, "inside": False}
+
+
+def test_register_texts_refuses_any_id_already_present(data_dir, profile):
+    from PyAitD.engine.content.world import CONTENT_TEXT_BASE
+    from PyAitD.engine.script.game import init_game
+    assets = init_game(data_dir, profile).assets
+    # the vanilla table tops out below the pack range (the design's precondition)
+    assert max(assets._system_texts) == 1150 < CONTENT_TEXT_BASE
+    assets.register_texts({2000: "Attic key"})
+    assert assets.system_text(2000) == "Attic key"
+    with pytest.raises(ValueError, match=r"already present: \[2000\]"):
+        assets.register_texts({2000: "Again"})
+    with pytest.raises(ValueError, match=r"already present: \[20\]"):
+        assets.register_texts({20: "Found"})
+
+
+def test_attach_places_pickups_and_scenery_but_never_a_trigger(tmp_path, data_dir, profile):
+    from PyAitD.engine.content import load_pack
+    from PyAitD.engine.script.game import init_game
+    pack = load_pack(_write_pack(tmp_path / "scene", objects=SCENE), data_dir, profile)
+    game = init_game(data_dir, profile, pack=pack)
+    assert len(game.world_objects) == 295
+    assert game.content.first_index == 292
+    assert [r.id for r in game.content.records.values()] == ["attic_key", "barricade", "gate"]
+    assert game.content.by_id == {"attic_key": 292, "barricade": 293, "gate": 294}
+    assert game.content.text_ids["Attic key"] == 2000 and game.content.flags == set()
+    assert game.content_state == {292: {}, 293: {}, 294: {"armed": True, "inside": False}}
+    assert game.assets.system_text(game.world_objects[292].found_name) == "Attic key"
+    assert game.assets.system_text(2005) == "Something heavy blocks the doorway."
+    key = game.actors[game.world_objects[292].obj_index]
+    barricade = game.actors[game.world_objects[293].obj_index]
+    assert (key.index_in_world, key.body_num, key.object_type, key.room) == (292, 187, 0x80, 0)
+    assert (barricade.index_in_world, barricade.body_num, barricade.object_type) == (293, 8, 0)
+    assert (barricade.room_x, barricade.room_y, barricade.room_z) == (3231, 0, -3400)
+    assert game.world_objects[294].obj_index == -1
+
+
 # ── vanilla invariance ───────────────────────────────────────────────────────
 
 
