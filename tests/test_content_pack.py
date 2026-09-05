@@ -8,6 +8,9 @@ import pytest
 from PyAitD.engine.content.schema import (
     BEHAVIOUR_LIFE, PHASES, Anims, Attack, EnemyRecord, PackError, parse_enemy,
 )
+from PyAitD.engine.content.schema import (
+    ALWAYS, Action, Condition, Effect, PickupRecord, Rule, SceneryRecord, TriggerRecord, parse_object,
+)
 
 pytestmark = pytest.mark.engine
 
@@ -98,6 +101,121 @@ def test_parse_enemy_names_file_key_and_value_on_every_failure(changes, key, mes
 def test_parse_enemy_rejects_a_non_table():
     with pytest.raises(PackError, match=r"^e\.toml: root: expected a table"):
         parse_enemy(["not", "a", "table"], "e.toml")
+
+
+# ── object records ───────────────────────────────────────────────────────────
+
+KEY = {
+    "id": "attic_key", "kind": "pickup", "stage": 0, "room": 0,
+    "name": "Attic key", "body": 187, "position": [3231, 0, -2248], "beta": 0,
+    "zv": "body", "weight": 1,
+    "on_take": [{"then": [{"set_flag": "has_key"}, {"message": "A small brass key."}]}],
+    "actions": [{"label": "Look", "then": [{"message": "It is warm to the touch."}]}],
+}
+BARRICADE = {
+    "id": "barricade", "kind": "scenery", "stage": 0, "room": 0,
+    "body": 8, "position": [3231, 0, -3400], "beta": 0, "zv": "cube", "pushable": False,
+}
+GATE = {
+    "id": "gate", "kind": "trigger", "stage": 0, "room": 0,
+    "box": {"x": [2800, 3700], "y": [-500, 500], "z": [-3100, -2700]},
+    "on_enter": [
+        {"when": {"has_item": "attic_key"},
+         "then": [{"delete_object": "barricade"}, {"message": "The barricade gives way."},
+                  {"delete_object": "gate"}]},
+        {"then": [{"message": "Something heavy blocks the doorway."}]},
+    ],
+}
+
+
+def _object(base, **changes):
+    table = copy.deepcopy(base)
+    for key, value in changes.items():
+        if value is None:
+            table.pop(key, None)
+        else:
+            table[key] = value
+    return table
+
+
+def test_parse_object_builds_each_kind():
+    key = parse_object(KEY, "objects/attic_key.toml")
+    assert key == PickupRecord(
+        id="attic_key", kind="pickup", stage=0, room=0, name="Attic key", body=187,
+        position=(3231, 0, -2248), beta=0, type_zv=1, weight=1,
+        on_take=(Rule(ALWAYS, (Effect("set_flag", "has_key"), Effect("message", "A small brass key."))),),
+        actions=(Action("Look", Rule(ALWAYS, (Effect("message", "It is warm to the touch."),))),),
+        file="objects/attic_key.toml",
+    )
+    assert parse_object(BARRICADE, "b.toml") == SceneryRecord(
+        id="barricade", kind="scenery", stage=0, room=0, body=8, position=(3231, 0, -3400),
+        beta=0, type_zv=2, pushable=False, file="b.toml",
+    )
+    gate = parse_object(GATE, "g.toml")
+    assert gate == TriggerRecord(
+        id="gate", kind="trigger", stage=0, room=0, box=(2800, 3700, -500, 500, -3100, -2700),
+        on_enter=(
+            Rule(Condition(has_item="attic_key"), (
+                Effect("delete_object", "barricade"), Effect("message", "The barricade gives way."),
+                Effect("delete_object", "gate"))),
+            Rule(ALWAYS, (Effect("message", "Something heavy blocks the doorway."),)),
+        ),
+        file="g.toml",
+    )
+
+
+def test_parse_object_defaults_beta_zv_weight_rules_and_pushable():
+    key = parse_object(_object(KEY, beta=None, zv=None, weight=None, on_take=None, actions=None), "k.toml")
+    assert (key.beta, key.type_zv, key.weight, key.on_take, key.actions) == (0, 0, 0, (), ())
+    assert parse_object(_object(BARRICADE, pushable=None, beta=None, zv=None), "b.toml").pushable is False
+
+
+def test_records_enumerate_their_rules_in_text_order():
+    key, barricade, gate = (parse_object(t, "f") for t in (KEY, BARRICADE, GATE))
+    assert [k for k, _ in key.rules()] == ["on_take[0]", "actions[0]"]
+    assert key.rules()[1][1] is key.actions[0].rule
+    assert barricade.rules() == ()
+    assert [k for k, _ in gate.rules()] == ["on_enter[0]", "on_enter[1]"]
+
+
+@pytest.mark.parametrize("base, changes, key, message", [
+    (KEY, {"kind": "door"}, "kind", "'door' is not one of pickup, scenery, trigger"),
+    (KEY, {"extra": 1}, "extra", "unknown key"),
+    (KEY, {"pushable": True}, "pushable", "unknown key"),
+    (KEY, {"name": ""}, "name", "expected a non-empty string, got ''"),
+    (KEY, {"stage": None}, "stage", "missing"),
+    (KEY, {"weight": -1}, "weight", "-1 is negative"),
+    (KEY, {"position": [1, 2]}, "position", "expected [x, y, z], got [1, 2]"),
+    (KEY, {"beta": 1024}, "beta", "1024 is outside 0..1023"),
+    (KEY, {"on_take": {"then": []}}, "on_take", "expected an array of tables"),
+    (KEY, {"on_take": [{"then": []}]}, "on_take[0].then", "expected a non-empty array of effects, got []"),
+    (KEY, {"on_take": [{"then": [{"explode": "x"}]}]}, "on_take[0].then[0].explode",
+     "unknown effect; expected one of message, set_flag, clear_flag, remove_item, delete_object"),
+    (KEY, {"on_take": [{"then": [{"message": "a", "set_flag": "b"}]}]}, "on_take[0].then[0]",
+     "expected a table with exactly one key"),
+    (KEY, {"on_take": [{"then": [{"message": ""}]}]}, "on_take[0].then[0].message",
+     "expected a non-empty string, got ''"),
+    (KEY, {"on_take": [{"when": {"near": "x"}, "then": [{"message": "a"}]}]}, "on_take[0].when.near", "unknown key"),
+    (KEY, {"on_take": [{"when": {"flag": 3}, "then": [{"message": "a"}]}]}, "on_take[0].when.flag",
+     "expected a non-empty string, got 3"),
+    (KEY, {"on_take": [{"label": "x", "then": [{"message": "a"}]}]}, "on_take[0].label", "unknown key"),
+    (KEY, {"actions": [{"then": [{"message": "a"}]}]}, "actions[0].label", "missing"),
+    (KEY, {"actions": [{"label": "a", "then": [{"message": "a"}]}] * 6}, "actions",
+     "6 actions is more than the inventory shows (5)"),
+    (BARRICADE, {"pushable": "yes"}, "pushable", "expected true or false, got 'yes'"),
+    (BARRICADE, {"name": "x"}, "name", "unknown key"),
+    (GATE, {"box": {"x": [0, 1], "y": [0, 1]}}, "box", "expected a table with the keys x, y, z"),
+    (GATE, {"box": {"x": [0], "y": [0, 1], "z": [0, 1]}}, "box.x", "expected [min, max], got [0]"),
+    (GATE, {"box": {"x": [5, 1], "y": [0, 1], "z": [0, 1]}}, "box.x", "min 5 is above max 1"),
+    (GATE, {"box": {"x": [0, 40000], "y": [0, 1], "z": [0, 1]}}, "box.x[1]", "40000 is outside -32768..32767"),
+    (GATE, {"on_enter": []}, "on_enter", "expected at least one rule"),
+    (GATE, {"body": 3}, "body", "unknown key"),
+])
+def test_parse_object_names_file_key_and_value_on_every_failure(base, changes, key, message):
+    with pytest.raises(PackError) as caught:
+        parse_object(_object(base, **changes), "o.toml")
+    assert (caught.value.file, caught.value.key) == ("o.toml", key)
+    assert message in caught.value.message
 
 
 # ── the directory reader ─────────────────────────────────────────────────────
